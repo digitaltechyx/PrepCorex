@@ -366,7 +366,7 @@ export function AdminSidebar() {
     <Sidebar className="border-r border-border/40 bg-gradient-to-b from-background to-muted/20">
       <SidebarHeader className="border-b border-border/40 pb-4">
         <div className="flex items-center justify-between gap-3 px-3 py-3">
-          <div className="flex min-w-0 flex-1 flex-col gap-2 pr-1">
+          <div className="flex min-w-0 flex-1 pr-1">
             <img
               src={brandLogoSrc}
               alt="PrepCorex"
@@ -375,10 +375,6 @@ export function AdminSidebar() {
               height={115}
               decoding="async"
             />
-            <div className="flex flex-col min-w-0">
-              <span className="font-bold text-lg tracking-tight">Admin Panel</span>
-              <span className="text-xs text-muted-foreground">PrepCorex Management</span>
-            </div>
           </div>
           {isMobile && (
             <Button
