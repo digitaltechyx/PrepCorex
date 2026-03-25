@@ -28,13 +28,13 @@ export function Logo({ className, variant = "default" }: LogoProps) {
         src={brandLogoSrc}
         alt="PrepCorex"
         className={cn(
-          "w-auto object-contain",
+          "h-auto w-full object-contain",
           isAuth
-            ? "h-16 sm:h-[4.5rem] md:h-20 max-w-[min(100%,min(92vw,480px))] object-center"
-            : "h-12 sm:h-14 md:h-16 max-w-[min(100%,360px)] object-left"
+            ? "max-h-28 max-w-[min(100%,min(92vw,560px))] object-center sm:max-h-32 md:max-h-36"
+            : "max-h-14 max-w-[min(100%,400px)] object-left sm:max-h-16"
         )}
-        width={isAuth ? 480 : 360}
-        height={isAuth ? 96 : 80}
+        width={462}
+        height={115}
         decoding="async"
       />
     </Link>
