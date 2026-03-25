@@ -9,11 +9,10 @@ export const metadata: Metadata = {
   description: "Inventory Management System - Modern inventory management with real-time updates",
   icons: {
     icon: [
-      { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: "/app-icon.svg", type: "image/svg+xml", sizes: "512x512" },
+      { url: "/PCX%20Testing-11.svg", type: "image/svg+xml" },
     ],
-    apple: "/app-icon.svg",
-    shortcut: "/favicon.svg",
+    apple: "/PCX%20Testing-11.svg",
+    shortcut: "/PCX%20Testing-11.svg",
   },
   manifest: "/site.webmanifest",
 };

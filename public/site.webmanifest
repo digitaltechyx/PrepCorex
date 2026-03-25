@@ -10,14 +10,8 @@
   "scope": "/",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "/PCX%20Testing-11.svg",
       "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/app-icon.svg",
-      "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
