@@ -42,6 +42,7 @@ import type { Invoice, UploadedPDF } from "@/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hasRole, hasFeature } from "@/lib/permissions";
+import { brandLogoSrc } from "@/components/logo";
 
 export function DashboardSidebar() {
   const pathname = usePathname();
@@ -233,14 +234,16 @@ export function DashboardSidebar() {
     <Sidebar className="border-r border-border/40 bg-gradient-to-b from-background to-muted/20">
       <SidebarHeader className="border-b border-border/40 pb-4">
         <div className="flex items-center justify-between gap-3 px-3 py-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg">
-              <Package className="h-5 w-5 text-white" />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-bold text-lg tracking-tight">PrepCorex</span>
-              <span className="text-xs text-muted-foreground">Inventory Management</span>
-            </div>
+          <div className="flex flex-col gap-1 min-w-0">
+            <img
+              src={brandLogoSrc}
+              alt="PrepCorex"
+              className="h-9 w-auto max-w-full object-contain object-left"
+              width={200}
+              height={36}
+              decoding="async"
+            />
+            <span className="text-xs text-muted-foreground">Inventory Management</span>
           </div>
           {isMobile && (
             <Button

@@ -20,7 +20,6 @@ import {
   LayoutDashboard,
   Users,
   FileText,
-  Shield,
   ShieldCheck,
   X,
   UserCheck,
@@ -41,6 +40,7 @@ import type { UserProfile } from "@/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hasFeature, hasRole } from "@/lib/permissions";
+import { brandLogoSrc } from "@/components/logo";
 import { collectionGroup, getCountFromServer, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -366,11 +366,16 @@ export function AdminSidebar() {
     <Sidebar className="border-r border-border/40 bg-gradient-to-b from-background to-muted/20">
       <SidebarHeader className="border-b border-border/40 pb-4">
         <div className="flex items-center justify-between gap-3 px-3 py-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-red-500 to-orange-600 shadow-lg">
-              <Shield className="h-5 w-5 text-white" />
-            </div>
-            <div className="flex flex-col">
+          <div className="flex flex-col gap-1 min-w-0">
+            <img
+              src={brandLogoSrc}
+              alt="PrepCorex"
+              className="h-9 w-auto max-w-full object-contain object-left"
+              width={200}
+              height={36}
+              decoding="async"
+            />
+            <div className="flex flex-col min-w-0">
               <span className="font-bold text-lg tracking-tight">Admin Panel</span>
               <span className="text-xs text-muted-foreground">PrepCorex Management</span>
             </div>
