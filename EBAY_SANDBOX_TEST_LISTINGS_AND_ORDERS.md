@@ -1,13 +1,13 @@
 # Testing eBay Listings and Order Fulfillment in Sandbox
 
-Your eBay integration is connected (OAuth). To test **listings** and **order fulfillment** end-to-end in the Sandbox, use the steps below. Right now, PSF StockFlow only **connects** your eBay account; selecting which listings to sync and syncing orders into PSF will be a later phase.
+Your eBay integration is connected (OAuth). To test **listings** and **order fulfillment** end-to-end in the Sandbox, use the steps below. Right now, PrepCorex only **connects** your eBay account; selecting which listings to sync and syncing orders into PrepCorex will be a later phase.
 
 ---
 
 ## What you need
 
 1. **Two Sandbox test users** (both created in [User Access Tokens → Register a new Sandbox user](https://developer.ebay.com/my/auth?env=sandbox&index=0)):
-   - **Seller:** e.g. `TESTUSER_PSF-seller` (the account you connected in PSF).
+   - **Seller:** e.g. `TESTUSER_PSF-seller` (the account you connected in PrepCorex).
    - **Buyer:** e.g. `TESTUSER_buyer-test` (to place test orders).
 
 2. **Sandbox sites:**
@@ -32,7 +32,7 @@ You can create a listing in Sandbox in one of these ways:
 ### Option B: API Explorer (recommended for API testing)
 
 1. Go to [eBay API Explorer](https://developer.ebay.com/api-docs/static/gs_use-the-api-explorer-to-try.html).
-2. Select **Sandbox** and get a **User access token** for your **seller** Sandbox user (same one connected in PSF).
+2. Select **Sandbox** and get a **User access token** for your **seller** Sandbox user (same one connected in PrepCorex).
 3. Use the **Sell Inventory API**:
    - **createOrReplaceInventoryItem** – create an inventory item (SKU, product details).
    - **createOffer** – create an offer (price, quantity, listing format).
@@ -64,15 +64,15 @@ That’s the full Sandbox flow: list → buy → fulfill.
 
 ---
 
-## How this relates to PSF StockFlow
+## How this relates to PrepCorex
 
-- **Done now:** Your eBay **seller** account is connected to PSF via OAuth (Dashboard → Integrations). The app can call eBay APIs on your behalf with the stored token.
+- **Done now:** Your eBay **seller** account is connected to PrepCorex via OAuth (Dashboard → Integrations). The app can call eBay APIs on your behalf with the stored token.
 - **Not built yet:**  
-  - **Select which eBay listings** PSF should track (like “Manage products” for Shopify).  
-  - **Sync eBay orders** into PSF (e.g. via eBay Notification API or polling).  
-  - **Fulfill orders from PSF** (mark shipped, update tracking).
+  - **Select which eBay listings** PrepCorex should track (like “Manage products” for Shopify).  
+  - **Sync eBay orders** into PrepCorex (e.g. via eBay Notification API or polling).  
+  - **Fulfill orders from PrepCorex** (mark shipped, update tracking).
 
-Once those features are added, you’ll be able to choose listings in PSF, see orders for those listings in PSF, and fulfill them from the app. Until then, you can fully test **listings and order fulfillment** in the Sandbox using the steps above.
+Once those features are added, you’ll be able to choose listings in PrepCorex, see orders for those listings in PrepCorex, and fulfill them from the app. Until then, you can fully test **listings and order fulfillment** in the Sandbox using the steps above.
 
 ---
 
@@ -83,4 +83,4 @@ Once those features are added, you’ll be able to choose listings in PSF, see o
 | Create listing    | Sandbox site or API Explorer  | Seller |
 | Buy item          | www.sandbox.ebay.com          | Buyer  |
 | Fulfill order     | Sandbox Seller Hub / Orders   | Seller |
-| PSF Connect eBay  | Dashboard → Integrations     | You (seller account) |
+| PrepCorex Connect eBay  | Dashboard → Integrations     | You (seller account) |

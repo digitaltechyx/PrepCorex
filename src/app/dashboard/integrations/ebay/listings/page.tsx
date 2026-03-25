@@ -175,7 +175,7 @@ export default function EbayListingsPage() {
       }
       toast({
         title: "Saved",
-        description: `${selectedRows.length} listing(s) selected. Only orders for these will sync to PSF.`,
+        description: `${selectedRows.length} listing(s) selected. Only orders for these will sync to PrepCorex.`,
       });
     } catch (e) {
       toast({
@@ -203,7 +203,7 @@ export default function EbayListingsPage() {
             eBay listings we fulfill
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Select the listings you fulfill through PSF. Only orders containing at least one of these will sync to PSF.
+            Select the listings you fulfill through PrepCorex. Only orders containing at least one of these will sync to PrepCorex.
           </p>
           {ebayEnvironment && (
             <p className="text-sm mt-2 font-medium">
@@ -230,7 +230,7 @@ export default function EbayListingsPage() {
         <CardHeader>
           <CardTitle>Select listings</CardTitle>
           <CardDescription>
-            Choose which eBay listings are fulfilled by PSF. Order sync (when enabled) will only include orders for these listings.
+            Choose which eBay listings are fulfilled by PrepCorex. Order sync (when enabled) will only include orders for these listings.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -262,9 +262,9 @@ export default function EbayListingsPage() {
               </p>
               <p className="text-sm text-muted-foreground border-l-4 border-slate-300 dark:border-slate-600 pl-3 py-1">
                 <strong>Why don’t I see my Seller Hub “Active” listings?</strong> Seller Hub’s “Manage active listings” can
-                include items created with <strong>Create listing</strong> or legacy tools. PSF only shows items that exist in
+                include items created with <strong>Create listing</strong> or legacy tools. PrepCorex only shows items that exist in
                 eBay’s <strong>Inventory API</strong>. If you have many active listings in Seller Hub but 0 here, those
-                listings were likely created outside the Inventory API. To have them in PSF, create or migrate listings using
+                listings were likely created outside the Inventory API. To have them in PrepCorex, create or migrate listings using
                 an eBay app or flow that uses the Inventory API (same eBay account and environment).
               </p>
               {ebayEnvironment && (

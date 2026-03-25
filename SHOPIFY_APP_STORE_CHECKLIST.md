@@ -8,7 +8,7 @@ do the following.
 
 ---
 
-## Review requirements – does PSF StockFlow meet them?
+## Review requirements – does PrepCorex meet them?
 
 | Requirement | Status | Notes |
 |-------------|--------|--------|
@@ -23,7 +23,7 @@ do the following.
 | **Use session tokens for authentication** | N/A | Firebase + Bearer; `embedded = false`, so session tokens not required. |
 | **Include functional test credentials** | **Action** | Provide test store/login in Partner Dashboard for reviewers. |
 | **Connector: End recipient acknowledgement form** | **Action** | Complete and upload if Partners requires it. |
-| **Connector: Must not connect to third party marketplace** | Met | Connects to PSF backend only. |
+| **Connector: Must not connect to third party marketplace** | Met | Connects to PrepCorex backend only. |
 | **Connector: Indicate integrations and data transfers** | **Action** | In listing: what you connect to, what data is synced, where it goes. |
 | **App Store listing: Test credentials, demo screencast, pricing, icon, tags** | **Action** | Add in Dashboard: test credentials, demo video, pricing, icon, tags. |
 | **Use Shopify Managed Pricing or Billing API** | N/A | No in-app Shopify billing; N/A if free or you charge outside Shopify. |

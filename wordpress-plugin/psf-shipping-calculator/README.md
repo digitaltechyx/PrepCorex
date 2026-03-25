@@ -1,4 +1,4 @@
-# PSF Shipping Cost Calculator WordPress Plugin
+# PrepCorex Shipping Cost Calculator WordPress Plugin
 
 A comprehensive shipping cost calculator plugin for WordPress that compares rates from multiple carriers (USPS, UPS, FedEx, DHL) - similar to ShipHype.
 

@@ -1,6 +1,6 @@
 # Use same connect flow as listings (any user can connect)
 
-## Current flow in PSF (already the same as listings)
+## Current flow in PrepCorex (already the same as listings)
 
 The app **already uses the standard OAuth flow** that listed/unlisted apps use:
 
@@ -45,7 +45,7 @@ You need **Public** distribution so the same OAuth URL works for **any** store.
      (and the same for any other environments, e.g. `https://dev.prepservicesfba.com/...`).
 
 4. **No code changes**  
-   - Keep using the same **Connect Shopify** flow in PSF.  
+   - Keep using the same **Connect Shopify** flow in PrepCorex.  
    - After the app is Public (Unlisted), **any** store can connect by entering their store name and approving — no per-store link generation.
 
 ---
@@ -54,7 +54,7 @@ You need **Public** distribution so the same OAuth URL works for **any** store.
 
 | Item                         | Status |
 |-----------------------------|--------|
-| PSF connect flow (OAuth)    | Already same as listings |
+| PrepCorex connect flow (OAuth)    | Already same as listings |
 | Code changes needed         | None   |
 | Enable for any user         | Pay $19 + set app to Public (Unlisted) in Partner Dashboard |
 

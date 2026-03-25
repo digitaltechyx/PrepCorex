@@ -4,7 +4,7 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 export const dynamic = "force-dynamic";
 
 /**
- * POST: Set inventory quantity on Shopify for a variant (PSF → Shopify).
+ * POST: Set inventory quantity on Shopify for a variant (PrepCorex → Shopify).
  * Body: { userId, shop, shopifyVariantId, shopifyInventoryItemId?, newQuantity }
  * Requires Bearer token (admin or the user). Shopify app needs write_inventory scope.
  */
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Set primary (first) location to newQuantity; set all other locations to 0
-    // so total inventory in Shopify matches PSF (avoids e.g. 60 + 50 = 110).
+    // so total inventory in Shopify matches PrepCorex (avoids e.g. 60 + 50 = 110).
     const headers = {
       "X-Shopify-Access-Token": accessToken,
       "Content-Type": "application/json",

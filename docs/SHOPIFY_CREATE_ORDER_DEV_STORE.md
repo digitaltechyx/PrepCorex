@@ -1,6 +1,6 @@
-# How to create an order on a Shopify dev store (so it shows in PSF)
+# How to create an order on a Shopify dev store (so it shows in PrepCorex)
 
-Orders in PSF come from Shopify **orders/create** and **orders/updated** webhooks. The order must be a **real order** (not a draft), and the store must be connected from the same app URL that receives webhooks.
+Orders in PrepCorex come from Shopify **orders/create** and **orders/updated** webhooks. The order must be a **real order** (not a draft), and the store must be connected from the same app URL that receives webhooks.
 
 ## 1. Create an order in Shopify (dev store)
 
@@ -26,10 +26,10 @@ Use one of these; both trigger **orders/create**:
 ## 2. Make sure the store is connected from the same app URL
 
 - The app receiving webhooks must be **dev.prepservicesfba.com** (your live app).
-- In **PSF**: **Dashboard → Integrations → Shopify** – connect (or reconnect) the store using that same app.
+- In **PrepCorex**: **Dashboard → Integrations → Shopify** – connect (or reconnect) the store using that same app.
 - If the store was connected **before** the “Shopify orders” feature (shop→user mapping), **disconnect and reconnect** the store once so the mapping is created and order webhooks can be saved to the correct user.
 
-## 3. Where to see orders in PSF
+## 3. Where to see orders in PrepCorex
 
 - **Admin → Shopify Orders** (sidebar).
 - Use the **user selector** and choose the **user who connected that Shopify store**. Orders are stored per user.
@@ -38,5 +38,5 @@ Use one of these; both trigger **orders/create**:
 
 - In your server logs (e.g. Vercel/host logs for dev.prepservicesfba.com), look for:
   - `[Shopify webhooks] received order webhook` → webhook is reaching the app.
-  - `[Shopify webhooks] orders no shopToUser` → reconnect the store in PSF (see step 2).
+  - `[Shopify webhooks] orders no shopToUser` → reconnect the store in PrepCorex (see step 2).
   - `[Shopify webhooks] orders saved` → order was written to Firestore; then confirm you’re viewing the correct user in Admin → Shopify Orders.

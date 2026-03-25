@@ -12,7 +12,7 @@ function toArray<T>(value: T | T[] | undefined | null): T[] {
 }
 
 /**
- * POST: Refresh eBay inventory doc quantities from eBay (eBay → PSF).
+ * POST: Refresh eBay inventory doc quantities from eBay (eBay → PrepCorex).
  * Body: { userId, connectionId } or cron with no body (runs for first N connections).
  * Updates users/{uid}/inventory docs where source=ebay and ebayConnectionId=connectionId.
  */

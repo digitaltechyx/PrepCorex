@@ -1,6 +1,6 @@
 # Google Drive Integration - Complete Setup Guide
 
-**Everything you need to set up Google Drive integration for PSF StockFlow in one place.**
+**Everything you need to set up Google Drive integration for PrepCorex in one place.**
 
 ---
 
@@ -51,7 +51,7 @@ Year/
 
 1. Click the **project dropdown** at the top (next to "Google Cloud")
 2. Click **New Project**
-3. Enter project name: `PSF StockFlow` (or any name you like)
+3. Enter project name: `PrepCorex` (or any name you like)
 4. Click **Create**
 5. Wait a few seconds for the project to be created
 6. Select the new project from the dropdown
@@ -78,7 +78,7 @@ Year/
 4. Fill in the form:
    - **Service account name**: `psf-stockflow-drive` (or any name)
    - **Service account ID**: (auto-filled, you can change it)
-   - **Description**: `Service account for PSF StockFlow Google Drive integration`
+   - **Description**: `Service account for PrepCorex Google Drive integration`
 5. Click **Create and Continue**
 6. On the next screen (Grant this service account access to project), you can **skip** this step
    - Click **Continue** or **Done**
@@ -112,7 +112,7 @@ Year/
 
 4. Go to **[Google Drive](https://drive.google.com/)** (your personal account with 2TB storage)
 5. **Create a new folder** (or use an existing folder) where you want to store the labels
-   - Right-click → **New Folder** → Name it `PSF Labels` (or any name)
+   - Right-click → **New Folder** → Name it `PrepCorex Labels` (or any name)
 6. **Right-click the folder** → **Share**
 7. In the "Add people and groups" box, **paste the service account email** you copied
 8. Click the **dropdown** next to the email → Select **Editor**
@@ -217,7 +217,7 @@ Files will be stored in your **personal Google Drive** in this structure:
 
 ```
 Your Google Drive/
-  └── PSF Labels/  (the folder you shared)
+  └── PrepCorex Labels/  (the folder you shared)
       └── 2024/
           └── January/
               └── Client Name/

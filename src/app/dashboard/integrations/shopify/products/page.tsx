@@ -133,7 +133,7 @@ export default function ShopifyProductsPage() {
       if (!res.ok) {
         throw new Error(typeof data.error === "string" ? data.error : "Failed to save");
       }
-      toast({ title: "Saved", description: `${selectedVariants.length} product(s) will be fulfilled by PSF.` });
+      toast({ title: "Saved", description: `${selectedVariants.length} product(s) will be fulfilled by PrepCorex.` });
     } catch (e) {
       toast({ variant: "destructive", title: "Error", description: e instanceof Error ? e.message : "Failed to save." });
     } finally {
@@ -172,7 +172,7 @@ export default function ShopifyProductsPage() {
             Products we fulfill — {shopDisplay}
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Select the products/variants you have in your warehouse. PSF will only process orders that contain these items.
+            Select the products/variants you have in your warehouse. PrepCorex will only process orders that contain these items.
           </p>
         </div>
       </div>
@@ -181,7 +181,7 @@ export default function ShopifyProductsPage() {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Two-way sync — no re-selection needed</CardTitle>
           <CardDescription>
-            Once you save your selection, these products stay linked. Changes in PSF (edit, restock, delete, dispose, ship) update Shopify automatically. Changes on Shopify for these products update PSF in real time via webhook. You do not need to select products again after making changes.
+            Once you save your selection, these products stay linked. Changes in PrepCorex (edit, restock, delete, dispose, ship) update Shopify automatically. Changes on Shopify for these products update PrepCorex in real time via webhook. You do not need to select products again after making changes.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -189,7 +189,7 @@ export default function ShopifyProductsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Select products</CardTitle>
-          <CardDescription>Only orders containing at least one selected variant will be fulfilled through PSF. Quantities sync both ways in real time; no need to re-select after changes. Out-of-stock items can still be selected (e.g. if you are restocking).</CardDescription>
+          <CardDescription>Only orders containing at least one selected variant will be fulfilled through PrepCorex. Quantities sync both ways in real time; no need to re-select after changes. Out-of-stock items can still be selected (e.g. if you are restocking).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (

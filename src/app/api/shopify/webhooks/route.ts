@@ -28,7 +28,7 @@ export async function GET() {
 
 /**
  * POST: Shopify webhooks (e.g. inventory_levels/update).
- * Verify X-Shopify-Hmac-Sha256, then update PSF inventory for matching docs.
+ * Verify X-Shopify-Hmac-Sha256, then update PrepCorex inventory for matching docs.
  * Register this URL in Shopify admin: https://your-domain.com/api/shopify/webhooks
  */
 export async function POST(request: NextRequest) {
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
 
     try {
       const db = adminDb();
-      // Use total available across ALL locations so PSF shows correct qty (e.g. "My Custom Location" has 25, others 0 → show 25, not 0)
+      // Use total available across ALL locations so PrepCorex shows correct qty (e.g. "My Custom Location" has 25, others 0 → show 25, not 0)
       let available = availableFromWebhook;
       const shopKey = shopNorm.replace(/\./g, "_");
       const shopToUserSnap = await db.collection("shopifyShopToUser").doc(shopKey).get();
@@ -225,7 +225,7 @@ export async function POST(request: NextRequest) {
       const shopKey = shopNorm.replace(/\./g, "_");
       const shopToUserSnap = await db.collection("shopifyShopToUser").doc(shopKey).get();
       if (!shopToUserSnap.exists) {
-        console.warn("[Shopify webhooks] orders no shopToUser — disconnect and reconnect the store in PSF Integrations so orders can sync", { shop: shopNorm });
+        console.warn("[Shopify webhooks] orders no shopToUser — disconnect and reconnect the store in PrepCorex Integrations so orders can sync", { shop: shopNorm });
         return NextResponse.json({ received: true });
       }
       const userId = shopToUserSnap.data()?.userId as string;

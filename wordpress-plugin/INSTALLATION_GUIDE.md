@@ -1,4 +1,4 @@
-# PSF Shipping Calculator - Installation Guide
+# PrepCorex Shipping Calculator - Installation Guide
 
 ## Overview
 
@@ -36,7 +36,7 @@ This WordPress plugin creates a comprehensive shipping cost calculator (similar 
 ### Step 2: Activate Plugin
 
 1. Go to WordPress Admin → Plugins
-2. Find "PSF Shipping Cost Calculator"
+2. Find "PrepCorex Shipping Cost Calculator"
 3. Click "Activate"
 
 ### Step 3: Verify API Connection

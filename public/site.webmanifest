@@ -1,6 +1,6 @@
 {
-  "name": "PSF StockFlow",
-  "short_name": "PSF StockFlow",
+  "name": "PrepCorex",
+  "short_name": "PrepCorex",
   "description": "Modern inventory management system with real-time updates",
   "start_url": "/",
   "display": "standalone",

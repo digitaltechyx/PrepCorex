@@ -372,7 +372,7 @@ export function AdminSidebar() {
             </div>
             <div className="flex flex-col">
               <span className="font-bold text-lg tracking-tight">Admin Panel</span>
-              <span className="text-xs text-muted-foreground">PSF StockFlow Management</span>
+              <span className="text-xs text-muted-foreground">PrepCorex Management</span>
             </div>
           </div>
           {isMobile && (

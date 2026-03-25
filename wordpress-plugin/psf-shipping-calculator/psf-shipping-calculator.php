@@ -1,10 +1,10 @@
 <?php
 /**
- * Plugin Name: PSF Shipping Cost Calculator
+ * Plugin Name: PrepCorex Shipping Cost Calculator
  * Plugin URI: https://prepservicesfba.com
  * Description: A comprehensive shipping cost calculator that compares rates from multiple carriers (USPS, UPS, FedEx, DHL) - similar to ShipHype.
  * Version: 1.0.0
- * Author: PSF StockFlow
+ * Author: PrepCorex
  * Author URI: https://prepservicesfba.com
  * License: GPL v2 or later
  * Text Domain: psf-shipping-calculator

@@ -1,18 +1,18 @@
-"use client";
+ "use client";
 
 import { useState } from "react";
 import { ArrowLeftRight, Clock, Package, CheckCircle, FileStack } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ProductReturnRequestForm } from "@/components/dashboard/product-return-request-form";
-import { ProductReturnTable } from "@/components/dashboard/product-return-table";
+ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+ import { ProductReturnRequestForm } from "@/components/dashboard/product-return-request-form";
+ import { ProductReturnTable } from "@/components/dashboard/product-return-table";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import type { ProductReturn } from "@/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-export default function ProductReturnsPage() {
+ export default function ProductReturnsPage() {
   const { userProfile } = useAuth();
   const [activeTab, setActiveTab] = useState("new");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all");
@@ -31,26 +31,26 @@ export default function ProductReturnsPage() {
     setActiveTab("history");
   };
 
-  return (
-    <div className="space-y-6">
+   return (
+     <div className="space-y-6">
       <Card className="border-2 shadow-xl overflow-hidden rounded-xl border-border/50">
         <CardHeader className="bg-gradient-to-r from-orange-500 to-amber-600 text-white pb-5">
           <div className="flex items-center justify-between gap-4">
-            <div>
-              <CardTitle className="text-2xl font-bold text-white flex items-center gap-2">
-                <ArrowLeftRight className="h-6 w-6" />
-                Product Returns
-              </CardTitle>
+             <div>
+               <CardTitle className="text-2xl font-bold text-white flex items-center gap-2">
+                 <ArrowLeftRight className="h-6 w-6" />
+                 Product Returns
+               </CardTitle>
               <CardDescription className="text-orange-100 mt-1.5">
-                Create a return request and track its status
-              </CardDescription>
-            </div>
+                 Create a return request and track its status
+               </CardDescription>
+             </div>
             <div className="h-14 w-14 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
-              <ArrowLeftRight className="h-7 w-7 text-white" />
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6">
+               <ArrowLeftRight className="h-7 w-7 text-white" />
+             </div>
+           </div>
+         </CardHeader>
+         <CardContent className="p-6">
           {/* Stat cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <Card
@@ -171,19 +171,19 @@ export default function ProductReturnsPage() {
               <TabsTrigger value="history" className="rounded-lg font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-background">
                 History
               </TabsTrigger>
-            </TabsList>
+             </TabsList>
             <TabsContent value="new" className="mt-6">
-              <ProductReturnRequestForm />
-            </TabsContent>
+               <ProductReturnRequestForm />
+             </TabsContent>
             <TabsContent value="history" className="mt-6">
               <ProductReturnTable
                 statusFilter={historyStatusFilter}
                 onStatusFilterChange={setHistoryStatusFilter}
               />
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
+             </TabsContent>
+           </Tabs>
+         </CardContent>
+       </Card>
+     </div>
+   );
+ }

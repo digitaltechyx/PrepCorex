@@ -4,7 +4,7 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 export const dynamic = "force-dynamic";
 
 /**
- * POST: Update product title on Shopify (PSF → Shopify when admin edits product name).
+ * POST: Update product title on Shopify (PrepCorex → Shopify when admin edits product name).
  * Body: { userId, shop, shopifyProductId, title }
  * Requires Bearer token (admin or the user). Shopify app needs write_products scope.
  */

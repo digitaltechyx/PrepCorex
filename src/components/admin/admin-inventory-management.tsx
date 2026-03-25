@@ -112,14 +112,14 @@ export function AdminInventoryManagement({
       if (!res.ok) {
         toast({
           variant: "destructive",
-          title: "PSF updated; Shopify did not update",
+          title: "PrepCorex updated; Shopify did not update",
           description: typeof data.error === "string" ? data.error : "Add write_inventory scope in Shopify app and re-connect the store.",
         });
       }
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "PSF updated; Shopify did not update",
+        title: "PrepCorex updated; Shopify did not update",
         description: e instanceof Error ? e.message : "Re-connect the store in Integrations if the app was updated.",
       });
     }
@@ -147,14 +147,14 @@ export function AdminInventoryManagement({
       if (!res.ok) {
         toast({
           variant: "destructive",
-          title: "PSF updated; Shopify product name did not update",
+          title: "PrepCorex updated; Shopify product name did not update",
           description: typeof data.error === "string" ? data.error : "Add write_products scope and re-connect the store.",
         });
       }
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "PSF updated; Shopify product name did not update",
+        title: "PrepCorex updated; Shopify product name did not update",
         description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
       });
     }
@@ -184,14 +184,14 @@ export function AdminInventoryManagement({
       if (!res.ok) {
         toast({
           variant: "destructive",
-          title: "PSF updated; eBay did not update",
+          title: "PrepCorex updated; eBay did not update",
           description: typeof data.error === "string" ? data.error : "eBay quantity sync failed. Reconnect eBay in Integrations if needed.",
         });
       }
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "PSF updated; eBay did not update",
+        title: "PrepCorex updated; eBay did not update",
         description: e instanceof Error ? e.message : "eBay sync failed.",
       });
     }

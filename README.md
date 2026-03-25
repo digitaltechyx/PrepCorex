@@ -1,8 +1,8 @@
-# 🚀 PSF StockFlow - Inventory Management System
+# 🚀 PrepCorex - Inventory Management System
 
-A modern, real-time inventory management system built with Next.js 15, Firebase, and TypeScript. PSF StockFlow provides role-based access control for admins and users to manage inventory and track shipments efficiently.
+A modern, real-time inventory management system built with Next.js 15, Firebase, and TypeScript. PrepCorex provides role-based access control for admins and users to manage inventory and track shipments efficiently.
 
-![PSF StockFlow](https://img.shields.io/badge/Next.js-15.3.3-black?style=for-the-badge&logo=next.js)
+![PrepCorex](https://img.shields.io/badge/Next.js-15.3.3-black?style=for-the-badge&logo=next.js)
 ![Firebase](https://img.shields.io/badge/Firebase-11.9.1-orange?style=for-the-badge&logo=firebase)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9.3-blue?style=for-the-badge&logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4.1-38B2AC?style=for-the-badge&logo=tailwind-css)
@@ -355,7 +355,7 @@ If you encounter any issues or have questions:
 
 ---
 
-**Made with ❤️ by the PSF StockFlow Team**
+**Made with ❤️ by the PrepCorex Team**
 
 [![GitHub](https://img.shields.io/badge/GitHub-Repository-black?style=for-the-badge&logo=github)](https://github.com/digitaltechyx/PSF-StockFlow)
 [![Live Demo](https://img.shields.io/badge/Live_Demo-Visit-green?style=for-the-badge&logo=vercel)](https://psf-stockflow.vercel.app)

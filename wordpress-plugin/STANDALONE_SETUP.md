@@ -1,4 +1,4 @@
-# PSF Shipping Calculator - Standalone HTML Widget Setup
+# PrepCorex Shipping Calculator - Standalone HTML Widget Setup
 
 ## Why Use Standalone HTML Widget?
 

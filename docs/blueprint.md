@@ -1,4 +1,4 @@
-# **App Name**: PSF StockFlow
+# **App Name**: PrepCorex
 
 ## Core Features:
 

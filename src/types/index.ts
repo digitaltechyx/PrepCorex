@@ -314,7 +314,7 @@ export interface DisposeRequest {
   adminFeedback?: string;
 }
 
-/** One selected variant – PSF will only fulfill orders containing these. */
+/** One selected variant – PrepCorex will only fulfill orders containing these. */
 export interface ShopifySelectedVariant {
   variantId: string;
   productId: string;
@@ -329,7 +329,7 @@ export interface ShopifyConnection {
   shopName?: string; // Display name
   accessToken: string;
   connectedAt: { seconds: number; nanoseconds: number } | string;
-  /** Variants the user selected for PSF to fulfill (orders with these only). */
+  /** Variants the user selected for PrepCorex to fulfill (orders with these only). */
   selectedVariants?: ShopifySelectedVariant[];
 }
 

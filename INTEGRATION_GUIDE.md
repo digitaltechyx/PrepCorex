@@ -1,6 +1,6 @@
 # Stripe & Shippo Integration Guide
 
-Complete step-by-step guide for integrating Stripe payments and Shippo shipping labels into PSF StockFlow.
+Complete step-by-step guide for integrating Stripe payments and Shippo shipping labels into PrepCorex.
 
 ---
 

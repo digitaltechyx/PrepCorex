@@ -214,7 +214,7 @@ export default function IntegrationsPage() {
               <div>
                 <h3 className="text-lg font-semibold">Shopify</h3>
                 <p className="text-sm text-muted-foreground">
-                  Connect one or more Shopify stores. Orders will sync to PSF StockFlow and admins can fulfill them here.
+                  Connect one or more Shopify stores. Orders will sync to PrepCorex and admins can fulfill them here.
                 </p>
               </div>
               <Dialog open={connectDialogOpen} onOpenChange={setConnectDialogOpen}>
@@ -256,7 +256,7 @@ export default function IntegrationsPage() {
                 <DialogHeader>
                   <DialogTitle>Disconnect Shopify store?</DialogTitle>
                   <DialogDescription>
-                    This will remove the connection to {pendingDisconnect?.shopName ?? "this store"}. You can either keep the products that were linked to this store in your PSF inventory, or remove them.
+                    This will remove the connection to {pendingDisconnect?.shopName ?? "this store"}. You can either keep the products that were linked to this store in your PrepCorex inventory, or remove them.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="flex flex-col gap-2 pt-2">
@@ -339,7 +339,7 @@ export default function IntegrationsPage() {
                   eBay
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Connect your eBay seller account. Orders for selected listings will sync to PSF StockFlow (event-based).
+                  Connect your eBay seller account. Orders for selected listings will sync to PrepCorex (event-based).
                 </p>
               </div>
               <div className="flex gap-2 shrink-0">

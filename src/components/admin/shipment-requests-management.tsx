@@ -534,14 +534,14 @@ export function ShipmentRequestsManagement({
               if (!res.ok) {
                 toast({
                   variant: "destructive",
-                  title: "Quantities restored in PSF; Shopify did not update",
+                  title: "Quantities restored in PrepCorex; Shopify did not update",
                   description: typeof data.error === "string" ? data.error : "Add write_inventory scope and re-connect the store.",
                 });
               }
             } catch (e) {
               toast({
                 variant: "destructive",
-                title: "Quantities restored in PSF; Shopify did not update",
+                title: "Quantities restored in PrepCorex; Shopify did not update",
                 description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
               });
             }

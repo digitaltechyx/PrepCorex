@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
     const shopToUserRef = db.collection("shopifyShopToUser").doc(normalizedShop.replace(/\./g, "_"));
     await shopToUserRef.set({ userId: uid });
 
-    // Register inventory_levels/update webhook so Shopify → PSF updates work without re-selecting
+    // Register inventory_levels/update webhook so Shopify → PrepCorex updates work without re-selecting
     const baseUrl =
       process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
         }
       }
     } else if (!baseUrl) {
-      console.warn("[Shopify exchange-token] Set NEXT_PUBLIC_APP_URL or VERCEL_URL to enable Shopify→PSF inventory webhook.");
+      console.warn("[Shopify exchange-token] Set NEXT_PUBLIC_APP_URL or VERCEL_URL to enable Shopify→PrepCorex inventory webhook.");
     } else {
       console.warn("[Shopify exchange-token] Webhook skipped: URL must be public (no localhost). Set NEXT_PUBLIC_APP_URL to your production URL.");
     }

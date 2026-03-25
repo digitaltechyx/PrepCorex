@@ -735,7 +735,7 @@ export default function AdminDashboardPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Admin Dashboard</h1>
-            <p className="mt-1 text-sm text-slate-500">PSF StockFlow — operations overview</p>
+            <p className="mt-1 text-sm text-slate-500">PrepCorex — operations overview</p>
             </div>
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-slate-500" />

@@ -12,23 +12,23 @@ then **orders webhooks are not registered** because Shopify treats order data as
 ## Fix: Request Protected Customer Data access
 
 1. **Open Shopify Partner Dashboard**  
-   [partners.shopify.com](https://partners.shopify.com) → **Apps** → select your app (the one used for PSF Shopify integration).
+   [partners.shopify.com](https://partners.shopify.com) → **Apps** → select your app (the one used for PrepCorex Shopify integration).
 
 2. **Go to API access requests**  
    In the app’s sidebar, click **API access requests**.
 
 3. **Request Protected Customer Data access**  
    - Find **Protected customer data access** and click **Request access**.  
-   - Select **Protected customer data** and give a short reason (e.g. “Show orders in PSF admin and sync fulfillment status”).  
+   - Select **Protected customer data** and give a short reason (e.g. “Show orders in PrepCorex admin and sync fulfillment status”).  
    - Click **Save**.
 
 4. **Request access to protected fields (for order details)**  
-   To show customer name, email, address on orders in PSF, request the relevant fields:  
+   To show customer name, email, address on orders in PrepCorex, request the relevant fields:  
    - **Name** (first/last)  
    - **Email**  
    - **Address** (shipping/billing)  
    - **Phone** (optional)  
-   Add a reason (e.g. “Display order and shipping details in PSF admin”).  
+   Add a reason (e.g. “Display order and shipping details in PrepCorex admin”).  
    Click **Save**.
 
 5. **Complete Data protection details**  
@@ -37,9 +37,9 @@ then **orders webhooks are not registered** because Shopify treats order data as
 6. **Development stores only**  
    If the app is only installed on **development stores**, you do **not** need to submit for full app review. After saving the PCD request and data protection details, the app can use orders webhooks on dev stores.
 
-7. **Reconnect the store in PSF**  
+7. **Reconnect the store in PrepCorex**  
    After PCD access is granted (or saved for dev):  
-   - In PSF go to **Dashboard → Integrations → Shopify**.  
+   - In PrepCorex go to **Dashboard → Integrations → Shopify**.  
    - Disconnect the store, then connect it again.  
    This re-runs webhook registration; **orders/create** and **orders/updated** should register successfully and orders will start appearing under **Admin → Shopify Orders**.
 

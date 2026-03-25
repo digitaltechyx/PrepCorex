@@ -238,7 +238,7 @@ export function DashboardSidebar() {
               <Package className="h-5 w-5 text-white" />
             </div>
             <div className="flex flex-col">
-              <span className="font-bold text-lg tracking-tight">PSF StockFlow</span>
+              <span className="font-bold text-lg tracking-tight">PrepCorex</span>
               <span className="text-xs text-muted-foreground">Inventory Management</span>
             </div>
           </div>

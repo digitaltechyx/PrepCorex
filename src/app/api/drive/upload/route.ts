@@ -79,9 +79,9 @@ export async function POST(request: NextRequest) {
 
     // Create folder structure in Google Drive
     // Using OAuth, files will be uploaded to the authenticated user's Google Drive (uses their quota)
-    // Start from the "PSF Labels" folder if folder ID is provided, otherwise use root
+    // Start from the "PrepCorex Labels" folder if folder ID is provided, otherwise use root
     const psfLabelsFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-    let parentFolderId = psfLabelsFolderId || 'root'; // Start from PSF Labels folder or root
+    let parentFolderId = psfLabelsFolderId || 'root'; // Start from PrepCorex Labels folder or root
 
     for (const folderName of folderParts) {
       // Check if folder exists

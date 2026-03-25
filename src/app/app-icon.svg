@@ -33,7 +33,6 @@
   <circle cx="256" cy="80" r="24" fill="url(#accent)"/>
   <circle cx="392" cy="120" r="24" fill="url(#accent)"/>
   
-  <!-- PSF Text -->
-  <text x="256" y="420" font-family="Arial, sans-serif" font-size="48" font-weight="bold" text-anchor="middle" fill="white">PSF</text>
-  <text x="256" y="480" font-family="Arial, sans-serif" font-size="32" text-anchor="middle" fill="url(#accent)">StockFlow</text>
+  <!-- App name -->
+  <text x="256" y="450" font-family="Arial, sans-serif" font-size="40" font-weight="bold" text-anchor="middle" fill="white">PrepCorex</text>
 </svg>

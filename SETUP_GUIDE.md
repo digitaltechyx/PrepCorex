@@ -1,4 +1,4 @@
-# PSF StockFlow - Setup Instructions
+# PrepCorex - Setup Instructions
 
 ## 🚀 Quick Start Guide
 
@@ -84,5 +84,5 @@ If you encounter any issues:
 3. Ensure environment variables are set correctly
 4. Check Firestore database permissions
 
-Your PSF StockFlow app is now ready to use! 🎉
+Your PrepCorex app is now ready to use! 🎉
 

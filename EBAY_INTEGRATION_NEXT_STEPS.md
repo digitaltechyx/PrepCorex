@@ -21,7 +21,7 @@ Do these in order. Use **Sandbox** first so we can test safely.
 
 ### Step 2: Create your first keyset (Sandbox)
 
-1. In the **“Enter Application Title”** field, type a name for your app (e.g. **PSF StockFlow**). Max 50 characters.
+1. In the **“Enter Application Title”** field, type a name for your app (e.g. **PrepCorex**). Max 50 characters.
 2. Below that you should see **Sandbox** and **Production**.
 3. Under **Sandbox**, click **Create a keyset**.
 4. After it’s created, the page will show your **keyset** with:
@@ -42,7 +42,7 @@ eBay uses a **RuName** instead of a plain redirect URL. You create it from the s
 3. If you see **“You have no Redirect URLs. Click here to add one”**, click it.
 4. Complete the **Confirm the Legal Address for the Primary Contact or Business** form, then click **Continue to create RuName**.
 5. On the RuName form, fill in:
-   - **Display Title** – e.g. “PSF StockFlow” (what users see on the grant page).
+   - **Display Title** – e.g. “PrepCorex” (what users see on the grant page).
    - **Privacy Policy URL** – URL of your app’s privacy policy (e.g. your site’s /privacy or homepage).
    - **Auth Accepted URL** – where to send the user after they approve. Use a path that does **not** contain the word "ebay" (eBay may reject it). Use **exactly** one of:
      - Production: `https://psf-stock-flow.vercel.app/dashboard/integrations/connect/callback`
@@ -98,7 +98,7 @@ From **eBay Developer Portal** → [Application Keys](https://developer.ebay.com
 - **Select products**: Like Shopify “Manage products” – user picks which eBay **listings** (items) we fulfill; we store selected listing IDs. Only those will sync.
 - **Orders**: Event-based only (no time-based polling):
   - Use eBay **Notification API** (REST) for order events (e.g. `ORDER_CONFIRMATION`).
-  - When we receive an order notification, we’ll fetch the order via API and **filter by selected listing IDs** – only orders that contain at least one selected product get synced into PSF.
+  - When we receive an order notification, we’ll fetch the order via API and **filter by selected listing IDs** – only orders that contain at least one selected product get synced into PrepCorex.
 
 ---
 

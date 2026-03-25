@@ -23,7 +23,7 @@
 4. Click **+ Create Credentials** → **OAuth client ID**
 5. If prompted, configure OAuth consent screen:
    - **User Type**: External
-   - **App name**: `PSF StockFlow`
+   - **App name**: `PrepCorex`
    - **Support email**: Your email
    - Click **Save and Continue**
    - **Scopes**: Add `https://www.googleapis.com/auth/drive` and `https://www.googleapis.com/auth/drive.file`
@@ -32,7 +32,7 @@
    - Click **Save and Continue**
 6. Back to **Credentials** → **Create OAuth client ID**
 7. **Application type**: Web application
-8. **Name**: `PSF StockFlow Drive`
+8. **Name**: `PrepCorex Drive`
 9. **Authorized redirect URIs**: 
    - Add: `https://yourdomain.com/api/drive/callback`
    - For local: `http://localhost:3000/api/drive/callback`

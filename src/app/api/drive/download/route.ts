@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
       const pathParts = filePath.split('/');
       const fileName = pathParts.pop()!;
       
-      // Start from PSF Labels folder if provided, otherwise root
+      // Start from PrepCorex Labels folder if provided, otherwise root
       const psfLabelsFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
       let currentFolderId = psfLabelsFolderId || 'root';
 

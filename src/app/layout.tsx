@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { WhatsAppFloatingButton } from "@/components/whatsapp-floating-button";
 
 export const metadata: Metadata = {
-  title: "PSF StockFlow",
+  title: "PrepCorex",
   description: "Inventory Management System - Modern inventory management with real-time updates",
   icons: {
     icon: [

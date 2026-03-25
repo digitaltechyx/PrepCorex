@@ -6,7 +6,7 @@ import { XMLParser } from "fast-xml-parser";
 export const dynamic = "force-dynamic";
 
 /**
- * POST: Set inventory quantity on eBay (PSF → eBay).
+ * POST: Set inventory quantity on eBay (PrepCorex → eBay).
  * Body: { userId, connectionId, offerId?, listingId?, newQuantity }
  * If offerId: use Inventory API updateOffer. If only listingId: use Trading API ReviseInventoryStatus.
  */
