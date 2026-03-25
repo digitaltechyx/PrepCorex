@@ -170,7 +170,7 @@ export default function RegisterPage() {
       <div className="flex items-center justify-center py-12 min-h-screen">
         <div className="mx-auto grid w-full max-w-[500px] gap-6 px-4">
           <div className="grid gap-2 text-center">
-            <Logo />
+            <Logo variant="auth" />
             <h1 className="text-3xl font-bold font-headline mt-4">Onboarding form</h1>
             <p className="text-balance text-muted-foreground">
               Enter your information to complete the onboarding form

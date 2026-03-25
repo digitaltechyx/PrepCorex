@@ -139,9 +139,7 @@ export default function LoginPage() {
       <div className="flex items-center justify-center py-12">
         <div className="mx-auto grid w-[350px] gap-6">
           <div className="grid gap-2 text-center">
-            <div className="flex justify-center">
-              <Logo />
-            </div>
+            <Logo variant="auth" />
             <h1 className="text-3xl font-bold font-headline mt-4">Login</h1>
           </div>
           <Form {...form}>

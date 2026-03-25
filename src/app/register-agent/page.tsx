@@ -120,7 +120,7 @@ export default function RegisterAgentPage() {
       <div className="flex items-center justify-center py-12 min-h-screen relative z-10">
         <div className="mx-auto grid w-full max-w-[600px] gap-6 px-4">
           <div className="grid gap-2 text-center">
-            <Logo />
+            <Logo variant="auth" />
             <h1 className="text-3xl font-bold font-headline mt-4">Join Our Sales Team</h1>
             <p className="text-balance text-muted-foreground">
               10–15% Commission (Remote, Flexible)

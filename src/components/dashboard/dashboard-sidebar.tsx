@@ -238,9 +238,9 @@ export function DashboardSidebar() {
             <img
               src={brandLogoSrc}
               alt="PrepCorex"
-              className="h-9 w-auto max-w-full object-contain object-left"
-              width={200}
-              height={36}
+              className="h-12 sm:h-14 md:h-16 w-auto max-w-full object-contain object-left"
+              width={360}
+              height={80}
               decoding="async"
             />
             <span className="text-xs text-muted-foreground">Inventory Management</span>
