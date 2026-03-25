@@ -9,7 +9,10 @@ export const metadata: Metadata = {
   description: "Inventory Management System - Modern inventory management with real-time updates",
   icons: {
     icon: [
-      { url: "/PCX%20Testing-11.svg", type: "image/svg+xml" },
+      // Provide multiple size hints so browsers scale the SVG appropriately for tabs/shortcuts.
+      { url: "/PCX%20Testing-11.svg", type: "image/svg+xml", sizes: "16x16" },
+      { url: "/PCX%20Testing-11.svg", type: "image/svg+xml", sizes: "32x32" },
+      { url: "/PCX%20Testing-11.svg", type: "image/svg+xml", sizes: "64x64" },
     ],
     apple: "/PCX%20Testing-11.svg",
     shortcut: "/PCX%20Testing-11.svg",

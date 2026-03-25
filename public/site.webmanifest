@@ -11,7 +11,7 @@
   "icons": [
     {
       "src": "/PCX%20Testing-11.svg",
-      "sizes": "any",
+      "sizes": "64x64",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
