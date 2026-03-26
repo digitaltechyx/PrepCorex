@@ -94,6 +94,10 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
     : [];
   const safeAssignedUserIds: string[] = Array.isArray(user.assignedUserIds) ? user.assignedUserIds : [];
 
+  const [locationSearch, setLocationSearch] = useState("");
+  const [assignedUserSearch, setAssignedUserSearch] = useState("");
+  const [affiliateSearch, setAffiliateSearch] = useState("");
+
   const activeLocations = useMemo(
     () => locationDocs.filter((l) => l.active !== false).map((l) => ({ id: l.id, name: l.name ?? "" })),
     [locationDocs]
@@ -151,9 +155,6 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
 
   const [managedLocationIds, setManagedLocationIds] = useState<string[]>(safeManagedLocationIds);
   const [assignedUserIds, setAssignedUserIds] = useState<string[]>(safeAssignedUserIds);
-  const [locationSearch, setLocationSearch] = useState("");
-  const [assignedUserSearch, setAssignedUserSearch] = useState("");
-  const [affiliateSearch, setAffiliateSearch] = useState("");
 
   // Commission agent: users who are assigned as this agent's affiliates (referredByAgentId === user.uid)
   const currentAffiliateIds = useMemo(
