@@ -86,6 +86,14 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
   const { data: locationDocs } = useCollection<LocationDoc>("locations");
   const { data: allUsersList } = useCollection<UserProfile>("users");
 
+  // Firestore may contain legacy values for some fields (e.g. strings/objects instead of arrays).
+  // Normalize defensively so this component never crashes on spread/sort.
+  const safeFeatures: UserFeature[] = Array.isArray(user.features) ? user.features : [];
+  const safeManagedLocationIds: string[] = Array.isArray(user.managedLocationIds)
+    ? user.managedLocationIds
+    : [];
+  const safeAssignedUserIds: string[] = Array.isArray(user.assignedUserIds) ? user.assignedUserIds : [];
+
   const activeLocations = useMemo(
     () => locationDocs.filter((l) => l.active !== false).map((l) => ({ id: l.id, name: l.name ?? "" })),
     [locationDocs]
@@ -132,8 +140,8 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
 
   // Effective features: if user has no/empty features, use role default (user = 8 client features, sub_admin = default admin modules)
   const effectiveFeatures =
-    user.features && user.features.length > 0
-      ? user.features
+    safeFeatures && safeFeatures.length > 0
+      ? safeFeatures
       : currentRoles.includes("user")
         ? getDefaultFeaturesForRole("user")
         : currentRoles.includes("sub_admin")
@@ -141,20 +149,27 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
           : [];
   const [selectedFeatures, setSelectedFeatures] = useState<UserFeature[]>(effectiveFeatures);
 
-  const [managedLocationIds, setManagedLocationIds] = useState<string[]>(user.managedLocationIds ?? []);
-  const [assignedUserIds, setAssignedUserIds] = useState<string[]>(user.assignedUserIds ?? []);
+  const [managedLocationIds, setManagedLocationIds] = useState<string[]>(safeManagedLocationIds);
+  const [assignedUserIds, setAssignedUserIds] = useState<string[]>(safeAssignedUserIds);
   const [locationSearch, setLocationSearch] = useState("");
   const [assignedUserSearch, setAssignedUserSearch] = useState("");
   const [affiliateSearch, setAffiliateSearch] = useState("");
 
   // Commission agent: users who are assigned as this agent's affiliates (referredByAgentId === user.uid)
   const currentAffiliateIds = useMemo(
-    () => allUsersList.filter((u) => u.referredByAgentId === user.uid).map((u) => u.uid!),
+    () =>
+      allUsersList
+        .filter((u) => u.referredByAgentId === user.uid && typeof u.uid === "string" && u.uid.length > 0)
+        .map((u) => u.uid as string),
     [allUsersList, user.uid]
   );
   const [assignedAffiliateIds, setAssignedAffiliateIds] = useState<string[]>([]);
   useEffect(() => {
-    setAssignedAffiliateIds(allUsersList.filter((u) => u.referredByAgentId === user.uid).map((u) => u.uid!));
+    setAssignedAffiliateIds(
+      allUsersList
+        .filter((u) => u.referredByAgentId === user.uid && typeof u.uid === "string" && u.uid.length > 0)
+        .map((u) => u.uid as string)
+    );
   }, [user.uid, allUsersList]);
 
   const handleRoleToggle = (role: UserRole) => {
@@ -303,8 +318,8 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
     JSON.stringify([...selectedFeatures].sort()) !== JSON.stringify([...effectiveFeatures].sort());
   const hasSubAdminScopeChanges =
     selectedRoles.includes("sub_admin") &&
-    (JSON.stringify([...managedLocationIds].sort()) !== JSON.stringify([...(user.managedLocationIds ?? [])].sort()) ||
-     JSON.stringify([...assignedUserIds].sort()) !== JSON.stringify([...(user.assignedUserIds ?? [])].sort()));
+    (JSON.stringify([...managedLocationIds].sort()) !== JSON.stringify([...safeManagedLocationIds].sort()) ||
+     JSON.stringify([...assignedUserIds].sort()) !== JSON.stringify([...safeAssignedUserIds].sort()));
   const hasCommissionAgentScopeChanges =
     selectedRoles.includes("commission_agent") &&
     (JSON.stringify([...assignedAffiliateIds].sort()) !== JSON.stringify([...currentAffiliateIds].sort()));
