@@ -2,7 +2,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 /** Public URL for the PrepCorex wordmark SVG (spaces URL-encoded). */
-export const brandLogoSrc = "/PCX%20Testing-03.svg";
+export const brandLogoSrc = "/PCX%20Testing-16.svg";
 
 type LogoProps = {
   className?: string;
@@ -33,8 +33,8 @@ export function Logo({ className, variant = "default" }: LogoProps) {
             ? "max-h-28 max-w-[min(100%,min(92vw,560px))] object-center sm:max-h-32 md:max-h-36"
             : "max-h-14 max-w-[min(100%,400px)] object-left sm:max-h-16"
         )}
-        width={462}
-        height={115}
+        width={512}
+        height={512}
         decoding="async"
       />
     </Link>

@@ -371,8 +371,8 @@ export function AdminSidebar() {
               src={brandLogoSrc}
               alt="PrepCorex"
               className="h-auto w-full max-h-24 object-contain object-left sm:max-h-28"
-              width={462}
-              height={115}
+              width={512}
+              height={512}
               decoding="async"
             />
           </div>
