@@ -7,7 +7,7 @@ import { InventoryTable } from "@/components/dashboard/inventory-table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Package, PackageCheck, Clock } from "lucide-react";
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, Suspense } from "react";
 
 type InventoryItemWithSource = InventoryItem & { source?: string; ebayConnectionId?: string };
 
@@ -172,7 +172,9 @@ export default function InventoryPage() {
             </div>
           ) : (
             <div className="p-6">
-              <InventoryTable data={inventoryData} />
+              <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+                <InventoryTable data={inventoryData} />
+              </Suspense>
             </div>
           )}
         </CardContent>

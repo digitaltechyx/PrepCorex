@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import type { InventoryItem, InventoryRequest } from "@/types";
 import {
   Card,
@@ -59,11 +60,26 @@ function formatReceivingDate(date: InventoryItem["receivingDate"]) {
   return "N/A";
 }
 
+/** Matches dashboard KPI "Low Stock SKUs" (qty 1–10, real inventory rows only). URL: ?status=low-stock */
+const LOW_STOCK_STATUS_VALUE = "low-stock";
+
+function rowIsLowStock(item: { quantity?: number; isRequest?: boolean }) {
+  if (item.isRequest) return false;
+  const q = Number(item.quantity) || 0;
+  return q > 0 && q <= 10;
+}
 
 export function InventoryTable({ data }: { data: InventoryItem[] }) {
+  const searchParams = useSearchParams();
   const { userProfile } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  useEffect(() => {
+    if (searchParams.get("status") === LOW_STOCK_STATUS_VALUE) {
+      setStatusFilter(LOW_STOCK_STATUS_VALUE);
+    }
+  }, [searchParams]);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [selectedRemarks, setSelectedRemarks] = useState<string>("");
@@ -255,11 +271,14 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
       const matchesSearch = item.productName.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesStatus = statusFilter === "all" || 
-        (statusFilter === "Pending" && item.status === "Pending") ||
-        (statusFilter === "In Stock" && item.status === "In Stock") ||
-        (statusFilter === "Out of Stock" && item.status === "Out of Stock") ||
-        (statusFilter === "Rejected" && item.status === "Rejected");
+      const row = item as { status: string; isRequest?: boolean; quantity?: number };
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "Pending" && row.status === "Pending") ||
+        (statusFilter === "In Stock" && row.status === "In Stock") ||
+        (statusFilter === "Out of Stock" && row.status === "Out of Stock") ||
+        (statusFilter === "Rejected" && row.status === "Rejected") ||
+        (statusFilter === LOW_STOCK_STATUS_VALUE && rowIsLowStock(row));
       return matchesSearch && matchesStatus;
     });
     
@@ -281,8 +300,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
   const endIndex = startIndex + itemsPerPage;
   const paginatedData = filteredData.slice(startIndex, endIndex);
 
-  // Reset to page 1 when filters change
-  useMemo(() => {
+  useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, statusFilter]);
 
@@ -339,7 +357,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
               )}
             </div>
           </div>
-          <div className="sm:w-48">
+          <div className="sm:w-56">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger>
                 <Filter className="h-4 w-4 mr-2" />
@@ -347,6 +365,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value={LOW_STOCK_STATUS_VALUE}>Low stock (qty 1–10)</SelectItem>
                 <SelectItem value="Pending">Pending</SelectItem>
                 <SelectItem value="In Stock">In Stock</SelectItem>
                 <SelectItem value="Out of Stock">Out of Stock</SelectItem>

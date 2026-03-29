@@ -394,7 +394,7 @@ export default function DashboardPage() {
 
   const kpiCards = [
     { title: "Total Inventory", value: String(totalItemsInInventory), hint: "Units across all products", icon: Boxes, iconBg: "bg-blue-500/10 text-blue-600", href: "/dashboard/inventory" },
-    { title: "Low Stock SKUs", value: String(lowStockItems.length), hint: "Qty ≤ 10", icon: AlertTriangle, iconBg: "bg-amber-500/10 text-amber-600" },
+    { title: "Low Stock SKUs", value: String(lowStockItems.length), hint: "Qty ≤ 10", icon: AlertTriangle, iconBg: "bg-amber-500/10 text-amber-600", href: "/dashboard/inventory?status=low-stock" },
     { title: "Orders Pending", value: String(pendingFulfillmentCount), hint: "Awaiting fulfillment", icon: Clock3, iconBg: "bg-orange-500/10 text-orange-600", href: "/dashboard/shipped-orders" },
     { title: hasDateRange ? "Shipped in period" : "Today Shipped Orders", value: String(todaysShippedOrders), hint: hasDateRange ? "In selected date range" : "Shipments recorded", icon: Truck, iconBg: "bg-violet-500/10 text-violet-600", href: "/dashboard/shipped-orders" },
     { title: "Pending Invoice", value: invoicesLoading ? "..." : `$${Number(totalPendingAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, hint: "Outstanding balance", icon: DollarSign, iconBg: "bg-emerald-500/10 text-emerald-600", href: "/dashboard/invoices" },
@@ -533,7 +533,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="px-6 pb-6">
               <div className="grid grid-cols-2 gap-3">
-                <div className="min-w-0 rounded-lg border border-amber-200/80 bg-amber-50/60 p-3">
+                <Link href="/dashboard/inventory?status=low-stock" className="block min-w-0 rounded-lg border border-amber-200/80 bg-amber-50/60 p-3 transition-colors hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
                   <p className="text-sm font-medium text-amber-900">Low Stock ({lowStockItems.length})</p>
                   {lowStockItems.length === 0 ? (
                     <p className="mt-1 text-xs text-amber-700">All good</p>
@@ -542,7 +542,10 @@ export default function DashboardPage() {
                       <p key={item.id} className="mt-1 text-xs text-amber-800">{item.productName}: {item.quantity} left</p>
                     ))
                   )}
-                </div>
+                  {lowStockItems.length > 0 && (
+                    <p className="mt-2 text-xs font-medium text-amber-700 underline-offset-2 hover:underline">View filtered inventory →</p>
+                  )}
+                </Link>
                 <div className="min-w-0 rounded-lg border border-rose-200/80 bg-rose-50/60 p-3">
                   <p className="text-sm font-medium text-rose-900">Rejected Requests ({rejectedInventoryRequests.length})</p>
                   {rejectedInventoryRequests.length === 0 ? (
