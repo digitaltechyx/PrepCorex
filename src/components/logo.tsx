@@ -31,10 +31,10 @@ export function Logo({ className, variant = "default" }: LogoProps) {
           "h-auto w-full object-contain",
           isAuth
             ? "max-h-28 max-w-[min(100%,min(92vw,560px))] object-center sm:max-h-32 md:max-h-36"
-            : "max-h-14 max-w-[min(100%,400px)] object-left sm:max-h-16"
+            : "max-h-16 max-w-[min(100%,420px)] object-left sm:max-h-[4.5rem]"
         )}
-        width={512}
-        height={512}
+        width={418}
+        height={100}
         decoding="async"
       />
     </Link>
