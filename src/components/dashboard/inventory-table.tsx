@@ -38,6 +38,7 @@ import { useToast } from "@/hooks/use-toast";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 function formatDate(date: InventoryItem["dateAdded"]) {
   if (typeof date === 'string') {
@@ -68,6 +69,22 @@ function rowIsLowStock(item: { quantity?: number; isRequest?: boolean }) {
   const q = Number(item.quantity) || 0;
   return q > 0 && q <= 10;
 }
+
+/** Red row styling (same classes as admin cards): low qty, exclude eBay like admin. Uses dashboard low-stock band qty 1–10. */
+function inventoryRowIsLowStockStyled(item: {
+  quantity?: number;
+  isRequest?: boolean;
+  source?: string;
+}) {
+  if (item.isRequest) return false;
+  if (item.source === "ebay") return false;
+  return rowIsLowStock(item);
+}
+
+const lowStockRowCardClass =
+  "border-red-500 border-2 bg-red-50 dark:bg-red-950/20";
+const lowStockTextClass = "text-red-700 dark:text-red-400";
+const lowStockQtyClass = "text-red-800 dark:text-red-300";
 
 export function InventoryTable({ data }: { data: InventoryItem[] }) {
   const searchParams = useSearchParams();
@@ -378,12 +395,29 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
         {/* Mobile Card List */}
         <div className="block sm:hidden px-4 space-y-3">
           {filteredData.length > 0 ? (
-            paginatedData.map((item) => (
-              <div key={item.id} className="border rounded-lg p-3 bg-white">
+            paginatedData.map((item) => {
+              const isLowStockVisual = inventoryRowIsLowStockStyled(
+                item as { quantity?: number; isRequest?: boolean; source?: string }
+              );
+              return (
+              <div
+                key={item.id}
+                className={cn(
+                  "rounded-lg border p-3 bg-white",
+                  isLowStockVisual ? lowStockRowCardClass : "border-border"
+                )}
+              >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <div className="font-semibold text-sm">{item.productName}</div>
+                      <div
+                        className={cn(
+                          "font-semibold text-sm",
+                          isLowStockVisual && lowStockTextClass
+                        )}
+                      >
+                        {item.productName}
+                      </div>
                       {(item as any).isRequest && (item as any).requestData && item.status === "Pending" && (
                         <Button
                           variant="ghost"
@@ -415,8 +449,15 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                     )}
                   </div>
                   <div className="text-right ml-2">
-                    <div className="text-xs">Qty</div>
-                    <div className="font-semibold text-sm">{item.quantity}</div>
+                    <div className={cn("text-xs", isLowStockVisual && lowStockTextClass)}>Qty</div>
+                    <div
+                      className={cn(
+                        "font-semibold text-sm",
+                        isLowStockVisual && lowStockQtyClass
+                      )}
+                    >
+                      {item.quantity}
+                    </div>
                   </div>
                 </div>
                 <div className="mt-2">
@@ -433,7 +474,8 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                   </Badge>
                 </div>
               </div>
-            ))
+            );
+            })
           ) : (
             <div className="text-center py-8 text-xs text-gray-500">
               {combinedData.length === 0 ? "No inventory items or requests found." : "No items match your search criteria."}
@@ -457,12 +499,29 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
             </TableHeader>
             <TableBody>
               {filteredData.length > 0 ? (
-                paginatedData.map((item) => (
-               <TableRow key={item.id} className="text-xs sm:text-sm">
+                paginatedData.map((item) => {
+                  const isLowStockVisual = inventoryRowIsLowStockStyled(
+                    item as { quantity?: number; isRequest?: boolean; source?: string }
+                  );
+                  return (
+               <TableRow
+                 key={item.id}
+                 className={cn(
+                   "text-xs sm:text-sm",
+                   isLowStockVisual && lowStockRowCardClass
+                 )}
+               >
                     <TableCell className="font-medium max-w-32 sm:max-w-none truncate">
                       <div className="flex flex-col sm:block">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">{item.productName}</span>
+                          <span
+                            className={cn(
+                              "font-medium",
+                              isLowStockVisual && lowStockTextClass
+                            )}
+                          >
+                            {item.productName}
+                          </span>
                           {(item as any).isRequest && (item as any).requestData && (
                             <Button
                               variant="ghost"
@@ -475,7 +534,14 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                           )}
                         </div>
                         <div className="sm:hidden mt-1 space-y-0.5">
-                          <span className="text-gray-500 text-xs">Qty: {item.quantity}</span>
+                          <span
+                            className={cn(
+                              "text-xs",
+                              isLowStockVisual ? lowStockQtyClass : "text-gray-500"
+                            )}
+                          >
+                            Qty: {item.quantity}
+                          </span>
                           <br />
                           <span className="text-gray-500 text-xs">Added: {formatDate(item.dateAdded)}</span>
                           {item.receivingDate && (
@@ -488,7 +554,14 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                       </div>
                     </TableCell>
                     <TableCell className="hidden md:table-cell">{(item as any).sku || "N/A"}</TableCell>
-                    <TableCell className="hidden sm:table-cell">{item.quantity}</TableCell>
+                    <TableCell
+                      className={cn(
+                        "hidden sm:table-cell",
+                        isLowStockVisual && lowStockQtyClass
+                      )}
+                    >
+                      {item.quantity}
+                    </TableCell>
                     <TableCell className="hidden sm:table-cell">
                       {formatDate(item.dateAdded)}
                     </TableCell>
@@ -524,7 +597,8 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                       </Badge>
                     </TableCell>
                   </TableRow>
-                ))
+                );
+                })
               ) : (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8">
