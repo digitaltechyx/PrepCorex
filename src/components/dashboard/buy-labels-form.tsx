@@ -154,14 +154,17 @@ export function BuyLabelsForm() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       fromAddress: {
-        name: userProfile?.name || "",
-        street1: userProfile?.address || "",
-        city: userProfile?.city || "",
-        state: userProfile?.state || "",
-        zip: userProfile?.zipCode || "",
+        // Default "From Address" for label purchase.
+        // Admin/customer can override these fields before purchasing.
+        name: "Prep Services FBA LLC",
+        phone: "",
+        street1: "7000 Atrium Way",
+        street2: "Apartment, Suite: B05",
         country: "US",
-        phone: userProfile?.phone || "",
-        email: userProfile?.email || "",
+        state: "NJ",
+        city: "Mount Laurel",
+        zip: "08054",
+        email: "",
       },
       toAddress: {
         name: "",
