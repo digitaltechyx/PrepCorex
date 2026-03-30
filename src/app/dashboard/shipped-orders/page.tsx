@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import type { InventoryItem, ShippedItem } from "@/types";
@@ -44,7 +45,9 @@ export default function ShippedOrdersPage() {
             </div>
           ) : (
             <div className="p-6">
-              <ShippedTable data={shippedData} inventory={inventoryData} />
+              <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+                <ShippedTable data={shippedData} inventory={inventoryData} />
+              </Suspense>
             </div>
           )}
         </CardContent>

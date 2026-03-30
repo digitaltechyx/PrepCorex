@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import type { InventoryItem, ShippedItem, ShipmentRequest, RestockHistory } from "@/types";
 import { getShipmentSummary } from "@/lib/shipment-utils";
 import {
@@ -22,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Search, Filter, X, Eye, Clock, XCircle } from "lucide-react";
+import { Search, Filter, ListFilter, X, Eye, Clock, XCircle } from "lucide-react";
 import { format } from "date-fns";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
@@ -47,13 +48,39 @@ function formatRestockDate(restockedAt: RestockHistory["restockedAt"]) {
     return format(new Date(restockedAt.seconds * 1000), "d MMM yyyy");
   }
   return "N/A";
+  }
+
+type ShippedRowStatus = "Pending" | "Shipped" | "Rejected";
+
+const STATUS_FILTER_ALL = "all";
+const STATUS_URL_PENDING = "pending";
+const STATUS_URL_SHIPPED = "shipped";
+
+function rowMatchesStatusFilter(
+  item: { status?: string },
+  statusFilter: string
+): boolean {
+  if (statusFilter === STATUS_FILTER_ALL) return true;
+  const s = (item.status || "") as ShippedRowStatus;
+  if (statusFilter === STATUS_URL_PENDING) return s === "Pending";
+  if (statusFilter === STATUS_URL_SHIPPED) return s === "Shipped";
+  return true;
 }
 
 export function ShippedTable({ data, inventory }: { data: ShippedItem[], inventory: InventoryItem[] }) {
+  const searchParams = useSearchParams();
   const { userProfile } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
   const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    const raw = searchParams.get("status")?.toLowerCase();
+    if (raw === STATUS_URL_PENDING || raw === STATUS_URL_SHIPPED) {
+      setStatusFilter(raw);
+    }
+  }, [searchParams]);
   const itemsPerPage = 10;
   const [selectedRemarks, setSelectedRemarks] = useState<string>("");
   const [isRemarksDialogOpen, setIsRemarksDialogOpen] = useState(false);
@@ -223,7 +250,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
       const matchesSearch = item.productName.toLowerCase().includes(searchTerm.toLowerCase());
-      
+      const matchesStatus = rowMatchesStatusFilter(item, statusFilter);
+
       let matchesDate = true;
       if (dateFilter !== "all") {
         const itemDate = typeof item.date === 'string' 
@@ -248,11 +276,11 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         }
       }
       
-      return matchesSearch && matchesDate;
+      return matchesSearch && matchesDate && matchesStatus;
     });
 
     return filtered;
-  }, [combinedData, searchTerm, dateFilter]);
+  }, [combinedData, searchTerm, dateFilter, statusFilter]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
@@ -260,10 +288,9 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
   const endIndex = startIndex + itemsPerPage;
   const paginatedData = filteredData.slice(startIndex, endIndex);
 
-  // Reset to page 1 when filters change
-  useMemo(() => {
+  useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, dateFilter]);
+  }, [searchTerm, dateFilter, statusFilter]);
 
   return (
     <TooltipProvider>
@@ -300,8 +327,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
       </CardHeader>
       <CardContent className="p-0 sm:p-6">
         {/* Search and Filter Controls */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-6 px-6">
-          <div className="flex-1">
+        <div className="flex flex-col gap-4 mb-6 px-6 lg:flex-row lg:flex-wrap lg:items-end">
+          <div className="min-w-0 flex-1">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -322,23 +349,44 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
               )}
             </div>
           </div>
-          <div className="sm:w-48">
-            <Select value={dateFilter} onValueChange={(value) => {
-              setDateFilter(value);
-              setCurrentPage(1);
-            }}>
-              <SelectTrigger>
-                <Filter className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Filter by date" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Time</SelectItem>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="week">This Week</SelectItem>
-                <SelectItem value="month">This Month</SelectItem>
-                <SelectItem value="year">This Year</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:max-w-md lg:max-w-none lg:shrink-0">
+            <div className="w-full sm:min-w-[11rem]">
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => {
+                  setStatusFilter(value);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger>
+                  <ListFilter className="h-4 w-4 mr-2 shrink-0" />
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={STATUS_FILTER_ALL}>All statuses</SelectItem>
+                  <SelectItem value={STATUS_URL_PENDING}>Pending</SelectItem>
+                  <SelectItem value={STATUS_URL_SHIPPED}>Shipped</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-full sm:min-w-[11rem]">
+              <Select value={dateFilter} onValueChange={(value) => {
+                setDateFilter(value);
+                setCurrentPage(1);
+              }}>
+                <SelectTrigger>
+                  <Filter className="h-4 w-4 mr-2 shrink-0" />
+                  <SelectValue placeholder="Filter by date" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Time</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="week">This Week</SelectItem>
+                  <SelectItem value="month">This Month</SelectItem>
+                  <SelectItem value="year">This Year</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 

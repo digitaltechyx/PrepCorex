@@ -395,8 +395,8 @@ export default function DashboardPage() {
   const kpiCards = [
     { title: "Total Inventory", value: String(totalItemsInInventory), hint: "Units across all products", icon: Boxes, iconBg: "bg-blue-500/10 text-blue-600", href: "/dashboard/inventory" },
     { title: "Low Stock SKUs", value: String(lowStockItems.length), hint: "Qty ≤ 10", icon: AlertTriangle, iconBg: "bg-amber-500/10 text-amber-600", href: "/dashboard/inventory?status=low-stock" },
-    { title: "Orders Pending", value: String(pendingFulfillmentCount), hint: "Awaiting fulfillment", icon: Clock3, iconBg: "bg-orange-500/10 text-orange-600", href: "/dashboard/shipped-orders" },
-    { title: hasDateRange ? "Shipped in period" : "Today Shipped Orders", value: String(todaysShippedOrders), hint: hasDateRange ? "In selected date range" : "Shipments recorded", icon: Truck, iconBg: "bg-violet-500/10 text-violet-600", href: "/dashboard/shipped-orders" },
+    { title: "Pending Orders", value: String(pendingFulfillmentCount), hint: "Awaiting fulfillment", icon: Clock3, iconBg: "bg-orange-500/10 text-orange-600", href: "/dashboard/shipped-orders?status=pending" },
+    { title: hasDateRange ? "Shipped in period" : "Today Shipped Orders", value: String(todaysShippedOrders), hint: hasDateRange ? "In selected date range" : "Shipments recorded", icon: Truck, iconBg: "bg-violet-500/10 text-violet-600", href: "/dashboard/shipped-orders?status=shipped" },
     { title: "Pending Invoice", value: invoicesLoading ? "..." : `$${Number(totalPendingAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, hint: "Outstanding balance", icon: DollarSign, iconBg: "bg-emerald-500/10 text-emerald-600", href: "/dashboard/invoices" },
     { title: "Integration Health", value: shopifyConnectionsLoading || ebayConnectionsLoading ? "..." : `${integrationHealth.pct}%`, hint: integrationHealth.label, icon: RefreshCw, iconBg: "bg-teal-500/10 text-teal-600" },
   ];
@@ -559,7 +559,7 @@ export default function DashboardPage() {
                 <div className="min-w-0 rounded-lg border border-blue-200/80 bg-blue-50/60 p-3">
                   <p className="text-sm font-medium text-blue-900">Pending Fulfillment ({pendingFulfillmentCount})</p>
                   <p className="mt-1 text-xs text-blue-700">Shipment requests waiting</p>
-                  <Link href="/dashboard/shipped-orders" className="mt-2 inline-block text-xs font-medium text-blue-600 hover:underline">Review →</Link>
+                  <Link href="/dashboard/shipped-orders?status=pending" className="mt-2 inline-block text-xs font-medium text-blue-600 hover:underline">Review →</Link>
                 </div>
                 <div className="min-w-0 rounded-lg border border-emerald-200/80 bg-emerald-50/60 p-3">
                   <p className="text-sm font-medium text-emerald-900">Integrations</p>
