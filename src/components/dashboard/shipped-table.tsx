@@ -56,6 +56,8 @@ const STATUS_FILTER_ALL = "all";
 const STATUS_URL_PENDING = "pending";
 const STATUS_URL_SHIPPED = "shipped";
 
+const DATE_FILTER_KEYS = new Set(["all", "today", "week", "month", "year"]);
+
 function rowMatchesStatusFilter(
   item: { status?: string },
   statusFilter: string
@@ -79,6 +81,10 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     const raw = searchParams.get("status")?.toLowerCase();
     if (raw === STATUS_URL_PENDING || raw === STATUS_URL_SHIPPED) {
       setStatusFilter(raw);
+    }
+    const dateRaw = searchParams.get("date")?.toLowerCase();
+    if (dateRaw && DATE_FILTER_KEYS.has(dateRaw)) {
+      setDateFilter(dateRaw);
     }
   }, [searchParams]);
   const itemsPerPage = 10;

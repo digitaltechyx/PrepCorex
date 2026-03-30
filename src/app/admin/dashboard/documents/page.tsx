@@ -711,12 +711,12 @@ export default function DocumentRequestsPage() {
                           )}
                           Approve
                         </Button>
-                        <Button
+                      <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => handleOpenUploadDialog(request)}
-                        >
-                          <Upload className="mr-2 h-4 w-4" />
+                        onClick={() => handleOpenUploadDialog(request)}
+                      >
+                        <Upload className="mr-2 h-4 w-4" />
                           Upload
                         </Button>
                         <Button
@@ -726,7 +726,7 @@ export default function DocumentRequestsPage() {
                           onClick={() => handleRejectRequest(request)}
                         >
                           Reject
-                        </Button>
+                      </Button>
                       </div>
                     </div>
                   ))}

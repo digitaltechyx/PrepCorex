@@ -85,14 +85,6 @@ export function DashboardSidebar() {
       requiredFeature: "view_inventory" as const,
     },
     {
-      title: "Shipped Orders",
-      url: "/dashboard/shipped-orders",
-      icon: Truck,
-      color: "text-teal-600",
-      requiredRole: "user" as const,
-      requiredFeature: "shipped_orders" as const,
-    },
-    {
       title: "Create Shipment",
       url: "/dashboard/create-shipment-with-labels",
       icon: Upload,
@@ -109,6 +101,14 @@ export function DashboardSidebar() {
       badge: null,
       requiredRole: "user" as const,
       requiredFeature: "buy_labels" as const,
+    },
+    {
+      title: "Shipped Orders",
+      url: "/dashboard/shipped-orders",
+      icon: Truck,
+      color: "text-teal-600",
+      requiredRole: "user" as const,
+      requiredFeature: "shipped_orders" as const,
     },
     {
       title: "Product Returns",
@@ -138,15 +138,6 @@ export function DashboardSidebar() {
       requiredFeature: "view_invoices" as const,
     },
     {
-      title: "My Pricing",
-      url: "/dashboard/pricing",
-      icon: DollarSign,
-      color: "text-green-600",
-      badge: null,
-      requiredRole: "user" as const,
-      requiredFeature: "my_pricing" as const,
-    },
-    {
       title: "Restock Summary",
       url: "/dashboard/restock-history",
       icon: History,
@@ -169,6 +160,15 @@ export function DashboardSidebar() {
       color: "text-red-600",
       requiredRole: "user" as const,
       requiredFeature: "delete_logs" as const,
+    },
+    {
+      title: "My Pricing",
+      url: "/dashboard/pricing",
+      icon: DollarSign,
+      color: "text-green-600",
+      badge: null,
+      requiredRole: "user" as const,
+      requiredFeature: "my_pricing" as const,
     },
     {
       title: "Track Shipment",

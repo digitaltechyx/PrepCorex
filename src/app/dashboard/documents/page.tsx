@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -27,6 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface DocumentRequest {
   id: string;
@@ -58,7 +60,10 @@ const DOCUMENT_TYPES = [
   { id: "partnership" as const, label: "B2B Partnership Agreement", description: "Referral and strategic partnership" },
 ];
 
-export default function DocumentsPage() {
+type RequestListFilter = "all" | "pending" | "complete";
+
+function DocumentsPageContent() {
+  const searchParams = useSearchParams();
   const { userProfile, user } = useAuth();
   const { toast } = useToast();
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
@@ -76,6 +81,14 @@ export default function DocumentsPage() {
   const [partnerTitle, setPartnerTitle] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [msaDownloading, setMsaDownloading] = useState(false);
+  const [requestListFilter, setRequestListFilter] = useState<RequestListFilter>("all");
+
+  useEffect(() => {
+    const s = searchParams.get("status")?.toLowerCase();
+    if (s === "pending" || s === "complete") {
+      setRequestListFilter(s);
+    }
+  }, [searchParams]);
 
   const { data: documentRequests, loading } = useCollection<DocumentRequest>(
     userProfile ? `users/${userProfile.uid}/documentRequests` : ""
@@ -263,15 +276,35 @@ export default function DocumentsPage() {
   const pendingRequests = documentRequests.filter((req) => req.status === "pending");
   const completedRequests = documentRequests.filter((req) => req.status === "complete");
 
+  const showPendingCard =
+    requestListFilter === "pending" ||
+    (requestListFilter === "all" && pendingRequests.length > 0);
+  const showCompletedCard =
+    requestListFilter === "complete" || requestListFilter === "all";
+
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Documents</h1>
           <p className="text-muted-foreground mt-1">
             Request and download your service documents
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={requestListFilter}
+            onValueChange={(v) => setRequestListFilter(v as RequestListFilter)}
+          >
+            <SelectTrigger className="w-[min(100vw-2rem,220px)] sm:w-[220px]">
+              <SelectValue placeholder="Request status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All requests</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="complete">Completed</SelectItem>
+            </SelectContent>
+          </Select>
         <Dialog
           open={requestDialogOpen}
           onOpenChange={(open) => {
@@ -511,6 +544,7 @@ export default function DocumentsPage() {
             )}
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Master Service Agreement (signed) */}
@@ -549,7 +583,7 @@ export default function DocumentsPage() {
       )}
 
       {/* Pending Requests */}
-      {pendingRequests.length > 0 && (
+      {showPendingCard && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -561,39 +595,46 @@ export default function DocumentsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {pendingRequests.map((request) => (
-                <div
-                  key={request.id}
-                  className="flex items-center justify-between p-4 border rounded-lg"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center">
-                      <FileText className="h-5 w-5 text-orange-600" />
-                    </div>
-                    <div>
-                      <p className="font-semibold">{request.documentType}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Requested {format(new Date(request.requestedAt?.seconds * 1000 || Date.now()), "MMM d, yyyy 'at' h:mm a")}
-                      </p>
-                      {request.notes && (
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Notes: {request.notes}
+            {pendingRequests.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                No pending document requests.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pendingRequests.map((request) => (
+                  <div
+                    key={request.id}
+                    className="flex items-center justify-between p-4 border rounded-lg"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center">
+                        <FileText className="h-5 w-5 text-orange-600" />
+                      </div>
+                      <div>
+                        <p className="font-semibold">{request.documentType}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Requested {format(new Date(request.requestedAt?.seconds * 1000 || Date.now()), "MMM d, yyyy 'at' h:mm a")}
                         </p>
-                      )}
+                        {request.notes && (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Notes: {request.notes}
+                          </p>
+                        )}
+                      </div>
                     </div>
+                    <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                      Pending
+                    </Badge>
                   </div>
-                  <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                    Pending
-                  </Badge>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
       {/* Completed Requests */}
+      {showCompletedCard && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -671,7 +712,23 @@ export default function DocumentsPage() {
           )}
         </CardContent>
       </Card>
+      )}
     </div>
+  );
+}
+
+export default function DocumentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="container mx-auto py-6 space-y-6">
+          <div className="h-10 w-64 animate-pulse rounded-md bg-muted" />
+          <div className="h-48 animate-pulse rounded-xl bg-muted" />
+        </div>
+      }
+    >
+      <DocumentsPageContent />
+    </Suspense>
   );
 }
 

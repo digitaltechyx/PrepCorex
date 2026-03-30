@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
-import type { InventoryItem, ShippedItem, Invoice } from "@/types";
+import type { InventoryItem, ShippedItem, Invoice, DisposeRequest } from "@/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,9 +21,9 @@ import {
   DollarSign,
   AlertTriangle,
   Truck,
-  RefreshCw,
   CheckCircle2,
   PlugZap,
+  FileText,
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
@@ -43,9 +43,26 @@ import {
 import { Area, AreaChart, Bar, BarChart, Pie, PieChart, CartesianGrid, XAxis, Cell } from "recharts";
 
 type InventoryRequestLite = {
+  id?: string;
   status?: string;
   productName?: string;
   rejectionReason?: string;
+  addDate?: { seconds: number; nanoseconds: number } | string;
+  requestedAt?: { seconds: number; nanoseconds: number } | string;
+};
+
+type DocumentRequestLite = {
+  id?: string;
+  status?: string;
+  documentType?: string;
+  requestedAt?: { seconds: number; nanoseconds: number } | string;
+};
+
+type ProductReturnLite = {
+  id: string;
+  productName?: string;
+  status?: string;
+  createdAt?: { seconds: number; nanoseconds: number } | string;
 };
 
 type ShipmentRequestLite = {
@@ -151,10 +168,10 @@ export default function DashboardPage() {
   } = useCollection<Invoice>(
     userProfile ? `users/${userProfile.uid}/invoices` : ""
   );
-  const { data: inventoryRequests } = useCollection<InventoryRequestLite>(
+  const { data: inventoryRequests, loading: inventoryRequestsLoading } = useCollection<InventoryRequestLite>(
     userProfile ? `users/${userProfile.uid}/inventoryRequests` : ""
   );
-  const { data: shipmentRequests } = useCollection<ShipmentRequestLite>(
+  const { data: shipmentRequests, loading: shipmentRequestsLoading } = useCollection<ShipmentRequestLite>(
     userProfile ? `users/${userProfile.uid}/shipmentRequests` : ""
   );
   const { data: shopifyConnections, loading: shopifyConnectionsLoading } = useCollection<Record<string, unknown>>(
@@ -162,6 +179,15 @@ export default function DashboardPage() {
   );
   const { data: ebayConnections, loading: ebayConnectionsLoading } = useCollection<Record<string, unknown>>(
     userProfile ? `users/${userProfile.uid}/ebayConnections` : ""
+  );
+  const { data: documentRequestsLite, loading: documentRequestsLoading } = useCollection<DocumentRequestLite>(
+    userProfile ? `users/${userProfile.uid}/documentRequests` : ""
+  );
+  const { data: productReturns, loading: productReturnsLoading } = useCollection<ProductReturnLite>(
+    userProfile ? `users/${userProfile.uid}/productReturns` : ""
+  );
+  const { data: disposeRequests, loading: disposeRequestsLoading } = useCollection<DisposeRequest>(
+    userProfile ? `users/${userProfile.uid}/disposeRequests` : ""
   );
 
   const hasDateRange = Boolean(dateRangeFrom && dateRangeTo);
@@ -242,6 +268,97 @@ export default function DashboardPage() {
     if (hasShopify || hasEbay) return { label: "Partial", pct: 70 };
     return { label: "Not Connected", pct: 20 };
   }, [shopifyConnections.length, ebayConnections.length]);
+
+  const openDocumentRequestsCount = useMemo(
+    () => documentRequestsLite.filter((r) => (r.status || "").toLowerCase() === "pending").length,
+    [documentRequestsLite]
+  );
+
+  const recentActivityRows = useMemo(() => {
+    type Row = {
+      id: string;
+      type: string;
+      detail: string;
+      dateLabel: string;
+      status: string;
+      ms: number;
+      href: string;
+    };
+    const rows: Row[] = [];
+
+    const inRange = (d: Date | null) => {
+      if (!d) return false;
+      if (!hasDateRange) return true;
+      return isDateInRange(d, dateRangeFrom, dateRangeTo);
+    };
+
+    const push = (id: string, type: string, detail: string, date: Date | null, status: string, href: string) => {
+      if (!date || !inRange(date)) return;
+      const label = (detail || "—").trim() || "—";
+      rows.push({
+        id,
+        type,
+        detail: label.length > 100 ? `${label.slice(0, 97)}…` : label,
+        dateLabel: date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+        status: status || "—",
+        ms: date.getTime(),
+        href,
+      });
+    };
+
+    shipmentRequests.forEach((req, i) => {
+      const d = normalizeRequestDate(req.requestedAt || req.date);
+      const first = req.shipments?.[0];
+      const detail =
+        first?.productName ||
+        (req.shipments && req.shipments.length > 1
+          ? `${req.shipments.length} products`
+          : "Shipment request");
+      push(`ship-${req.id ?? i}`, "Shipment", detail, d, req.status || "—", "/dashboard/shipped-orders?status=pending");
+    });
+
+    inventoryRequests.forEach((req, i) => {
+      const d = normalizeRequestDate(req.requestedAt || req.addDate);
+      push(`inv-${req.id ?? i}`, "Inventory", req.productName || "Inventory request", d, req.status || "—", "/dashboard/inventory");
+    });
+
+    productReturns.forEach((r) => {
+      const d = normalizeRequestDate(r.createdAt);
+      push(`ret-${r.id}`, "Return", r.productName || "Product return", d, r.status || "—", "/dashboard/product-returns");
+    });
+
+    disposeRequests.forEach((r, i) => {
+      const d = normalizeRequestDate(r.requestedAt);
+      push(`dis-${r.id ?? i}`, "Dispose", r.productName || "Dispose request", d, r.status || "—", "/dashboard/recycle-bin");
+    });
+
+    documentRequestsLite.forEach((r, i) => {
+      const d = normalizeRequestDate(r.requestedAt);
+      const st = (r.status || "").toLowerCase();
+      const docHref =
+        st === "complete" ? "/dashboard/documents?status=complete" : "/dashboard/documents?status=pending";
+      push(`doc-${r.id ?? i}`, "Document", r.documentType || "Document request", d, r.status || "—", docHref);
+    });
+
+    rows.sort((a, b) => b.ms - a.ms);
+    return rows.slice(0, 10);
+  }, [
+    shipmentRequests,
+    inventoryRequests,
+    productReturns,
+    disposeRequests,
+    documentRequestsLite,
+    hasDateRange,
+    dateRangeFrom,
+    dateRangeTo,
+  ]);
+
+  const activityLoading =
+    inventoryRequestsLoading ||
+    shipmentRequestsLoading ||
+    documentRequestsLoading ||
+    productReturnsLoading ||
+    disposeRequestsLoading;
 
   const sourceSplit = useMemo(() => {
     const rows = inventoryData as InventoryItemWithSource[];
@@ -396,10 +513,37 @@ export default function DashboardPage() {
     { title: "Total Inventory", value: String(totalItemsInInventory), hint: "Units across all products", icon: Boxes, iconBg: "bg-blue-500/10 text-blue-600", href: "/dashboard/inventory" },
     { title: "Low Stock SKUs", value: String(lowStockItems.length), hint: "Qty ≤ 10", icon: AlertTriangle, iconBg: "bg-amber-500/10 text-amber-600", href: "/dashboard/inventory?status=low-stock" },
     { title: "Pending Orders", value: String(pendingFulfillmentCount), hint: "Awaiting fulfillment", icon: Clock3, iconBg: "bg-orange-500/10 text-orange-600", href: "/dashboard/shipped-orders?status=pending" },
-    { title: hasDateRange ? "Shipped in period" : "Today Shipped Orders", value: String(todaysShippedOrders), hint: hasDateRange ? "In selected date range" : "Shipments recorded", icon: Truck, iconBg: "bg-violet-500/10 text-violet-600", href: "/dashboard/shipped-orders?status=shipped" },
+    {
+      title: hasDateRange ? "Shipped in period" : "Today Shipped Orders",
+      value: String(todaysShippedOrders),
+      hint: hasDateRange ? "In selected date range" : "Shipments recorded",
+      icon: Truck,
+      iconBg: "bg-violet-500/10 text-violet-600",
+      href: hasDateRange
+        ? "/dashboard/shipped-orders?status=shipped"
+        : "/dashboard/shipped-orders?status=shipped&date=today",
+    },
     { title: "Pending Invoice", value: invoicesLoading ? "..." : `$${Number(totalPendingAmount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, hint: "Outstanding balance", icon: DollarSign, iconBg: "bg-emerald-500/10 text-emerald-600", href: "/dashboard/invoices" },
-    { title: "Integration Health", value: shopifyConnectionsLoading || ebayConnectionsLoading ? "..." : `${integrationHealth.pct}%`, hint: integrationHealth.label, icon: RefreshCw, iconBg: "bg-teal-500/10 text-teal-600" },
+    {
+      title: "Open Documents Requests",
+      value: String(openDocumentRequestsCount),
+      hint: "Awaiting admin",
+      icon: FileText,
+      iconBg: "bg-teal-500/10 text-teal-600",
+      href: "/dashboard/documents?status=pending",
+    },
   ];
+
+  const activityStatusClass = (status: string) => {
+    const s = status.toLowerCase();
+    if (s === "pending") return "bg-amber-100 text-amber-800";
+    if (s === "approved" || s === "complete") return "bg-blue-100 text-blue-800";
+    if (s === "rejected") return "bg-red-100 text-red-800";
+    if (s === "in_progress") return "bg-sky-100 text-sky-800";
+    if (s === "closed" || s === "shipped") return "bg-emerald-100 text-emerald-800";
+    if (s === "cancelled") return "bg-rose-100 text-rose-800";
+    return "bg-neutral-100 text-neutral-700";
+  };
 
   return (
     <div className="min-h-full bg-neutral-50/80">
@@ -524,6 +668,56 @@ export default function DashboardPage() {
           </Card>
         </section>
 
+        {/* Integration health — compact status bar above alerts */}
+        <div className="rounded-xl border border-neutral-200/80 bg-white/90 px-4 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-500/10 text-teal-600">
+                <PlugZap className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-neutral-900">Integration health</p>
+                <p className="text-xs text-neutral-500 truncate">
+                  Shopify: {shopifyConnections.length > 0 ? "Connected" : "Not connected"}
+                  <span className="mx-1.5 text-neutral-300">·</span>
+                  eBay: {ebayConnections.length > 0 ? "Connected" : "Not connected"}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-1 items-center gap-3 sm:max-w-md sm:flex-initial">
+              {shopifyConnectionsLoading || ebayConnectionsLoading ? (
+                <Skeleton className="h-2 flex-1 rounded-full" />
+              ) : (
+                <>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-100">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all",
+                        integrationHealth.pct >= 100 && "bg-emerald-500",
+                        integrationHealth.pct === 70 && "bg-amber-500",
+                        integrationHealth.pct < 70 && "bg-rose-400"
+                      )}
+                      style={{ width: `${integrationHealth.pct}%` }}
+                    />
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-neutral-800">
+                    {integrationHealth.pct}%
+                  </span>
+                  <Badge variant="secondary" className="shrink-0 text-xs font-medium">
+                    {integrationHealth.label}
+                  </Badge>
+                </>
+              )}
+            </div>
+            <Link
+              href="/dashboard/integrations"
+              className="text-sm font-medium text-teal-700 hover:text-teal-800 hover:underline sm:shrink-0"
+            >
+              Manage →
+            </Link>
+          </div>
+        </div>
+
         {/* Alerts — separate section after graph and donut */}
         <section>
           <Card className="overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
@@ -626,6 +820,73 @@ export default function DashboardPage() {
                               <Badge variant={item.stockLeft <= 10 ? "destructive" : "secondary"} className="font-medium">
                                 {item.stockLeft}
                               </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Recent activity — same idea as admin dashboard */}
+        <section>
+          <Card className="overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
+            <CardHeader className="pb-2 pt-6 px-6">
+              <CardTitle className="text-base font-semibold text-neutral-900">Recent activity</CardTitle>
+              <CardDescription className="text-neutral-500">
+                {hasDateRange
+                  ? "Latest requests in your selected date range"
+                  : "Your latest requests and updates (up to 10)"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="px-6 pb-6">
+              {activityLoading ? (
+                <Skeleton className="h-[220px] w-full rounded-lg" />
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-neutral-200/80">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-neutral-200 bg-neutral-50/80 hover:bg-neutral-50/80">
+                        <TableHead className="font-medium text-neutral-600">Type</TableHead>
+                        <TableHead className="font-medium text-neutral-600">Details</TableHead>
+                        <TableHead className="font-medium text-neutral-600">Date</TableHead>
+                        <TableHead className="font-medium text-neutral-600">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recentActivityRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="py-10 text-center text-sm text-neutral-500">
+                            {hasDateRange
+                              ? "No activity in this date range"
+                              : "No recent activity yet"}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        recentActivityRows.map((row) => (
+                          <TableRow key={row.id} className="border-neutral-100">
+                            <TableCell className="font-medium text-neutral-900">
+                              <Link href={row.href} className="hover:underline">
+                                {row.type}
+                              </Link>
+                            </TableCell>
+                            <TableCell className="max-w-[200px] truncate text-neutral-600 sm:max-w-xs">
+                              {row.detail}
+                            </TableCell>
+                            <TableCell className="text-neutral-600">{row.dateLabel}</TableCell>
+                            <TableCell>
+                              <span
+                                className={cn(
+                                  "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
+                                  activityStatusClass(row.status)
+                                )}
+                              >
+                                {row.status}
+                              </span>
                             </TableCell>
                           </TableRow>
                         ))
