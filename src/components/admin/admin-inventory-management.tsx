@@ -22,6 +22,7 @@ import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, Histor
 import { AddInventoryForm } from "@/components/admin/add-inventory-form";
 import { AddInventoryRequestForm } from "@/components/dashboard/add-inventory-request-form";
 import { ShipInventoryForm } from "@/components/admin/ship-inventory-form";
+import { CreateShipmentWithLabelsForm } from "@/components/dashboard/create-shipment-with-labels-form";
 import { ShipmentRequestsManagement } from "@/components/admin/shipment-requests-management";
 import { InventoryRequestsManagement } from "@/components/admin/inventory-requests-management";
 import { ProductReturnsManagement } from "@/components/admin/product-returns-management";
@@ -214,6 +215,7 @@ export function AdminInventoryManagement({
   // Single state to track active section
   const [activeSection, setActiveSection] = useState<string>("current-inventory");
   const [addInventoryMode, setAddInventoryMode] = useState<"quick" | "request">("quick");
+  const [shipInventoryMode, setShipInventoryMode] = useState<"quick" | "request">("quick");
   // User Requests tab (shipment | inventory | return | dispose)
   const [userRequestsTab, setUserRequestsTab] = useState<"shipment" | "inventory" | "return" | "dispose">(
     initialRequestTab ? notificationTypeToTabValue(initialRequestTab) : "shipment"
@@ -1946,11 +1948,39 @@ export function AdminInventoryManagement({
               Ship Inventory
             </CardTitle>
             <CardDescription className="text-cyan-700">
-              Record a shipment from {selectedUser.name}'s inventory
+              Quick ship removes stock immediately, or create a pending shipment request (labels, services, product types) under {selectedUser.name}&apos;s account—same as the client flow.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
-            <ShipInventoryForm userId={selectedUser.uid} inventory={inventory} />
+            <Tabs
+              value={shipInventoryMode}
+              onValueChange={(v) => setShipInventoryMode(v as "quick" | "request")}
+            >
+              <TabsList className="w-full grid grid-cols-2 bg-slate-100 p-1 rounded-lg">
+                <TabsTrigger
+                  value="quick"
+                  className="rounded-md data-[state=active]:bg-cyan-600 data-[state=active]:text-white"
+                >
+                  Quick Ship
+                </TabsTrigger>
+                <TabsTrigger
+                  value="request"
+                  className="rounded-md data-[state=active]:bg-cyan-600 data-[state=active]:text-white"
+                >
+                  Create Shipment Request
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="quick" className="mt-4">
+                <ShipInventoryForm userId={selectedUser.uid} inventory={inventory} />
+              </TabsContent>
+              <TabsContent value="request" className="mt-4">
+                <CreateShipmentWithLabelsForm
+                  inventory={inventory}
+                  targetUserId={selectedUser.uid}
+                  targetUserName={selectedUser.name ?? selectedUser.email ?? "User"}
+                />
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       )}

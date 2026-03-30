@@ -102,6 +102,12 @@ const formSchema = z.object({
 
 interface CreateShipmentWithLabelsFormProps {
   inventory: InventoryItem[];
+  /**
+   * When set (e.g. admin creating for a client), shipment requests and pricing
+   * subcollections use this user. Defaults to the signed-in user.
+   */
+  targetUserId?: string;
+  targetUserName?: string;
 }
 
 interface LabelItem {
@@ -115,19 +121,17 @@ interface LabelUploadState {
   isUploading: boolean;
 }
 
-export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLabelsFormProps) {
+export function CreateShipmentWithLabelsForm({
+  inventory,
+  targetUserId,
+  targetUserName,
+}: CreateShipmentWithLabelsFormProps) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
-  
-  // Early return if user is not loaded
-  if (!user || !userProfile) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        Loading user data...
-      </div>
-    );
-  }
-  
+  const ownerId = targetUserId ?? user?.uid ?? "";
+  const ownerDisplayName =
+    (targetUserName ?? userProfile?.name ?? "").trim() || "Unknown User";
+
   const [isLoading, setIsLoading] = useState(false);
   const [query, setQuery] = useState("");
   
@@ -168,23 +172,21 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
     name: "shipmentGroups",
   });
 
-  // Fetch user's pricing rules
+  // Fetch pricing for the inventory owner (client), including when admin targets a user
   const { data: pricingRules } = useCollection<UserPricing>(
-    userProfile ? `users/${userProfile.uid}/pricing` : ""
+    ownerId ? `users/${ownerId}/pricing` : ""
   );
-  
-  // Fetch forwarding pricing
+
   const { data: boxForwardingPricing } = useCollection<UserBoxForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/boxForwardingPricing` : ""
+    ownerId ? `users/${ownerId}/boxForwardingPricing` : ""
   );
-  
+
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/palletForwardingPricing` : ""
+    ownerId ? `users/${ownerId}/palletForwardingPricing` : ""
   );
-  
-  // Fetch additional services pricing
+
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    userProfile ? `users/${userProfile.uid}/additionalServicesPricing` : ""
+    ownerId ? `users/${ownerId}/additionalServicesPricing` : ""
   );
 
 
@@ -430,7 +432,7 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
   };
 
   const uploadOneLabel = async (groupIndex: number, itemIndex: number, file: File): Promise<string | null> => {
-    if (!userProfile) return null;
+    if (!ownerId) return null;
     let fileToUpload = file;
     if (file.type.startsWith("image/")) {
       const compressedFile = await compressImage(file);
@@ -438,7 +440,7 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
       fileToUpload = compressedFile;
     }
     const currentDate = new Date();
-    const clientName = userProfile.name || "Unknown User";
+    const clientName = ownerDisplayName;
     const formData = new FormData();
     formData.append('file', fileToUpload);
     formData.append('clientName', clientName);
@@ -562,11 +564,27 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
   };
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!user || !userProfile) {
+    if (!user) {
       toast({
         variant: "destructive",
         title: "Error",
         description: "You must be logged in to create shipment requests.",
+      });
+      return;
+    }
+    if (!ownerId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No client user selected for shipment requests.",
+      });
+      return;
+    }
+    if (!targetUserId && !userProfile) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "User profile is still loading. Try again in a moment.",
       });
       return;
     }
@@ -640,16 +658,16 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
           });
 
         const writeOneRequest = (shipmentsSlice: typeof group.shipments, productType?: ProductType, customDimensions?: string) => {
-          const requestRef = doc(collection(db, `users/${user.uid}/shipmentRequests`));
+          const requestRef = doc(collection(db, `users/${ownerId}/shipmentRequests`));
           const requestData: any = {
-            userId: user.uid,
-            userName: userProfile.name || "Unknown User",
+            userId: ownerId,
+            userName: ownerDisplayName,
             date: dateTimestamp,
             remarks: group.remarks || undefined,
             shipmentType: group.shipmentType,
             labelUrl: labelUrl || "",
             status: "pending",
-            requestedBy: user.uid,
+            requestedBy: ownerId,
             requestedAt,
           };
 
@@ -713,7 +731,9 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
 
       toast({
         title: "Success",
-        description: `${totalRequestsCreated} shipment request(s) with labels submitted successfully. Admin will review them.`,
+        description: targetUserId
+          ? `${totalRequestsCreated} shipment request(s) created for ${ownerDisplayName}.`
+          : `${totalRequestsCreated} shipment request(s) with labels submitted successfully. Admin will review them.`,
       });
 
       form.reset({
@@ -772,14 +792,24 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
     });
   };
 
+  if (!user || (!targetUserId && !userProfile)) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        Loading user data...
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Simple Fulfillment Notice */}
-      <div className="p-4 border border-green-200 rounded-lg bg-green-50">
-        <p className="text-sm text-green-800 font-medium">
-          For same day fulfillment please create shipment before 11 am EST.
-        </p>
-      </div>
+      {!targetUserId && (
+        <div className="p-4 border border-green-200 rounded-lg bg-green-50">
+          <p className="text-sm text-green-800 font-medium">
+            For same day fulfillment please create shipment before 11 am EST.
+          </p>
+        </div>
+      )}
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit, onInvalidSubmit)} className="space-y-6">
