@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import type { Invoice } from "@/types";
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 export default function InvoicesPage() {
   const { userProfile } = useAuth();
   const [invoiceListTab, setInvoiceListTab] = useState<"pending" | "paid">("pending");
+  const invoicesSectionRef = useRef<HTMLDivElement | null>(null);
 
   const {
     data: invoices,
@@ -26,6 +27,14 @@ export default function InvoicesPage() {
   const totalAmount = invoices.reduce((sum, inv) => sum + (inv.grandTotal || 0), 0);
   const pendingAmount = pendingInvoices.reduce((sum, inv) => sum + (inv.grandTotal || 0), 0);
 
+  const handleStatsCardTabClick = (tab: "pending" | "paid") => {
+    setInvoiceListTab(tab);
+    invoicesSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
@@ -33,8 +42,8 @@ export default function InvoicesPage() {
         <Card
           role="button"
           tabIndex={0}
-          onClick={() => setInvoiceListTab("paid")}
-          onKeyDown={(e) => e.key === "Enter" && setInvoiceListTab("paid")}
+          onClick={() => handleStatsCardTabClick("paid")}
+          onKeyDown={(e) => e.key === "Enter" && handleStatsCardTabClick("paid")}
           className={cn(
             "border-2 border-purple-200/50 bg-gradient-to-br from-purple-50 to-purple-100/50 shadow-lg cursor-pointer transition-all hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2",
             invoiceListTab === "paid" && "ring-2 ring-purple-400"
@@ -55,8 +64,8 @@ export default function InvoicesPage() {
         <Card
           role="button"
           tabIndex={0}
-          onClick={() => setInvoiceListTab("pending")}
-          onKeyDown={(e) => e.key === "Enter" && setInvoiceListTab("pending")}
+          onClick={() => handleStatsCardTabClick("pending")}
+          onKeyDown={(e) => e.key === "Enter" && handleStatsCardTabClick("pending")}
           className={cn(
             "border-2 border-orange-200/50 bg-gradient-to-br from-orange-50 to-orange-100/50 shadow-lg cursor-pointer transition-all hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2",
             invoiceListTab === "pending" && "ring-2 ring-orange-400"
@@ -115,7 +124,7 @@ export default function InvoicesPage() {
       </Alert>
 
       {/* Invoices Section */}
-      <Card className="border-2 shadow-xl overflow-hidden">
+      <Card ref={invoicesSectionRef} className="border-2 shadow-xl overflow-hidden">
         <CardHeader className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white pb-4">
           <div className="flex items-center justify-between">
             <div>
