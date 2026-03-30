@@ -7,13 +7,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { History, TrendingUp, Calendar } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { History, TrendingUp, Calendar, Search, X } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
 
 export default function RestockHistoryPage() {
   const { userProfile } = useAuth();
   const [restockDateFilter, setRestockDateFilter] = useState<string>("all");
+  const [restockSearch, setRestockSearch] = useState("");
   const [restockPage, setRestockPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -61,7 +63,12 @@ export default function RestockHistoryPage() {
   };
 
   const filteredRestockHistory = restockHistory.filter((item) => {
-    return matchesDateFilter(item.restockedAt, restockDateFilter);
+    const q = restockSearch.trim().toLowerCase();
+    const matchesSearch =
+      q.length === 0 ||
+      (item.productName || "").toLowerCase().includes(q) ||
+      (item.restockedBy || "").toLowerCase().includes(q);
+    return matchesDateFilter(item.restockedAt, restockDateFilter) && matchesSearch;
   });
 
   const totalRestockPages = Math.ceil(filteredRestockHistory.length / itemsPerPage);
@@ -99,6 +106,32 @@ export default function RestockHistoryPage() {
         <CardContent className="p-6">
           {/* Filter Section */}
           <div className="flex flex-col sm:flex-row gap-4 mb-6 pb-6 border-b">
+            <div className="relative w-full sm:w-[320px]">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={restockSearch}
+                onChange={(e) => {
+                  setRestockSearch(e.target.value);
+                  resetRestockPagination();
+                }}
+                placeholder="Search product or restocked by..."
+                className="pl-9 pr-8"
+              />
+              {restockSearch && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 p-0"
+                  onClick={() => {
+                    setRestockSearch("");
+                    resetRestockPagination();
+                  }}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Calendar className="h-4 w-4" />
               <span>Filter by date:</span>
@@ -172,7 +205,7 @@ export default function RestockHistoryPage() {
               </div>
               <h3 className="text-xl font-bold mb-2">No restock history</h3>
               <p className="text-muted-foreground">
-                {restockHistory.length === 0 ? "No products have been restocked yet." : "No restocks match your date filter."}
+                {restockHistory.length === 0 ? "No products have been restocked yet." : "No restocks match your search or date filter."}
               </p>
             </div>
           )}
