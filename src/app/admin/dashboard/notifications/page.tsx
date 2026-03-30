@@ -13,7 +13,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { format } from "date-fns";
+import {
+  format,
+  startOfDay,
+  endOfDay,
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+  startOfYear,
+  endOfYear,
+} from "date-fns";
 import { hasRole } from "@/lib/permissions";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
@@ -60,6 +70,39 @@ function inRange(ms: number, from?: Date, to?: Date): boolean {
   if (fromMs !== null && ms < fromMs) return false;
   if (toMs !== null && ms > toMs) return false;
   return true;
+}
+
+/** Quick date-range presets for the notifications list (local calendar). Week = Monday–Sunday. */
+type NotificationDateRangePreset = "all" | "today" | "this_week" | "this_month" | "this_year";
+
+function rangeForDatePreset(preset: Exclude<NotificationDateRangePreset, "all">, now = new Date()): { from: Date; to: Date } {
+  switch (preset) {
+    case "today":
+      return { from: startOfDay(now), to: endOfDay(now) };
+    case "this_week":
+      return {
+        from: startOfWeek(now, { weekStartsOn: 1 }),
+        to: endOfWeek(now, { weekStartsOn: 1 }),
+      };
+    case "this_month":
+      return { from: startOfMonth(now), to: endOfMonth(now) };
+    case "this_year":
+      return { from: startOfYear(now), to: endOfYear(now) };
+  }
+}
+
+const NOTIFICATION_TYPE_URL_VALUES = new Set<string>([
+  "all",
+  "shipment_request",
+  "inventory_request",
+  "product_return",
+  "dispose_request",
+]);
+
+const PERIOD_URL_VALUES = new Set<string>(["all", "today", "this_week", "this_month", "this_year"]);
+
+function isNotificationTypeParam(v: string): v is NotificationType {
+  return v === "shipment_request" || v === "inventory_request" || v === "product_return" || v === "dispose_request";
 }
 
 function statusBadgeClass(status: string): string {
@@ -133,10 +176,46 @@ export default function AdminNotificationsPage() {
       setActiveTab(tabFromUrl as "all" | Exclude<StatusFilter, "all">);
     }
   }, [tabFromUrl]);
+
   const [typeFilter, setTypeFilter] = useState<"all" | NotificationType>("all");
   const [userIdFilter, setUserIdFilter] = useState<string>("all");
+  const [dateRangePreset, setDateRangePreset] = useState<NotificationDateRangePreset>("all");
   const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
   const [toDate, setToDate] = useState<Date | undefined>(undefined);
+
+  /** Deep-link filters (e.g. Today Shipped Orders KPI → ?type=shipment_request&user=all&period=today). Only applies when each param is present so ?tab=pending alone is unchanged. */
+  const filterParamsKey = [
+    searchParams.get("type") ?? "",
+    searchParams.get("user") ?? searchParams.get("userId") ?? "",
+    searchParams.get("period") ?? "",
+  ].join("|");
+
+  useEffect(() => {
+    const type = searchParams.get("type");
+    if (type !== null && NOTIFICATION_TYPE_URL_VALUES.has(type)) {
+      setTypeFilter(type === "all" || !isNotificationTypeParam(type) ? "all" : type);
+    }
+
+    const user = searchParams.get("user") ?? searchParams.get("userId");
+    if (user !== null) {
+      setUserIdFilter(user === "all" || user === "" ? "all" : user);
+    }
+
+    const period = searchParams.get("period");
+    if (period !== null && PERIOD_URL_VALUES.has(period)) {
+      if (period === "all" || period === "") {
+        setDateRangePreset("all");
+        setFromDate(undefined);
+        setToDate(undefined);
+      } else {
+        const p = period as Exclude<NotificationDateRangePreset, "all">;
+        setDateRangePreset(p);
+        const { from, to } = rangeForDatePreset(p);
+        setFromDate(from);
+        setToDate(to);
+      }
+    }
+  }, [filterParamsKey, searchParams]);
   const [notificationPage, setNotificationPage] = useState(1);
   const [loading, setLoading] = useState(false);
 
@@ -382,7 +461,19 @@ export default function AdminNotificationsPage() {
   // Reset to page 1 when filters or tab change
   useEffect(() => {
     setNotificationPage(1);
-  }, [activeTab, typeFilter, userIdFilter, fromDate, toDate]);
+  }, [activeTab, typeFilter, userIdFilter, fromDate, toDate, dateRangePreset]);
+
+  const onDateRangePresetChange = (value: NotificationDateRangePreset) => {
+    setDateRangePreset(value);
+    if (value === "all") {
+      setFromDate(undefined);
+      setToDate(undefined);
+      return;
+    }
+    const { from, to } = rangeForDatePreset(value);
+    setFromDate(from);
+    setToDate(to);
+  };
 
   const paginatedResult = useMemo(() => {
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / NOTIFICATION_ITEMS_PER_PAGE));
@@ -520,7 +611,7 @@ export default function AdminNotificationsPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4 sm:space-y-5 pt-4 sm:pt-5">
-          {/* Filters: responsive grid — Type, User, Date range */}
+          {/* Filters: Type, User, Period preset, manual From/To */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Type</label>
@@ -555,14 +646,41 @@ export default function AdminNotificationsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:col-span-2 lg:col-span-1">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Period</label>
+              <Select value={dateRangePreset} onValueChange={(v) => onDateRangePresetChange(v as NotificationDateRangePreset)}>
+                <SelectTrigger className="w-full min-h-[44px] sm:min-h-10">
+                  <SelectValue placeholder="Period" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All time</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="this_week">This week</SelectItem>
+                  <SelectItem value="this_month">This month</SelectItem>
+                  <SelectItem value="this_year">This year</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:col-span-2 lg:col-span-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">From</label>
-                <DatePicker date={fromDate} setDate={(d) => setFromDate(d)} />
+                <DatePicker
+                  date={fromDate}
+                  setDate={(d) => {
+                    setDateRangePreset("all");
+                    setFromDate(d);
+                  }}
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">To</label>
-                <DatePicker date={toDate} setDate={(d) => setToDate(d)} />
+                <DatePicker
+                  date={toDate}
+                  setDate={(d) => {
+                    setDateRangePreset("all");
+                    setToDate(d);
+                  }}
+                />
               </div>
             </div>
           </div>

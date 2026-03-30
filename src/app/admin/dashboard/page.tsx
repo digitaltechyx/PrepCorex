@@ -714,8 +714,22 @@ export default function AdminDashboardPage() {
       href: "/admin/dashboard/invoices?tab=pending",
     },
     { title: "Pending Requests", value: requestsLoading ? "…" : String(pendingRequestsCount), hint: "All request types", icon: Bell, iconBg: "bg-indigo-500/10 text-indigo-600", href: "/admin/dashboard/notifications?tab=pending" },
-    { title: "Today Shipped Orders", value: shippedAndReceivedLoading ? "…" : String(ordersShippedToday), hint: "Shipments recorded", icon: Truck, iconBg: "bg-teal-500/10 text-teal-600", href: "/admin/dashboard/shopify-orders" },
-    { title: "Today Received Inventory", value: shippedAndReceivedLoading ? "…" : String(receivedUnitsToday), hint: "Units added", icon: PackageCheck, iconBg: "bg-amber-500/10 text-amber-600", href: "/admin/dashboard/inventory-management" },
+    {
+      title: "Today Shipped Orders",
+      value: shippedAndReceivedLoading ? "…" : String(ordersShippedToday),
+      hint: "Shipments recorded",
+      icon: Truck,
+      iconBg: "bg-teal-500/10 text-teal-600",
+      href: "/admin/dashboard/notifications?type=shipment_request&user=all&period=today",
+    },
+    {
+      title: "Today Received Inventory",
+      value: shippedAndReceivedLoading ? "…" : String(receivedUnitsToday),
+      hint: "Units added",
+      icon: PackageCheck,
+      iconBg: "bg-amber-500/10 text-amber-600",
+      href: "/admin/dashboard/notifications?type=inventory_request&user=all&period=today",
+    },
   ];
   const collectionRate = financialMetrics.billedInRange > 0
     ? Math.round((financialMetrics.paidInRange / financialMetrics.billedInRange) * 100)

@@ -24,8 +24,17 @@ import { formatUserDisplayName } from "@/lib/format-user-display";
 
 interface InvoiceManagementProps {
   users: UserProfile[];
-  /** Initial tab from URL (e.g. ?tab=pending) so dashboard Pending Invoices card opens on pending tab */
+  /**
+   * From URL (e.g. ?tab=pending). Maps to the user-list filter: pending → "Unpaid Invoices",
+   * paid → "Paid Invoices"; also sets per-user invoice sub-tabs when a user is opened.
+   */
   initialTab?: "pending" | "paid" | null;
+}
+
+function userFilterTabFromInitial(initialTab: InvoiceManagementProps["initialTab"]): "all" | "unpaid" | "paid" {
+  if (initialTab === "pending") return "unpaid";
+  if (initialTab === "paid") return "paid";
+  return "all";
 }
 
 interface UserInvoiceSummary {
@@ -49,7 +58,9 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [usersPage, setUsersPage] = useState(1);
-  const [userFilterTab, setUserFilterTab] = useState<"all" | "unpaid" | "paid">("all");
+  const [userFilterTab, setUserFilterTab] = useState<"all" | "unpaid" | "paid">(() =>
+    userFilterTabFromInitial(initialTab)
+  );
   const [activeTab, setActiveTab] = useState<"pending" | "paid">(
     initialTab === "pending" || initialTab === "paid" ? initialTab : "pending"
   );
@@ -57,6 +68,8 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   useEffect(() => {
     if (initialTab === "pending" || initialTab === "paid") {
       setActiveTab(initialTab);
+      setUserFilterTab(userFilterTabFromInitial(initialTab));
+      setUsersPage(1);
     }
   }, [initialTab]);
   const [currentPage, setCurrentPage] = useState(1);
