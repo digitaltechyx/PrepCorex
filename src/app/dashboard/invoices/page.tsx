@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import type { Invoice } from "@/types";
@@ -7,9 +8,11 @@ import { InvoicesSection } from "@/components/dashboard/invoices-section";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Receipt, DollarSign, Info, Mail } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function InvoicesPage() {
   const { userProfile } = useAuth();
+  const [invoiceListTab, setInvoiceListTab] = useState<"pending" | "paid">("pending");
 
   const {
     data: invoices,
@@ -27,7 +30,16 @@ export default function InvoicesPage() {
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border-2 border-purple-200/50 bg-gradient-to-br from-purple-50 to-purple-100/50 shadow-lg">
+        <Card
+          role="button"
+          tabIndex={0}
+          onClick={() => setInvoiceListTab("paid")}
+          onKeyDown={(e) => e.key === "Enter" && setInvoiceListTab("paid")}
+          className={cn(
+            "border-2 border-purple-200/50 bg-gradient-to-br from-purple-50 to-purple-100/50 shadow-lg cursor-pointer transition-all hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2",
+            invoiceListTab === "paid" && "ring-2 ring-purple-400"
+          )}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-purple-900">Paid Invoices</CardTitle>
             <div className="h-10 w-10 rounded-full bg-purple-500 flex items-center justify-center shadow-md">
@@ -40,7 +52,16 @@ export default function InvoicesPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-2 border-orange-200/50 bg-gradient-to-br from-orange-50 to-orange-100/50 shadow-lg">
+        <Card
+          role="button"
+          tabIndex={0}
+          onClick={() => setInvoiceListTab("pending")}
+          onKeyDown={(e) => e.key === "Enter" && setInvoiceListTab("pending")}
+          className={cn(
+            "border-2 border-orange-200/50 bg-gradient-to-br from-orange-50 to-orange-100/50 shadow-lg cursor-pointer transition-all hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2",
+            invoiceListTab === "pending" && "ring-2 ring-orange-400"
+          )}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-orange-900">Pending Invoices</CardTitle>
             <div className="h-10 w-10 rounded-full bg-orange-500 flex items-center justify-center shadow-md">
@@ -113,7 +134,12 @@ export default function InvoicesPage() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="p-6">
-            <InvoicesSection invoices={invoices} loading={invoicesLoading} />
+            <InvoicesSection
+              invoices={invoices}
+              loading={invoicesLoading}
+              activeStatusTab={invoiceListTab}
+              onActiveStatusTabChange={setInvoiceListTab}
+            />
           </div>
         </CardContent>
       </Card>

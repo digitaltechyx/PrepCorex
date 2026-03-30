@@ -21,9 +21,17 @@ import { createCommissionForInvoice } from "@/lib/commission-utils";
 interface InvoicesSectionProps {
   invoices: Invoice[];
   loading: boolean;
+  /** When set with `onActiveStatusTabChange`, the Pending/Paid tab is controlled by the parent (e.g. stat cards). */
+  activeStatusTab?: "pending" | "paid";
+  onActiveStatusTabChange?: (tab: "pending" | "paid") => void;
 }
 
-export function InvoicesSection({ invoices, loading }: InvoicesSectionProps) {
+export function InvoicesSection({
+  invoices,
+  loading,
+  activeStatusTab,
+  onActiveStatusTabChange,
+}: InvoicesSectionProps) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
@@ -32,7 +40,9 @@ export function InvoicesSection({ invoices, loading }: InvoicesSectionProps) {
   const [endDate, setEndDate] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"pending" | "paid">("pending");
+  const [internalActiveTab, setInternalActiveTab] = useState<"pending" | "paid">("pending");
+  const isControlled = activeStatusTab !== undefined && onActiveStatusTabChange !== undefined;
+  const activeTab = isControlled ? activeStatusTab! : internalActiveTab;
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
 
@@ -122,7 +132,12 @@ export function InvoicesSection({ invoices, loading }: InvoicesSectionProps) {
 
   // Reset to page 1 when tab changes
   const handleTabChange = (value: string) => {
-    setActiveTab(value as "pending" | "paid");
+    const next = value as "pending" | "paid";
+    if (isControlled) {
+      onActiveStatusTabChange!(next);
+    } else {
+      setInternalActiveTab(next);
+    }
     setCurrentPage(1);
   };
 
@@ -130,6 +145,11 @@ export function InvoicesSection({ invoices, loading }: InvoicesSectionProps) {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, dateFilter, startDate, endDate]);
+
+  useEffect(() => {
+    if (!isControlled) return;
+    setCurrentPage(1);
+  }, [activeStatusTab, isControlled]);
   
   const handleViewInvoice = async (invoice: Invoice) => {
     setSelectedInvoice(invoice);
@@ -332,16 +352,30 @@ export function InvoicesSection({ invoices, loading }: InvoicesSectionProps) {
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-            <TabsList className="grid grid-cols-2 w-full">
-              <TabsTrigger value="pending" className="flex items-center justify-center gap-2">
-                <Clock className="h-4 w-4" />
-                <span>Pending</span>
-                <Badge variant="secondary" className="text-xs">{filteredPendingInvoices.length}</Badge>
+            <TabsList className="grid w-full grid-cols-2 h-12 p-1 rounded-xl bg-slate-100/90 border">
+              <TabsTrigger
+                value="pending"
+                className="rounded-lg font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm"
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  <span>Pending</span>
+                  <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                    {filteredPendingInvoices.length}
+                  </span>
+                </div>
               </TabsTrigger>
-              <TabsTrigger value="paid" className="flex items-center justify-center gap-2">
-                <CheckCircle className="h-4 w-4" />
-                <span>Paid</span>
-                <Badge variant="secondary" className="text-xs">{filteredPaidInvoices.length}</Badge>
+              <TabsTrigger
+                value="paid"
+                className="rounded-lg font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm"
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <CheckCircle className="h-4 w-4" />
+                  <span>Paid</span>
+                  <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                    {filteredPaidInvoices.length}
+                  </span>
+                </div>
               </TabsTrigger>
             </TabsList>
 

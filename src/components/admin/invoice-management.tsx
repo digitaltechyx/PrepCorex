@@ -84,43 +84,50 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   const loadInvoices = async () => {
     setLoading(true);
     try {
+      // Load all users' invoices in parallel (faster than sequential per-user fetches).
+      const results = await Promise.all(
+        users.map(async (u) => {
+          const invoicesQuery = query(
+            collection(db, `users/${u.uid}/invoices`),
+            orderBy("createdAt", "desc")
+          );
+          const snapshot = await getDocs(invoicesQuery);
+
+          const loaded = snapshot.docs.map((invoiceDoc) => ({
+            ...(invoiceDoc.data() as Invoice),
+            id: invoiceDoc.id,
+            // Ensure owner ID is always present for actions like mark-as-paid.
+            userId: (invoiceDoc.data() as any)?.userId || u.uid,
+          }));
+
+          // Defensive: ensure latest invoices appear first even if createdAt is missing/mixed
+          const getInvoiceSortTime = (inv: any) => {
+            const createdAt = inv?.createdAt;
+            if (createdAt) {
+              if (typeof createdAt === "string") {
+                const t = new Date(createdAt).getTime();
+                if (!Number.isNaN(t)) return t;
+              }
+              if (typeof createdAt === "object" && typeof createdAt.seconds === "number") {
+                return createdAt.seconds * 1000;
+              }
+              if (createdAt instanceof Date) {
+                return createdAt.getTime();
+              }
+            }
+            const t2 = inv?.date ? new Date(inv.date).getTime() : 0;
+            return Number.isNaN(t2) ? 0 : t2;
+          };
+
+          return [u.uid, [...loaded].sort((a: any, b: any) => getInvoiceSortTime(b) - getInvoiceSortTime(a))] as const;
+        })
+      );
+
       const invoicesMap: Record<string, Invoice[]> = {};
-      
-      for (const user of users) {
-        const invoicesQuery = query(
-          collection(db, `users/${user.uid}/invoices`),
-          orderBy('createdAt', 'desc')
-        );
-        const snapshot = await getDocs(invoicesQuery);
-        
-        const loaded = snapshot.docs.map(doc => ({
-          ...doc.data() as Invoice,
-          id: doc.id,
-        }));
-
-        // Defensive: ensure latest invoices appear first even if createdAt is missing/mixed
-        const getInvoiceSortTime = (inv: any) => {
-          const createdAt = inv?.createdAt;
-          if (createdAt) {
-            if (typeof createdAt === "string") {
-              const t = new Date(createdAt).getTime();
-              if (!Number.isNaN(t)) return t;
-            }
-            if (typeof createdAt === "object" && typeof createdAt.seconds === "number") {
-              return createdAt.seconds * 1000;
-            }
-            if (createdAt instanceof Date) {
-              return createdAt.getTime();
-            }
-          }
-          // Fallback to invoice.date
-          const t2 = inv?.date ? new Date(inv.date).getTime() : 0;
-          return Number.isNaN(t2) ? 0 : t2;
-        };
-
-        invoicesMap[user.uid] = [...loaded].sort((a: any, b: any) => getInvoiceSortTime(b) - getInvoiceSortTime(a));
+      for (const [uid, list] of results) {
+        invoicesMap[uid] = list;
       }
-      
+
       setUserInvoices(invoicesMap);
     } catch (error) {
       console.error('Error loading invoices:', error);
@@ -228,6 +235,13 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
     loadInvoices();
     loadCommissions();
   }, [users]);
+
+  // Keep the opened user-invoices dialog in sync after refreshes (e.g. mark as paid).
+  useEffect(() => {
+    if (!selectedUser) return;
+    const list = userInvoices[selectedUser.uid] || [];
+    setSelectedUserInvoices(list);
+  }, [selectedUser, userInvoices]);
 
   // Calculate summary for each user
   const userSummaries: UserInvoiceSummary[] = users.map(user => {
@@ -536,19 +550,25 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
   const handleMarkAsPaid = async (invoiceId: string, invoice: Invoice) => {
     try {
+      const ownerUserId = invoice.userId || selectedUser?.uid;
+      const invoiceDocId = invoice.id || invoiceId;
+      if (!ownerUserId || !invoiceDocId) {
+        throw new Error("Missing invoice owner or invoice id.");
+      }
+
       // Find the user who owns this invoice
-      const user = users.find(u => u.uid === invoice.userId);
-      
-      await updateDoc(doc(db, `users/${invoice.userId}/invoices/${invoiceId}`), {
+      const ownerUser = users.find(u => u.uid === ownerUserId);
+
+      await updateDoc(doc(db, `users/${ownerUserId}/invoices/${invoiceDocId}`), {
         status: 'paid',
       });
       
       // Create commission if user was referred by an agent
-      if (user && invoice.status === 'pending') {
+      if (ownerUser && invoice.status === 'pending') {
         try {
           // Ensure invoice has id field
-          const invoiceWithId = { ...invoice, id: invoice.id || invoiceId };
-          await createCommissionForInvoice(invoiceWithId, user);
+          const invoiceWithId = { ...invoice, id: invoiceDocId, userId: ownerUserId };
+          await createCommissionForInvoice(invoiceWithId, ownerUser);
           // Refresh both commissions and invoices after creating commission
           await Promise.all([
             loadCommissions(), // Refresh commissions after creating
@@ -702,27 +722,42 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
               setUserFilterTab(value as "all" | "unpaid" | "paid");
               setUsersPage(1);
             }} className="w-full">
-              <TabsList className="grid grid-cols-3 w-full">
-                <TabsTrigger value="all" className="flex items-center justify-center gap-2">
-                  <Users className="h-4 w-4" />
-                  <span>All Users</span>
-                  <Badge variant="secondary" className="text-xs">
-                    {userSummaries.length}
-                  </Badge>
+              <TabsList className="grid w-full grid-cols-3 h-12 p-1 rounded-xl bg-slate-100/90 border">
+                <TabsTrigger
+                  value="all"
+                  className="rounded-lg font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-slate-700 data-[state=active]:shadow-sm"
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <Users className="h-4 w-4" />
+                    <span>All Users</span>
+                    <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                      {userSummaries.length}
+                    </span>
+                  </div>
                 </TabsTrigger>
-                <TabsTrigger value="unpaid" className="flex items-center justify-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  <span>Unpaid Invoices</span>
-                  <Badge variant="secondary" className="text-xs">
-                    {userSummaries.filter(({ pendingCount }) => pendingCount > 0).length}
-                  </Badge>
+                <TabsTrigger
+                  value="unpaid"
+                  className="rounded-lg font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm"
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    <span>Unpaid Invoices</span>
+                    <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                      {userSummaries.filter(({ pendingCount }) => pendingCount > 0).length}
+                    </span>
+                  </div>
                 </TabsTrigger>
-                <TabsTrigger value="paid" className="flex items-center justify-center gap-2">
-                  <CheckCircle className="h-4 w-4" />
-                  <span>Paid Invoices</span>
-                  <Badge variant="secondary" className="text-xs">
-                    {userSummaries.filter(({ paidCount }) => paidCount > 0).length}
-                  </Badge>
+                <TabsTrigger
+                  value="paid"
+                  className="rounded-lg font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm"
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <CheckCircle className="h-4 w-4" />
+                    <span>Paid Invoices</span>
+                    <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                      {userSummaries.filter(({ paidCount }) => paidCount > 0).length}
+                    </span>
+                  </div>
                 </TabsTrigger>
               </TabsList>
             </Tabs>

@@ -298,6 +298,7 @@ export function AdminInventoryManagement({
   const [shippedSearch, setShippedSearch] = useState("");
   const [shippedDateFilter, setShippedDateFilter] = useState<string>("all");
   const [restockDateFilter, setRestockDateFilter] = useState<string>("all");
+  const [restockSearch, setRestockSearch] = useState("");
 
   const editForm = useForm<z.infer<typeof editProductSchema>>({
     resolver: zodResolver(editProductSchema),
@@ -1290,9 +1291,14 @@ export function AdminInventoryManagement({
 
   // Filtered restock history data
   const filteredRestockHistory = useMemo(() => {
+    const q = restockSearch.trim().toLowerCase();
     const filtered = restockHistory.filter((item) => {
       const matchesDate = matchesDateFilter(item.restockedAt, restockDateFilter);
-      return matchesDate;
+      const matchesSearch =
+        q.length === 0 ||
+        (item.productName || "").toLowerCase().includes(q) ||
+        (item.restockedBy || "").toLowerCase().includes(q);
+      return matchesDate && matchesSearch;
     });
     
     // Sort by date (most recent first)
@@ -1301,7 +1307,7 @@ export function AdminInventoryManagement({
       const dateB = typeof b.restockedAt === 'string' ? new Date(b.restockedAt) : new Date(b.restockedAt.seconds * 1000);
       return dateB.getTime() - dateA.getTime();
     });
-  }, [restockHistory, restockDateFilter]);
+  }, [restockHistory, restockDateFilter, restockSearch]);
 
   // Pagination for restock history
   const restockHistoryTotalPages = Math.ceil(filteredRestockHistory.length / itemsPerPage);
@@ -2235,6 +2241,34 @@ export function AdminInventoryManagement({
                 <CardTitle>Restock Summary ({filteredRestockHistory.length})</CardTitle>
                 <CardDescription>View restock summary for {selectedUser.name}</CardDescription>
               </div>
+              <div className="w-full sm:w-72">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search product or restocked by..."
+                    value={restockSearch}
+                    onChange={(e) => {
+                      setRestockSearch(e.target.value);
+                      resetRestockHistoryPagination();
+                    }}
+                    className="pl-10 pr-10"
+                  />
+                  {restockSearch && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                      onClick={() => {
+                        setRestockSearch("");
+                        resetRestockHistoryPagination();
+                      }}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              </div>
               <div className="w-full sm:w-48">
                 <Select value={restockDateFilter} onValueChange={(value) => {
                   setRestockDateFilter(value);
@@ -2312,7 +2346,7 @@ export function AdminInventoryManagement({
                 <History className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <h3 className="text-lg font-semibold mb-2">No restock summary</h3>
                 <p className="text-muted-foreground">
-                  {restockHistory.length === 0 ? "No products have been restocked yet." : "No restocks match your date filter."}
+                  {restockHistory.length === 0 ? "No products have been restocked yet." : "No restocks match your search or date filter."}
                 </p>
               </div>
             )}

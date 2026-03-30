@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Check, X, Eye, Loader2, RotateCcw, Plus, Clock, CheckCircle, XCircle, FileStack } from "lucide-react";
+import { Check, X, Eye, Loader2, RotateCcw, Plus, Clock, CheckCircle, XCircle, FileStack, Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function formatDate(date: DisposeRequest["requestedAt"]) {
@@ -60,6 +60,7 @@ export function DisposeRequestsManagement({
   const [selectedRequest, setSelectedRequest] = useState<DisposeRequest | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [requestSearch, setRequestSearch] = useState("");
   const [rejectFeedback, setRejectFeedback] = useState("");
   const [addDisposeDialogOpen, setAddDisposeDialogOpen] = useState(false);
   const [behalfProductId, setBehalfProductId] = useState("");
@@ -87,12 +88,21 @@ export function DisposeRequestsManagement({
 
   const filteredRequests = useMemo(() => {
     let list = statusFilter === "all" ? requests : requests.filter((r) => r.status === statusFilter);
+    const q = requestSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter((r) =>
+        (r.productName || "").toLowerCase().includes(q) ||
+        (r.reason || "").toLowerCase().includes(q) ||
+        (r.status || "").toLowerCase().includes(q) ||
+        String(r.quantity || "").includes(q)
+      );
+    }
     return [...list].sort((a, b) => {
       const msA = a.requestedAt && typeof a.requestedAt === "object" && "seconds" in a.requestedAt ? a.requestedAt.seconds * 1000 : 0;
       const msB = b.requestedAt && typeof b.requestedAt === "object" && "seconds" in b.requestedAt ? b.requestedAt.seconds * 1000 : 0;
       return msB - msA;
     });
-  }, [requests, statusFilter]);
+  }, [requests, statusFilter, requestSearch]);
 
   const closeDialog = () => {
     setSelectedRequest(null);
@@ -396,8 +406,29 @@ export function DisposeRequestsManagement({
             </Card>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={requestSearch}
+                  onChange={(e) => setRequestSearch(e.target.value)}
+                  placeholder="Search product, reason, status..."
+                  className="pl-9 pr-8"
+                />
+                {requestSearch && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 p-0"
+                    onClick={() => setRequestSearch("")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground">Status</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-[140px]">
@@ -410,6 +441,7 @@ export function DisposeRequestsManagement({
                   <SelectItem value="rejected">Rejected</SelectItem>
                 </SelectContent>
               </Select>
+              </div>
             </div>
             <Button size="sm" variant="outline" onClick={() => setAddDisposeDialogOpen(true)} className="shrink-0">
               <Plus className="h-4 w-4 mr-1" />
