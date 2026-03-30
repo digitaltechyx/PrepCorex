@@ -1904,10 +1904,23 @@ export function AdminInventoryManagement({
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
-            <Tabs value={addInventoryMode} onValueChange={(v) => setAddInventoryMode(v as "quick" | "request")}>
-              <TabsList className="w-full justify-start">
-                <TabsTrigger value="quick">Quick Add</TabsTrigger>
-                <TabsTrigger value="request">Create Request (Like User)</TabsTrigger>
+            <Tabs
+              value={addInventoryMode}
+              onValueChange={(v) => setAddInventoryMode(v as "quick" | "request")}
+            >
+              <TabsList className="w-full grid grid-cols-2 bg-slate-100 p-1 rounded-lg">
+                <TabsTrigger
+                  value="quick"
+                  className="rounded-md data-[state=active]:bg-indigo-600 data-[state=active]:text-white"
+                >
+                  Quick Add
+                </TabsTrigger>
+                <TabsTrigger
+                  value="request"
+                  className="rounded-md data-[state=active]:bg-indigo-600 data-[state=active]:text-white"
+                >
+                  Create Request
+                </TabsTrigger>
               </TabsList>
               <TabsContent value="quick" className="mt-4">
                 <AddInventoryForm userId={selectedUser.uid} inventory={inventory} />
@@ -1916,6 +1929,7 @@ export function AdminInventoryManagement({
                 <AddInventoryRequestForm
                   targetUserId={selectedUser.uid}
                   targetUserName={selectedUser.name ?? selectedUser.email ?? "User"}
+                  mode="inline"
                 />
               </TabsContent>
             </Tabs>

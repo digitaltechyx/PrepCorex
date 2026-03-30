@@ -73,6 +73,7 @@ const inventoryRequestSchema = z.object({
 export function AddInventoryRequestForm({
   targetUserId,
   targetUserName,
+  mode = "dialog",
 }: {
   /**
    * When provided, creates the inventory request under this user
@@ -80,11 +81,16 @@ export function AddInventoryRequestForm({
    */
   targetUserId?: string;
   targetUserName?: string;
+  /**
+   * - `dialog` (default): shows a button that opens the request dialog
+   * - `inline`: renders the request form directly (no button/dialog)
+   */
+  mode?: "dialog" | "inline";
 } = {}) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(mode === "inline");
   const [generatedId, setGeneratedId] = useState<string>("");
 
   const ownerId = targetUserId ?? userProfile?.uid;
@@ -395,12 +401,14 @@ export function AddInventoryRequestForm({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Inventory
-        </Button>
-      </DialogTrigger>
+      {mode === "dialog" && (
+        <DialogTrigger asChild>
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Inventory
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Add Inventory Request</DialogTitle>
@@ -679,7 +687,22 @@ export function AddInventoryRequestForm({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setOpen(false)}
+                onClick={() => {
+                  if (mode === "dialog") {
+                    setOpen(false);
+                  } else {
+                    form.reset({
+                      inventoryType: "product",
+                      productSubType: "new",
+                      productId: "",
+                      productName: "",
+                      sku: "",
+                      containerSize: undefined,
+                      quantity: 1,
+                      remarks: "",
+                    });
+                  }
+                }}
                 disabled={isLoading}
               >
                 Cancel
