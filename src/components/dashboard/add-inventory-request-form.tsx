@@ -70,12 +70,25 @@ const inventoryRequestSchema = z.object({
   path: ["productId"],
 });
 
-export function AddInventoryRequestForm() {
+export function AddInventoryRequestForm({
+  targetUserId,
+  targetUserName,
+}: {
+  /**
+   * When provided, creates the inventory request under this user
+   * (admin "create request like user" workflow).
+   */
+  targetUserId?: string;
+  targetUserName?: string;
+} = {}) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [generatedId, setGeneratedId] = useState<string>("");
+
+  const ownerId = targetUserId ?? userProfile?.uid;
+  const ownerName = (targetUserName ?? userProfile?.name ?? "").trim();
 
   const form = useForm<z.infer<typeof inventoryRequestSchema>>({
     resolver: zodResolver(inventoryRequestSchema),
@@ -97,7 +110,7 @@ export function AddInventoryRequestForm() {
 
   // Fetch existing inventory for restock dropdown
   const { data: existingInventory } = useCollection<InventoryItem>(
-    userProfile ? `users/${userProfile.uid}/inventory` : ""
+    ownerId ? `users/${ownerId}/inventory` : ""
   );
 
   // Filter only "In Stock" products for restock (show all products, exclude boxes/containers/pallets)
@@ -111,7 +124,7 @@ export function AddInventoryRequestForm() {
 
   // Fetch container handling pricing
   const { data: containerHandlingPricingList } = useCollection<UserContainerHandlingPricing>(
-    userProfile ? `users/${userProfile.uid}/containerHandlingPricing` : ""
+    ownerId ? `users/${ownerId}/containerHandlingPricing` : ""
   );
 
   // Get container pricing based on selected size
@@ -123,7 +136,11 @@ export function AddInventoryRequestForm() {
   // Generate Box/Pallet/Container ID when type changes
   useEffect(() => {
     const generateId = async () => {
-      if (!user || !userProfile || (inventoryType !== "box" && inventoryType !== "pallet" && inventoryType !== "container")) {
+      if (
+        !user ||
+        !ownerId ||
+        (inventoryType !== "box" && inventoryType !== "pallet" && inventoryType !== "container")
+      ) {
         setGeneratedId("");
         form.setValue("productName", "");
         return;
@@ -131,15 +148,14 @@ export function AddInventoryRequestForm() {
 
       try {
         // Get user's name initials
-        const name = userProfile.name || "";
-        const nameParts = name.trim().split(/\s+/);
-        const firstName = nameParts[0] || "";
-        const lastName = nameParts[nameParts.length - 1] || "";
+        const nameParts = ownerName.trim() ? ownerName.trim().split(/\s+/) : [];
+        const firstName = nameParts[0] || "U";
+        const lastName = nameParts[nameParts.length - 1] || "X";
         const initials = `${firstName.charAt(0).toUpperCase()}${lastName.charAt(0).toUpperCase()}`;
 
         // Get existing boxes/pallets to find the next number
-        const inventoryRef = collection(db, `users/${user.uid}/inventory`);
-        const requestsRef = collection(db, `users/${user.uid}/inventoryRequests`);
+        const inventoryRef = collection(db, `users/${ownerId}/inventory`);
+        const requestsRef = collection(db, `users/${ownerId}/inventoryRequests`);
         
         // Query existing inventory items - removed orderBy to avoid index requirement
         const inventoryQuery = query(
@@ -209,10 +225,9 @@ export function AddInventoryRequestForm() {
       } catch (error) {
         console.error("Error generating ID:", error);
         // Fallback: use timestamp-based ID
-        const name = userProfile.name || "";
-        const nameParts = name.trim().split(/\s+/);
-        const firstName = nameParts[0] || "";
-        const lastName = nameParts[nameParts.length - 1] || "";
+        const nameParts = ownerName.trim() ? ownerName.trim().split(/\s+/) : [];
+        const firstName = nameParts[0] || "U";
+        const lastName = nameParts[nameParts.length - 1] || "X";
         const initials = `${firstName.charAt(0).toUpperCase()}${lastName.charAt(0).toUpperCase()}`;
         const typePrefix = inventoryType.toUpperCase();
         const fallbackId = `${initials}-${typePrefix}-${Date.now().toString().slice(-4)}`;
@@ -222,10 +237,10 @@ export function AddInventoryRequestForm() {
     };
 
     generateId();
-  }, [inventoryType, user, userProfile, form]);
+  }, [inventoryType, user, ownerId, ownerName, form]);
 
   async function onSubmit(values: z.infer<typeof inventoryRequestSchema>) {
-    if (!user || !userProfile) {
+    if (!user || !ownerId) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -238,8 +253,8 @@ export function AddInventoryRequestForm() {
     try {
       // For Box/Pallet, verify ID uniqueness before submitting
       if ((values.inventoryType === "box" || values.inventoryType === "pallet") && values.productName) {
-        const inventoryRef = collection(db, `users/${user.uid}/inventory`);
-        const requestsRef = collection(db, `users/${user.uid}/inventoryRequests`);
+        const inventoryRef = collection(db, `users/${ownerId}/inventory`);
+        const requestsRef = collection(db, `users/${ownerId}/inventoryRequests`);
         
         const [inventorySnapshot, requestsSnapshot] = await Promise.all([
           getDocs(query(inventoryRef, where("productName", "==", values.productName))),
@@ -277,14 +292,14 @@ export function AddInventoryRequestForm() {
       }
 
       const requestData: any = {
-        userId: user.uid,
-        userName: userProfile.name || "Unknown User",
+        userId: ownerId,
+        userName: ownerName || "Unknown User",
         inventoryType: values.inventoryType,
         productName: finalProductName,
         quantity: values.quantity,
         addDate,
         status: "pending",
-        requestedBy: user.uid,
+        requestedBy: ownerId,
         requestedAt,
       };
 
@@ -319,7 +334,7 @@ export function AddInventoryRequestForm() {
         requestData.remarks = values.remarks.trim();
       }
 
-      await addDoc(collection(db, `users/${user.uid}/inventoryRequests`), requestData);
+      await addDoc(collection(db, `users/${ownerId}/inventoryRequests`), requestData);
 
       toast({
         title: "Success",

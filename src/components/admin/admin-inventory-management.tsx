@@ -20,6 +20,7 @@ import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList } from "lucide-react";
 import { AddInventoryForm } from "@/components/admin/add-inventory-form";
+import { AddInventoryRequestForm } from "@/components/dashboard/add-inventory-request-form";
 import { ShipInventoryForm } from "@/components/admin/ship-inventory-form";
 import { ShipmentRequestsManagement } from "@/components/admin/shipment-requests-management";
 import { InventoryRequestsManagement } from "@/components/admin/inventory-requests-management";
@@ -212,6 +213,7 @@ export function AdminInventoryManagement({
   const [editingProductWithLog, setEditingProductWithLog] = useState<InventoryItem | null>(null);
   // Single state to track active section
   const [activeSection, setActiveSection] = useState<string>("current-inventory");
+  const [addInventoryMode, setAddInventoryMode] = useState<"quick" | "request">("quick");
   // User Requests tab (shipment | inventory | return | dispose)
   const [userRequestsTab, setUserRequestsTab] = useState<"shipment" | "inventory" | "return" | "dispose">(
     initialRequestTab ? notificationTypeToTabValue(initialRequestTab) : "shipment"
@@ -1902,7 +1904,21 @@ export function AdminInventoryManagement({
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
-            <AddInventoryForm userId={selectedUser.uid} inventory={inventory} />
+            <Tabs value={addInventoryMode} onValueChange={(v) => setAddInventoryMode(v as "quick" | "request")}>
+              <TabsList className="w-full justify-start">
+                <TabsTrigger value="quick">Quick Add</TabsTrigger>
+                <TabsTrigger value="request">Create Request (Like User)</TabsTrigger>
+              </TabsList>
+              <TabsContent value="quick" className="mt-4">
+                <AddInventoryForm userId={selectedUser.uid} inventory={inventory} />
+              </TabsContent>
+              <TabsContent value="request" className="mt-4">
+                <AddInventoryRequestForm
+                  targetUserId={selectedUser.uid}
+                  targetUserName={selectedUser.name ?? selectedUser.email ?? "User"}
+                />
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       )}
