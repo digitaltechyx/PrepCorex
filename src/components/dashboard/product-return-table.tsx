@@ -273,6 +273,11 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                     <div className="text-sm text-muted-foreground">Type</div>
                     <div className="font-medium">
                       {selectedReturn.type === "existing" ? "Existing Product" : "New Inventory"}
+                      {selectedReturn.type === "existing" && selectedReturn.returnType && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          ({selectedReturn.returnType === "combine" ? "Combine" : "Partial"})
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div>

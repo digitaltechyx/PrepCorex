@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ArrowLeftRight, Clock, Package, CheckCircle, FileStack } from "lucide-react";
  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
- import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
  import { ProductReturnRequestForm } from "@/components/dashboard/product-return-request-form";
  import { ProductReturnTable } from "@/components/dashboard/product-return-table";
 import { useAuth } from "@/hooks/use-auth";
@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
  export default function ProductReturnsPage() {
   const { userProfile } = useAuth();
-  const [activeTab, setActiveTab] = useState("new");
+  const [showNewRequestForm, setShowNewRequestForm] = useState(false);
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all");
 
   const { data: returns = [], loading: returnsLoading } = useCollection<ProductReturn>(
@@ -28,7 +28,6 @@ import { cn } from "@/lib/utils";
 
   const handleStatCardClick = (filter: string) => {
     setHistoryStatusFilter(filter);
-    setActiveTab("history");
   };
 
    return (
@@ -60,7 +59,7 @@ import { cn } from "@/lib/utils";
               onKeyDown={(e) => e.key === "Enter" && handleStatCardClick("pending")}
               className={cn(
                 "border-2 border-amber-200/60 bg-gradient-to-br from-amber-50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/20 shadow-md cursor-pointer transition-all hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 rounded-xl overflow-hidden",
-                activeTab === "history" && historyStatusFilter === "pending" && "ring-2 ring-amber-400"
+                historyStatusFilter === "pending" && "ring-2 ring-amber-400"
               )}
             >
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -87,7 +86,7 @@ import { cn } from "@/lib/utils";
               onKeyDown={(e) => e.key === "Enter" && handleStatCardClick("in_progress")}
               className={cn(
                 "border-2 border-blue-200/60 bg-gradient-to-br from-blue-50 to-sky-50/50 dark:from-blue-950/20 dark:to-sky-950/20 shadow-md cursor-pointer transition-all hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 rounded-xl overflow-hidden",
-                activeTab === "history" && historyStatusFilter === "in_progress" && "ring-2 ring-blue-400"
+                historyStatusFilter === "in_progress" && "ring-2 ring-blue-400"
               )}
             >
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -114,7 +113,7 @@ import { cn } from "@/lib/utils";
               onKeyDown={(e) => e.key === "Enter" && handleStatCardClick("closed")}
               className={cn(
                 "border-2 border-green-200/60 bg-gradient-to-br from-green-50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/20 shadow-md cursor-pointer transition-all hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 rounded-xl overflow-hidden",
-                activeTab === "history" && historyStatusFilter === "closed" && "ring-2 ring-green-400"
+                historyStatusFilter === "closed" && "ring-2 ring-green-400"
               )}
             >
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -141,7 +140,7 @@ import { cn } from "@/lib/utils";
               onKeyDown={(e) => e.key === "Enter" && handleStatCardClick("all")}
               className={cn(
                 "border-2 border-slate-200/60 bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-900/30 dark:to-slate-800/30 shadow-md cursor-pointer transition-all hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 rounded-xl overflow-hidden",
-                activeTab === "history" && historyStatusFilter === "all" && "ring-2 ring-slate-400"
+                historyStatusFilter === "all" && "ring-2 ring-slate-400"
               )}
             >
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -163,25 +162,27 @@ import { cn } from "@/lib/utils";
             </Card>
           </div>
 
-          <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === "new") setHistoryStatusFilter("all"); }} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 h-12 p-1 rounded-xl bg-muted/60">
-              <TabsTrigger value="new" className="rounded-lg font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-background">
-                New Request
-              </TabsTrigger>
-              <TabsTrigger value="history" className="rounded-lg font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-background">
-                History
-              </TabsTrigger>
-             </TabsList>
-            <TabsContent value="new" className="mt-6">
-               <ProductReturnRequestForm />
-             </TabsContent>
-            <TabsContent value="history" className="mt-6">
-              <ProductReturnTable
-                statusFilter={historyStatusFilter}
-                onStatusFilterChange={setHistoryStatusFilter}
-              />
-             </TabsContent>
-           </Tabs>
+          <div className="flex items-center justify-end mb-4">
+            <Button
+              type="button"
+              onClick={() => setShowNewRequestForm((prev) => !prev)}
+              variant={showNewRequestForm ? "secondary" : "default"}
+              className="rounded-lg"
+            >
+              {showNewRequestForm ? "Hide New Request" : "New Request"}
+            </Button>
+          </div>
+
+          {showNewRequestForm && (
+            <div className="mb-6">
+              <ProductReturnRequestForm />
+            </div>
+          )}
+
+          <ProductReturnTable
+            statusFilter={historyStatusFilter}
+            onStatusFilterChange={setHistoryStatusFilter}
+          />
          </CardContent>
        </Card>
      </div>
