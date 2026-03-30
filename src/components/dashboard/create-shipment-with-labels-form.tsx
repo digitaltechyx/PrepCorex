@@ -34,6 +34,9 @@ const shipmentItemSchema = z.object({
   // Custom products use placeholder pricing until admin sets final pricing.
   unitPrice: z.coerce.number().nonnegative("Unit price must be a non-negative number."),
   totalPrice: z.coerce.number().nonnegative("Total price must be a non-negative number."),
+  // Per-line type/dimensions (product shipments only; validated in group superRefine)
+  productType: z.enum(["Standard", "Large", "Custom"]).optional(),
+  customDimensions: z.string().optional(),
   // Additional Services per product - user only selects which services they want (boolean flags)
   // Admin will add quantities during approval
   selectedAdditionalServices: z.array(z.enum(["bubbleWrap", "stickerRemoval", "warningLabels"])).optional(),
@@ -46,37 +49,43 @@ const shipmentGroupSchema = z.object({
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "FBM"]).optional(),
-  productType: z.enum(["Standard", "Large", "Custom"]).optional(),
-  customDimensions: z.string().optional(),
-}).refine((data) => {
+}).superRefine((data, ctx) => {
   if (data.shipmentType === "product") {
-    return data.service && data.productType;
-  }
-  return true;
-}, {
-  message: "Service and product type are required for product shipments.",
-  path: ["service"],
-}).refine((data) => {
-  if (data.shipmentType === "product" && data.productType === "Custom") {
-    return typeof data.customDimensions === "string" && data.customDimensions.trim().length > 0;
-  }
-  return true;
-}, {
-  message: "Custom dimensions are required for Custom product type.",
-  path: ["customDimensions"],
-}).refine((data) => {
-  // For non-custom products, unit price must be > 0 for every item.
-  // Coerce to number so string values from inputs (e.g. "0.10") and floats (0.1) are accepted.
-  if (data.shipmentType === "product" && data.productType && data.productType !== "Custom") {
-    return (data.shipments || []).every((s) => {
-      const p = Number(s?.unitPrice);
-      return !Number.isNaN(p) && p > 1e-9; // allow tiny positive (float precision)
+    if (!data.service) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Service is required for product shipments.",
+        path: ["service"],
+      });
+    }
+    (data.shipments || []).forEach((s, i) => {
+      if (!s.productType) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Product type / dimension is required for each line.",
+          path: ["shipments", i, "productType"],
+        });
+      }
+      if (s.productType === "Custom") {
+        if (typeof s.customDimensions !== "string" || s.customDimensions.trim().length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Custom dimensions are required for Custom product type.",
+            path: ["shipments", i, "customDimensions"],
+          });
+        }
+      } else if (s.productType && s.productType !== "Custom") {
+        const p = Number(s.unitPrice);
+        if (Number.isNaN(p) || p <= 1e-9) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Unit price must be a positive number.",
+            path: ["shipments", i, "unitPrice"],
+          });
+        }
+      }
     });
   }
-  return true;
-}, {
-  message: "Unit price must be a positive number.",
-  path: ["shipments"],
 }).refine((data) => {
   if (data.shipmentType === "pallet") {
     return data.palletSubType;
@@ -193,13 +202,13 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
         const shipmentType = group.shipmentType;
         const palletSubType = group.palletSubType;
         const service = group.service;
-        const productType = group.productType;
         const shipments = group.shipments || [];
         
         if (!Array.isArray(shipments)) return;
         
         shipments.forEach((shipment, shipmentIndex) => {
           if (!shipment) return;
+        const lineProductType = shipment.productType;
         const quantity = shipment.quantity || 0;
         // Keep packOf for Custom too (admin needs full detail). Pricing stays placeholder for Custom.
         const packOf = shipmentType === "product" ? (shipment.packOf || 1) : 1;
@@ -208,15 +217,15 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
         let finalUnitPrice = 0;
         
         // Custom product pricing is a placeholder ($1). Admin will set final pricing during approval.
-        if (shipmentType === "product" && productType === "Custom") {
+        if (shipmentType === "product" && lineProductType === "Custom") {
           finalUnitPrice = 1;
-        } else if (shipmentType === "product" && service && productType && pricingRules && pricingRules.length > 0) {
+        } else if (shipmentType === "product" && service && lineProductType && pricingRules && pricingRules.length > 0) {
           // Use quantity (not totalUnits) to determine unit price
           // This ensures unit price stays consistent regardless of packOf value
           const calculatedPrice = calculatePrepUnitPrice(
             pricingRules,
             service,
-            productType,
+            lineProductType,
             quantity // Use quantity, not totalUnits, to get consistent unit price
           );
           if (calculatedPrice && calculatedPrice.rate !== undefined && calculatedPrice.rate !== null) {
@@ -276,18 +285,18 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
         //   Pack Of = 5: (0.10 Ã— 10) + (1.00 Ã— 4) = 1.00 + 4.00 = 5.00 (charge for 2nd, 3rd, 4th, 5th pack)
         let calculatedTotal = 0;
         // Custom product total shown to user is a placeholder ($1).
-        if (shipmentType === "product" && productType === "Custom") {
+        if (shipmentType === "product" && lineProductType === "Custom") {
           calculatedTotal = 1;
         } else if (shipmentType === "product" && finalUnitPrice > 0 && quantity > 0) {
           const baseTotal = finalUnitPrice * quantity; // Unit price Ã— quantity (not multiplied by packOf)
           let packOfPrice = 0;
-          if (service && productType && pricingRules && pricingRules.length > 0) {
+          if (service && lineProductType && pricingRules && pricingRules.length > 0) {
             // Look up packOfPrice based on quantity only, not totalUnits
             // This ensures packOfPrice doesn't change when packOf changes
             const calculatedPriceForPackOf = calculatePrepUnitPrice(
               pricingRules,
               service,
-              productType,
+              lineProductType,
               quantity // Use quantity, not totalUnits, to get the correct packOfPrice
             );
             if (calculatedPriceForPackOf) {
@@ -322,7 +331,7 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
         }
 
         // For Custom products, ensure unitPrice is always set to 1 in form state (prevents submit validation issues)
-        if (shipmentType === "product" && productType === "Custom" && Math.abs((currentUnitPrice || 0) - 1) > 0.001) {
+        if (shipmentType === "product" && lineProductType === "Custom" && Math.abs((currentUnitPrice || 0) - 1) > 0.001) {
           form.setValue(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`, 1, { shouldValidate: false });
         }
         });
@@ -342,7 +351,6 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
       date: new Date(),
       remarks: undefined,
       service: "FBA/WFS/TFS",
-      productType: "Standard",
     });
     setLabelStates(prev => ({
       ...prev,
@@ -567,6 +575,7 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
     try {
       const batch = writeBatch(db);
       const requestedAt = Timestamp.now();
+      let totalRequestsCreated = 0;
 
       // Process each shipment group
       for (let i = 0; i < values.shipmentGroups.length; i++) {
@@ -614,71 +623,97 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
           if (labelUrl) console.log(`[Group ${i + 1}] Label(s) uploaded:`, labelUrl);
         }
 
-        // Create shipment request
         const dateTimestamp = Timestamp.fromDate(group.date);
-        const requestRef = doc(collection(db, `users/${user.uid}/shipmentRequests`));
-        
-        // Build the document data, only including fields that are applicable
-        const requestData: any = {
-          userId: user.uid,
-          userName: userProfile.name || "Unknown User",
-          date: dateTimestamp,
-          remarks: group.remarks || undefined,
-          shipmentType: group.shipmentType,
-          labelUrl: labelUrl || "",
-          status: "pending",
-          requestedBy: user.uid,
-          requestedAt,
-        };
-        
-        // Set service based on shipment type
-        if (group.shipmentType === "box") {
-          requestData.service = "Box Forwarding";
-        } else if (group.shipmentType === "pallet") {
-          if (group.palletSubType === "forwarding") {
-            requestData.service = "Pallet Forwarding";
-          } else if (group.palletSubType === "existing_inventory") {
-            requestData.service = "Pallet Existing Inventory";
-          }
-          if (group.palletSubType) {
-            requestData.palletSubType = group.palletSubType;
-          }
-        } else if (group.shipmentType === "product") {
-          // For product shipments, use the selected service
-          if (group.service) {
-            requestData.service = group.service;
-          }
-          if (group.productType) {
-            requestData.productType = group.productType;
-          }
-        }
-        
-        // Clean shipments array to remove undefined values
-        requestData.shipments = group.shipments.map((shipment: any) => {
-          const cleaned: any = {
-            productId: shipment.productId,
-            quantity: shipment.quantity,
-            packOf: shipment.packOf || 1,
-            unitPrice: shipment.unitPrice || 0,
+
+        const mapShipmentsForFirestore = (rows: typeof group.shipments) =>
+          rows.map((shipment: any) => {
+            const cleaned: any = {
+              productId: shipment.productId,
+              quantity: shipment.quantity,
+              packOf: shipment.packOf || 1,
+              unitPrice: shipment.unitPrice || 0,
+            };
+            if (shipment.selectedAdditionalServices && shipment.selectedAdditionalServices.length > 0) {
+              cleaned.selectedAdditionalServices = shipment.selectedAdditionalServices;
+            }
+            return cleaned;
+          });
+
+        const writeOneRequest = (shipmentsSlice: typeof group.shipments, productType?: ProductType, customDimensions?: string) => {
+          const requestRef = doc(collection(db, `users/${user.uid}/shipmentRequests`));
+          const requestData: any = {
+            userId: user.uid,
+            userName: userProfile.name || "Unknown User",
+            date: dateTimestamp,
+            remarks: group.remarks || undefined,
+            shipmentType: group.shipmentType,
+            labelUrl: labelUrl || "",
+            status: "pending",
+            requestedBy: user.uid,
+            requestedAt,
           };
-          // Only include optional fields
-          if (shipment.selectedAdditionalServices && shipment.selectedAdditionalServices.length > 0) {
-            cleaned.selectedAdditionalServices = shipment.selectedAdditionalServices;
+
+          if (group.shipmentType === "box") {
+            requestData.service = "Box Forwarding";
+          } else if (group.shipmentType === "pallet") {
+            if (group.palletSubType === "forwarding") {
+              requestData.service = "Pallet Forwarding";
+            } else if (group.palletSubType === "existing_inventory") {
+              requestData.service = "Pallet Existing Inventory";
+            }
+            if (group.palletSubType) {
+              requestData.palletSubType = group.palletSubType;
+            }
+          } else if (group.shipmentType === "product") {
+            if (group.service) {
+              requestData.service = group.service;
+            }
+            if (productType) {
+              requestData.productType = productType;
+            }
+            if (productType === "Custom" && customDimensions?.trim()) {
+              requestData.customDimensions = customDimensions.trim();
+            }
           }
-          return cleaned;
-        });
-        
-        // Remove all undefined values before saving to Firestore
-        const cleanedRequestData = removeUndefined(requestData);
-        
-        batch.set(requestRef, cleanedRequestData);
+
+          requestData.shipments = mapShipmentsForFirestore(shipmentsSlice);
+          batch.set(requestRef, removeUndefined(requestData));
+          totalRequestsCreated += 1;
+        };
+
+        if (group.shipmentType === "product") {
+          const buckets = new Map<
+            string,
+            { productType: ProductType; customDimensions?: string; rows: typeof group.shipments }
+          >();
+          for (const row of group.shipments) {
+            const pt = row.productType;
+            if (!pt) continue;
+            const key = `${pt}||${(row.customDimensions || "").trim()}`;
+            const existing = buckets.get(key);
+            if (existing) {
+              existing.rows.push(row);
+            } else {
+              buckets.set(key, {
+                productType: pt,
+                customDimensions: pt === "Custom" ? row.customDimensions : undefined,
+                rows: [row],
+              });
+            }
+          }
+          for (const b of buckets.values()) {
+            writeOneRequest(b.rows, b.productType, b.customDimensions);
+          }
+        } else {
+          writeOneRequest(group.shipments);
+        }
       }
 
       await batch.commit();
 
       toast({
         title: "Success",
-        description: `${values.shipmentGroups.length} shipment request(s) with labels submitted successfully. Admin will review them.`,
+        description: `${totalRequestsCreated} shipment request(s) with labels submitted successfully. Admin will review them.`,
       });
 
       form.reset({
@@ -784,7 +819,6 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
             const groupShipmentType = form.watch(`shipmentGroups.${groupIndex}.shipmentType`);
             const groupPalletSubType = form.watch(`shipmentGroups.${groupIndex}.palletSubType`);
             const groupService = form.watch(`shipmentGroups.${groupIndex}.service`);
-            const groupProductType = form.watch(`shipmentGroups.${groupIndex}.productType`);
             const groupShipments = form.watch(`shipmentGroups.${groupIndex}.shipments`);
             
             // Calculate available inventory without useMemo (inside map)
@@ -815,11 +849,7 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
             const labelState = labelStates[groupIndex] || { items: [], isUploading: false };
 
             const popupKey = group.id;
-            const shipmentTypeValue = form.watch(`shipmentGroups.${groupIndex}.shipmentType`);
-            const serviceValue = form.watch(`shipmentGroups.${groupIndex}.service`);
-            const productTypeValue = form.watch(`shipmentGroups.${groupIndex}.productType`);
-            const palletSubTypeValue = form.watch(`shipmentGroups.${groupIndex}.palletSubType`);
-            
+
             return (
               <AccordionItem key={group.id} value={`shipment-${groupIndex}`} className="border-2 rounded-lg px-4 mb-4">
                 <div className="relative">
@@ -1074,20 +1104,15 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
                                                   initialTotalPrice = 0;
                                                 }
                                               }
-                                              // For product shipments:
-                                              // - Custom: placeholder pricing ($1) until admin sets final price
-                                              // - Standard/Large: set unit price from pricing rules so validation passes (UI already shows it)
-                                              if (shipmentType === "product" && group?.productType === "Custom") {
-                                                initialUnitPrice = 1;
-                                                initialTotalPrice = 1;
-                                              } else if (shipmentType === "product" && group?.service && group?.productType && pricingRules && pricingRules.length > 0) {
-                                                const calculated = calculatePrepUnitPrice(pricingRules, group.service, group.productType, 1);
+                                              // Product lines default to Standard; pricing follows per-line type via useEffect
+                                              if (shipmentType === "product" && group?.service && pricingRules && pricingRules.length > 0) {
+                                                const calculated = calculatePrepUnitPrice(pricingRules, group.service, "Standard", 1);
                                                 if (calculated?.rate != null && !Number.isNaN(calculated.rate) && calculated.rate > 0) {
                                                   initialUnitPrice = calculated.rate;
                                                   initialTotalPrice = calculated.rate;
                                                 }
                                               }
-                                              
+
                                               form.setValue(`shipmentGroups.${groupIndex}.shipments`, [
                                                 ...currentShipments,
                                                 {
@@ -1096,6 +1121,8 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
                                                   packOf: 1,
                                                   unitPrice: initialUnitPrice,
                                                   totalPrice: initialTotalPrice,
+                                                  productType: shipmentType === "product" ? ("Standard" as const) : undefined,
+                                                  customDimensions: undefined,
                                                   selectedAdditionalServices: undefined,
                                                 }
                                               ]);
@@ -1188,83 +1215,6 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
                                     }}
                                   >
                                     FBM
-                                  </Button>
-                                </div>
-                              </DialogContent>
-                            </Dialog>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )}
-
-                    {/* Product Type / Dimension - Popup (only for product type) - After Products */}
-                    {groupShipmentType === "product" && (
-                      <FormField
-                        control={form.control}
-                        name={`shipmentGroups.${groupIndex}.productType`}
-                        render={({ field }) => (
-                          <FormItem className="flex-shrink-0">
-                            <FormLabel className="text-xs text-muted-foreground mb-1 block">Product Type / Dimension *</FormLabel>
-                            <Dialog open={openPopups[`${popupKey}_productType`] || false} onOpenChange={(open) => {
-                              if (open) {
-                                setOpenPopups(prev => ({ ...prev, [`${popupKey}_productType`]: true }));
-                              } else {
-                                closePopup(popupKey, 'productType');
-                              }
-                            }}>
-                              <DialogTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="w-[180px] justify-between"
-                                  onClick={() => togglePopup(popupKey, 'productType')}
-                                >
-                                  <span className="truncate">
-                                    {field.value === "Standard" ? "Standard (6×6×6) - <3lbs" :
-                                     field.value === "Large" ? "Large (10×10×10) - <6lbs" :
-                                     field.value === "Custom" ? "Custom" : "Select"}
-                                  </span>
-                                  <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Select Product Type / Dimension</DialogTitle>
-                                </DialogHeader>
-                                <div className="space-y-2 py-4">
-                                  <Button
-                                    type="button"
-                                    variant={field.value === "Standard" ? "default" : "outline"}
-                                    className="w-full justify-start"
-                                    onClick={() => {
-                                      field.onChange("Standard");
-                                      closePopup(popupKey, 'productType');
-                                    }}
-                                  >
-                                    Standard (6×6×6) - &lt;3lbs
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant={field.value === "Large" ? "default" : "outline"}
-                                    className="w-full justify-start"
-                                    onClick={() => {
-                                      field.onChange("Large");
-                                      closePopup(popupKey, 'productType');
-                                    }}
-                                  >
-                                    Large (10×10×10) - &lt;6lbs
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant={field.value === "Custom" ? "default" : "outline"}
-                                    className="w-full justify-start"
-                                    onClick={() => {
-                                      field.onChange("Custom");
-                                      closePopup(popupKey, 'productType');
-                                    }}
-                                  >
-                                    Custom
                                   </Button>
                                 </div>
                               </DialogContent>
@@ -1369,32 +1319,6 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
                       </div>
                     </div>
 
-                  {/* Custom Dimensions Field - Only show when Custom is selected */}
-                  {groupShipmentType === "product" && groupProductType === "Custom" && (
-                    <div className="mt-4">
-                      <FormField
-                        control={form.control}
-                        name={`shipmentGroups.${groupIndex}.customDimensions`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Custom Dimensions *</FormLabel>
-                            <FormControl>
-                              <Textarea
-                                placeholder="Enter your custom dimensions (e.g., Length x Width x Height in inches, Weight in lbs)"
-                                className="min-h-[100px]"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              Please provide detailed dimensions and weight for your custom product.
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  )}
-
                   {/* Selected Products Details */}
                   {groupShipments.length > 0 ? (
                     <div className="mt-4 space-y-2">
@@ -1405,6 +1329,8 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
                         const packOf = form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf`) || 1;
                         const totalUnits = quantity * packOf;
                         const availableStock = product?.quantity || 0;
+                        const lineProductType = form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType`);
+                        const lineProductTypePopupKey = `${popupKey}_line_${shipmentIndex}_productType`;
 
                         return (
                           <div key={shipment.productId || shipmentIndex} className="border rounded-lg p-3 bg-muted/30">
@@ -1426,6 +1352,92 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
                                 <X className="h-3 w-3" />
                               </Button>
                             </div>
+                            {groupShipmentType === "product" && (
+                              <div className="mb-3 space-y-2">
+                                <FormField
+                                  control={form.control}
+                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType` as const}
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel className="text-xs">Product type / dimension *</FormLabel>
+                                      <Dialog
+                                        open={openPopups[lineProductTypePopupKey] || false}
+                                        onOpenChange={(open) => {
+                                          setOpenPopups((prev) => ({ ...prev, [lineProductTypePopupKey]: open }));
+                                        }}
+                                      >
+                                        <DialogTrigger asChild>
+                                          <Button type="button" variant="outline" className="w-full max-w-md justify-between">
+                                            <span className="truncate">
+                                              {field.value === "Standard"
+                                                ? "Standard (6×6×6) - <3lbs"
+                                                : field.value === "Large"
+                                                  ? "Large (10×10×10) - <6lbs"
+                                                  : field.value === "Custom"
+                                                    ? "Custom"
+                                                    : "Select"}
+                                            </span>
+                                            <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+                                          </Button>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                          <DialogHeader>
+                                            <DialogTitle>Product type / dimension</DialogTitle>
+                                            <DialogDescription>Applies to this line only. Submit splits requests by type.</DialogDescription>
+                                          </DialogHeader>
+                                          <div className="space-y-2 py-2">
+                                            {(["Standard", "Large", "Custom"] as const).map((opt) => (
+                                              <Button
+                                                key={opt}
+                                                type="button"
+                                                variant={field.value === opt ? "default" : "outline"}
+                                                className="w-full justify-start"
+                                                onClick={() => {
+                                                  field.onChange(opt);
+                                                  if (opt !== "Custom") {
+                                                    form.setValue(
+                                                      `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions`,
+                                                      undefined
+                                                    );
+                                                  }
+                                                  setOpenPopups((prev) => ({ ...prev, [lineProductTypePopupKey]: false }));
+                                                }}
+                                              >
+                                                {opt === "Standard"
+                                                  ? "Standard (6×6×6) - <3lbs"
+                                                  : opt === "Large"
+                                                    ? "Large (10×10×10) - <6lbs"
+                                                    : "Custom"}
+                                              </Button>
+                                            ))}
+                                          </div>
+                                        </DialogContent>
+                                      </Dialog>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                                {lineProductType === "Custom" && (
+                                  <FormField
+                                    control={form.control}
+                                    name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions` as const}
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel className="text-xs">Custom dimensions *</FormLabel>
+                                        <FormControl>
+                                          <Textarea
+                                            placeholder="Length × width × height (in), weight (lbs), etc."
+                                            className="min-h-[72px] text-sm"
+                                            {...field}
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                )}
+                              </div>
+                            )}
                             <div className="flex gap-2">
                               <FormField
                                 control={form.control}
@@ -1485,7 +1497,7 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
                                 name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice` as const}
                                 render={({ field }) => {
                                   // Custom: show placeholder $1 and admin message; admin sets final pricing on approval.
-                                  if (groupShipmentType === "product" && groupProductType === "Custom") {
+                                  if (groupShipmentType === "product" && lineProductType === "Custom") {
                                     return (
                                       <FormItem className="flex-1">
                                         <FormLabel className="text-xs">Price ($)</FormLabel>
@@ -1515,11 +1527,11 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
                                   // Recalculate unit price if not set or if we have pricing rules
                                   // Use quantity (not totalUnits) to determine unit price
                                   // This ensures unit price stays consistent regardless of packOf value
-                                  if (groupShipmentType === "product" && groupService && groupProductType && pricingRules && pricingRules.length > 0 && quantity > 0) {
+                                  if (groupShipmentType === "product" && groupService && lineProductType && pricingRules && pricingRules.length > 0 && quantity > 0) {
                                     const calculatedPrice = calculatePrepUnitPrice(
                                       pricingRules,
                                       groupService,
-                                      groupProductType,
+                                      lineProductType,
                                       quantity // Use quantity, not totalUnits, to get consistent unit price
                                     );
                                     // Always use calculated rate if available (even if it's 0.10)
@@ -1535,13 +1547,13 @@ export function CreateShipmentWithLabelsForm({ inventory }: CreateShipmentWithLa
                                   if (groupShipmentType === "product" && unitPrice > 0 && quantity > 0) {
                                     const baseTotal = unitPrice * quantity; // Unit price Ã— quantity (not multiplied by packOf)
                                     let packOfPrice = 0;
-                                    if (groupService && groupProductType && pricingRules && pricingRules.length > 0) {
+                                    if (groupService && lineProductType && pricingRules && pricingRules.length > 0) {
                                       // Look up packOfPrice based on quantity only, not totalUnits
                                       // This ensures packOfPrice doesn't change when packOf changes
                                       const calculatedPriceForPackOf = calculatePrepUnitPrice(
                                         pricingRules,
                                         groupService,
-                                        groupProductType,
+                                        lineProductType,
                                         quantity // Use quantity, not totalUnits, to get the correct packOfPrice
                                       );
                                       if (calculatedPriceForPackOf) {
