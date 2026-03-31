@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Edit, Search, X, Calendar, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
@@ -15,6 +16,8 @@ import { useState } from "react";
 export default function EditLogsPage() {
   const { userProfile } = useAuth();
   const [editLogsDateFilter, setEditLogsDateFilter] = useState<string>("all");
+  const [editLogsFromDate, setEditLogsFromDate] = useState<Date | undefined>(undefined);
+  const [editLogsToDate, setEditLogsToDate] = useState<Date | undefined>(undefined);
   const [editLogsSearch, setEditLogsSearch] = useState("");
   const [editLogsPage, setEditLogsPage] = useState(1);
   const itemsPerPage = 10;
@@ -62,13 +65,28 @@ export default function EditLogsPage() {
     }
   };
 
+  const matchesDatePickerFilter = (date: any, from?: Date, to?: Date) => {
+    if (!from && !to) return true;
+    let itemDate: Date | null = null;
+    if (typeof date === "string") itemDate = new Date(date);
+    else if (date && typeof date === "object" && date.seconds) itemDate = new Date(date.seconds * 1000);
+    if (!itemDate || Number.isNaN(itemDate.getTime())) return false;
+    const itemMs = itemDate.getTime();
+    const fromMs = from ? new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0).getTime() : null;
+    const toMs = to ? new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1, 0, 0, 0, 0).getTime() - 1 : null;
+    if (fromMs !== null && itemMs < fromMs) return false;
+    if (toMs !== null && itemMs > toMs) return false;
+    return true;
+  };
+
   const filteredEditLogs = editLogs.filter((item) => {
     const matchesSearch = item.productName.toLowerCase().includes(editLogsSearch.toLowerCase()) ||
                           item.reason.toLowerCase().includes(editLogsSearch.toLowerCase()) ||
                           item.editedBy.toLowerCase().includes(editLogsSearch.toLowerCase()) ||
                           (item.previousProductName && item.previousProductName.toLowerCase().includes(editLogsSearch.toLowerCase()));
     const matchesDate = matchesDateFilter(item.editedAt, editLogsDateFilter);
-    return matchesSearch && matchesDate;
+    const matchesRange = matchesDatePickerFilter(item.editedAt, editLogsFromDate, editLogsToDate);
+    return matchesSearch && matchesDate && matchesRange;
   });
 
   const totalEditLogsPages = Math.ceil(filteredEditLogs.length / itemsPerPage);
@@ -128,7 +146,10 @@ export default function EditLogsPage() {
             </div>
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground" />
-              <Select value={editLogsDateFilter} onValueChange={setEditLogsDateFilter}>
+              <Select value={editLogsDateFilter} onValueChange={(value) => {
+                setEditLogsDateFilter(value);
+                resetEditLogsPagination();
+              }}>
                 <SelectTrigger className="w-full sm:w-[200px] h-11 shadow-sm">
                   <SelectValue placeholder="Filter by date" />
                 </SelectTrigger>
@@ -141,6 +162,21 @@ export default function EditLogsPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="w-full sm:w-auto">
+              <DateRangePicker
+                fromDate={editLogsFromDate}
+                toDate={editLogsToDate}
+                setFromDate={(d) => {
+                  setEditLogsFromDate(d);
+                  resetEditLogsPagination();
+                }}
+                setToDate={(d) => {
+                  setEditLogsToDate(d);
+                  resetEditLogsPagination();
+                }}
+                className="w-full sm:w-[260px]"
+              />
+            </div>
           </div>
 
           {/* Content */}
@@ -151,48 +187,48 @@ export default function EditLogsPage() {
               ))}
             </div>
           ) : filteredEditLogs.length > 0 ? (
-            <div className="space-y-4">
+            <div className="space-y-2">
               {paginatedEditLogs.map((item) => (
                 <div 
                   key={item.id}
-                  className="group relative overflow-hidden rounded-xl border-2 border-blue-100 bg-gradient-to-r from-blue-50 to-cyan-50/50 p-5 shadow-md hover:shadow-lg transition-all duration-200 hover:border-blue-300"
+                  className="rounded-lg border border-blue-200 bg-blue-50/40 px-3 py-3 sm:px-4"
                 >
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-3">
-                          <h3 className="text-lg font-bold text-gray-900">{item.productName}</h3>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <h3 className="text-sm sm:text-base font-semibold text-gray-900">{item.productName}</h3>
                           {item.previousProductName && item.previousProductName !== item.productName && (
-                            <Badge variant="outline" className="text-xs">
+                            <Badge variant="outline" className="text-[10px] sm:text-xs">
                               Renamed
                             </Badge>
                           )}
                         </div>
                         
                         {/* Changes */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                          <div className="bg-white/60 rounded-lg p-3 border border-blue-200">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                          <div className="bg-white/70 rounded-md p-2 border border-blue-200">
                             <div className="text-xs font-semibold text-blue-700 mb-1">Quantity</div>
-                            <div className="flex items-center gap-2 text-sm">
+                            <div className="flex items-center gap-2 text-xs sm:text-sm">
                               <span className="text-gray-600">{item.previousQuantity}</span>
                               <ArrowRight className="h-3 w-3 text-blue-500" />
                               <span className="font-bold text-blue-700">{item.newQuantity}</span>
                             </div>
                           </div>
-                          <div className="bg-white/60 rounded-lg p-3 border border-blue-200">
+                          <div className="bg-white/70 rounded-md p-2 border border-blue-200">
                             <div className="text-xs font-semibold text-blue-700 mb-1">Status</div>
-                            <div className="flex items-center gap-2 text-sm">
-                              <Badge variant="outline" className="text-xs">{item.previousStatus}</Badge>
+                            <div className="flex items-center gap-2 text-xs sm:text-sm">
+                              <Badge variant="outline" className="text-[10px] sm:text-xs">{item.previousStatus}</Badge>
                               <ArrowRight className="h-3 w-3 text-blue-500" />
-                              <Badge className="bg-blue-500 text-white text-xs">{item.newStatus}</Badge>
+                              <Badge className="bg-blue-500 text-white text-[10px] sm:text-xs">{item.newStatus}</Badge>
                             </div>
                           </div>
                         </div>
 
                         {item.previousProductName && item.previousProductName !== item.productName && (
-                          <div className="bg-white/60 rounded-lg p-3 border border-blue-200 mb-3">
+                          <div className="bg-white/70 rounded-md p-2 border border-blue-200 mb-2">
                             <div className="text-xs font-semibold text-blue-700 mb-1">Name Changed</div>
-                            <div className="flex items-center gap-2 text-sm">
+                            <div className="flex items-center gap-2 text-xs sm:text-sm">
                               <span className="text-gray-600 line-through">{item.previousProductName}</span>
                               <ArrowRight className="h-3 w-3 text-blue-500" />
                               <span className="font-bold text-blue-700">{item.productName}</span>
@@ -200,7 +236,7 @@ export default function EditLogsPage() {
                           </div>
                         )}
 
-                        <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-3">
+                        <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-gray-600 mb-2">
                           <div className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
                             <span className="font-medium text-blue-600">Edited:</span>
@@ -212,12 +248,12 @@ export default function EditLogsPage() {
                           </div>
                         </div>
 
-                        <div className="bg-white/60 rounded-lg p-3 border border-blue-200">
+                        <div className="bg-white/70 rounded-md p-2 border border-blue-200">
                           <div className="flex items-start gap-2">
                             <Edit className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
                             <div>
                               <span className="text-xs font-semibold text-blue-700">Reason: </span>
-                              <span className="text-sm text-blue-800">{item.reason}</span>
+                              <span className="text-xs sm:text-sm text-blue-800">{item.reason}</span>
                             </div>
                           </div>
                         </div>

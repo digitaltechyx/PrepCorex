@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Trash2, Search, X, Calendar, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
@@ -15,6 +16,8 @@ import { useState } from "react";
 export default function DeleteLogsPage() {
   const { userProfile } = useAuth();
   const [deleteLogsDateFilter, setDeleteLogsDateFilter] = useState<string>("all");
+  const [deleteLogsFromDate, setDeleteLogsFromDate] = useState<Date | undefined>(undefined);
+  const [deleteLogsToDate, setDeleteLogsToDate] = useState<Date | undefined>(undefined);
   const [deleteLogsSearch, setDeleteLogsSearch] = useState("");
   const [deleteLogsPage, setDeleteLogsPage] = useState(1);
   const itemsPerPage = 10;
@@ -62,12 +65,27 @@ export default function DeleteLogsPage() {
     }
   };
 
+  const matchesDatePickerFilter = (date: any, from?: Date, to?: Date) => {
+    if (!from && !to) return true;
+    let itemDate: Date | null = null;
+    if (typeof date === "string") itemDate = new Date(date);
+    else if (date && typeof date === "object" && date.seconds) itemDate = new Date(date.seconds * 1000);
+    if (!itemDate || Number.isNaN(itemDate.getTime())) return false;
+    const itemMs = itemDate.getTime();
+    const fromMs = from ? new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0).getTime() : null;
+    const toMs = to ? new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1, 0, 0, 0, 0).getTime() - 1 : null;
+    if (fromMs !== null && itemMs < fromMs) return false;
+    if (toMs !== null && itemMs > toMs) return false;
+    return true;
+  };
+
   const filteredDeleteLogs = deleteLogs.filter((item) => {
     const matchesSearch = item.productName.toLowerCase().includes(deleteLogsSearch.toLowerCase()) ||
                           item.reason.toLowerCase().includes(deleteLogsSearch.toLowerCase()) ||
                           item.deletedBy.toLowerCase().includes(deleteLogsSearch.toLowerCase());
     const matchesDate = matchesDateFilter(item.deletedAt, deleteLogsDateFilter);
-    return matchesSearch && matchesDate;
+    const matchesRange = matchesDatePickerFilter(item.deletedAt, deleteLogsFromDate, deleteLogsToDate);
+    return matchesSearch && matchesDate && matchesRange;
   });
 
   const totalDeleteLogsPages = Math.ceil(filteredDeleteLogs.length / itemsPerPage);
@@ -127,7 +145,10 @@ export default function DeleteLogsPage() {
             </div>
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground" />
-              <Select value={deleteLogsDateFilter} onValueChange={setDeleteLogsDateFilter}>
+              <Select value={deleteLogsDateFilter} onValueChange={(value) => {
+                setDeleteLogsDateFilter(value);
+                resetDeleteLogsPagination();
+              }}>
                 <SelectTrigger className="w-full sm:w-[200px] h-11 shadow-sm">
                   <SelectValue placeholder="Filter by date" />
                 </SelectTrigger>
@@ -140,6 +161,21 @@ export default function DeleteLogsPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="w-full sm:w-auto">
+              <DateRangePicker
+                fromDate={deleteLogsFromDate}
+                toDate={deleteLogsToDate}
+                setFromDate={(d) => {
+                  setDeleteLogsFromDate(d);
+                  resetDeleteLogsPagination();
+                }}
+                setToDate={(d) => {
+                  setDeleteLogsToDate(d);
+                  resetDeleteLogsPagination();
+                }}
+                className="w-full sm:w-[260px]"
+              />
+            </div>
           </div>
 
           {/* Content */}
@@ -150,22 +186,22 @@ export default function DeleteLogsPage() {
               ))}
             </div>
           ) : filteredDeleteLogs.length > 0 ? (
-            <div className="space-y-4">
+            <div className="space-y-2">
               {paginatedDeleteLogs.map((item) => (
                 <div 
                   key={item.id}
-                  className="group relative overflow-hidden rounded-xl border-2 border-red-100 bg-gradient-to-r from-red-50 to-rose-50/50 p-5 shadow-md hover:shadow-lg transition-all duration-200 hover:border-red-300"
+                  className="rounded-lg border border-red-200 bg-red-50/40 px-3 py-3 sm:px-4"
                 >
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-lg font-bold text-gray-900">{item.productName}</h3>
-                          <Badge className="bg-red-500 text-white shadow-md px-3 py-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <h3 className="text-sm sm:text-base font-semibold text-gray-900">{item.productName}</h3>
+                          <Badge className="bg-red-500 text-white text-[10px] sm:text-xs">
                             -{item.quantity}
                           </Badge>
                         </div>
-                        <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 mb-3">
+                        <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-gray-600 mb-2">
                           <div className="flex items-center gap-1">
                             <span className="font-medium">Quantity:</span>
                             <span className="text-gray-800">{item.quantity}</span>
@@ -183,19 +219,19 @@ export default function DeleteLogsPage() {
                             <span className="text-gray-800">{item.deletedBy}</span>
                           </div>
                         </div>
-                        <div className="bg-white/60 rounded-lg p-3 border border-red-200">
+                        <div className="bg-white/70 rounded-md p-2 border border-red-200">
                           <div className="flex items-start gap-2">
                             <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
                             <div>
                               <span className="text-xs font-semibold text-red-700">Reason: </span>
-                              <span className="text-sm text-red-800">{item.reason}</span>
+                              <span className="text-xs sm:text-sm text-red-800">{item.reason}</span>
                             </div>
                           </div>
                         </div>
                       </div>
                       <Badge 
                         variant={item.status === "In Stock" ? "default" : "destructive"}
-                        className="shadow-sm"
+                        className="text-[10px] sm:text-xs"
                       >
                         {item.status}
                       </Badge>

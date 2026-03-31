@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { History, TrendingUp, Calendar, Search, X } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
@@ -15,6 +16,8 @@ import { useState } from "react";
 export default function RestockHistoryPage() {
   const { userProfile } = useAuth();
   const [restockDateFilter, setRestockDateFilter] = useState<string>("all");
+  const [restockFromDate, setRestockFromDate] = useState<Date | undefined>(undefined);
+  const [restockToDate, setRestockToDate] = useState<Date | undefined>(undefined);
   const [restockSearch, setRestockSearch] = useState("");
   const [restockPage, setRestockPage] = useState(1);
   const itemsPerPage = 10;
@@ -62,13 +65,27 @@ export default function RestockHistoryPage() {
     }
   };
 
+  const matchesDatePickerFilter = (date: any, from?: Date, to?: Date) => {
+    if (!from && !to) return true;
+    let itemDate: Date | null = null;
+    if (typeof date === "string") itemDate = new Date(date);
+    else if (date && typeof date === "object" && date.seconds) itemDate = new Date(date.seconds * 1000);
+    if (!itemDate || Number.isNaN(itemDate.getTime())) return false;
+    const itemMs = itemDate.getTime();
+    const fromMs = from ? new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0).getTime() : null;
+    const toMs = to ? new Date(to.getFullYear(), to.getMonth(), to.getDate() + 1, 0, 0, 0, 0).getTime() - 1 : null;
+    if (fromMs !== null && itemMs < fromMs) return false;
+    if (toMs !== null && itemMs > toMs) return false;
+    return true;
+  };
+
   const filteredRestockHistory = restockHistory.filter((item) => {
     const q = restockSearch.trim().toLowerCase();
     const matchesSearch =
       q.length === 0 ||
       (item.productName || "").toLowerCase().includes(q) ||
       (item.restockedBy || "").toLowerCase().includes(q);
-    return matchesDateFilter(item.restockedAt, restockDateFilter) && matchesSearch;
+    return matchesDateFilter(item.restockedAt, restockDateFilter) && matchesDatePickerFilter(item.restockedAt, restockFromDate, restockToDate) && matchesSearch;
   });
 
   const totalRestockPages = Math.ceil(filteredRestockHistory.length / itemsPerPage);
@@ -151,6 +168,19 @@ export default function RestockHistoryPage() {
                 <SelectItem value="year">This Year</SelectItem>
               </SelectContent>
             </Select>
+            <DateRangePicker
+              fromDate={restockFromDate}
+              toDate={restockToDate}
+              setFromDate={(d) => {
+                setRestockFromDate(d);
+                resetRestockPagination();
+              }}
+              setToDate={(d) => {
+                setRestockToDate(d);
+                resetRestockPagination();
+              }}
+              className="w-full sm:w-[260px]"
+            />
           </div>
 
           {/* Content */}
@@ -161,21 +191,21 @@ export default function RestockHistoryPage() {
               ))}
             </div>
           ) : filteredRestockHistory.length > 0 ? (
-            <div className="space-y-4">
+            <div className="space-y-2">
               {paginatedRestockHistory.map((item) => (
                 <div 
                   key={item.id}
-                  className="group relative overflow-hidden rounded-xl border-2 border-green-100 bg-gradient-to-r from-green-50 to-emerald-50/50 p-5 shadow-md hover:shadow-lg transition-all duration-200 hover:border-green-300"
+                  className="rounded-lg border border-green-200 bg-green-50/40 px-3 py-3 sm:px-4"
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-bold text-gray-900">{item.productName}</h3>
-                        <Badge className="bg-green-500 text-white shadow-md px-3 py-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h3 className="text-sm sm:text-base font-semibold text-gray-900">{item.productName}</h3>
+                        <Badge className="bg-green-500 text-white text-[10px] sm:text-xs">
                           +{item.restockedQuantity}
                         </Badge>
                       </div>
-                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                      <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-gray-600">
                         <div className="flex items-center gap-1">
                           <span className="font-medium">Previous:</span>
                           <span className="text-gray-800">{item.previousQuantity}</span>
