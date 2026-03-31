@@ -123,10 +123,10 @@ export default function RegisterAgentPage() {
             <Logo variant="auth" />
             <h1 className="text-3xl font-bold font-headline mt-4">Join Our Sales Team</h1>
             <p className="text-balance text-muted-foreground">
-              10–15% Commission (Remote, Flexible)
+              5–10% Commission (Remote, Flexible)
             </p>
             <p className="text-sm text-muted-foreground mt-2">
-              We're building a remote Sales Force for Prep Services FBA. Join as a Sales Partner and earn 10–15% commission for every Amazon seller or eCommerce brand you bring.
+              We're building a remote Sales Force for Prep Services FBA. Join as a Sales Partner and earn 5–10% commission for every Amazon seller or eCommerce brand you bring.
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Please complete all fields accurately. Once reviewed, our team will connect with you to finalize the process.
