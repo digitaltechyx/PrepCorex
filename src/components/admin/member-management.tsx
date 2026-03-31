@@ -677,7 +677,7 @@ export function MemberManagement({ adminUser, initialStatus, usersOverride, view
           <TabsContent value="pending" className="mt-6">
             {pendingUsers.length > 0 ? (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="space-y-2">
                   {paginatedUsers.map((user, index) => (
                     <UserCard key={user.uid || `pending-user-${index}`} user={user} showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
@@ -725,7 +725,7 @@ export function MemberManagement({ adminUser, initialStatus, usersOverride, view
           <TabsContent value="approved" className="mt-6">
             {approvedUsers.length > 0 ? (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="space-y-2">
                   {paginatedUsers.map((user, index) => (
                     <UserCard key={user.uid || `user-${index}`} user={user} showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
@@ -773,7 +773,7 @@ export function MemberManagement({ adminUser, initialStatus, usersOverride, view
           <TabsContent value="deleted" className="mt-6">
             {deletedUsers.length > 0 ? (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="space-y-2">
                   {paginatedUsers.map((user, index) => (
                     <UserCard key={user.uid || `deleted-user-${index}`} user={user} showActions={false} showRestore={!viewOnly} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
