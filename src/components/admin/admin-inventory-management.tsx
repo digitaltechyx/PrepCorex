@@ -253,7 +253,7 @@ export function AdminInventoryManagement({
   const [editLogsPage, setEditLogsPage] = useState(1);
   const [recyclePage, setRecyclePage] = useState(1);
   const itemsPerPage = 10;
-  const inventoryItemsPerPage = 12; // 3 cards per row Ãƒâ€” 4 rows = 12 items per page for current inventory card view
+  const inventoryItemsPerPage = 20; // compact list view: show more rows per page
   const shippedItemsPerPage = 20; // compact list view Ãƒâ€” 4 rows = 12 items per page for shipped inventory card view
 
   // Invoice range selection for generating invoice over specific dates
@@ -1755,105 +1755,112 @@ export function AdminInventoryManagement({
               ))}
             </div>
           ) : filteredInventory.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="space-y-2">
               {paginatedInventory.map((item) => {
                 const isEbayListing = item.source === "ebay";
                 const isLowStock = !isEbayListing && item.quantity < 5;
                 return (
-                <Card key={item.id} className={`hover:shadow-md transition-shadow flex flex-col h-full ${isLowStock ? 'border-red-500 border-2 bg-red-50 dark:bg-red-950/20' : ''}`}>
-                  <CardContent className="p-4 flex flex-col flex-1">
-                    <div className="flex items-start justify-between gap-2 mb-3">
-                      <h3 className={`font-semibold text-base leading-tight flex-1 min-w-0 ${isLowStock ? 'text-red-700 dark:text-red-400' : ''}`}>{item.productName}</h3>
-                      <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-xs shrink-0">
-                        {item.status}
-                      </Badge>
-                    </div>
-                    <div className="space-y-2 mb-4 flex-1">
-                      <div className={`flex items-center gap-2 text-sm ${isLowStock ? 'text-red-700 dark:text-red-400' : 'text-muted-foreground'}`}>
-                        <Package className={`h-4 w-4 shrink-0 ${isLowStock ? 'text-red-600 dark:text-red-400' : ''}`} />
-                        <span>Qty: <span className={`font-semibold ${isLowStock ? 'text-red-800 dark:text-red-300' : 'text-foreground'}`}>{item.quantity}</span></span>
-                  </div>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Calendar className="h-4 w-4 shrink-0" />
-                        <span className="truncate">Added: {formatDate(item.dateAdded)}</span>
-                      </div>
-                      {isEbayListing && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span>Source: eBay · Restock syncs to eBay</span>
+                  <div
+                    key={item.id}
+                    className={`rounded-lg border px-3 py-3 sm:px-4 ${
+                      isLowStock ? "border-red-400 bg-red-50/70 dark:bg-red-950/20" : "bg-card"
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className={`font-medium truncate ${isLowStock ? "text-red-700 dark:text-red-400" : ""}`}>
+                            {item.productName}
+                          </p>
+                          <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px] sm:text-xs">
+                            {item.status}
+                          </Badge>
+                          {isLowStock && (
+                            <Badge variant="destructive" className="text-[10px] sm:text-xs">
+                              Low stock
+                            </Badge>
+                          )}
                         </div>
-                      )}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm text-muted-foreground">
+                          <span className={`${isLowStock ? "text-red-700 dark:text-red-400" : ""}`}>
+                            Qty: <span className="font-semibold">{item.quantity}</span>
+                          </span>
+                          <span>Added: {formatDate(item.dateAdded)}</span>
+                          {isEbayListing && <span>Source: eBay (restock sync enabled)</span>}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 lg:w-auto">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={isEbayListing}
+                              onClick={() => handleEditProductWithLog(item)}
+                              className="h-8 px-2"
+                            >
+                              <Edit className="h-3.5 w-3.5 mr-1" />
+                              <span className="text-xs">Edit</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{isEbayListing ? "Edit not supported for eBay listings" : "Edit product details"}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRestockProduct(item)}
+                              className="h-8 px-2 text-green-600 hover:text-green-700"
+                            >
+                              <Package className="h-3.5 w-3.5 mr-1" />
+                              <span className="text-xs">Restock</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{isEbayListing ? "Restock product and update quantity on eBay" : "Restock product"}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={isEbayListing}
+                              onClick={() => handleRecycleProduct(item)}
+                              className="h-8 px-2 text-orange-600 hover:text-orange-700"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                              <span className="text-xs">Recycle</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{isEbayListing ? "Recycle not supported for eBay listings" : "Move to Recycle Bin"}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={isEbayListing}
+                              onClick={() => handleDeleteProduct(item)}
+                              className="h-8 px-2 text-red-600 hover:text-red-700"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 mr-1" />
+                              <span className="text-xs">Delete</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{isEbayListing ? "Remove from Integrations → eBay listings" : "Permanently delete product"}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 mt-auto">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={isEbayListing}
-                          onClick={() => handleEditProductWithLog(item)}
-                            className="w-full"
-                        >
-                            <Edit className="h-4 w-4 mr-1" />
-                            <span className="text-xs">Edit</span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{isEbayListing ? "Edit not supported for eBay listings" : "Edit product details"}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRestockProduct(item)}
-                            className="w-full text-green-600 hover:text-green-700"
-                        >
-                            <Package className="h-4 w-4 mr-1" />
-                            <span className="text-xs">Restock</span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{isEbayListing ? "Restock product and update quantity on eBay" : "Restock product"}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          disabled={isEbayListing}
-                          onClick={() => handleRecycleProduct(item)}
-                            className="w-full text-orange-600 hover:text-orange-700"
-                        >
-                            <RotateCcw className="h-4 w-4 mr-1" />
-                            <span className="text-xs">Recycle</span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{isEbayListing ? "Recycle not supported for eBay listings" : "Move to Recycle Bin"}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline" 
-                          size="sm"
-                          disabled={isEbayListing}
-                          onClick={() => handleDeleteProduct(item)}
-                            className="w-full text-red-600 hover:text-red-700"
-                        >
-                            <Trash2 className="h-4 w-4 mr-1" />
-                            <span className="text-xs">Delete</span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{isEbayListing ? "Remove from Integrations → eBay listings" : "Permanently delete product"}</p>
-                      </TooltipContent>
-                    </Tooltip>
                   </div>
-                  </CardContent>
-                </Card>
                 );
               })}
             </div>

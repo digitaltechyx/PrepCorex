@@ -906,8 +906,8 @@ export default function AdminDashboardPage() {
                   <CardTitle className="text-base font-semibold text-slate-900">Label storage (OneDrive)</CardTitle>
                   <CardDescription className="text-slate-500">Labels uploaded in Create Shipment go here</CardDescription>
                 </div>
-              </div>
-            </CardHeader>
+            </div>
+          </CardHeader>
             <CardContent className="px-6 pb-6">
               {oneDriveChecking ? (
                 <p className="flex items-center gap-2 text-sm text-slate-500">
@@ -959,9 +959,9 @@ export default function AdminDashboardPage() {
                     Connect OneDrive
                   </a>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+            )}
+          </CardContent>
+        </Card>
         </section>
 
         {/* Charts row 1: Trend + Status donut */}
@@ -973,17 +973,17 @@ export default function AdminDashboardPage() {
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600">
                     <TrendingUp className="h-4 w-4" />
                   </div>
-                  <div>
+            <div>
                     <CardTitle className="text-base font-semibold text-slate-900">
                       {hasDateRange
                         ? "Inventory & Shipment Activity (Selected range)"
                         : `Inventory & Shipment Activity (Last ${trendRange} days)`}
-                    </CardTitle>
+              </CardTitle>
                     <CardDescription className="text-slate-500">
                       {hasDateRange ? "Shipped, added, returns & disposed in date picker range" : `Shipped, added, returns & disposed — ${trendRange}d view`}
-                    </CardDescription>
-                  </div>
-                </div>
+              </CardDescription>
+            </div>
+            </div>
                 {!hasDateRange && (
                   <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50/80 p-1">
                     {([7, 14, 30] as const).map((d) => (
@@ -1001,8 +1001,8 @@ export default function AdminDashboardPage() {
                     ))}
                   </div>
                 )}
-            </div>
-          </CardHeader>
+          </div>
+        </CardHeader>
             <CardContent className="px-6 pb-6">
               {chartLoading ? (
                 <Skeleton className="h-[280px] w-full rounded-lg" />
@@ -1028,7 +1028,7 @@ export default function AdminDashboardPage() {
               <div className="flex items-center gap-2">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600">
                   <PieChartIcon className="h-4 w-4" />
-                </div>
+              </div>
             <div>
                   <CardTitle className="text-base font-semibold text-slate-900">Request Processing Status</CardTitle>
                   <CardDescription className="text-slate-500">Pending, processing, shipped, rejected</CardDescription>

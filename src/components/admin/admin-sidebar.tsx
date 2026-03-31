@@ -20,7 +20,6 @@ import {
   LayoutDashboard,
   Users,
   FileText,
-  ShieldCheck,
   X,
   UserCheck,
   Briefcase,
@@ -29,10 +28,10 @@ import {
   FolderOpen,
   Receipt,
   ShoppingBag,
-  ShoppingCart,
   RotateCcw,
   Package,
   Boxes,
+  Tag,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
@@ -224,14 +223,6 @@ export function AdminSidebar() {
   // Admin has all features automatically, sub_admin needs explicit grants
   const allMenuItems = [
     {
-      title: "Roles & Permissions",
-      url: "/admin/dashboard/roles-permissions",
-      icon: ShieldCheck,
-      color: "text-slate-700",
-      requiredFeature: "admin_dashboard" as const,
-      adminOnly: true,
-    },
-    {
       title: "Dashboard",
       url: "/admin/dashboard",
       icon: LayoutDashboard,
@@ -239,7 +230,7 @@ export function AdminSidebar() {
       requiredFeature: "admin_dashboard" as const,
     },
     {
-      title: "Inventory Management",
+      title: "Inventory",
       url: "/admin/dashboard/inventory-management",
       icon: Boxes,
       color: "text-violet-600",
@@ -254,12 +245,27 @@ export function AdminSidebar() {
       requiredFeature: "manage_notifications" as const,
     },
     {
-      title: "Users",
-      url: "/admin/dashboard/users",
-      icon: Users,
-      color: "text-green-600",
-      badge: activeUsersCount > 0 ? activeUsersCount : null,
-      requiredFeature: "manage_users" as const,
+      title: "Buy Labels",
+      url: "/admin/dashboard/buy-labels",
+      icon: Tag,
+      color: "text-cyan-600",
+      requiredFeature: "manage_labels" as const,
+    },
+    {
+      title: "Product Returns",
+      url: "/admin/dashboard/product-returns",
+      icon: Package,
+      color: "text-teal-600",
+      badge: productReturnsPendingCount > 0 ? productReturnsPendingCount : null,
+      requiredFeature: "manage_product_returns" as const,
+    },
+    {
+      title: "Dispose Inventory",
+      url: "/admin/dashboard/dispose-requests",
+      icon: RotateCcw,
+      color: "text-orange-600",
+      badge: disposePendingCount > 0 ? disposePendingCount : null,
+      requiredFeature: "manage_dispose_requests" as const,
     },
     {
       title: "Invoices",
@@ -283,7 +289,7 @@ export function AdminSidebar() {
       requiredFeature: "manage_quotes" as const,
     },
     {
-      title: "Pricing",
+      title: "Pricing Tariff",
       url: "/admin/dashboard/pricing",
       icon: DollarSign,
       color: "text-amber-600",
@@ -298,34 +304,19 @@ export function AdminSidebar() {
       requiredFeature: "manage_documents" as const,
     },
     {
-      title: "Product Returns",
-      url: "/admin/dashboard/product-returns",
-      icon: Package,
-      color: "text-teal-600",
-      badge: productReturnsPendingCount > 0 ? productReturnsPendingCount : null,
-      requiredFeature: "manage_product_returns" as const,
+      title: "Users",
+      url: "/admin/dashboard/users",
+      icon: Users,
+      color: "text-green-600",
+      badge: activeUsersCount > 0 ? activeUsersCount : null,
+      requiredFeature: "manage_users" as const,
     },
     {
-      title: "Dispose Requests",
-      url: "/admin/dashboard/dispose-requests",
-      icon: RotateCcw,
-      color: "text-orange-600",
-      badge: disposePendingCount > 0 ? disposePendingCount : null,
-      requiredFeature: "manage_dispose_requests" as const,
-    },
-    {
-      title: "Shopify Orders",
+      title: "Integration",
       url: "/admin/dashboard/shopify-orders",
       icon: ShoppingBag,
       color: "text-green-600",
       requiredFeature: "manage_shopify_orders" as const,
-    },
-    {
-      title: "eBay Orders",
-      url: "/admin/dashboard/ebay-orders",
-      icon: ShoppingCart,
-      color: "text-amber-600",
-      requiredFeature: "manage_ebay_orders" as const,
     },
   ];
 

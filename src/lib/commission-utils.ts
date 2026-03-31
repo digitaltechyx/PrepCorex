@@ -92,8 +92,8 @@ export async function createCommissionForInvoice(
 
   const agent = agentDoc.docs[0].data() as UserProfile;
 
-  // Calculate commission (10% of grandTotal)
-  const commissionAmount = invoice.grandTotal * 0.1;
+  // Calculate commission (5% of grandTotal)
+  const commissionAmount = invoice.grandTotal * 0.05;
 
   // Create commission record
   const commissionData: Omit<Commission, "id"> = {

@@ -178,11 +178,10 @@ export default function LoginPage() {
           </Form>
           <div className="mt-4 text-center text-sm text-muted-foreground space-y-2">
             <div>
-              If you don&apos;t have an account, please{" "}
+              New here?{" "}
               <Link href="/register" className="underline text-primary font-medium">
-                fill out the onboarding form
+                Complete onboarding to create your account.
               </Link>
-              {" "}to complete your registration.
             </div>
             <div>
               Want to join our affiliate program?{" "}
