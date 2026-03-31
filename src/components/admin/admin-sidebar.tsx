@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   Users,
   FileText,
+  ShieldCheck,
   X,
   UserCheck,
   Briefcase,
@@ -310,6 +311,14 @@ export function AdminSidebar() {
       color: "text-green-600",
       badge: activeUsersCount > 0 ? activeUsersCount : null,
       requiredFeature: "manage_users" as const,
+    },
+    {
+      title: "Roles & Permissions",
+      url: "/admin/dashboard/roles-permissions",
+      icon: ShieldCheck,
+      color: "text-slate-700",
+      requiredFeature: "admin_dashboard" as const,
+      adminOnly: true,
     },
     {
       title: "Integration",
