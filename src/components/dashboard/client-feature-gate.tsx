@@ -69,6 +69,16 @@ export function ClientFeatureGate({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
+  const isIntegrationsHubPath = path === "/dashboard/integrations" || path.startsWith("/dashboard/integrations/");
+  if (
+    isIntegrationsHubPath &&
+    userProfile &&
+    hasRole(userProfile, "sub_admin") &&
+    (hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders"))
+  ) {
+    return <>{children}</>;
+  }
+
   if (requiredFeature === "affiliate_dashboard") {
     if (userProfile && hasFeature(userProfile, "affiliate_dashboard")) {
       return <>{children}</>;
