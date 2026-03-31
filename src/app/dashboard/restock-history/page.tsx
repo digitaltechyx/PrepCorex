@@ -197,33 +197,13 @@ export default function RestockHistoryPage() {
                   key={item.id}
                   className="rounded-lg border border-green-200 bg-green-50/40 px-3 py-3 sm:px-4"
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h3 className="text-sm sm:text-base font-semibold text-gray-900">{item.productName}</h3>
-                        <Badge className="bg-green-500 text-white text-[10px] sm:text-xs">
-                          +{item.restockedQuantity}
-                        </Badge>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-gray-600">
-                        <div className="flex items-center gap-1">
-                          <span className="font-medium">Previous:</span>
-                          <span className="text-gray-800">{item.previousQuantity}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span className="font-medium">New Total:</span>
-                          <span className="text-green-700 font-bold">{item.newQuantity}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span className="font-medium">By:</span>
-                          <span className="text-gray-800">{item.restockedBy}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          <span>{formatDate(item.restockedAt)}</span>
-                        </div>
-                      </div>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+                    <span className="font-semibold text-slate-900">{item.productName}</span>
+                    <Badge className="bg-green-500 text-white text-[10px]">+{item.restockedQuantity}</Badge>
+                    <span className="text-slate-600 ml-2">Previous: <span className="text-slate-800">{item.previousQuantity}</span></span>
+                    <span className="text-slate-600">New Total: <span className="font-semibold text-green-700">{item.newQuantity}</span></span>
+                    <span className="text-slate-600">By: <span className="text-slate-800">{item.restockedBy}</span></span>
+                    <span className="inline-flex items-center gap-1 text-slate-600"><Calendar className="h-3 w-3" /> {formatDate(item.restockedAt)}</span>
                   </div>
                 </div>
               ))}

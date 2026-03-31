@@ -193,71 +193,32 @@ export default function EditLogsPage() {
                   key={item.id}
                   className="rounded-lg border border-blue-200 bg-blue-50/40 px-3 py-3 sm:px-4"
                 >
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <h3 className="text-sm sm:text-base font-semibold text-gray-900">{item.productName}</h3>
-                          {item.previousProductName && item.previousProductName !== item.productName && (
-                            <Badge variant="outline" className="text-[10px] sm:text-xs">
-                              Renamed
-                            </Badge>
-                          )}
-                        </div>
-                        
-                        {/* Changes */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-                          <div className="bg-white/70 rounded-md p-2 border border-blue-200">
-                            <div className="text-xs font-semibold text-blue-700 mb-1">Quantity</div>
-                            <div className="flex items-center gap-2 text-xs sm:text-sm">
-                              <span className="text-gray-600">{item.previousQuantity}</span>
-                              <ArrowRight className="h-3 w-3 text-blue-500" />
-                              <span className="font-bold text-blue-700">{item.newQuantity}</span>
-                            </div>
-                          </div>
-                          <div className="bg-white/70 rounded-md p-2 border border-blue-200">
-                            <div className="text-xs font-semibold text-blue-700 mb-1">Status</div>
-                            <div className="flex items-center gap-2 text-xs sm:text-sm">
-                              <Badge variant="outline" className="text-[10px] sm:text-xs">{item.previousStatus}</Badge>
-                              <ArrowRight className="h-3 w-3 text-blue-500" />
-                              <Badge className="bg-blue-500 text-white text-[10px] sm:text-xs">{item.newStatus}</Badge>
-                            </div>
-                          </div>
-                        </div>
-
-                        {item.previousProductName && item.previousProductName !== item.productName && (
-                          <div className="bg-white/70 rounded-md p-2 border border-blue-200 mb-2">
-                            <div className="text-xs font-semibold text-blue-700 mb-1">Name Changed</div>
-                            <div className="flex items-center gap-2 text-xs sm:text-sm">
-                              <span className="text-gray-600 line-through">{item.previousProductName}</span>
-                              <ArrowRight className="h-3 w-3 text-blue-500" />
-                              <span className="font-bold text-blue-700">{item.productName}</span>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-gray-600 mb-2">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            <span className="font-medium text-blue-600">Edited:</span>
-                            <span className="text-blue-700 font-semibold">{formatDate(item.editedAt)}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className="font-medium">By:</span>
-                            <span className="text-gray-800">{item.editedBy}</span>
-                          </div>
-                        </div>
-
-                        <div className="bg-white/70 rounded-md p-2 border border-blue-200">
-                          <div className="flex items-start gap-2">
-                            <Edit className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                            <div>
-                              <span className="text-xs font-semibold text-blue-700">Reason: </span>
-                              <span className="text-xs sm:text-sm text-blue-800">{item.reason}</span>
-                            </div>
-                          </div>
-                        </div>
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+                      <span className="font-semibold text-slate-900">{item.productName}</span>
+                      {item.previousProductName && item.previousProductName !== item.productName && (
+                        <Badge variant="outline" className="text-[10px]">Renamed</Badge>
+                      )}
+                      <span className="text-slate-600">Qty:</span>
+                      <span>{item.previousQuantity}</span>
+                      <ArrowRight className="h-3 w-3 text-blue-500" />
+                      <span className="font-semibold text-blue-700">{item.newQuantity}</span>
+                      <span className="text-slate-600 ml-2">Status:</span>
+                      <Badge variant="outline" className="text-[10px]">{item.previousStatus}</Badge>
+                      <ArrowRight className="h-3 w-3 text-blue-500" />
+                      <Badge className="bg-blue-500 text-white text-[10px]">{item.newStatus}</Badge>
+                    </div>
+                    {item.previousProductName && item.previousProductName !== item.productName && (
+                      <div className="text-xs text-slate-600">
+                        Name: <span className="line-through">{item.previousProductName}</span> <ArrowRight className="inline h-3 w-3 text-blue-500" /> <span className="font-semibold text-blue-700">{item.productName}</span>
                       </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                      <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" /> Edited: <span className="font-semibold text-blue-700">{formatDate(item.editedAt)}</span></span>
+                      <span>By: <span className="font-medium text-slate-800">{item.editedBy}</span></span>
+                    </div>
+                    <div className="text-xs text-blue-800 truncate">
+                      <span className="font-semibold text-blue-700">Reason:</span> {item.reason}
                     </div>
                   </div>
                 </div>

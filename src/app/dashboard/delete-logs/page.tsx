@@ -192,49 +192,17 @@ export default function DeleteLogsPage() {
                   key={item.id}
                   className="rounded-lg border border-red-200 bg-red-50/40 px-3 py-3 sm:px-4"
                 >
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <h3 className="text-sm sm:text-base font-semibold text-gray-900">{item.productName}</h3>
-                          <Badge className="bg-red-500 text-white text-[10px] sm:text-xs">
-                            -{item.quantity}
-                          </Badge>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-gray-600 mb-2">
-                          <div className="flex items-center gap-1">
-                            <span className="font-medium">Quantity:</span>
-                            <span className="text-gray-800">{item.quantity}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            <span>Added: {formatDate(item.dateAdded)}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className="font-medium text-red-600">Deleted:</span>
-                            <span className="text-red-700 font-semibold">{formatDate(item.deletedAt)}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className="font-medium">By:</span>
-                            <span className="text-gray-800">{item.deletedBy}</span>
-                          </div>
-                        </div>
-                        <div className="bg-white/70 rounded-md p-2 border border-red-200">
-                          <div className="flex items-start gap-2">
-                            <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
-                            <div>
-                              <span className="text-xs font-semibold text-red-700">Reason: </span>
-                              <span className="text-xs sm:text-sm text-red-800">{item.reason}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <Badge 
-                        variant={item.status === "In Stock" ? "default" : "destructive"}
-                        className="text-[10px] sm:text-xs"
-                      >
-                        {item.status}
-                      </Badge>
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+                      <span className="font-semibold text-slate-900">{item.productName}</span>
+                      <Badge className="bg-red-500 text-white text-[10px]">-{item.quantity}</Badge>
+                      <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px]">{item.status}</Badge>
+                      <span className="text-slate-600 ml-2">Added: {formatDate(item.dateAdded)}</span>
+                      <span className="text-red-700 font-semibold">Deleted: {formatDate(item.deletedAt)}</span>
+                      <span className="text-slate-600">By: <span className="text-slate-800">{item.deletedBy}</span></span>
+                    </div>
+                    <div className="text-xs text-red-800 truncate">
+                      <span className="font-semibold text-red-700">Reason:</span> {item.reason}
                     </div>
                   </div>
                 </div>
