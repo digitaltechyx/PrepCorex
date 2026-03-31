@@ -268,66 +268,49 @@ export function MemberManagement({ adminUser, initialStatus, usersOverride, view
     };
     
     return (
-    <Card className="hover:shadow-md transition-shadow h-full flex flex-col">
-      <CardContent className="p-4 flex flex-col h-full">
-        {/* Top: Avatar + Info */}
-        <div className="flex items-start gap-3 mb-3">
-          <Avatar className="h-12 w-12 flex-shrink-0">
-            <AvatarImage src={getAvatarSrc()} />
-            <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1">
-            <h3 className="font-semibold text-base truncate">{formatUserDisplayName(user, { showEmail: false })}</h3>
-            <p className="text-sm text-muted-foreground truncate">{user.email}</p>
-          </div>
-        </div>
-
-        {/* Status and Phone */}
-        <div className="flex items-center flex-wrap gap-2 mb-3">
-          <Badge 
-            variant={
-              user.status === "approved" || !user.status ? "default" : 
-              user.status === "pending" ? "secondary" : "destructive"
-            }
-            className="text-xs"
-          >
-            {user.status === "approved" || !user.status ? "Approved" : 
-             user.status === "pending" ? "Pending" : "Deleted"}
-          </Badge>
-          {user.phone && (
-            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-              <Phone className="h-3 w-3" />
-              {user.phone}
-            </span>
-          )}
-        </div>
-
-        {/* Company Name */}
-        {user.companyName && (
-          <div className="mb-3">
-            <p className="text-xs text-muted-foreground">
-              <span className="font-medium">Company:</span> {user.companyName}
-            </p>
-          </div>
-        )}
-
-        {/* Login Credentials */}
-        {isAdmin && (user.status === "approved" || !user.status) && (
-          <div className="mt-auto mb-3 p-2 bg-muted rounded-md">
-            <div className="text-xs font-medium text-muted-foreground mb-1">Login Credentials:</div>
-            <div className="text-xs flex items-center gap-1 mb-1">
-              <Mail className="h-3 w-3" />
-              <span className="font-mono break-all">{user.email}</span>
-            </div>
-            <div className="text-xs flex items-center gap-1">
-              <span className="text-muted-foreground">Password:</span>
-              <span className="font-mono break-all">{user.password || "Not stored"}</span>
+      <div className="rounded-lg border bg-card px-3 py-3 sm:px-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 flex items-start gap-3">
+            <Avatar className="h-10 w-10 flex-shrink-0">
+              <AvatarImage src={getAvatarSrc()} />
+              <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold text-sm sm:text-base truncate">{formatUserDisplayName(user, { showEmail: false })}</h3>
+                <Badge
+                  variant={
+                    user.status === "approved" || !user.status ? "default" :
+                    user.status === "pending" ? "secondary" : "destructive"
+                  }
+                  className="text-[10px] sm:text-xs"
+                >
+                  {user.status === "approved" || !user.status ? "Approved" :
+                   user.status === "pending" ? "Pending" : "Deleted"}
+                </Badge>
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-muted-foreground">
+                <span className="truncate">{user.email}</span>
+                {user.phone && (
+                  <span className="inline-flex items-center gap-1">
+                    <Phone className="h-3 w-3" />
+                    {user.phone}
+                  </span>
+                )}
+                {user.companyName && <span className="truncate">Company: {user.companyName}</span>}
+              </div>
+              {isAdmin && (user.status === "approved" || !user.status) && (
+                <div className="mt-1.5 text-[11px] sm:text-xs text-muted-foreground">
+                  <span className="font-medium">Login:</span>{" "}
+                  <span className="font-mono">{user.email}</span>{" "}
+                  <span className="font-medium">| Password:</span>{" "}
+                  <span className="font-mono">{user.password || "Not stored"}</span>
+                </div>
+              )}
             </div>
           </div>
-        )}
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 mt-auto">
+          <div className="flex items-center gap-2 lg:shrink-0">
           <Tooltip>
             <TooltipTrigger asChild>
                 <Dialog
@@ -602,10 +585,10 @@ export function MemberManagement({ adminUser, initialStatus, usersOverride, view
               </TooltipContent>
             </Tooltip>
           )}
+          </div>
         </div>
-      </CardContent>
-    </Card>
-  );
+      </div>
+    );
   };
 
   if (usersLoading) {
