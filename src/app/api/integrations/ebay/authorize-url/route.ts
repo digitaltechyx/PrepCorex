@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminAuth } from "@/lib/firebase-admin";
+import { getRequestHost, resolveEbayRuName } from "@/lib/ebay-oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +28,14 @@ export async function GET(request: Request) {
   }
 
   const clientId = process.env.NEXT_PUBLIC_EBAY_APP_ID;
-  const ruName = process.env.EBAY_RUNAME;
+  const host = getRequestHost(request);
+  const ruName = resolveEbayRuName(host);
   if (!clientId || !ruName) {
     return NextResponse.json(
-      { error: "eBay app not configured (missing App ID or RuName)" },
+      {
+        error:
+          "eBay app not configured (missing App ID or RuName). For a new domain, add an OAuth redirect in the eBay developer portal and set EBAY_RUNAME or EBAY_RUNAME_BY_HOST.",
+      },
       { status: 500 }
     );
   }

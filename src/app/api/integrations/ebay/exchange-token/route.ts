@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { getRequestHost, resolveEbayRuName } from "@/lib/ebay-oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,8 @@ export async function POST(request: NextRequest) {
 
   const clientId = process.env.NEXT_PUBLIC_EBAY_APP_ID;
   const clientSecret = process.env.EBAY_CLIENT_SECRET;
-  const ruName = process.env.EBAY_RUNAME;
+  const host = getRequestHost(request);
+  const ruName = resolveEbayRuName(host);
   if (!clientId || !clientSecret || !ruName) {
     return NextResponse.json(
       { error: "eBay app not configured" },
