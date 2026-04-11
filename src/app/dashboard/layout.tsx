@@ -9,7 +9,7 @@ import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { ClientFeatureGate } from "@/components/dashboard/client-feature-gate";
 import { DashboardNavProvider } from "@/contexts/dashboard-nav-context";
-import { hasRole, getUserRoles, isAccountActivated } from "@/lib/permissions";
+import { hasRole, getUserRoles, isAccountActivated, hasFeature } from "@/lib/permissions";
 import {
   SidebarProvider,
   SidebarInset,
@@ -48,17 +48,20 @@ export default function DashboardLayout({
       const hasAdminRole = hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
       const hasUserRole = hasRole(userProfile, "user");
       const hasAgentRole = hasRole(userProfile, "commission_agent");
-      
+      const isOnIntegrations =
+        pathname === "/dashboard/integrations" || pathname?.startsWith("/dashboard/integrations/");
+      const adminCanUseClientIntegrationsHub =
+        isOnIntegrations &&
+        hasAdminRole &&
+        (hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders"));
+
       // Check if user is trying to access agent dashboard
       const isOnAgentDashboard = pathname?.startsWith("/dashboard/agent");
-      
+
       // Allow access to client dashboard if user has "user" role (even if they also have sub_admin)
       // Allow access to agent dashboard if user has "commission_agent" role (even if they also have sub_admin)
-      // Only redirect to admin dashboard if:
-      // 1. User has admin/sub_admin role AND
-      // 2. They don't have the appropriate role for the dashboard they're trying to access
-      if (hasAdminRole && !hasUserRole && !hasAgentRole) {
-        // User has admin role but no client/agent roles - redirect to admin dashboard
+      // Admin/sub_admin without client role may open Integrations (linked from admin sidebar) when they have order features
+      if (hasAdminRole && !hasUserRole && !hasAgentRole && !adminCanUseClientIntegrationsHub) {
         router.replace("/admin/dashboard");
       } else if (isOnAgentDashboard && !hasAgentRole) {
         // User is trying to access agent dashboard but doesn't have agent role
@@ -69,7 +72,7 @@ export default function DashboardLayout({
         } else {
           router.replace("/login");
         }
-      } else if (!isOnAgentDashboard && !hasUserRole && !hasAgentRole) {
+      } else if (!isOnAgentDashboard && !hasUserRole && !hasAgentRole && !adminCanUseClientIntegrationsHub) {
         // User is on client dashboard but doesn't have user or agent role
         if (hasAdminRole) {
           router.replace("/admin/dashboard");
@@ -128,7 +131,21 @@ export default function DashboardLayout({
 
   // If profile loaded but user is not a regular user/agent or has invalid status, show loading (redirect will happen)
   const userRoles = userProfile ? getUserRoles(userProfile) : [];
-  if (userProfile && ((userRoles.length === 0 || (!hasRole(userProfile, "user") && !hasRole(userProfile, "commission_agent"))) || userProfile.status === "pending" || userProfile.status === "deleted")) {
+  const isOnIntegrationsRoute =
+    pathname === "/dashboard/integrations" || pathname?.startsWith("/dashboard/integrations/");
+  const adminIntegrationsHubOk =
+    !!userProfile &&
+    isOnIntegrationsRoute &&
+    (hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin")) &&
+    (hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders"));
+
+  if (
+    userProfile &&
+    ((userRoles.length === 0 ||
+      (!hasRole(userProfile, "user") && !hasRole(userProfile, "commission_agent") && !adminIntegrationsHubOk)) ||
+      userProfile.status === "pending" ||
+      userProfile.status === "deleted")
+  ) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />

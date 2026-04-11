@@ -33,10 +33,12 @@ import {
   Package,
   Boxes,
   Tag,
+  Plug,
+  ShoppingCart,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
-import type { UserProfile } from "@/types";
+import type { UserFeature, UserProfile } from "@/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hasFeature, hasRole } from "@/lib/permissions";
@@ -322,10 +324,24 @@ export function AdminSidebar() {
     },
     {
       title: "Integration",
+      url: "/dashboard/integrations",
+      icon: Plug,
+      color: "text-green-600",
+      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders"] as const satisfies readonly UserFeature[],
+    },
+    {
+      title: "Shopify Orders",
       url: "/admin/dashboard/shopify-orders",
       icon: ShoppingBag,
-      color: "text-green-600",
+      color: "text-emerald-600",
       requiredFeature: "manage_shopify_orders" as const,
+    },
+    {
+      title: "eBay Orders",
+      url: "/admin/dashboard/ebay-orders",
+      icon: ShoppingCart,
+      color: "text-blue-600",
+      requiredFeature: "manage_ebay_orders" as const,
     },
   ];
 
@@ -350,11 +366,17 @@ export function AdminSidebar() {
     if (hasRole(userProfile, "admin") || ((userProfile as any)?.features?.includes?.("admin_dashboard") && !hasRole(userProfile, "sub_admin"))) {
       return true;
     }
+    const anyOf = (item as { requiredFeaturesAnyOf?: readonly UserFeature[] }).requiredFeaturesAnyOf;
+    const passesFeature = () => {
+      if (anyOf?.length) return anyOf.some((f) => hasFeature(userProfile, f));
+      return hasFeature(userProfile, (item as { requiredFeature: UserFeature }).requiredFeature);
+    };
+
     // Sub admin only sees items for which they have the required feature
     if (hasRole(userProfile, "sub_admin")) {
-      return hasFeature(userProfile, item.requiredFeature);
+      return passesFeature();
     }
-    return canAccessAdmin ? hasFeature(userProfile, item.requiredFeature) : false;
+    return canAccessAdmin ? passesFeature() : false;
   });
 
   // Check if user has other roles (client or commission agent) to show additional dashboard links
@@ -399,7 +421,10 @@ export function AdminSidebar() {
               <SidebarMenu className="space-y-1">
                 {menuItems.map((item) => {
                   const Icon = item.icon;
-                  const isActive = pathname === item.url || (item.url === "/admin/dashboard" && pathname === "/admin/dashboard");
+                  const isActive =
+                    pathname === item.url ||
+                    (item.url === "/dashboard/integrations" &&
+                      pathname.startsWith("/dashboard/integrations/"));
                   
                   return (
                     <SidebarMenuItem key={item.url}>
