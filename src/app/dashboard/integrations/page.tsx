@@ -32,6 +32,7 @@ import {
 import { format } from "date-fns";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { PlatformBrandLogo } from "@/components/integrations/platform-brand-logo";
 
 const SHOPIFY_SCOPES =
   "read_orders,read_products,write_products,write_fulfillments,read_inventory,read_locations,write_inventory";
@@ -359,9 +360,9 @@ export default function IntegrationsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto w-full max-w-[1440px] space-y-6 sm:space-y-8 pb-2 sm:pb-4">
       {/* Hero */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-8 text-white shadow-xl sm:px-10 sm:py-10">
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-6 text-white shadow-xl sm:px-8 sm:py-8 md:px-10 md:py-10">
         <div
           className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-emerald-500/20 blur-3xl"
           aria-hidden
@@ -370,30 +371,49 @@ export default function IntegrationsPage() {
           className="pointer-events-none absolute -bottom-24 -left-16 h-56 w-56 rounded-full bg-violet-500/15 blur-3xl"
           aria-hidden
         />
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-3 max-w-2xl">
+        <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between md:gap-8">
+          <div className="min-w-0 max-w-2xl space-y-3 md:flex-1">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-emerald-200/90 backdrop-blur-sm">
-              <Sparkles className="h-3.5 w-3.5" />
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
               Connected commerce
             </div>
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Integrations hub</h1>
-            <p className="text-sm leading-relaxed text-slate-300 sm:text-base">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl lg:text-[2.5rem] lg:leading-tight">
+              Integrations hub
+            </h1>
+            <p className="text-sm leading-relaxed text-slate-300 sm:text-base md:max-w-xl lg:max-w-2xl">
               One place to connect marketplaces and storefronts. Live channels sync orders automatically; upcoming
               platforms are shown so you can plan ahead.
             </p>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Active links</p>
-              <p className="text-2xl font-bold tabular-nums">{loading ? "—" : totalConnections}</p>
+          <div className="grid w-full grid-cols-3 gap-2 sm:gap-3 md:w-auto md:min-w-[min(100%,20rem)] md:max-w-md md:shrink-0 lg:min-w-[22rem] lg:max-w-none">
+            <div
+              className="rounded-xl border border-white/10 bg-white/5 px-2 py-2.5 backdrop-blur-sm sm:px-4 sm:py-3"
+              title="Total connected store and marketplace links"
+            >
+              <p className="text-[10px] font-semibold uppercase leading-tight tracking-wider text-slate-400 sm:text-[11px]">
+                Active links
+              </p>
+              <p className="text-xl font-bold tabular-nums sm:text-2xl">{loading ? "—" : totalConnections}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Live platforms in use</p>
-              <p className="text-2xl font-bold tabular-nums">{loading ? "—" : liveConnectedPlatforms}</p>
+            <div
+              className="rounded-xl border border-white/10 bg-white/5 px-2 py-2.5 backdrop-blur-sm sm:px-4 sm:py-3"
+              title="Live platforms in use"
+            >
+              <p className="text-[10px] font-semibold uppercase leading-tight tracking-wider text-slate-400 sm:text-[11px]">
+                <span className="sm:hidden">Live use</span>
+                <span className="hidden sm:inline">Live platforms</span>
+              </p>
+              <p className="text-xl font-bold tabular-nums sm:text-2xl">{loading ? "—" : liveConnectedPlatforms}</p>
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 backdrop-blur-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Catalog size</p>
-              <p className="text-2xl font-bold tabular-nums">{PLATFORMS.length}</p>
+            <div
+              className="rounded-xl border border-white/10 bg-white/5 px-2 py-2.5 backdrop-blur-sm sm:px-4 sm:py-3"
+              title="Platforms in catalog"
+            >
+              <p className="text-[10px] font-semibold uppercase leading-tight tracking-wider text-slate-400 sm:text-[11px]">
+                <span className="sm:hidden">Catalog</span>
+                <span className="hidden sm:inline">Catalog size</span>
+              </p>
+              <p className="text-xl font-bold tabular-nums sm:text-2xl">{PLATFORMS.length}</p>
             </div>
           </div>
         </div>
@@ -401,34 +421,48 @@ export default function IntegrationsPage() {
 
       {/* Toolbar */}
       <Card className="border-border/80 shadow-sm">
-        <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <CardContent className="flex flex-col gap-4 p-4 sm:p-5 md:p-6">
+          <div className="relative min-w-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search platforms (Shopify, Amazon, TikTok…)"
-              className="h-11 pl-10"
+              className="h-11 min-h-11 pl-10 text-base sm:text-sm"
             />
           </div>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <Tabs value={filterTab} onValueChange={(v) => setFilterTab(v as FilterTab)} className="w-full lg:w-auto">
-              <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 sm:inline-flex sm:w-auto sm:grid-cols-none">
-                <TabsTrigger value="all" className="text-xs sm:text-sm">
+          <div className="flex min-w-0 flex-col gap-4 md:flex-row md:items-start md:justify-between md:gap-6">
+            <Tabs value={filterTab} onValueChange={(v) => setFilterTab(v as FilterTab)} className="w-full min-w-0 md:max-w-[min(100%,36rem)]">
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 sm:inline-flex sm:w-full sm:flex-wrap sm:justify-start md:w-auto md:flex-nowrap">
+                <TabsTrigger
+                  value="all"
+                  className="min-h-10 flex-1 px-2 text-xs sm:min-h-9 sm:flex-none sm:px-3 sm:text-sm"
+                >
                   All
                 </TabsTrigger>
-                <TabsTrigger value="connected" className="text-xs sm:text-sm">
+                <TabsTrigger
+                  value="connected"
+                  className="min-h-10 flex-1 px-2 text-xs sm:min-h-9 sm:flex-none sm:px-3 sm:text-sm"
+                >
                   Connected
                 </TabsTrigger>
-                <TabsTrigger value="available" className="text-xs sm:text-sm">
-                  Ready to connect
+                <TabsTrigger
+                  value="available"
+                  className="min-h-10 flex-1 px-2 text-xs sm:min-h-9 sm:flex-none sm:px-3 sm:text-sm"
+                >
+                  <span className="sm:hidden">Ready</span>
+                  <span className="hidden sm:inline">Ready to connect</span>
                 </TabsTrigger>
-                <TabsTrigger value="soon" className="text-xs sm:text-sm">
-                  Coming soon
+                <TabsTrigger
+                  value="soon"
+                  className="min-h-10 flex-1 px-2 text-xs sm:min-h-9 sm:flex-none sm:px-3 sm:text-sm"
+                >
+                  <span className="sm:hidden">Soon</span>
+                  <span className="hidden sm:inline">Coming soon</span>
                 </TabsTrigger>
               </TabsList>
             </Tabs>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex min-w-0 flex-wrap gap-2 md:max-w-[min(100%,28rem)] md:justify-end lg:max-w-none">
               {CATEGORY_OPTIONS.map((c) => (
                 <Button
                   key={c.id}
@@ -436,7 +470,7 @@ export default function IntegrationsPage() {
                   size="sm"
                   variant={categoryFilter === c.id ? "default" : "outline"}
                   className={cn(
-                    "rounded-full text-xs",
+                    "min-h-9 shrink-0 rounded-full text-xs touch-manipulation",
                     categoryFilter === c.id && "shadow-md"
                   )}
                   onClick={() => setCategoryFilter(c.id)}
@@ -476,7 +510,7 @@ export default function IntegrationsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 lg:gap-6">
           {visiblePlatforms.map((p) => {
             const count = connectionCountFor(p.id, shopifyConnections, ebayConnections);
             const isLive = p.status === "live";
@@ -496,19 +530,18 @@ export default function IntegrationsPage() {
                     p.accent
                   )}
                 />
-                <CardHeader className="space-y-3 pb-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                <CardHeader className="space-y-3 px-4 pb-3 pt-4 sm:px-6 sm:pt-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
                       <div
                         className={cn(
-                          "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-sm font-bold text-white shadow-inner",
-                          p.accent
+                          "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-black/[0.06] sm:h-12 sm:w-12 dark:bg-slate-50 dark:ring-white/10"
                         )}
                       >
-                        {p.shortName}
+                        <PlatformBrandLogo platformId={p.id} shortName={p.shortName} />
                       </div>
-                      <div className="min-w-0">
-                        <CardTitle className="text-lg leading-tight">{p.name}</CardTitle>
+                      <div className="min-w-0 flex-1">
+                        <CardTitle className="text-base leading-tight sm:text-lg">{p.name}</CardTitle>
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
                             {p.categoryLabel}
@@ -534,15 +567,19 @@ export default function IntegrationsPage() {
                       </div>
                     </div>
                     {isLive && p.id === "shopify" && (
-                      <Button size="sm" className="shrink-0 shadow-sm" onClick={() => setConnectDialogOpen(true)}>
+                      <Button
+                        size="sm"
+                        className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
+                        onClick={() => setConnectDialogOpen(true)}
+                      >
                         <Plus className="h-4 w-4 sm:mr-1" />
-                        <span className="hidden sm:inline">{count > 0 ? "Add store" : "Connect"}</span>
+                        {count > 0 ? "Add store" : "Connect"}
                       </Button>
                     )}
                     {isLive && p.id === "ebay" && (
                       <Button
                         size="sm"
-                        className="shrink-0 shadow-sm"
+                        className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
                         onClick={() => handleConnectEbay(ebayConnections.length > 0)}
                         disabled={ebayConnectLoading}
                       >
@@ -551,7 +588,7 @@ export default function IntegrationsPage() {
                         ) : (
                           <>
                             <Plus className="h-4 w-4 sm:mr-1" />
-                            <span className="hidden sm:inline">{count > 0 ? "Add account" : "Connect"}</span>
+                            {count > 0 ? "Add account" : "Connect"}
                           </>
                         )}
                       </Button>
@@ -559,7 +596,7 @@ export default function IntegrationsPage() {
                   </div>
                   <CardDescription className="text-sm leading-relaxed">{p.description}</CardDescription>
                 </CardHeader>
-                <CardContent className="mt-auto flex flex-1 flex-col gap-3 pt-0">
+                <CardContent className="mt-auto flex flex-1 flex-col gap-3 px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
                   {isSoon && (
                     <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-muted-foreground/20 bg-muted/20 px-4 py-8 text-center">
                       <Store className="mb-2 h-8 w-8 text-muted-foreground/40" />

@@ -65,6 +65,7 @@
     "react-international-phone": "^4.6.0",
     "react-phone-number-input": "^3.4.14",
     "recharts": "^2.15.1",
+    "simple-icons": "^16.15.0",
     "stripe": "^17.4.0",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
