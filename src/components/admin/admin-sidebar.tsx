@@ -27,7 +27,6 @@ import {
   DollarSign,
   Bell,
   FolderOpen,
-  Receipt,
   ShoppingBag,
   RotateCcw,
   Package,
@@ -276,20 +275,6 @@ export function AdminSidebar() {
       icon: FileText,
       color: "text-indigo-600",
       requiredFeature: "manage_invoices" as const,
-    },
-    {
-      title: "Invoice Management",
-      url: "/admin/dashboard/invoice-management",
-      icon: Receipt,
-      color: "text-fuchsia-600",
-      requiredFeature: "manage_invoices" as const,
-    },
-    {
-      title: "Quote Management",
-      url: "/admin/dashboard/quotes",
-      icon: Briefcase,
-      color: "text-emerald-600",
-      requiredFeature: "manage_quotes" as const,
     },
     {
       title: "Pricing Tariff",
