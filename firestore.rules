@@ -79,6 +79,7 @@ service cloud.firestore {
               'admin_dashboard',
               'manage_users',
               'manage_invoices',
+              'manage_quotes',
               'manage_labels'
             ])) ||
           // features as map { admin_dashboard: true, ... }
@@ -87,6 +88,7 @@ service cloud.firestore {
               currentUserDoc().data.features.admin_dashboard == true ||
               currentUserDoc().data.features.manage_users == true ||
               currentUserDoc().data.features.manage_invoices == true ||
+              currentUserDoc().data.features.manage_quotes == true ||
               currentUserDoc().data.features.manage_labels == true
             )))
         );
@@ -171,6 +173,14 @@ service cloud.firestore {
       allow read, write: if isAdminOrSubAdmin();
     }
     match /external_invoice_delete_logs/{logId} {
+      allow read, write: if isAdminOrSubAdmin();
+    }
+
+    // ---- CRM LEADS (PrepCorex CRM app — /crmLeads + timeline subcollection) ----
+    match /crmLeads/{leadId} {
+      allow read, write: if isAdminOrSubAdmin();
+    }
+    match /crmLeads/{leadId}/timeline/{entryId} {
       allow read, write: if isAdminOrSubAdmin();
     }
 

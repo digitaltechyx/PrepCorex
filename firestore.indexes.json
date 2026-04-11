@@ -1,6 +1,11 @@
 {
   "indexes": [
     {
+      "collectionGroup": "crmLeads",
+      "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "updatedAt", "order": "DESCENDING" }]
+    },
+    {
       "collectionGroup": "inventory",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

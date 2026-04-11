@@ -324,7 +324,7 @@ export function AdminSidebar() {
     },
     {
       title: "Integration",
-      url: "/dashboard/integrations",
+      url: "/admin/dashboard/integrations",
       icon: Plug,
       color: "text-green-600",
       requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders"] as const satisfies readonly UserFeature[],
@@ -423,8 +423,8 @@ export function AdminSidebar() {
                   const Icon = item.icon;
                   const isActive =
                     pathname === item.url ||
-                    (item.url === "/dashboard/integrations" &&
-                      pathname.startsWith("/dashboard/integrations/"));
+                    (item.url === "/admin/dashboard/integrations" &&
+                      pathname.startsWith("/admin/dashboard/integrations"));
                   
                   return (
                     <SidebarMenuItem key={item.url}>
