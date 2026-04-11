@@ -34,6 +34,23 @@ export default function DashboardLayout({
     }
   };
 
+  // Admin/sub_admin without a client role were linked to /dashboard/integrations (legacy) but the client
+  // sidebar only lists items for "user" / "commission_agent", so nav appeared empty. Send them to the admin hub.
+  useEffect(() => {
+    if (loading || !user || !userProfile || !pathname) return;
+    const hub =
+      pathname === "/dashboard/integrations" || pathname === "/dashboard/integrations/";
+    if (!hub) return;
+    const hasAdminRole = hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
+    const hasUserRole = hasRole(userProfile, "user");
+    const hasAgentRole = hasRole(userProfile, "commission_agent");
+    const canManageOrderIntegrations =
+      hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders");
+    if (hasAdminRole && !hasUserRole && !hasAgentRole && canManageOrderIntegrations) {
+      router.replace("/admin/dashboard/integrations");
+    }
+  }, [loading, user, userProfile, pathname, router]);
+
   useEffect(() => {
     // Wait for both auth and profile to finish loading
     if (!loading && user) {

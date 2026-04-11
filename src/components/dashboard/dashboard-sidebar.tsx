@@ -210,7 +210,7 @@ export function DashboardSidebar() {
 
   // Filter menu items: show all client items to users (so they see full nav; locked ones show blur on click)
   // Commission-agent items only show when user has that role and the affiliate feature
-  const menuItems = allMenuItems.filter((item) => {
+  const filteredClientMenu = allMenuItems.filter((item) => {
     const hasRequiredRole =
       (item.requiredRole === "user" && hasUserRole) ||
       (item.requiredRole === "commission_agent" && hasAgentRole);
@@ -229,6 +229,35 @@ export function DashboardSidebar() {
 
     return true;
   }).map(({ requiredRole, requiredFeature, ...item }) => item); // Remove internal fields
+
+  const hasAdminRole = hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
+  const onClientIntegrationsSubtree =
+    pathname === "/dashboard/integrations" || pathname?.startsWith("/dashboard/integrations/");
+  const adminOnlyNeedsIntegrationsNav =
+    hasAdminRole &&
+    !hasUserRole &&
+    !hasAgentRole &&
+    (hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders")) &&
+    onClientIntegrationsSubtree;
+
+  const menuItems = adminOnlyNeedsIntegrationsNav
+    ? [
+        {
+          title: "Admin dashboard",
+          url: "/admin/dashboard",
+          icon: LayoutDashboard,
+          color: "text-blue-600",
+          badge: null as number | null | undefined,
+        },
+        {
+          title: "Integrations",
+          url: "/admin/dashboard/integrations",
+          icon: Plug,
+          color: "text-emerald-600",
+          badge: null as number | null | undefined,
+        },
+      ]
+    : filteredClientMenu;
 
   return (
     <Sidebar className="border-r border-border/40 bg-gradient-to-b from-background to-muted/20">
