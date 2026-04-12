@@ -78,7 +78,7 @@ const DOCUMENT_TYPES = [
   {
     id: "custom" as const,
     label: CUSTOM_DOCUMENT_REQUEST_LABEL,
-    description: "NDAs, addenda, one-off agreements, or other documents not covered by our standard templates",
+    description: "NDAs, addenda, or other agreements beyond our standard templates",
   },
 ] as const;
 
@@ -394,7 +394,7 @@ function DocumentsPageContent() {
           </DialogTrigger>
           <DialogContent
             className={cn(
-              "max-w-lg",
+              "max-w-lg overflow-x-hidden",
               selectedDocumentType != null &&
                 requestStep === 1 &&
                 "max-w-3xl max-h-[90vh] !flex flex-col overflow-hidden gap-4",
@@ -427,7 +427,7 @@ function DocumentsPageContent() {
             {selectedDocumentType == null ? (
               <div
                 className={cn(
-                  "grid max-h-[min(60vh,22rem)] grid-cols-1 gap-3 overflow-y-auto py-4 pr-1 [scrollbar-width:thin]",
+                  "grid min-h-0 max-h-[min(60vh,22rem)] grid-cols-1 gap-3 overflow-y-auto overflow-x-hidden py-4 pr-1 [scrollbar-width:thin]",
                   "[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
                 )}
               >
@@ -437,7 +437,7 @@ function DocumentsPageContent() {
                     type="button"
                     variant="outline"
                     className={cn(
-                      "h-auto flex flex-col items-start gap-1.5 p-4 text-left transition-colors",
+                      "h-auto w-full min-w-0 max-w-full flex-col items-stretch justify-start gap-1.5 whitespace-normal p-4 text-left transition-colors",
                       docType.id === "custom" &&
                         "border-primary/30 bg-primary/[0.04] hover:bg-primary/[0.07] hover:border-primary/40"
                     )}
@@ -447,13 +447,15 @@ function DocumentsPageContent() {
                     }}
                   >
                     {docType.id === "custom" && (
-                      <span className="flex items-center gap-1.5 text-xs font-medium text-primary">
-                        <ClipboardList className="h-3.5 w-3.5" aria-hidden />
+                      <span className="flex w-full min-w-0 items-center gap-1.5 text-xs font-medium text-primary">
+                        <ClipboardList className="h-3.5 w-3.5 shrink-0" aria-hidden />
                         Other / custom
                       </span>
                     )}
-                    <span className="font-semibold">{docType.label}</span>
-                    <span className="text-xs text-muted-foreground font-normal leading-snug">{docType.description}</span>
+                    <span className="block w-full min-w-0 break-words text-left font-semibold">{docType.label}</span>
+                    <span className="block w-full min-w-0 break-words text-left text-xs font-normal leading-snug text-muted-foreground">
+                      {docType.description}
+                    </span>
                   </Button>
                 ))}
               </div>
