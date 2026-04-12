@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CUSTOM_DOCUMENT_REQUEST_LABEL } from "@/lib/document-request-labels";
 
 interface DocumentRequest {
   id: string;
@@ -59,6 +60,7 @@ interface DocumentRequest {
   phone?: string;
   partnerAuthorizedName?: string;
   partnerTitle?: string;
+  customDocumentBrief?: string;
 }
 
 export default function DocumentRequestsPage() {
@@ -142,6 +144,7 @@ export default function DocumentRequestsPage() {
         req.contact,
         req.email,
         req.notes,
+        req.customDocumentBrief,
       ]
         .filter(Boolean)
         .join(" ")
@@ -182,6 +185,15 @@ export default function DocumentRequestsPage() {
   };
 
   const handleApproveRequest = async (request: DocumentRequest) => {
+    if (request.documentType === CUSTOM_DOCUMENT_REQUEST_LABEL) {
+      toast({
+        variant: "destructive",
+        title: "Use Upload for custom requests",
+        description:
+          "Custom document requests do not have an auto-generated PDF. Upload the prepared document instead.",
+      });
+      return;
+    }
     setApprovingRequestId(request.id);
     try {
       const requestRef = doc(db, `users/${request.userId}/documentRequests`, request.id);
@@ -642,11 +654,16 @@ export default function DocumentRequestsPage() {
                           <FileText className="h-5 w-5 text-orange-600" />
                         </div>
                         <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
                             <p className="font-semibold">{request.documentType}</p>
                             <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
                               Pending
                             </Badge>
+                            {request.documentType === CUSTOM_DOCUMENT_REQUEST_LABEL && (
+                              <Badge variant="secondary" className="text-xs font-normal">
+                                Upload only — no auto PDF
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <User className="h-4 w-4" />
@@ -691,6 +708,14 @@ export default function DocumentRequestsPage() {
                           <p className="text-sm text-muted-foreground mt-1">
                             Requested {format(new Date(request.requestedAt?.seconds * 1000 || Date.now()), "MMM d, yyyy 'at' h:mm a")}
                           </p>
+                          {request.customDocumentBrief && (
+                            <div className="mt-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                                Request details
+                              </p>
+                              <p className="text-foreground whitespace-pre-wrap">{request.customDocumentBrief}</p>
+                            </div>
+                          )}
                           {request.notes && (
                             <p className="text-sm text-muted-foreground mt-1">
                               Notes: {request.notes}
@@ -699,6 +724,7 @@ export default function DocumentRequestsPage() {
                         </div>
                       </div>
                       <div className="flex flex-col gap-2 ml-4">
+                        {request.documentType !== CUSTOM_DOCUMENT_REQUEST_LABEL && (
                         <Button
                           size="sm"
                           onClick={() => handleApproveRequest(request)}
@@ -711,6 +737,7 @@ export default function DocumentRequestsPage() {
                           )}
                           Approve
                         </Button>
+                        )}
                       <Button
                           size="sm"
                           variant="outline"

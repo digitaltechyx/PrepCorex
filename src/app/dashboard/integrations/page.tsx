@@ -54,7 +54,7 @@ type EbayConnectionSummary = {
   selectedOfferIds?: string[];
 };
 
-type PlatformCategory = "marketplace" | "ecommerce" | "social";
+type PlatformCategory = "marketplace" | "ecommerce" | "social" | "shipping";
 type PlatformStatus = "live" | "coming_soon";
 type FilterTab = "all" | "connected" | "available" | "soon";
 
@@ -149,6 +149,17 @@ const PLATFORMS: PlatformDef[] = [
     accent: "from-violet-500/80 to-purple-700/80",
     ring: "ring-violet-500/15",
   },
+  {
+    id: "shipstation",
+    name: "ShipStation",
+    shortName: "SS",
+    category: "shipping",
+    categoryLabel: "Shipping",
+    status: "coming_soon",
+    description: "Import orders, print labels, and sync tracking from ShipStation — planned.",
+    accent: "from-indigo-500/85 to-violet-600/85",
+    ring: "ring-indigo-500/15",
+  },
 ];
 
 const CATEGORY_OPTIONS: { id: "all" | PlatformCategory; label: string }[] = [
@@ -156,6 +167,7 @@ const CATEGORY_OPTIONS: { id: "all" | PlatformCategory; label: string }[] = [
   { id: "marketplace", label: "Marketplaces" },
   { id: "ecommerce", label: "E‑commerce" },
   { id: "social", label: "Social commerce" },
+  { id: "shipping", label: "Shipping" },
 ];
 
 function connectionCountFor(
@@ -381,8 +393,8 @@ export default function IntegrationsPage() {
               Integrations hub
             </h1>
             <p className="text-sm leading-relaxed text-slate-300 sm:text-base md:max-w-xl lg:max-w-2xl">
-              One place to connect marketplaces and storefronts. Live channels sync orders automatically; upcoming
-              platforms are shown so you can plan ahead.
+              One place to connect marketplaces, storefronts, and shipping tools. Live channels sync orders automatically;
+              upcoming platforms are shown so you can plan ahead.
             </p>
           </div>
           <div className="grid w-full grid-cols-3 gap-2 sm:gap-3 md:w-auto md:min-w-[min(100%,20rem)] md:max-w-md md:shrink-0 lg:min-w-[22rem] lg:max-w-none">
@@ -427,7 +439,7 @@ export default function IntegrationsPage() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search platforms (Shopify, Amazon, TikTok…)"
+              placeholder="Search platforms (Shopify, ShipStation, TikTok…)"
               className="h-11 min-h-11 pl-10 text-base sm:text-sm"
             />
           </div>

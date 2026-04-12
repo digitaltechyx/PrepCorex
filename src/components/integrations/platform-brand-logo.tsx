@@ -20,6 +20,8 @@ const SI: Record<string, SimpleIcon> = {
 const MONOGRAM: Record<string, { text: string; className: string }> = {
   amazon: { text: "AMZ", className: "text-[10px] tracking-tighter text-[#FF9900]" },
   walmart: { text: "WM", className: "text-sm tracking-tight text-[#0071CE]" },
+  /** ShipStation not in simple-icons; purple aligns with common brand use */
+  shipstation: { text: "SS", className: "text-[11px] font-bold tracking-tight text-[#522E92]" },
 };
 
 type PlatformBrandLogoProps = {

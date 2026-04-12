@@ -9,10 +9,25 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import { collection, addDoc, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { FileText, Download, Upload, Loader2, CheckCircle, Clock, FileSignature, Eye, Building2, User, MapPin, Mail, Phone } from "lucide-react";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  FileText,
+  Download,
+  Upload,
+  Loader2,
+  CheckCircle,
+  Clock,
+  FileSignature,
+  Eye,
+  Building2,
+  User,
+  MapPin,
+  Mail,
+  Phone,
+  ClipboardList,
+} from "lucide-react";
 import { FULFILLMENT_SERVICE_PROVIDER, FULFILLMENT_AGREEMENT_SECTIONS } from "@/lib/fulfillment-agreement-content";
 import { PARTNERSHIP_SERVICE_PROVIDER, PARTNERSHIP_AGREEMENT_SECTIONS } from "@/lib/partnership-agreement-content";
+import { CUSTOM_DOCUMENT_REQUEST_LABEL } from "@/lib/document-request-labels";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -53,12 +68,21 @@ interface DocumentRequest {
   phone?: string;
   partnerAuthorizedName?: string;
   partnerTitle?: string;
+  /** Custom document request — scope / description from the client */
+  customDocumentBrief?: string;
 }
 
 const DOCUMENT_TYPES = [
   { id: "fulfillment" as const, label: "Fulfillment & Prep Services Agreement", description: "Warehousing, prep, and fulfillment services" },
   { id: "partnership" as const, label: "B2B Partnership Agreement", description: "Referral and strategic partnership" },
-];
+  {
+    id: "custom" as const,
+    label: CUSTOM_DOCUMENT_REQUEST_LABEL,
+    description: "NDAs, addenda, one-off agreements, or other documents not covered by our standard templates",
+  },
+] as const;
+
+type SelectedDocType = (typeof DOCUMENT_TYPES)[number]["id"];
 
 type RequestListFilter = "all" | "pending" | "complete";
 
@@ -67,7 +91,7 @@ function DocumentsPageContent() {
   const { userProfile, user } = useAuth();
   const { toast } = useToast();
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
-  const [selectedDocumentType, setSelectedDocumentType] = useState<"fulfillment" | "partnership" | null>(null);
+  const [selectedDocumentType, setSelectedDocumentType] = useState<SelectedDocType | null>(null);
   const [requestStep, setRequestStep] = useState<1 | 2>(1);
   const [notes, setNotes] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -79,6 +103,7 @@ function DocumentsPageContent() {
   const [phone, setPhone] = useState("");
   const [partnerAuthorizedName, setPartnerAuthorizedName] = useState("");
   const [partnerTitle, setPartnerTitle] = useState("");
+  const [customDocumentBrief, setCustomDocumentBrief] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [msaDownloading, setMsaDownloading] = useState(false);
   const [requestListFilter, setRequestListFilter] = useState<RequestListFilter>("all");
@@ -151,6 +176,39 @@ function DocumentsPageContent() {
       }
       return true;
     }
+    if (selectedDocumentType === "custom") {
+      if (!companyName?.trim()) {
+        toast({ variant: "destructive", title: "Validation Error", description: "Company or organization name is required." });
+        return false;
+      }
+      if (!contact?.trim()) {
+        toast({ variant: "destructive", title: "Validation Error", description: "Contact is required." });
+        return false;
+      }
+      if (!email?.trim()) {
+        toast({ variant: "destructive", title: "Validation Error", description: "Email is required." });
+        return false;
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        toast({ variant: "destructive", title: "Validation Error", description: "Please enter a valid email address." });
+        return false;
+      }
+      if (!clientLegalName?.trim()) {
+        toast({ variant: "destructive", title: "Validation Error", description: "Legal name is required." });
+        return false;
+      }
+      const brief = customDocumentBrief?.trim() ?? "";
+      if (brief.length < 40) {
+        toast({
+          variant: "destructive",
+          title: "Validation Error",
+          description: "Please describe what you need in at least a few sentences (40+ characters).",
+        });
+        return false;
+      }
+      return true;
+    }
     return false;
   };
 
@@ -178,7 +236,9 @@ function DocumentsPageContent() {
       const documentTypeLabel =
         selectedDocumentType === "partnership"
           ? "B2B Partnership Agreement"
-          : "Fulfillment & Prep Services Agreement";
+          : selectedDocumentType === "custom"
+            ? CUSTOM_DOCUMENT_REQUEST_LABEL
+            : "Fulfillment & Prep Services Agreement";
       const requestData: any = {
         userId: userProfile.uid,
         documentType: documentTypeLabel,
@@ -198,6 +258,12 @@ function DocumentsPageContent() {
         requestData.phone = phone.trim();
         requestData.partnerAuthorizedName = partnerAuthorizedName.trim();
         if (partnerTitle?.trim()) requestData.partnerTitle = partnerTitle.trim();
+      } else if (selectedDocumentType === "custom") {
+        requestData.companyName = companyName.trim();
+        requestData.contact = contact.trim();
+        requestData.email = email.trim();
+        requestData.clientLegalName = clientLegalName.trim();
+        requestData.customDocumentBrief = customDocumentBrief.trim();
       }
       if (notes?.trim()) requestData.notes = notes.trim();
 
@@ -205,7 +271,10 @@ function DocumentsPageContent() {
 
       toast({
         title: "Request Submitted",
-        description: "Your agreement request has been submitted. Admin will review and approve or upload it.",
+        description:
+          selectedDocumentType === "custom"
+            ? "Your custom document request has been submitted. Our team will review it and follow up by email."
+            : "Your agreement request has been submitted. Admin will review and approve or upload it.",
       });
 
       setNotes("");
@@ -218,6 +287,7 @@ function DocumentsPageContent() {
       setPhone("");
       setPartnerAuthorizedName("");
       setPartnerTitle("");
+      setCustomDocumentBrief("");
       setSelectedDocumentType(null);
       setRequestStep(1);
       setRequestDialogOpen(false);
@@ -312,6 +382,7 @@ function DocumentsPageContent() {
             if (!open) {
               setRequestStep(1);
               setSelectedDocumentType(null);
+              setCustomDocumentBrief("");
             }
           }}
         >
@@ -321,44 +392,222 @@ function DocumentsPageContent() {
               Request Document
             </Button>
           </DialogTrigger>
-          <DialogContent className={cn("max-w-lg", selectedDocumentType != null && requestStep === 1 && "max-w-3xl max-h-[90vh] flex flex-col")}>
-            <DialogHeader>
+          <DialogContent
+            className={cn(
+              "max-w-lg",
+              selectedDocumentType != null &&
+                requestStep === 1 &&
+                "max-w-3xl max-h-[90vh] !flex flex-col overflow-hidden gap-4",
+              selectedDocumentType != null && requestStep === 2 && "max-h-[90vh] !flex flex-col overflow-hidden gap-4"
+            )}
+          >
+            <DialogHeader className="shrink-0 pr-10">
               <DialogTitle>
                 {selectedDocumentType == null
                   ? "Select Document"
                   : selectedDocumentType === "fulfillment"
                     ? "Fulfillment & Prep Services Agreement"
-                    : "B2B Partnership Agreement"}
+                    : selectedDocumentType === "partnership"
+                      ? "B2B Partnership Agreement"
+                      : CUSTOM_DOCUMENT_REQUEST_LABEL}
               </DialogTitle>
               <DialogDescription>
                 {selectedDocumentType == null
-                  ? "Choose the document you want to request. You will see the full document and fill your details in the template."
+                  ? "Choose a standard agreement or a custom document request. You’ll complete the details in the next step."
                   : requestStep === 1
-                    ? "Read the full agreement below and fill your details in the template. Service provider will be shown as Prep Services FBA LLC."
-                    : "Add any notes for the admin (optional), then submit your request."}
+                    ? selectedDocumentType === "custom"
+                      ? "Provide your contact information and a clear description of the document you need. Our team will review and follow up by email—there is no standard template for this option."
+                      : "Read the full agreement below and fill your details in the template. Service provider will be shown as Prep Services FBA LLC."
+                    : selectedDocumentType === "custom"
+                      ? "Add any extra context for our team (optional), then submit your request."
+                      : "Add any notes for the admin (optional), then submit your request."}
               </DialogDescription>
             </DialogHeader>
 
             {selectedDocumentType == null ? (
-              <div className="grid grid-cols-1 gap-3 py-4">
+              <div
+                className={cn(
+                  "grid max-h-[min(60vh,22rem)] grid-cols-1 gap-3 overflow-y-auto py-4 pr-1 [scrollbar-width:thin]",
+                  "[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
+                )}
+              >
                 {DOCUMENT_TYPES.map((docType) => (
                   <Button
                     key={docType.id}
                     type="button"
                     variant="outline"
-                    className="h-auto flex flex-col items-start gap-1 p-4 text-left"
+                    className={cn(
+                      "h-auto flex flex-col items-start gap-1.5 p-4 text-left transition-colors",
+                      docType.id === "custom" &&
+                        "border-primary/30 bg-primary/[0.04] hover:bg-primary/[0.07] hover:border-primary/40"
+                    )}
                     onClick={() => {
                       setSelectedDocumentType(docType.id);
                       setRequestStep(1);
                     }}
                   >
+                    {docType.id === "custom" && (
+                      <span className="flex items-center gap-1.5 text-xs font-medium text-primary">
+                        <ClipboardList className="h-3.5 w-3.5" aria-hidden />
+                        Other / custom
+                      </span>
+                    )}
                     <span className="font-semibold">{docType.label}</span>
-                    <span className="text-xs text-muted-foreground font-normal">{docType.description}</span>
+                    <span className="text-xs text-muted-foreground font-normal leading-snug">{docType.description}</span>
                   </Button>
                 ))}
               </div>
             ) : requestStep === 1 ? (
-              <div className="flex flex-col gap-4 py-2 min-h-0 overflow-hidden">
+              selectedDocumentType === "custom" ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden">
+                <div
+                  className={cn(
+                    "min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-1 pr-2",
+                    "[scrollbar-width:thin] [scrollbar-color:hsl(var(--border))_hsl(var(--muted))]",
+                    "[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border",
+                    "[&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-muted/60"
+                  )}
+                >
+                  <div className="flex flex-col gap-4">
+                    <div className="rounded-xl border border-primary/20 bg-primary/[0.06] px-4 py-3 text-sm">
+                      <p className="mb-1.5 flex items-center gap-2 font-semibold text-foreground">
+                        <ClipboardList className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+                        How custom requests work
+                      </p>
+                      <p className="text-muted-foreground leading-relaxed">
+                        Use this path for documents that are not our standard fulfillment or partnership agreements—for
+                        example NDAs, addenda, or bespoke terms. Describe what you need, who it is for, and any deadlines.
+                        Legal and operations will review your request and respond by email.
+                      </p>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Request date:{" "}
+                      <span className="font-medium text-foreground">{format(new Date(), "MMMM d, yyyy")}</span>
+                    </p>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
+                            <Building2 className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                          <Label className="text-sm font-semibold text-muted-foreground">Service provider</Label>
+                        </div>
+                        <div className="rounded-xl border bg-muted/20 p-4 space-y-1.5 text-sm">
+                          <p className="font-semibold text-foreground">{FULFILLMENT_SERVICE_PROVIDER.name}</p>
+                          <p className="flex items-center gap-2 text-muted-foreground">
+                            <Mail className="h-4 w-4 shrink-0" />
+                            {FULFILLMENT_SERVICE_PROVIDER.contact}
+                          </p>
+                          <p className="flex items-center gap-2 text-muted-foreground">
+                            <Phone className="h-4 w-4 shrink-0" />
+                            {FULFILLMENT_SERVICE_PROVIDER.phone}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <User className="h-4 w-4" />
+                          </div>
+                          <Label className="text-sm font-semibold text-muted-foreground">Your organization</Label>
+                        </div>
+                        <div className="rounded-xl border-2 border-dashed border-muted-foreground/20 bg-background p-4 space-y-3">
+                          <div className="space-y-1.5">
+                            <Label htmlFor="custom-companyName" className="text-xs font-medium">
+                              Company or organization <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                              id="custom-companyName"
+                              value={companyName}
+                              onChange={(e) => setCompanyName(e.target.value)}
+                              placeholder="Legal entity or DBA"
+                              className="h-9"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="custom-contact" className="text-xs font-medium">
+                              Phone or primary contact <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                              id="custom-contact"
+                              value={contact}
+                              onChange={(e) => setContact(e.target.value)}
+                              placeholder="Best number to reach you"
+                              className="h-9"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="custom-email" className="text-xs font-medium">
+                              Email <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                              id="custom-email"
+                              type="email"
+                              value={email}
+                              onChange={(e) => setEmail(e.target.value)}
+                              placeholder="For correspondence and delivery"
+                              className="h-9"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="custom-legal" className="text-xs font-medium">
+                              Authorized signatory (legal name) <span className="text-red-500">*</span>
+                            </Label>
+                            <Input
+                              id="custom-legal"
+                              value={clientLegalName}
+                              onChange={(e) => setClientLegalName(e.target.value)}
+                              placeholder="Full name as it should appear on documents"
+                              className="h-9"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="custom-brief" className="text-sm font-medium">
+                        Document request details <span className="text-red-500">*</span>
+                      </Label>
+                      <Textarea
+                        id="custom-brief"
+                        value={customDocumentBrief}
+                        onChange={(e) => setCustomDocumentBrief(e.target.value)}
+                        placeholder="Describe the document you need (e.g. mutual NDA, pricing addendum), its purpose, parties involved, and any deadlines or special requirements."
+                        rows={6}
+                        className="min-h-[140px] resize-y text-sm"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Minimum 40 characters. Be specific so our team can respond without unnecessary back-and-forth.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="shrink-0 space-y-3 border-t border-border/60 bg-background pt-3">
+                  <p className="text-xs text-muted-foreground">
+                    By continuing, you confirm the information above is accurate to the best of your knowledge. This
+                    request does not create a binding agreement until a document is prepared and executed by both parties.
+                  </p>
+                  <div className="flex gap-3">
+                    <Button type="button" variant="outline" onClick={() => setSelectedDocumentType(null)}>
+                      Back
+                    </Button>
+                    <Button onClick={handleNextFromDetails} className="flex-1">
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              ) : (
+              <div className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden">
+                <div
+                  className={cn(
+                    "min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-1 pr-2",
+                    "[scrollbar-width:thin] [scrollbar-color:hsl(var(--border))_hsl(var(--muted))]",
+                    "[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border",
+                    "[&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-muted/60"
+                  )}
+                >
+                  <div className="flex flex-col gap-4">
                 <p className="text-sm text-muted-foreground">
                   This agreement is entered into as of <span className="font-medium text-foreground">{format(new Date(), "MMMM d, yyyy")}</span>, by and between:
                 </p>
@@ -464,28 +713,29 @@ function DocumentsPageContent() {
                     </div>
                   </div>
                 </div>
-                <div className="rounded-xl border bg-muted/20 overflow-hidden">
+                <div className="rounded-xl border bg-muted/20">
                   <div className="border-b bg-muted/30 px-4 py-2">
                     <p className="text-sm font-semibold">Agreement terms</p>
                     <p className="text-xs text-muted-foreground">Please read the full agreement below.</p>
                   </div>
-                  <ScrollArea className="h-[280px] w-full px-4 py-4">
-                    <div className="space-y-4 pr-4">
-                      {(selectedDocumentType === "fulfillment" ? FULFILLMENT_AGREEMENT_SECTIONS : PARTNERSHIP_AGREEMENT_SECTIONS).map((section, i) => (
-                        <div key={section.title} className={cn(i > 0 && "pt-4 border-t border-border/60")}>
-                          <h3 className="font-semibold text-foreground text-sm uppercase tracking-wide mb-1.5">
-                            {section.title}
-                          </h3>
-                          <p className="text-muted-foreground text-sm leading-relaxed">{section.body}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
+                  <div className="space-y-4 px-4 py-4">
+                    {(selectedDocumentType === "fulfillment" ? FULFILLMENT_AGREEMENT_SECTIONS : PARTNERSHIP_AGREEMENT_SECTIONS).map((section, i) => (
+                      <div key={section.title} className={cn(i > 0 && "pt-4 border-t border-border/60")}>
+                        <h3 className="font-semibold text-foreground text-sm uppercase tracking-wide mb-1.5">
+                          {section.title}
+                        </h3>
+                        <p className="text-muted-foreground text-sm leading-relaxed">{section.body}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+                  </div>
+                </div>
+                <div className="shrink-0 space-y-3 border-t border-border/60 bg-background pt-3">
                 <p className="text-xs text-muted-foreground">
                   Agreed and Accepted by: Service Provider — Prep Services FBA LLC. {selectedDocumentType === "fulfillment" ? "Client" : "Partner"} — your name above will appear as signature.
                 </p>
-                <div className="flex gap-3 pt-2">
+                <div className="flex gap-3">
                   <Button type="button" variant="outline" onClick={() => setSelectedDocumentType(null)}>
                     Back
                   </Button>
@@ -493,20 +743,28 @@ function DocumentsPageContent() {
                     Next
                   </Button>
                 </div>
+                </div>
               </div>
+              )
             ) : (
-              <div className="space-y-4 py-4">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto py-2 pr-1 [scrollbar-width:thin]">
                 <div className="space-y-1">
                   <p className="font-medium">Review & Notes (optional)</p>
                   <p className="text-sm text-muted-foreground">
-                    Add any notes if you want the admin to modify or add clauses to the agreement (optional).
+                    {selectedDocumentType === "custom"
+                      ? "Optional: deadlines, counterparties, formatting (PDF/DOC), or other context for our team."
+                      : "Add any notes if you want the admin to modify or add clauses to the agreement (optional)."}
                   </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notes">Notes (Optional)</Label>
                   <Textarea
                     id="notes"
-                    placeholder="Example: Please adjust pricing paragraph, or add my warehouse address..."
+                    placeholder={
+                      selectedDocumentType === "custom"
+                        ? "Example: Need PDF by March 1; include our registered agent address…"
+                        : "Example: Please adjust pricing paragraph, or add my warehouse address..."
+                    }
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={4}
