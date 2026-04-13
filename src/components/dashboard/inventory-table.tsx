@@ -37,7 +37,6 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 function formatDate(date: InventoryItem["dateAdded"]) {
@@ -667,9 +666,9 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
           <div className="mt-4 overflow-y-auto max-h-[60vh] space-y-4">
             {selectedImageUrls.length > 0 && (
               <div className="bg-gray-50 p-4 rounded-lg">
-                <Label className="text-sm font-semibold mb-2 block">
+                <p className="text-sm font-semibold mb-2">
                   Inventory Pictures ({selectedImageUrls.length})
-                </Label>
+                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {selectedImageUrls.map((url, index) => (
                     <div key={index} className="relative">
@@ -684,7 +683,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
               </div>
             )}
             <div className="bg-gray-50 p-4 rounded-lg">
-              <Label className="text-sm font-semibold mb-2 block">Remarks</Label>
+              <p className="text-sm font-semibold mb-2">Remarks</p>
               <p className="text-sm whitespace-pre-wrap break-words overflow-wrap-anywhere">
                 {selectedRemarks || "No remarks available"}
               </p>
@@ -704,7 +703,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
           </DialogHeader>
           <div className="space-y-4 mt-4">
             <div>
-              <Label htmlFor="edit-product-name">Product Name</Label>
+              <label htmlFor="edit-product-name" className="text-sm font-medium">Product Name</label>
               <Input
                 id="edit-product-name"
                 value={editProductName}
@@ -714,7 +713,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
               />
             </div>
             <div>
-              <Label htmlFor="edit-sku">SKU</Label>
+              <label htmlFor="edit-sku" className="text-sm font-medium">SKU</label>
               <Input
                 id="edit-sku"
                 value={editSku}
@@ -724,7 +723,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
               />
             </div>
             <div>
-              <Label htmlFor="edit-quantity">Quantity</Label>
+              <label htmlFor="edit-quantity" className="text-sm font-medium">Quantity</label>
               <Input
                 id="edit-quantity"
                 type="number"
