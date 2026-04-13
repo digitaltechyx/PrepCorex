@@ -61,6 +61,13 @@ function formatReceivingDate(date: InventoryItem["receivingDate"]) {
   return "N/A";
 }
 
+function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefined): string[] {
+  if (!data) return [];
+  if (Array.isArray(data.imageUrls) && data.imageUrls.length > 0) return data.imageUrls;
+  if (typeof data.imageUrl === "string" && data.imageUrl.length > 0) return [data.imageUrl];
+  return [];
+}
+
 /** Matches dashboard KPI "Low Stock SKUs" (qty 1–10, real inventory rows only). URL: ?status=low-stock */
 const LOW_STOCK_STATUS_VALUE = "low-stock";
 
@@ -216,6 +223,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
         inventoryType: req.inventoryType,
         requestedBy: req.requestedBy,
         remarks: req.remarks,
+        imageUrls: getImageUrls(req as any),
         isRequest: true,
         requestId: req.id,
         requestData: req, // Store full request data for editing
@@ -238,7 +246,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
         isRequest: true,
         requestId: req.id,
         requestData: req, // Store full request data
-        imageUrl: (req as any)?.imageUrl || undefined,
+        imageUrls: getImageUrls(req as any),
       }));
 
     // Convert approved inventory items - get remarks from inventory item OR approved request
@@ -253,23 +261,9 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
       // Use remarks from inventory item first, then from approved request
       const remarks = item.remarks || matchingRequest?.remarks;
       
-      // Get imageUrls from inventory item or matching request
-      // Handle both old single imageUrl and new imageUrls array
-      let imageUrls: string[] | undefined = undefined;
-      const itemImageUrls = (item as any).imageUrls;
-      const itemImageUrl = (item as any).imageUrl;
-      const requestImageUrls = (matchingRequest as any)?.imageUrls;
-      const requestImageUrl = (matchingRequest as any)?.imageUrl;
-      
-      if (itemImageUrls && Array.isArray(itemImageUrls) && itemImageUrls.length > 0) {
-        imageUrls = itemImageUrls;
-      } else if (requestImageUrls && Array.isArray(requestImageUrls) && requestImageUrls.length > 0) {
-        imageUrls = requestImageUrls;
-      } else if (itemImageUrl && typeof itemImageUrl === 'string') {
-        imageUrls = [itemImageUrl];
-      } else if (requestImageUrl && typeof requestImageUrl === 'string') {
-        imageUrls = [requestImageUrl];
-      }
+      const imageUrls = getImageUrls(item as any).length > 0
+        ? getImageUrls(item as any)
+        : getImageUrls(matchingRequest as any);
       
       return {
         ...item,
@@ -410,6 +404,13 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
+                      {getImageUrls(item as any)[0] && (
+                        <img
+                          src={getImageUrls(item as any)[0]}
+                          alt={item.productName}
+                          className="h-10 w-10 rounded-md border object-cover"
+                        />
+                      )}
                       <div
                         className={cn(
                           "font-semibold text-sm",
@@ -514,6 +515,13 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                     <TableCell className="font-medium max-w-32 sm:max-w-none truncate">
                       <div className="flex flex-col sm:block">
                         <div className="flex items-center gap-2">
+                          {getImageUrls(item as any)[0] && (
+                            <img
+                              src={getImageUrls(item as any)[0]}
+                              alt={item.productName}
+                              className="h-8 w-8 rounded-md border object-cover"
+                            />
+                          )}
                           <span
                             className={cn(
                               "font-medium",

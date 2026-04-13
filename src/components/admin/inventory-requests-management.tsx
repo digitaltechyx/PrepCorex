@@ -63,7 +63,7 @@ import { db, storage } from "@/lib/firebase";
 import { doc, updateDoc, addDoc, collection, Timestamp, runTransaction, query, where, getDocs } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { format } from "date-fns";
-import { Check, X, Eye, Loader2, Upload, Image as ImageIcon } from "lucide-react";
+import { Archive, Boxes, Check, Eye, Loader2, Package, Truck, Upload, X, Image as ImageIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import imageCompression from "browser-image-compression";
 
@@ -76,6 +76,27 @@ function formatDate(date: InventoryRequest["addDate"] | InventoryRequest["reques
     return format(new Date(date.seconds * 1000), "PPP");
   }
   return "N/A";
+}
+
+function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefined): string[] {
+  if (!data) return [];
+  if (Array.isArray(data.imageUrls) && data.imageUrls.length > 0) return data.imageUrls;
+  if (typeof data.imageUrl === "string" && data.imageUrl.length > 0) return [data.imageUrl];
+  return [];
+}
+
+function InventoryTypePill({ type }: { type: InventoryRequest["inventoryType"] }) {
+  const icon =
+    type === "box" ? <Archive className="h-3.5 w-3.5" /> :
+    type === "pallet" ? <Boxes className="h-3.5 w-3.5" /> :
+    type === "container" ? <Truck className="h-3.5 w-3.5" /> :
+    <Package className="h-3.5 w-3.5" />;
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs capitalize">
+      {icon}
+      {type}
+    </span>
+  );
 }
 
 export function InventoryRequestsManagement({ 
@@ -198,8 +219,9 @@ export function InventoryRequestsManagement({
         ? (editedSku && editedSku.trim() ? editedSku.trim() : ((request as any).sku || ""))
         : undefined;
       
-      // Normalize imageUrls - handle both old single imageUrl and new imageUrls array
-      const finalImageUrls = imageUrls && imageUrls.length > 0 ? imageUrls : [];
+      // Normalize imageUrls - preserve request image if admin does not upload a new one
+      const requestImageUrls = getImageUrls(request as any);
+      const finalImageUrls = imageUrls && imageUrls.length > 0 ? imageUrls : requestImageUrls;
       
       await runTransaction(db, async (transaction) => {
         // STEP 1: ALL READS FIRST (before any writes)
@@ -531,8 +553,19 @@ export function InventoryRequestsManagement({
                 <TableBody>
                   {paginatedRequests.map((request) => (
                     <TableRow key={request.id}>
-                      <TableCell className="capitalize">{request.inventoryType}</TableCell>
-                      <TableCell className="font-medium">{request.productName}</TableCell>
+                      <TableCell><InventoryTypePill type={request.inventoryType} /></TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          {getImageUrls(request as any)[0] && (
+                            <img
+                              src={getImageUrls(request as any)[0]}
+                              alt={request.productName}
+                              className="h-8 w-8 rounded-md border object-cover"
+                            />
+                          )}
+                          <span>{request.productName}</span>
+                        </div>
+                      </TableCell>
                       <TableCell>{request.quantity}</TableCell>
                       <TableCell>{formatDate(request.requestedAt)}</TableCell>
                       <TableCell>
@@ -648,7 +681,7 @@ function ReviewRequestDialog({
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<{ file: File; preview: string }[]>([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [uploadedImageUrls, setUploadedImageUrls] = useState<string[]>([]);
+  const [uploadedImageUrls, setUploadedImageUrls] = useState<string[]>(getImageUrls(request as any));
 
   const compressImage = async (file: File): Promise<File> => {
     const options = {
@@ -859,6 +892,21 @@ function ReviewRequestDialog({
                   <p className="text-sm whitespace-pre-wrap break-words">
                     {(request as any).remarks}
                   </p>
+                </div>
+              </div>
+            )}
+            {uploadedImageUrls.length > 0 && (
+              <div>
+                <Label>Product Pictures</Label>
+                <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {uploadedImageUrls.map((url, index) => (
+                    <img
+                      key={`request-img-${index}`}
+                      src={url}
+                      alt={`Requested inventory ${index + 1}`}
+                      className="h-24 w-full rounded-md border object-cover"
+                    />
+                  ))}
                 </div>
               </div>
             )}

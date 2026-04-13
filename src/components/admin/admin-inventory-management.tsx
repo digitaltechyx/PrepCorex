@@ -79,6 +79,13 @@ function notificationTypeToTabValue(type: string): "shipment" | "inventory" | "r
   return "shipment";
 }
 
+function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefined): string[] {
+  if (!data) return [];
+  if (Array.isArray(data.imageUrls) && data.imageUrls.length > 0) return data.imageUrls;
+  if (typeof data.imageUrl === "string" && data.imageUrl.length > 0) return [data.imageUrl];
+  return [];
+}
+
 export function AdminInventoryManagement({
   selectedUser,
   inventory,
@@ -1769,6 +1776,13 @@ export function AdminInventoryManagement({
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
+                          {getImageUrls(item as any)[0] && (
+                            <img
+                              src={getImageUrls(item as any)[0]}
+                              alt={item.productName}
+                              className="h-9 w-9 rounded-md border object-cover"
+                            />
+                          )}
                           <p className={`font-medium truncate ${isLowStock ? "text-red-700 dark:text-red-400" : ""}`}>
                             {item.productName}
                           </p>

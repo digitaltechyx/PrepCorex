@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { addDoc, collection, query, where, getDocs, orderBy, limit } from "firebase/firestore";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type ChangeEvent } from "react";
 import { Timestamp } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
@@ -15,13 +15,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
-import { Loader2, Plus } from "lucide-react";
+import { db, storage } from "@/lib/firebase";
+import { Archive, Boxes, ImagePlus, Loader2, Package, Plus, Truck } from "lucide-react";
 import type { InventoryType, ContainerSize, UserContainerHandlingPricing } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import type { InventoryItem } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 const inventoryRequestSchema = z.object({
   inventoryType: z.enum(["product", "box", "pallet", "container"], {
@@ -92,6 +93,9 @@ export function AddInventoryRequestForm({
   const [isLoading, setIsLoading] = useState(false);
   const [open, setOpen] = useState(mode === "inline");
   const [generatedId, setGeneratedId] = useState<string>("");
+  const [selectedProductImageFile, setSelectedProductImageFile] = useState<File | null>(null);
+  const [selectedProductImagePreview, setSelectedProductImagePreview] = useState<string>("");
+  const [restockImageUrls, setRestockImageUrls] = useState<string[]>([]);
 
   const ownerId = targetUserId ?? userProfile?.uid;
   const ownerName = (targetUserName ?? userProfile?.name ?? "").trim();
@@ -138,6 +142,61 @@ export function AddInventoryRequestForm({
     if (!containerSize || !containerHandlingPricingList || containerHandlingPricingList.length === 0) return null;
     return containerHandlingPricingList.find(p => p.containerSize === containerSize);
   }, [containerSize, containerHandlingPricingList]);
+
+  const extractImageUrls = (item: Partial<InventoryItem> & { imageUrl?: string; imageUrls?: string[] }) => {
+    if (Array.isArray(item.imageUrls) && item.imageUrls.length > 0) return item.imageUrls;
+    if (item.imageUrl && typeof item.imageUrl === "string") return [item.imageUrl];
+    return [];
+  };
+
+  const resetImageStates = () => {
+    setSelectedProductImageFile(null);
+    setSelectedProductImagePreview("");
+    setRestockImageUrls([]);
+  };
+
+  const handleProductImageSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      setSelectedProductImageFile(null);
+      setSelectedProductImagePreview("");
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      toast({
+        variant: "destructive",
+        title: "Invalid file",
+        description: "Please select an image file.",
+      });
+      event.target.value = "";
+      return;
+    }
+
+    const maxSizeBytes = 5 * 1024 * 1024;
+    if (file.size > maxSizeBytes) {
+      toast({
+        variant: "destructive",
+        title: "Image too large",
+        description: "Please upload an image smaller than 5 MB.",
+      });
+      event.target.value = "";
+      return;
+    }
+
+    setSelectedProductImageFile(file);
+    setSelectedProductImagePreview(URL.createObjectURL(file));
+  };
+
+  const uploadProductImage = async (ownerUid: string): Promise<string[]> => {
+    if (!selectedProductImageFile) return [];
+    const cleanName = selectedProductImageFile.name.replace(/\s+/g, "_");
+    const path = `inventory-product-images/${ownerUid}/${Date.now()}_${cleanName}`;
+    const storageRef = ref(storage, path);
+    await uploadBytes(storageRef, selectedProductImageFile);
+    const downloadUrl = await getDownloadURL(storageRef);
+    return [downloadUrl];
+  };
 
   // Generate Box/Pallet/Container ID when type changes
   useEffect(() => {
@@ -245,6 +304,10 @@ export function AddInventoryRequestForm({
     generateId();
   }, [inventoryType, user, ownerId, ownerName, form]);
 
+  useEffect(() => {
+    resetImageStates();
+  }, [inventoryType, productSubType]);
+
   async function onSubmit(values: z.infer<typeof inventoryRequestSchema>) {
     if (!user || !ownerId) {
       toast({
@@ -297,6 +360,16 @@ export function AddInventoryRequestForm({
         }
       }
 
+      let finalImageUrls: string[] = [];
+      if (values.inventoryType === "product" && values.productSubType === "new") {
+        finalImageUrls = await uploadProductImage(ownerId);
+      } else if (values.inventoryType === "product" && values.productSubType === "restock" && values.productId) {
+        const selectedProduct = availableProductsForRestock.find(p => p.id === values.productId);
+        if (selectedProduct) {
+          finalImageUrls = extractImageUrls(selectedProduct as any);
+        }
+      }
+
       const requestData: any = {
         userId: ownerId,
         userName: ownerName || "Unknown User",
@@ -340,6 +413,11 @@ export function AddInventoryRequestForm({
         requestData.remarks = values.remarks.trim();
       }
 
+      if (finalImageUrls.length > 0) {
+        requestData.imageUrls = finalImageUrls;
+        requestData.imageUrl = finalImageUrls[0];
+      }
+
       await addDoc(collection(db, `users/${ownerId}/inventoryRequests`), requestData);
 
       toast({
@@ -357,6 +435,7 @@ export function AddInventoryRequestForm({
         quantity: 1,
         remarks: "",
       });
+      resetImageStates();
       setOpen(false);
     } catch (error: any) {
       toast({
@@ -435,7 +514,8 @@ export function AddInventoryRequestForm({
                         <FormControl>
                           <RadioGroupItem value="product" />
                         </FormControl>
-                        <FormLabel className="font-normal cursor-pointer">
+                        <FormLabel className="font-normal cursor-pointer flex items-center gap-2">
+                          <Package className="h-4 w-4 text-primary" />
                           Product
                         </FormLabel>
                       </FormItem>
@@ -443,7 +523,8 @@ export function AddInventoryRequestForm({
                         <FormControl>
                           <RadioGroupItem value="box" />
                         </FormControl>
-                        <FormLabel className="font-normal cursor-pointer">
+                        <FormLabel className="font-normal cursor-pointer flex items-center gap-2">
+                          <Archive className="h-4 w-4 text-amber-600" />
                           Box
                         </FormLabel>
                       </FormItem>
@@ -451,7 +532,8 @@ export function AddInventoryRequestForm({
                         <FormControl>
                           <RadioGroupItem value="pallet" />
                         </FormControl>
-                        <FormLabel className="font-normal cursor-pointer">
+                        <FormLabel className="font-normal cursor-pointer flex items-center gap-2">
+                          <Boxes className="h-4 w-4 text-violet-600" />
                           Pallet
                         </FormLabel>
                       </FormItem>
@@ -459,7 +541,8 @@ export function AddInventoryRequestForm({
                         <FormControl>
                           <RadioGroupItem value="container" />
                         </FormControl>
-                        <FormLabel className="font-normal cursor-pointer">
+                        <FormLabel className="font-normal cursor-pointer flex items-center gap-2">
+                          <Truck className="h-4 w-4 text-cyan-600" />
                           Container Handling
                         </FormLabel>
                       </FormItem>
@@ -535,6 +618,7 @@ export function AddInventoryRequestForm({
                         if (selectedProduct) {
                           form.setValue("productName", selectedProduct.productName);
                           form.setValue("sku", (selectedProduct as any).sku || "");
+                          setRestockImageUrls(extractImageUrls(selectedProduct as any));
                         }
                       }}
                       value={field.value}
@@ -562,6 +646,22 @@ export function AddInventoryRequestForm({
                   </FormItem>
                 )}
               />
+            )}
+
+            {inventoryType === "product" && productSubType === "restock" && restockImageUrls.length > 0 && (
+              <div className="space-y-2">
+                <Label>Current product picture</Label>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <img
+                    src={restockImageUrls[0]}
+                    alt="Current product"
+                    className="h-24 w-24 rounded-md border object-cover"
+                  />
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    This existing product photo will be reused for this restock request.
+                  </p>
+                </div>
+              </div>
             )}
 
             {/* Container Size Selection */}
@@ -644,6 +744,30 @@ export function AddInventoryRequestForm({
               />
             )}
 
+            {inventoryType === "product" && productSubType === "new" && (
+              <div className="space-y-2">
+                <Label htmlFor="productImage" className="flex items-center gap-2">
+                  <ImagePlus className="h-4 w-4" />
+                  Product Picture (Optional)
+                </Label>
+                <Input
+                  id="productImage"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleProductImageSelect}
+                />
+                {selectedProductImagePreview && (
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <img
+                      src={selectedProductImagePreview}
+                      alt="Selected product preview"
+                      className="h-24 w-24 rounded-md border object-cover"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             <FormField
               control={form.control}
               name="quantity"
@@ -690,6 +814,7 @@ export function AddInventoryRequestForm({
                 onClick={() => {
                   if (mode === "dialog") {
                     setOpen(false);
+                    resetImageStates();
                   } else {
                     form.reset({
                       inventoryType: "product",
@@ -701,6 +826,7 @@ export function AddInventoryRequestForm({
                       quantity: 1,
                       remarks: "",
                     });
+                    resetImageStates();
                   }
                 }}
                 disabled={isLoading}

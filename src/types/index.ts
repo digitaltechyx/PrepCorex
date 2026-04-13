@@ -108,6 +108,8 @@ export interface InventoryItem {
   shopifyInventoryItemId?: string;
   shop?: string;
   sku?: string;
+  imageUrl?: string;
+  imageUrls?: string[];
 }
 
 /** User request to add inventory (pending/approved/rejected). */
