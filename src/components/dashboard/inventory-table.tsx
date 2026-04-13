@@ -68,6 +68,19 @@ function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefi
   return [];
 }
 
+function getTimestampMs(date: unknown): number {
+  if (!date) return 0;
+  if (typeof date === "string") {
+    const ms = new Date(date).getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  if (typeof date === "object" && date !== null && "seconds" in (date as any)) {
+    const sec = Number((date as any).seconds);
+    return Number.isFinite(sec) ? sec * 1000 : 0;
+  }
+  return 0;
+}
+
 /** Matches dashboard KPI "Low Stock SKUs" (qty 1–10, real inventory rows only). URL: ?status=low-stock */
 const LOW_STOCK_STATUS_VALUE = "low-stock";
 
@@ -281,7 +294,8 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
   // Filtered and sorted inventory data (newest first)
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
-      const matchesSearch = item.productName.toLowerCase().includes(searchTerm.toLowerCase());
+      const productName = (item.productName || "").toLowerCase();
+      const matchesSearch = productName.includes(searchTerm.toLowerCase());
       const row = item as { status: string; isRequest?: boolean; quantity?: number };
       const matchesStatus =
         statusFilter === "all" ||
@@ -294,15 +308,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
     });
     
     // Sort by dateAdded (newest first)
-    return filtered.sort((a, b) => {
-      const dateA = typeof a.dateAdded === 'string' 
-        ? new Date(a.dateAdded) 
-        : new Date((a.dateAdded as { seconds: number; nanoseconds: number }).seconds * 1000);
-      const dateB = typeof b.dateAdded === 'string' 
-        ? new Date(b.dateAdded) 
-        : new Date((b.dateAdded as { seconds: number; nanoseconds: number }).seconds * 1000);
-      return dateB.getTime() - dateA.getTime(); // Newest first
-    });
+    return filtered.sort((a, b) => getTimestampMs(b.dateAdded) - getTimestampMs(a.dateAdded));
   }, [combinedData, searchTerm, statusFilter]);
 
   // Pagination calculations
