@@ -432,6 +432,8 @@ export interface Invoice {
   discountType?: "amount" | "percent";
   discountValue?: number;
   discountAmount?: number;
+  lateFeeAmount?: number;
+  lateFeeReason?: string;
   type?: string;
   isContainerHandling?: boolean;
 }

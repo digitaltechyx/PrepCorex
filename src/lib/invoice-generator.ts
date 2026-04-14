@@ -40,6 +40,8 @@ interface InvoiceData {
   discountType?: "amount" | "percent";
   discountValue?: number;
   discountAmount?: number;
+  lateFeeAmount?: number;
+  lateFeeReason?: string;
   type?: string;
   isContainerHandling?: boolean;
   storageType?: string;
@@ -359,11 +361,12 @@ async function buildInvoiceDoc(data: InvoiceData): Promise<jsPDF> {
     discountAmount = discountValue;
   }
   discountAmount = Math.max(0, Math.min(computedGrossTotal, discountAmount || 0));
+  const lateFeeAmount = Math.max(0, Number(data.lateFeeAmount || 0));
 
   const finalTotal =
     typeof data.grandTotal === "number"
       ? data.grandTotal
-      : Math.max(0, computedGrossTotal - discountAmount);
+      : Math.max(0, computedGrossTotal - discountAmount + lateFeeAmount);
   
   // Summary section
   const summaryStartY = currentY + 10;
@@ -437,6 +440,11 @@ async function buildInvoiceDoc(data: InvoiceData): Promise<jsPDF> {
   }
   if (discountAmount > 0.009) {
     doc.text(`Discount: -$${discountAmount.toFixed(2)}`, margin, summaryLineY);
+    summaryLineY += 5;
+  }
+  if (lateFeeAmount > 0.009) {
+    const reason = data.lateFeeReason ? ` (${data.lateFeeReason})` : "";
+    doc.text(`Late Fee${reason}: +$${lateFeeAmount.toFixed(2)}`, margin, summaryLineY);
     summaryLineY += 5;
   }
 

@@ -179,6 +179,8 @@ export function InvoicesSection({
         discountType: (invoice as any).discountType,
         discountValue: (invoice as any).discountValue,
         discountAmount: (invoice as any).discountAmount,
+        lateFeeAmount: (invoice as any).lateFeeAmount,
+        lateFeeReason: (invoice as any).lateFeeReason,
       });
       
       toast({
@@ -388,36 +390,32 @@ export function InvoicesSection({
                 </div>
               ) : currentTabInvoices.length > 0 ? (
                 <>
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {paginatedInvoices.map((invoice) => (
-                      <div key={invoice.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border rounded-lg bg-yellow-50">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1 sm:mb-2">
-                            <h3 className="font-semibold text-sm sm:text-base truncate">{invoice.invoiceNumber}</h3>
-                            <Badge variant="secondary" className="text-[10px] sm:text-xs">Pending</Badge>
-                          </div>
-                          <div className="text-xs sm:text-sm text-muted-foreground space-y-0.5 sm:space-y-1">
-                            <p>Date: {invoice.date}</p>
-                            <p className="font-semibold text-sm sm:text-lg">Total: ${invoice.grandTotal.toFixed(2)}</p>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:flex-row sm:flex-wrap">
+                      <div key={invoice.id} className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 border rounded-lg bg-yellow-50 text-xs sm:text-sm min-w-0">
+                        <h3 className="font-semibold text-slate-900 truncate shrink-0 max-w-[170px] sm:max-w-[220px] lg:max-w-[280px]">
+                          {invoice.invoiceNumber}
+                        </h3>
+                        <Badge variant="secondary" className="text-[10px] sm:text-xs shrink-0">Pending</Badge>
+                        <span className="text-muted-foreground shrink-0">Date: {invoice.date}</span>
+                        <span className="font-semibold text-slate-900 shrink-0">Total: ${invoice.grandTotal.toFixed(2)}</span>
+                        <div className="ml-auto flex items-center gap-2 shrink-0">
                           <Button
                             variant="outline"
                             size="sm"
-                            className="w-full sm:w-auto text-xs sm:text-sm h-9 sm:h-9"
+                            className="h-8 px-3"
                             onClick={() => handleViewInvoice(invoice)}
                           >
-                            <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" />
+                            <Eye className="h-3.5 w-3.5 mr-1.5" />
                             <span>View</span>
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="w-full sm:w-auto text-xs sm:text-sm h-9 sm:h-9"
+                            className="h-8 px-3"
                             onClick={() => handleDownloadInvoice(invoice)}
                           >
-                            <Download className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" />
+                            <Download className="h-3.5 w-3.5 mr-1.5" />
                             <span>Download</span>
                           </Button>
                         </div>
@@ -475,36 +473,32 @@ export function InvoicesSection({
                 </div>
               ) : currentTabInvoices.length > 0 ? (
                 <>
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {paginatedInvoices.map((invoice) => (
-                      <div key={invoice.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 sm:p-4 border rounded-lg bg-green-50">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1 sm:mb-2">
-                            <h3 className="font-semibold text-sm sm:text-base truncate">{invoice.invoiceNumber}</h3>
-                            <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 text-[10px] sm:text-xs">Paid</Badge>
-                          </div>
-                          <div className="text-xs sm:text-sm text-muted-foreground space-y-0.5 sm:space-y-1">
-                            <p>Date: {invoice.date}</p>
-                            <p className="font-semibold text-sm sm:text-lg">Total: ${invoice.grandTotal.toFixed(2)}</p>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:flex-row sm:flex-wrap">
+                      <div key={invoice.id} className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 border rounded-lg bg-green-50 text-xs sm:text-sm min-w-0">
+                        <h3 className="font-semibold text-slate-900 truncate shrink-0 max-w-[170px] sm:max-w-[220px] lg:max-w-[280px]">
+                          {invoice.invoiceNumber}
+                        </h3>
+                        <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 text-[10px] sm:text-xs shrink-0">Paid</Badge>
+                        <span className="text-muted-foreground shrink-0">Date: {invoice.date}</span>
+                        <span className="font-semibold text-slate-900 shrink-0">Total: ${invoice.grandTotal.toFixed(2)}</span>
+                        <div className="ml-auto flex items-center gap-2 shrink-0">
                           <Button
                             variant="outline"
                             size="sm"
-                            className="w-full sm:w-auto text-xs sm:text-sm h-9 sm:h-9"
+                            className="h-8 px-3"
                             onClick={() => handleViewInvoice(invoice)}
                           >
-                            <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" />
+                            <Eye className="h-3.5 w-3.5 mr-1.5" />
                             <span>View</span>
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="w-full sm:w-auto text-xs sm:text-sm h-9 sm:h-9"
+                            className="h-8 px-3"
                             onClick={() => handleDownloadInvoice(invoice)}
                           >
-                            <Download className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" />
+                            <Download className="h-3.5 w-3.5 mr-1.5" />
                             <span>Download</span>
                           </Button>
                         </div>
@@ -793,6 +787,8 @@ export function InvoicesSection({
                     const discountType = (selectedInvoice as any).discountType as ("amount" | "percent" | undefined);
                     const discountValue = (selectedInvoice as any).discountValue as (number | undefined);
                     const storedDiscountAmount = (selectedInvoice as any).discountAmount as (number | undefined);
+                    const lateFeeAmount = Number((selectedInvoice as any).lateFeeAmount || 0);
+                    const lateFeeReason = (selectedInvoice as any).lateFeeReason as string | undefined;
 
                     let discountAmount = 0;
                     if (typeof storedDiscountAmount === "number") {
@@ -831,6 +827,12 @@ export function InvoicesSection({
                           <div className="flex justify-between text-xs sm:text-sm">
                             <span>{discountLabel}:</span>
                             <span className="font-semibold">-${discountAmount.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {lateFeeAmount > 0.009 && (
+                          <div className="flex justify-between text-xs sm:text-sm">
+                            <span>Late Fee{lateFeeReason ? ` (${lateFeeReason})` : ""}:</span>
+                            <span className="font-semibold text-amber-700">+${lateFeeAmount.toFixed(2)}</span>
                           </div>
                         )}
                       </>

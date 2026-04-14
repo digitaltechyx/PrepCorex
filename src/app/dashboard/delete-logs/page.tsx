@@ -190,20 +190,22 @@ export default function DeleteLogsPage() {
               {paginatedDeleteLogs.map((item) => (
                 <div 
                   key={item.id}
-                  className="rounded-lg border border-red-200 bg-red-50/40 px-3 py-3 sm:px-4"
+                  className="rounded-lg border border-red-200 bg-red-50/40 px-3 py-2 sm:px-4"
                 >
-                  <div className="space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
-                      <span className="font-semibold text-slate-900">{item.productName}</span>
-                      <Badge className="bg-red-500 text-white text-[10px]">-{item.quantity}</Badge>
-                      <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px]">{item.status}</Badge>
-                      <span className="text-slate-600 ml-2">Added: {formatDate(item.dateAdded)}</span>
-                      <span className="text-red-700 font-semibold">Deleted: {formatDate(item.deletedAt)}</span>
-                      <span className="text-slate-600">By: <span className="text-slate-800">{item.deletedBy}</span></span>
-                    </div>
-                    <div className="text-xs text-red-800 truncate">
-                      <span className="font-semibold text-red-700">Reason:</span> {item.reason}
-                    </div>
+                  <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
+                    <span className="font-semibold text-slate-900 truncate shrink-0 max-w-[180px] sm:max-w-[230px] lg:max-w-[280px]">
+                      {item.productName}
+                    </span>
+                    <Badge className="bg-red-500 text-white text-[10px] shrink-0">-{item.quantity}</Badge>
+                    <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px] shrink-0">
+                      {item.status}
+                    </Badge>
+                    <span className="text-slate-600 shrink-0">Added: {formatDate(item.dateAdded)}</span>
+                    <span className="text-red-700 font-semibold shrink-0">Deleted: {formatDate(item.deletedAt)}</span>
+                    <span className="text-slate-600 shrink-0">By: {item.deletedBy}</span>
+                    <span className="text-red-800 truncate min-w-0 flex-1">
+                      Reason: {item.reason}
+                    </span>
                   </div>
                 </div>
               ))}

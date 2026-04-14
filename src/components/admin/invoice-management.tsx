@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,7 @@ import { Search, Download, CheckCircle, Clock, X, Eye, Receipt, User, Users } fr
 import { generateInvoicePDF } from "@/lib/invoice-generator";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Invoice, type UserProfile, type Commission } from "@/types";
@@ -92,6 +93,48 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   const [discountType, setDiscountType] = useState<"amount" | "percent">("amount");
   const [discountValue, setDiscountValue] = useState<string>("");
   const [isApplyingDiscount, setIsApplyingDiscount] = useState(false);
+  const [isLateFeeDialogOpen, setIsLateFeeDialogOpen] = useState(false);
+  const [lateFeeInvoice, setLateFeeInvoice] = useState<Invoice | null>(null);
+  const [lateFeeAmount, setLateFeeAmount] = useState<string>("");
+  const [lateFeeReason, setLateFeeReason] = useState<string>("");
+  const [isApplyingLateFee, setIsApplyingLateFee] = useState(false);
+
+  const ActionBadge = ({
+    label,
+    onClick,
+    icon,
+    className,
+    tooltip,
+  }: {
+    label: string;
+    onClick: () => void;
+    icon?: ReactNode;
+    className?: string;
+    tooltip: string;
+  }) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          role="button"
+          tabIndex={0}
+          className={`cursor-pointer select-none border bg-background text-foreground hover:bg-muted ${className || ""}`}
+          onClick={onClick}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onClick();
+            }
+          }}
+        >
+          {icon}
+          {label}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{tooltip}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
   
   // Load all invoices from all users
   const loadInvoices = async () => {
@@ -273,6 +316,25 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
     };
   });
 
+  const invoiceDashboardStats = useMemo(() => {
+    const totalUsers = userSummaries.length;
+    const unpaidUsers = userSummaries.filter((s) => s.pendingCount > 0).length;
+    const fullyPaidUsers = userSummaries.filter((s) => s.pendingCount === 0 && s.paidCount > 0).length;
+    const totalPendingAmount = userSummaries.reduce((sum, s) => sum + (Number.isFinite(s.totalAmount) ? s.totalAmount : 0), 0);
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const todaysRevenue = Object.values(userInvoices)
+      .flat()
+      .filter((inv) => inv.status === "paid" && String(inv.date || "").slice(0, 10) === todayKey)
+      .reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
+    return {
+      totalUsers,
+      unpaidUsers,
+      fullyPaidUsers,
+      totalPendingAmount,
+      todaysRevenue,
+    };
+  }, [userSummaries, userInvoices]);
+
   // Filter users based on search and invoice status, pin admin first, then sort A-Z
   const filteredUsers = (() => {
     const filtered = userSummaries.filter(({ user, pendingCount, paidCount }) => {
@@ -287,7 +349,8 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       if (userFilterTab === "unpaid") {
         return pendingCount > 0; // Users with unpaid (pending) invoices
       } else if (userFilterTab === "paid") {
-        return paidCount > 0; // Users with paid invoices
+        // Only users whose all invoices are settled (no pending + has at least one paid invoice)
+        return pendingCount === 0 && paidCount > 0;
       }
       
       return true; // "all" - show all users
@@ -515,6 +578,60 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
     }
   };
 
+  const openLateFeeEditor = (invoice: Invoice) => {
+    setLateFeeInvoice(invoice);
+    setLateFeeAmount("");
+    setLateFeeReason("");
+    setIsLateFeeDialogOpen(true);
+  };
+
+  const handleApplyLateFee = async () => {
+    if (!lateFeeInvoice?.id) return;
+    const fee = parseFloat(lateFeeAmount);
+    if (!Number.isFinite(fee) || fee <= 0) {
+      toast({
+        variant: "destructive",
+        title: "Invalid fee",
+        description: "Enter a late fee amount greater than 0.",
+      });
+      return;
+    }
+
+    setIsApplyingLateFee(true);
+    try {
+      const currentLateFee = Number((lateFeeInvoice as any).lateFeeAmount || 0);
+      const nextLateFee = currentLateFee + fee;
+      const currentGrandTotal = Number(lateFeeInvoice.grandTotal || 0);
+      const nextGrandTotal = Math.max(0, currentGrandTotal + fee);
+
+      await updateDoc(doc(db, `users/${lateFeeInvoice.userId}/invoices/${lateFeeInvoice.id}`), {
+        lateFeeAmount: nextLateFee,
+        lateFeeReason: lateFeeReason.trim() || "Late payment fine",
+        grandTotal: nextGrandTotal,
+        updatedAt: new Date(),
+      } as any);
+
+      await loadInvoices();
+      toast({
+        title: "Late fee added",
+        description: `Added $${fee.toFixed(2)} to ${lateFeeInvoice.invoiceNumber}.`,
+      });
+      setIsLateFeeDialogOpen(false);
+      setLateFeeInvoice(null);
+      setLateFeeAmount("");
+      setLateFeeReason("");
+    } catch (error: any) {
+      console.error("Error applying late fee:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error?.message || "Failed to apply late fee.",
+      });
+    } finally {
+      setIsApplyingLateFee(false);
+    }
+  };
+
   const handleDownloadInvoice = async (invoice: Invoice) => {
     try {
       console.log("Starting PDF generation for invoice:", invoice.invoiceNumber);
@@ -538,6 +655,8 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
         discountType: (invoice as any).discountType,
         discountValue: (invoice as any).discountValue,
         discountAmount: (invoice as any).discountAmount,
+        lateFeeAmount: (invoice as any).lateFeeAmount,
+        lateFeeReason: (invoice as any).lateFeeReason,
       });
       
       toast({
@@ -659,7 +778,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
     <div className="space-y-6">
       {/* Main Tabs: Invoices and Commissions */}
       <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as "invoices" | "commissions")} className="w-full">
-        <TabsList className="grid grid-cols-2 w-full mb-6">
+        <TabsList className="grid grid-cols-2 w-full mb-6 h-12 p-1 rounded-xl bg-slate-100/90 border">
           <TabsTrigger value="invoices" className="flex items-center gap-2">
             <Receipt className="h-4 w-4" />
             Invoices
@@ -674,28 +793,145 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
         </TabsList>
 
         <TabsContent value="invoices" className="space-y-6">
-          {/* Search Bar */}
-          <Card>
-            <CardHeader>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          {/* Invoice Dashboard Stats */}
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setUserFilterTab("all");
+                setUsersPage(1);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setUserFilterTab("all");
+                  setUsersPage(1);
+                }
+              }}
+              className={`border-2 border-slate-200/60 bg-gradient-to-br from-slate-50 to-slate-100/40 shadow-sm cursor-pointer transition-all hover:shadow-md ${
+                userFilterTab === "all" ? "ring-2 ring-slate-400" : ""
+              }`}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-slate-700">Total Users</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-slate-900">{invoiceDashboardStats.totalUsers}</p>
+                <p className="text-xs text-slate-600 mt-1">Users in invoice system</p>
+              </CardContent>
+            </Card>
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setUserFilterTab("unpaid");
+                setUsersPage(1);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setUserFilterTab("unpaid");
+                  setUsersPage(1);
+                }
+              }}
+              className={`border-2 border-amber-200/60 bg-gradient-to-br from-amber-50 to-amber-100/40 shadow-sm cursor-pointer transition-all hover:shadow-md ${
+                userFilterTab === "unpaid" ? "ring-2 ring-amber-400" : ""
+              }`}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-amber-800">Users With Unpaid</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-amber-900">{invoiceDashboardStats.unpaidUsers}</p>
+                <p className="text-xs text-amber-700 mt-1">Need payment follow-up</p>
+              </CardContent>
+            </Card>
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setUserFilterTab("paid");
+                setUsersPage(1);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setUserFilterTab("paid");
+                  setUsersPage(1);
+                }
+              }}
+              className={`border-2 border-emerald-200/60 bg-gradient-to-br from-emerald-50 to-emerald-100/40 shadow-sm cursor-pointer transition-all hover:shadow-md ${
+                userFilterTab === "paid" ? "ring-2 ring-emerald-400" : ""
+              }`}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-emerald-800">Fully Settled Users</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-emerald-900">{invoiceDashboardStats.fullyPaidUsers}</p>
+                <p className="text-xs text-emerald-700 mt-1">No pending invoices</p>
+              </CardContent>
+            </Card>
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setUserFilterTab("unpaid");
+                setUsersPage(1);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setUserFilterTab("unpaid");
+                  setUsersPage(1);
+                }
+              }}
+              className={`border-2 border-indigo-200/60 bg-gradient-to-br from-indigo-50 to-indigo-100/40 shadow-sm cursor-pointer transition-all hover:shadow-md ${
+                userFilterTab === "unpaid" ? "ring-2 ring-indigo-400" : ""
+              }`}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-indigo-800">Pending Amount</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-indigo-900">${invoiceDashboardStats.totalPendingAmount.toFixed(2)}</p>
+                <p className="text-xs text-indigo-700 mt-1">Outstanding across users</p>
+              </CardContent>
+            </Card>
+            <Card className="border-2 border-teal-200/60 bg-gradient-to-br from-teal-50 to-cyan-100/40 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-teal-800">Today&apos;s Revenue</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-teal-900">${invoiceDashboardStats.todaysRevenue.toFixed(2)}</p>
+                <p className="text-xs text-teal-700 mt-1">Paid invoices dated today</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Invoices Dashboard Header */}
+          <Card className="border-2 shadow-lg overflow-hidden">
+            <CardHeader className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white pb-4">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="h-5 w-5" />
+                  <CardTitle className="flex items-center gap-2 text-white">
+                    <Users className="h-5 w-5 text-white" />
                     Invoice Management
                   </CardTitle>
-                  <CardDescription>View user invoices and payment status</CardDescription>
+                  <CardDescription className="text-indigo-100">View user invoices and payment status</CardDescription>
                 </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <Badge variant="secondary" className="text-yellow-600 bg-yellow-100 text-xs sm:text-base font-semibold px-3 py-1 sm:px-4 sm:py-2">
-                    Total Pending: {userSummaries.reduce((sum, s) => sum + s.pendingCount, 0)}
-                  </Badge>
-                  <Badge variant="default" className="text-green-600 bg-green-100 text-xs sm:text-base font-semibold px-3 py-1 sm:px-4 sm:py-2">
-                    Total Paid: {userSummaries.reduce((sum, s) => sum + s.paidCount, 0)}
-                  </Badge>
+                <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:w-auto">
+                  <div className="rounded-lg bg-white/15 border border-white/20 px-3 py-2 text-center">
+                    <p className="text-[11px] uppercase tracking-wide text-indigo-100">Pending Invoices</p>
+                    <p className="text-lg font-bold text-white">{userSummaries.reduce((sum, s) => sum + s.pendingCount, 0)}</p>
+                  </div>
+                  <div className="rounded-lg bg-white/15 border border-white/20 px-3 py-2 text-center">
+                    <p className="text-[11px] uppercase tracking-wide text-indigo-100">Paid Invoices</p>
+                    <p className="text-lg font-bold text-white">{userSummaries.reduce((sum, s) => sum + s.paidCount, 0)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center">
                   <Button
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
-                    className="h-9"
+                    className="h-9 bg-white text-indigo-700 hover:bg-indigo-50"
                     onClick={() => setIsStorageTestDialogOpen(true)}
                   >
                     <Receipt className="h-4 w-4 mr-2" />
@@ -704,7 +940,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                 </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-5">
           <div className="space-y-4">
             {/* Search Bar */}
             <div className="relative">
@@ -716,7 +952,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                   setSearchTerm(e.target.value);
                   setUsersPage(1);
                 }}
-                className="pl-10"
+                className="pl-10 h-11 shadow-sm"
               />
               {searchTerm && (
                 <Button
@@ -768,7 +1004,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                     <CheckCircle className="h-4 w-4" />
                     <span>Paid Invoices</span>
                     <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                      {userSummaries.filter(({ paidCount }) => paidCount > 0).length}
+                      {userSummaries.filter(({ pendingCount, paidCount }) => pendingCount === 0 && paidCount > 0).length}
                     </span>
                   </div>
                 </TabsTrigger>
@@ -779,62 +1015,47 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       </Card>
 
       {/* Users List */}
-      <Card>
+      <Card className="border-2 shadow-lg">
         <CardHeader>
-          <CardTitle>Users ({filteredUsers.length})</CardTitle>
+          <CardTitle className="text-xl">Users ({filteredUsers.length})</CardTitle>
           <CardDescription>Click on a user to view their invoices</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-2">
               {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />
+                <div key={i} className="h-14 bg-muted animate-pulse rounded-lg" />
               ))}
             </div>
           ) : filteredUsers.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-2">
               {paginatedUsers.map(({ user, pendingCount, paidCount, totalAmount }, idx) => (
-                <Card 
+                <div
                   key={`${user.uid || user.email || 'user'}-${idx}`}
-                  className="cursor-pointer transition-all hover:shadow-md hover:border-primary"
+                  className="cursor-pointer rounded-lg border px-3 py-2 sm:px-4 bg-background transition-all hover:shadow-sm hover:border-indigo-400"
                   onClick={() => handleViewUserInvoices(user)}
                 >
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-lg">{formatUserDisplayName(user, { showEmail: false })}</CardTitle>
-                        <CardDescription className="mt-1">{user.email}</CardDescription>
-                      </div>
-                      {pendingCount > 0 && (
-                        <Badge variant="destructive" className="h-6 w-6 flex items-center justify-center">
-                          {pendingCount}
-                        </Badge>
-                      )}
+                  <div className="grid grid-cols-1 md:grid-cols-[minmax(180px,1.5fr)_minmax(220px,2fr)_120px_100px_180px] items-center gap-1.5 md:gap-3 text-xs sm:text-sm min-w-0">
+                    <span className="font-semibold text-slate-900 truncate">
+                      {formatUserDisplayName(user, { showEmail: false })}
+                    </span>
+                    <span className="text-muted-foreground truncate min-w-0">
+                      {user.email}
+                    </span>
+                    <div className="flex items-center md:justify-end gap-2">
+                      <span className="text-muted-foreground">Pending:</span>
+                      <Badge variant={pendingCount > 0 ? "secondary" : "outline"}>{pendingCount}</Badge>
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Pending Invoices:</span>
-                        <Badge variant={pendingCount > 0 ? "secondary" : "outline"}>
-                          {pendingCount}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Paid Invoices:</span>
-                        <Badge variant="default" className="bg-green-100 text-green-800">
-                          {paidCount}
-                        </Badge>
-                      </div>
-                      {pendingCount > 0 && (
-                        <div className="flex items-center justify-between text-sm pt-2 border-t">
-                          <span className="font-semibold">Pending Amount:</span>
-                          <span className="font-bold text-yellow-600">${totalAmount.toFixed(2)}</span>
-                        </div>
-                      )}
+                    <div className="flex items-center md:justify-end gap-2">
+                      <span className="text-muted-foreground">Paid:</span>
+                      <Badge variant="default" className="bg-green-100 text-green-800">{paidCount}</Badge>
                     </div>
-                  </CardContent>
-                </Card>
+                    <div className="flex items-center md:justify-end gap-2">
+                      <span className="font-semibold">Pending Amount:</span>
+                      <span className="font-bold text-yellow-600">${totalAmount.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           ) : (
@@ -965,55 +1186,48 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                   <TabsContent value="pending" className="mt-6">
                     {currentTabInvoices.length > 0 ? (
                       <>
-                        <div className="space-y-2 sm:space-y-3">
+                        <div className="space-y-2">
                           {paginatedInvoices.map((invoice) => (
-                            <div key={invoice.id || `${invoice.invoiceNumber}-${invoice.date}`} className="flex flex-col gap-2.5 sm:gap-3 p-3 sm:p-4 border rounded-lg bg-yellow-50">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1.5 sm:mb-2 flex-wrap">
-                                  <h4 className="font-semibold text-xs sm:text-base truncate">{invoice.invoiceNumber}</h4>
-                                  <Badge variant="secondary" className="text-[9px] sm:text-xs shrink-0">Pending</Badge>
-                                </div>
-                                <div className="text-xs sm:text-sm text-muted-foreground space-y-0.5 sm:space-y-1">
-                                  <p>Date: {invoice.date}</p>
-                                  <p className="font-semibold text-sm sm:text-lg">Total: ${invoice.grandTotal.toFixed(2)}</p>
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2 w-full">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="w-full text-xs sm:text-sm h-8 sm:h-9"
-                                  onClick={() => handleViewInvoice(invoice)}
-                                >
-                                  <Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                                  <span className="hidden sm:inline">View</span>
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="w-full text-xs sm:text-sm h-8 sm:h-9"
-                                  onClick={() => handleDownloadInvoice(invoice)}
-                                >
-                                  <Download className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                                  <span className="hidden sm:inline">Download</span>
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="col-span-2 w-full text-xs sm:text-sm h-8 sm:h-9"
-                                  onClick={() => openDiscountEditor(invoice)}
-                                >
-                                  <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                                  Discount
-                                </Button>
-                                <Button
-                                  variant="default"
-                                  size="sm"
-                                  className="col-span-2 w-full text-xs sm:text-sm h-8 sm:h-9"
-                                  onClick={() => handleMarkAsPaid(invoice.id, invoice)}
-                                >
-                                  Mark as Paid
-                                </Button>
+                            <div key={invoice.id || `${invoice.invoiceNumber}-${invoice.date}`} className="border rounded-lg bg-yellow-50 p-2.5 sm:p-3">
+                              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm min-w-0">
+                                <h4 className="font-semibold truncate min-w-0 max-w-[200px] sm:max-w-[280px]">{invoice.invoiceNumber}</h4>
+                                <Badge variant="secondary" className="text-[9px] sm:text-xs">Pending</Badge>
+                                <span className="text-muted-foreground whitespace-nowrap">Date: {invoice.date}</span>
+                                <span className="font-semibold whitespace-nowrap">Total: ${invoice.grandTotal.toFixed(2)}</span>
+                                <TooltipProvider delayDuration={150}>
+                                  <div className="ml-auto flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                                    <ActionBadge
+                                      label="View"
+                                      tooltip="View invoice details"
+                                      icon={<Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
+                                      onClick={() => handleViewInvoice(invoice)}
+                                    />
+                                    <ActionBadge
+                                      label="Download"
+                                      tooltip="Download invoice PDF"
+                                      icon={<Download className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
+                                      onClick={() => handleDownloadInvoice(invoice)}
+                                    />
+                                    <ActionBadge
+                                      label="Discount"
+                                      tooltip="Apply discount to this invoice"
+                                      icon={<DollarSign className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
+                                      onClick={() => openDiscountEditor(invoice)}
+                                    />
+                                    <ActionBadge
+                                      label="Late Fee"
+                                      tooltip="Add late fee to this invoice"
+                                      icon={<DollarSign className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
+                                      onClick={() => openLateFeeEditor(invoice)}
+                                    />
+                                    <ActionBadge
+                                      label="Mark as Paid"
+                                      tooltip="Set invoice status to paid"
+                                      className="bg-primary text-primary-foreground hover:bg-primary/90"
+                                      onClick={() => handleMarkAsPaid(invoice.id, invoice)}
+                                    />
+                                  </div>
+                                </TooltipProvider>
                               </div>
                             </div>
                           ))}
@@ -1063,47 +1277,42 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                   <TabsContent value="paid" className="mt-6">
                     {currentTabInvoices.length > 0 ? (
                       <>
-                        <div className="space-y-2 sm:space-y-3">
+                        <div className="space-y-2">
                           {paginatedInvoices.map((invoice) => (
-                            <div key={invoice.id || `${invoice.invoiceNumber}-${invoice.date}`} className="flex flex-col gap-2.5 sm:gap-3 p-3 sm:p-4 border rounded-lg bg-green-50">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1.5 sm:mb-2 flex-wrap">
-                                  <h4 className="font-semibold text-xs sm:text-base truncate">{invoice.invoiceNumber}</h4>
-                                  <Badge variant="default" className="bg-green-100 text-green-800 text-[9px] sm:text-xs shrink-0">Paid</Badge>
-                                </div>
-                                <div className="text-xs sm:text-sm text-muted-foreground space-y-0.5 sm:space-y-1">
-                                  <p>Date: {invoice.date}</p>
-                                  <p className="font-semibold text-sm sm:text-lg">Total: ${invoice.grandTotal.toFixed(2)}</p>
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2 w-full">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="w-full text-xs sm:text-sm h-8 sm:h-9"
-                                  onClick={() => handleViewInvoice(invoice)}
-                                >
-                                  <Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                                  <span className="hidden sm:inline">View</span>
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="w-full text-xs sm:text-sm h-8 sm:h-9"
-                                  onClick={() => handleDownloadInvoice(invoice)}
-                                >
-                                  <Download className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                                  <span className="hidden sm:inline">Download</span>
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="col-span-2 w-full text-xs sm:text-sm h-8 sm:h-9"
-                                  onClick={() => openDiscountEditor(invoice)}
-                                >
-                                  <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                                  Discount
-                                </Button>
+                            <div key={invoice.id || `${invoice.invoiceNumber}-${invoice.date}`} className="border rounded-lg bg-green-50 p-2.5 sm:p-3">
+                              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm min-w-0">
+                                <h4 className="font-semibold truncate min-w-0 max-w-[200px] sm:max-w-[280px]">{invoice.invoiceNumber}</h4>
+                                <Badge variant="default" className="bg-green-100 text-green-800 text-[9px] sm:text-xs">Paid</Badge>
+                                <span className="text-muted-foreground whitespace-nowrap">Date: {invoice.date}</span>
+                                <span className="font-semibold whitespace-nowrap">Total: ${invoice.grandTotal.toFixed(2)}</span>
+                                <TooltipProvider delayDuration={150}>
+                                  <div className="ml-auto flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                                    <ActionBadge
+                                      label="View"
+                                      tooltip="View invoice details"
+                                      icon={<Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
+                                      onClick={() => handleViewInvoice(invoice)}
+                                    />
+                                    <ActionBadge
+                                      label="Download"
+                                      tooltip="Download invoice PDF"
+                                      icon={<Download className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
+                                      onClick={() => handleDownloadInvoice(invoice)}
+                                    />
+                                    <ActionBadge
+                                      label="Discount"
+                                      tooltip="Apply discount to this invoice"
+                                      icon={<DollarSign className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
+                                      onClick={() => openDiscountEditor(invoice)}
+                                    />
+                                    <ActionBadge
+                                      label="Late Fee"
+                                      tooltip="Add late fee to this invoice"
+                                      icon={<DollarSign className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
+                                      onClick={() => openLateFeeEditor(invoice)}
+                                    />
+                                  </div>
+                                </TooltipProvider>
                               </div>
                             </div>
                           ))}
@@ -1399,6 +1608,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                     const discountType = (selectedInvoice as any).discountType as ("amount" | "percent" | undefined);
                     const discountValue = (selectedInvoice as any).discountValue as (number | undefined);
                     const storedDiscountAmount = (selectedInvoice as any).discountAmount as (number | undefined);
+                    const lateFeeAmount = Number((selectedInvoice as any).lateFeeAmount || 0);
 
                     let discountAmount = 0;
                     if (typeof storedDiscountAmount === "number") {
@@ -1437,6 +1647,12 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                           <div className="flex justify-between text-xs sm:text-sm">
                             <span>{discountLabel}:</span>
                             <span className="font-semibold">-${discountAmount.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {lateFeeAmount > 0.009 && (
+                          <div className="flex justify-between text-xs sm:text-sm">
+                            <span>Late Fee:</span>
+                            <span className="font-semibold text-amber-700">+${lateFeeAmount.toFixed(2)}</span>
                           </div>
                         )}
                       </>
@@ -1555,6 +1771,82 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                   variant="outline"
                   onClick={() => setIsDiscountDialogOpen(false)}
                   disabled={isApplyingDiscount}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Late Fee Dialog */}
+      <Dialog open={isLateFeeDialogOpen} onOpenChange={(open) => {
+        setIsLateFeeDialogOpen(open);
+        if (!open) {
+          setLateFeeInvoice(null);
+          setLateFeeAmount("");
+          setLateFeeReason("");
+        }
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add Late Fee</DialogTitle>
+            <DialogDescription>
+              Add a late payment fine to this invoice. The amount will be added to the invoice grand total.
+            </DialogDescription>
+          </DialogHeader>
+
+          {lateFeeInvoice && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-muted/40 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Invoice</span>
+                  <span className="font-medium">{lateFeeInvoice.invoiceNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Current Total</span>
+                  <span className="font-medium">${Number(lateFeeInvoice.grandTotal || 0).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Existing Late Fee</span>
+                  <span className="font-medium">${Number((lateFeeInvoice as any).lateFeeAmount || 0).toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Late Fee Amount ($)</Label>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={lateFeeAmount}
+                  onChange={(e) => setLateFeeAmount(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Reason (optional)</Label>
+                <Input
+                  value={lateFeeReason}
+                  onChange={(e) => setLateFeeReason(e.target.value)}
+                  placeholder="Late payment fine"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  className="flex-1"
+                  onClick={handleApplyLateFee}
+                  disabled={isApplyingLateFee || !lateFeeInvoice}
+                >
+                  {isApplyingLateFee ? "Applying..." : "Apply Late Fee"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsLateFeeDialogOpen(false)}
+                  disabled={isApplyingLateFee}
                 >
                   Cancel
                 </Button>

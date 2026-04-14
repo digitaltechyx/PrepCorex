@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -129,7 +129,13 @@ export default function DocumentRequestsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCompany, setSelectedCompany] = useState<string>("all");
   const [selectedClient, setSelectedClient] = useState<string>("all");
+  const [selectedDocumentType, setSelectedDocumentType] = useState<string>("all");
+  const [selectedDateRange, setSelectedDateRange] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<string>("pending");
+  const [msaSearchQuery, setMsaSearchQuery] = useState("");
+  const [msaSelectedCompany, setMsaSelectedCompany] = useState<string>("all");
+  const [msaDateFilter, setMsaDateFilter] = useState<string>("all");
+  const [msaPage, setMsaPage] = useState(1);
 
   // Search matches: documentType, userName, userEmail, companyName, contact, email, notes
   const matchesSearch = useMemo(() => {
@@ -161,8 +167,24 @@ export default function DocumentRequestsPage() {
     if (selectedClient !== "all") {
       list = list.filter((r) => (r.userName || "").trim() === selectedClient);
     }
+    if (selectedDocumentType !== "all") {
+      list = list.filter((r) => (r.documentType || "").trim() === selectedDocumentType);
+    }
+    if (selectedDateRange !== "all") {
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      list = list.filter((r) => {
+        const ms = r.requestedAt?.seconds != null ? r.requestedAt.seconds * 1000 : 0;
+        if (!ms) return false;
+        const diffDays = Math.floor((now - ms) / dayMs);
+        if (selectedDateRange === "today") return diffDays === 0;
+        if (selectedDateRange === "week") return diffDays <= 7;
+        if (selectedDateRange === "month") return diffDays <= 30;
+        return true;
+      });
+    }
     return list.filter(matchesSearch);
-  }, [pendingRequests, selectedCompany, selectedClient, matchesSearch]);
+  }, [pendingRequests, selectedCompany, selectedClient, selectedDocumentType, selectedDateRange, matchesSearch]);
 
   const filteredCompleted = useMemo(() => {
     let list = completedRequests;
@@ -172,11 +194,40 @@ export default function DocumentRequestsPage() {
     if (selectedClient !== "all") {
       list = list.filter((r) => (r.userName || "").trim() === selectedClient);
     }
+    if (selectedDocumentType !== "all") {
+      list = list.filter((r) => (r.documentType || "").trim() === selectedDocumentType);
+    }
+    if (selectedDateRange !== "all") {
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      list = list.filter((r) => {
+        const ms = r.requestedAt?.seconds != null ? r.requestedAt.seconds * 1000 : 0;
+        if (!ms) return false;
+        const diffDays = Math.floor((now - ms) / dayMs);
+        if (selectedDateRange === "today") return diffDays === 0;
+        if (selectedDateRange === "week") return diffDays <= 7;
+        if (selectedDateRange === "month") return diffDays <= 30;
+        return true;
+      });
+    }
     return list.filter(matchesSearch);
-  }, [completedRequests, selectedCompany, selectedClient, matchesSearch]);
+  }, [completedRequests, selectedCompany, selectedClient, selectedDocumentType, selectedDateRange, matchesSearch]);
+
+  const documentTypeOptions = useMemo(() => {
+    const set = new Set<string>();
+    requestsWithUserData.forEach((r) => {
+      const t = (r.documentType || "").trim();
+      if (t) set.add(t);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [requestsWithUserData]);
 
   const hasActiveFilters =
-    searchQuery.trim() !== "" || selectedCompany !== "all" || selectedClient !== "all";
+    searchQuery.trim() !== "" ||
+    selectedCompany !== "all" ||
+    selectedClient !== "all" ||
+    selectedDocumentType !== "all" ||
+    selectedDateRange !== "all";
 
   const handleOpenUploadDialog = (request: DocumentRequest) => {
     setSelectedRequest(request);
@@ -394,6 +445,55 @@ export default function DocumentRequestsPage() {
     [users]
   );
 
+  const msaCompanyOptions = useMemo(() => {
+    const companies = new Set<string>();
+    usersWithMSA.forEach((u) => {
+      const company = (u.msaClientDetails?.companyName || "").trim();
+      if (company) companies.add(company);
+    });
+    return Array.from(companies).sort((a, b) => a.localeCompare(b));
+  }, [usersWithMSA]);
+
+  const filteredMSAUsers = useMemo(() => {
+    const q = msaSearchQuery.trim().toLowerCase();
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    return usersWithMSA.filter((u) => {
+      const company = (u.msaClientDetails?.companyName || "").trim();
+      const matchesCompany = msaSelectedCompany === "all" || company === msaSelectedCompany;
+      if (!matchesCompany) return false;
+
+      const matchesSearch =
+        q.length === 0 ||
+        (u.name || "").toLowerCase().includes(q) ||
+        (u.email || "").toLowerCase().includes(q) ||
+        company.toLowerCase().includes(q);
+      if (!matchesSearch) return false;
+
+      if (msaDateFilter === "all") return true;
+      const effectiveDate = u.msaEffectiveDate ? new Date(u.msaEffectiveDate) : null;
+      if (!effectiveDate || Number.isNaN(effectiveDate.getTime())) return false;
+      const diffDays = Math.floor((now - effectiveDate.getTime()) / dayMs);
+      if (msaDateFilter === "today") return diffDays === 0;
+      if (msaDateFilter === "week") return diffDays <= 7;
+      if (msaDateFilter === "month") return diffDays <= 30;
+      return true;
+    });
+  }, [usersWithMSA, msaSearchQuery, msaSelectedCompany, msaDateFilter]);
+
+  const msaItemsPerPage = 10;
+  const totalMsaPages = Math.max(1, Math.ceil(filteredMSAUsers.length / msaItemsPerPage));
+  const msaStartIndex = (msaPage - 1) * msaItemsPerPage;
+  const paginatedMSAUsers = filteredMSAUsers.slice(msaStartIndex, msaStartIndex + msaItemsPerPage);
+
+  useEffect(() => {
+    setMsaPage(1);
+  }, [msaSearchQuery, msaSelectedCompany, msaDateFilter]);
+
+  const hasMsaActiveFilters =
+    msaSearchQuery.trim() !== "" || msaSelectedCompany !== "all" || msaDateFilter !== "all";
+
   const handleDownloadMSA = async (user: UserProfile) => {
     if (!user.msaClientDetails || !user.msaEffectiveDate) return;
     setMsaDownloadingUid(user.uid);
@@ -426,28 +526,69 @@ export default function DocumentRequestsPage() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Document Requests</h1>
-        <p className="text-muted-foreground mt-1">
-          Review and manage document requests from users
-        </p>
-      </div>
-
       {/* Signed MSAs */}
       {usersWithMSA.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileSignature className="h-5 w-5 text-indigo-500" />
-              Signed Master Service Agreements
+              Signed Master Service Agreements ({filteredMSAUsers.length})
             </CardTitle>
             <CardDescription>
               Clients who have accepted the MSA. Download a copy for any client.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {usersWithMSA.map((u: UserProfile) => (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search client..."
+                    value={msaSearchQuery}
+                    onChange={(e) => setMsaSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                <Select value={msaSelectedCompany} onValueChange={setMsaSelectedCompany}>
+                  <SelectTrigger><SelectValue placeholder="All companies" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All companies</SelectItem>
+                    {msaCompanyOptions.map((company) => (
+                      <SelectItem key={company} value={company}>{company}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={msaDateFilter} onValueChange={setMsaDateFilter}>
+                  <SelectTrigger><SelectValue placeholder="Effective date" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All time</SelectItem>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="week">Last 7 days</SelectItem>
+                    <SelectItem value="month">Last 30 days</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center gap-2">
+                  {hasMsaActiveFilters && (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setMsaSearchQuery("");
+                        setMsaSelectedCompany("all");
+                        setMsaDateFilter("all");
+                      }}
+                    >
+                      Reset
+                    </Button>
+                  )}
+                  <Badge variant="outline" className="h-10 px-3">
+                    Total Agreements: {filteredMSAUsers.length}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+              {paginatedMSAUsers.map((u: UserProfile) => (
                 <div
                   key={u.uid}
                   className="flex items-center justify-between rounded-lg border bg-muted/30 p-3"
@@ -475,6 +616,34 @@ export default function DocumentRequestsPage() {
                   </Button>
                 </div>
               ))}
+              </div>
+
+              {filteredMSAUsers.length > msaItemsPerPage && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-3">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {msaStartIndex + 1} to {Math.min(msaStartIndex + msaItemsPerPage, filteredMSAUsers.length)} of {filteredMSAUsers.length} agreements
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMsaPage((p) => Math.max(1, p - 1))}
+                      disabled={msaPage === 1}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm">Page {msaPage} of {totalMsaPages}</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setMsaPage((p) => Math.min(totalMsaPages, p + 1))}
+                      disabled={msaPage === totalMsaPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -568,44 +737,78 @@ export default function DocumentRequestsPage() {
         </Card>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search by name, company, email, notes..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-          <SelectTrigger className="w-full sm:w-[220px]">
-            <SelectValue placeholder="All companies" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All companies</SelectItem>
-            {companyOptions.map((company) => (
-              <SelectItem key={company} value={company}>
-                {company}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={selectedClient} onValueChange={setSelectedClient}>
-          <SelectTrigger className="w-full sm:w-[220px]">
-            <SelectValue placeholder="All clients" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All clients</SelectItem>
-            {clientNameOptions.map((name) => (
-              <SelectItem key={name} value={name}>
-                {name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {/* Filters Dashboard */}
+      <Card className="border shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Filters</CardTitle>
+          <CardDescription>Narrow requests by search, client, company, document type, and requested date.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+              <SelectTrigger><SelectValue placeholder="All companies" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All companies</SelectItem>
+                {companyOptions.map((company) => (
+                  <SelectItem key={company} value={company}>{company}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={selectedClient} onValueChange={setSelectedClient}>
+              <SelectTrigger><SelectValue placeholder="All clients" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All clients</SelectItem>
+                {clientNameOptions.map((name) => (
+                  <SelectItem key={name} value={name}>{name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={selectedDocumentType} onValueChange={setSelectedDocumentType}>
+              <SelectTrigger><SelectValue placeholder="All document types" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All document types</SelectItem>
+                {documentTypeOptions.map((docType) => (
+                  <SelectItem key={docType} value={docType}>{docType}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex gap-2">
+              <Select value={selectedDateRange} onValueChange={setSelectedDateRange}>
+                <SelectTrigger><SelectValue placeholder="Requested date" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All time</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="week">Last 7 days</SelectItem>
+                  <SelectItem value="month">Last 30 days</SelectItem>
+                </SelectContent>
+              </Select>
+              {hasActiveFilters && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSelectedCompany("all");
+                    setSelectedClient("all");
+                    setSelectedDocumentType("all");
+                    setSelectedDateRange("all");
+                  }}
+                >
+                  Reset
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
@@ -643,18 +846,19 @@ export default function DocumentRequestsPage() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {filteredPending.map((request) => (
                     <div
                       key={request.id}
-                      className="flex items-center justify-between p-4 border rounded-lg"
+                      className="rounded-lg border bg-background p-4"
                     >
-                      <div className="flex items-center gap-4 flex-1">
-                        <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center">
-                          <FileText className="h-5 w-5 text-orange-600" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          <div className="h-9 w-9 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
+                            <FileText className="h-4 w-4 text-orange-600" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
                             <p className="font-semibold">{request.documentType}</p>
                             <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
                               Pending
@@ -665,10 +869,10 @@ export default function DocumentRequestsPage() {
                               </Badge>
                             )}
                           </div>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <User className="h-4 w-4" />
                             <span>{request.userName} ({request.userEmail})</span>
-                          </div>
+                            </div>
                           {request.companyName && (
                             <p className="text-sm text-muted-foreground mt-1">
                               Company: {request.companyName}
@@ -721,39 +925,40 @@ export default function DocumentRequestsPage() {
                               Notes: {request.notes}
                             </p>
                           )}
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex flex-col gap-2 ml-4">
-                        {request.documentType !== CUSTOM_DOCUMENT_REQUEST_LABEL && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleApproveRequest(request)}
-                          disabled={approvingRequestId === request.id}
-                        >
-                          {approvingRequestId === request.id ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <CheckCircle className="mr-2 h-4 w-4" />
+                        <div className="flex flex-wrap items-center gap-2">
+                          {request.documentType !== CUSTOM_DOCUMENT_REQUEST_LABEL && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleApproveRequest(request)}
+                              disabled={approvingRequestId === request.id}
+                            >
+                              {approvingRequestId === request.id ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <CheckCircle className="mr-2 h-4 w-4" />
+                              )}
+                              Approve
+                            </Button>
                           )}
-                          Approve
-                        </Button>
-                        )}
-                      <Button
-                          size="sm"
-                          variant="outline"
-                        onClick={() => handleOpenUploadDialog(request)}
-                      >
-                        <Upload className="mr-2 h-4 w-4" />
-                          Upload
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-red-600 border-red-200 hover:bg-red-50"
-                          onClick={() => handleRejectRequest(request)}
-                        >
-                          Reject
-                      </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenUploadDialog(request)}
+                          >
+                            <Upload className="mr-2 h-4 w-4" />
+                            Upload
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-red-600 border-red-200 hover:bg-red-50"
+                            onClick={() => handleRejectRequest(request)}
+                          >
+                            Reject
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -789,17 +994,18 @@ export default function DocumentRequestsPage() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {filteredCompleted.map((request) => (
                     <div
                       key={request.id}
-                      className="flex items-center justify-between p-4 border rounded-lg"
+                      className="rounded-lg border bg-background p-4"
                     >
-                      <div className="flex items-center gap-4 flex-1">
-                        <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                          <FileText className="h-5 w-5 text-green-600" />
-                        </div>
-                        <div className="flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          <div className="h-9 w-9 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+                            <FileText className="h-4 w-4 text-green-600" />
+                          </div>
+                          <div className="min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <p className="font-semibold">{request.documentType}</p>
                             <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
@@ -833,6 +1039,7 @@ export default function DocumentRequestsPage() {
                               File: {request.fileName}
                             </p>
                           )}
+                          </div>
                         </div>
                       </div>
                       {request.documentUrl && (

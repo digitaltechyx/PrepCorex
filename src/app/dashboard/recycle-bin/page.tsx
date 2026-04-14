@@ -395,48 +395,34 @@ export default function RecycleBinPage() {
               {paginatedList.map((item) => (
                 <div
                   key={`request-${item.id}`}
-                  className="rounded-lg border border-amber-200 bg-amber-50/40 px-3 py-3 sm:px-4"
+                  className="rounded-lg border border-amber-200 bg-amber-50/40 px-3 py-2 sm:px-4"
                 >
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-sm sm:text-base font-semibold text-gray-900 truncate">{item.productName}</h3>
-                          <Badge className="bg-amber-500 text-white text-[10px] sm:text-xs">
-                            Qty: {item.quantity}
-                          </Badge>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] sm:text-xs ${
-                              item.status === "pending"
-                                ? "bg-amber-100 text-amber-800 border-amber-300"
-                                : item.status === "approved"
-                                  ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                                  : "bg-red-100 text-red-800 border-red-300"
-                            }`}
-                          >
-                            {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-                          </Badge>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs sm:text-sm text-gray-600">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            <span>Requested: {formatDate(item.requestedAt)}</span>
-                          </div>
-                        </div>
-                        <div className="mt-2 rounded-md border border-amber-200 bg-white/70 px-2.5 py-2">
-                          <p className="text-xs sm:text-sm text-amber-800 truncate">
-                            <span className="font-semibold text-amber-700">Reason: </span>
-                            {item.reason || "—"}
-                          </p>
-                        </div>
-                        {item.adminFeedback && (
-                          <p className="text-xs text-muted-foreground mt-1 truncate">
-                            Admin: {item.adminFeedback}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                  <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
+                    <h3 className="font-semibold text-gray-900 truncate min-w-0 max-w-[180px] sm:max-w-[240px] lg:max-w-[300px] shrink-0">
+                      {item.productName}
+                    </h3>
+                    <p className="text-amber-800 truncate min-w-0 flex-1">
+                      <span className="font-semibold text-amber-700">Reason:</span> {item.reason || "—"}
+                      {item.adminFeedback ? ` | Admin: ${item.adminFeedback}` : ""}
+                    </p>
+                    <Badge className="bg-amber-500 text-white text-[10px] sm:text-xs shrink-0">
+                      Qty: {item.quantity}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] sm:text-xs shrink-0 ${
+                        item.status === "pending"
+                          ? "bg-amber-100 text-amber-800 border-amber-300"
+                          : item.status === "approved"
+                            ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                            : "bg-red-100 text-red-800 border-red-300"
+                      }`}
+                    >
+                      {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+                    </Badge>
+                    <span className="text-xs text-gray-600 shrink-0">
+                      {formatDate(item.requestedAt)}
+                    </span>
                   </div>
                 </div>
               ))}

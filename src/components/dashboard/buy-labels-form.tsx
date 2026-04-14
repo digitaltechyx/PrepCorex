@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, ShoppingCart, MapPin, Package, CreditCard } from "lucide-react";
+import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2 } from "lucide-react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import { getStripePublishableKey } from "@/lib/stripe";
@@ -129,6 +129,48 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
+type LabelCartItem = {
+  id: string;
+  fromAddress: ShippingAddress;
+  toAddress: ShippingAddress;
+  parcel: ParcelDetails & { weight: number; weightUnit: "lb" };
+  selectedRate: ShippingRate;
+  shipmentId: string | null;
+};
+
+const DEFAULT_FORM_VALUES: FormValues = {
+  fromAddress: {
+    name: "Prep Services FBA LLC",
+    phone: "",
+    street1: "7000 Atrium Way",
+    street2: "Apartment, Suite: B05",
+    country: "US",
+    state: "NJ",
+    city: "Mount Laurel",
+    zip: "08054",
+    email: "",
+  },
+  toAddress: {
+    name: "",
+    street1: "",
+    street2: "",
+    city: "",
+    state: "",
+    zip: "",
+    country: "US",
+    phone: "",
+    email: "",
+  },
+  parcel: {
+    length: 15,
+    width: 4,
+    height: 4,
+    weightPounds: 0,
+    weightOunces: 13,
+    distanceUnit: "in",
+  },
+};
+
 export function BuyLabelsForm() {
   const { userProfile, user } = useAuth();
   const { toast } = useToast();
@@ -141,6 +183,10 @@ export function BuyLabelsForm() {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [stripePromise, setStripePromise] = useState<any>(null);
+  const [paymentAmountCents, setPaymentAmountCents] = useState(0);
+  const [paymentCurrency, setPaymentCurrency] = useState("usd");
+  const [cartItems, setCartItems] = useState<LabelCartItem[]>([]);
+  const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
 
   useEffect(() => {
     const initStripe = async () => {
@@ -152,40 +198,7 @@ export function BuyLabelsForm() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      fromAddress: {
-        // Default "From Address" for label purchase.
-        // Admin/customer can override these fields before purchasing.
-        name: "Prep Services FBA LLC",
-        phone: "",
-        street1: "7000 Atrium Way",
-        street2: "Apartment, Suite: B05",
-        country: "US",
-        state: "NJ",
-        city: "Mount Laurel",
-        zip: "08054",
-        email: "",
-      },
-      toAddress: {
-        name: "",
-        street1: "",
-        street2: "",
-        city: "",
-        state: "",
-        zip: "",
-        country: "US",
-        phone: "",
-        email: "",
-      },
-      parcel: {
-        length: 15,
-        width: 4,
-        height: 4,
-        weightPounds: 0,
-        weightOunces: 13,
-        distanceUnit: "in",
-      },
-    },
+    defaultValues: DEFAULT_FORM_VALUES,
   });
 
   const handleGetRates = async (data: FormValues) => {
@@ -256,8 +269,95 @@ export function BuyLabelsForm() {
     }
   };
 
+  const createPaymentIntentForItem = async (item: LabelCartItem) => {
+    if (!user) {
+      throw new Error("You must be logged in to purchase labels.");
+    }
+
+    const amount = Math.round(parseFloat(item.selectedRate.amount) * 100);
+    const paymentResponse = await fetch("/api/stripe/create-payment", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userId: user.uid,
+        amount,
+        currency: item.selectedRate.currency.toLowerCase(),
+        fromAddress: item.fromAddress,
+        toAddress: item.toAddress,
+        parcel: item.parcel,
+        selectedRate: {
+          objectId: item.selectedRate.object_id,
+          amount: item.selectedRate.amount,
+          currency: item.selectedRate.currency,
+          provider: item.selectedRate.provider,
+          serviceLevel: item.selectedRate.servicelevel.name,
+          shipmentId: item.shipmentId || (item.selectedRate as any).shipment,
+        },
+      }),
+    });
+
+    if (!paymentResponse.ok) {
+      const errorData = await paymentResponse.json();
+      const errorMessage = errorData.details
+        ? `${errorData.error}: ${errorData.details}`
+        : errorData.error || "Failed to create payment";
+      throw new Error(errorMessage);
+    }
+
+    const { clientSecret } = await paymentResponse.json();
+    setClientSecret(clientSecret);
+    setPaymentAmountCents(amount);
+    setPaymentCurrency(item.selectedRate.currency || "usd");
+    setPaymentDialogOpen(true);
+  };
+
+  const buildCartItemFromCurrentForm = (): LabelCartItem | null => {
+    if (!selectedRate) return null;
+    const formData = form.getValues();
+    const totalWeightOunces = (formData.parcel.weightPounds * 16) + formData.parcel.weightOunces;
+    const totalWeightPounds = totalWeightOunces / 16;
+    const parcelData = {
+      ...formData.parcel,
+      weight: totalWeightPounds,
+      weightUnit: "lb" as const,
+    };
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromAddress: formData.fromAddress,
+      toAddress: formData.toAddress,
+      parcel: parcelData,
+      selectedRate,
+      shipmentId: shipmentId || (selectedRate as any).shipment || null,
+    };
+  };
+
+  const handleAddToCart = () => {
+    const item = buildCartItemFromCurrentForm();
+    if (!item) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select a shipping rate first.",
+      });
+      return;
+    }
+    setCartItems((prev) => [...prev, item]);
+    // Reset for entering the next label quickly.
+    form.reset(DEFAULT_FORM_VALUES);
+    setRates([]);
+    setSelectedRate(null);
+    setShipmentId(null);
+    toast({
+      title: "Added to cart",
+      description: `${item.selectedRate.provider} ${item.selectedRate.servicelevel.name} added.`,
+    });
+  };
+
   const handlePurchaseLabel = async () => {
-    if (!selectedRate || !user) {
+    const item = buildCartItemFromCurrentForm();
+    if (!item || !user) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -266,58 +366,11 @@ export function BuyLabelsForm() {
       return;
     }
 
-    const formData = form.getValues();
     setLoading(true);
 
     try {
-      // Convert pounds and ounces to total weight in ounces, then to pounds
-      const totalWeightOunces = (formData.parcel.weightPounds * 16) + formData.parcel.weightOunces;
-      const totalWeightPounds = totalWeightOunces / 16;
-      
-      // Prepare parcel data for API
-      const parcelData = {
-        ...formData.parcel,
-        weight: totalWeightPounds,
-        weightUnit: "lb" as const,
-      };
-
-      // Create payment intent
-      const paymentResponse = await fetch("/api/stripe/create-payment", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId: user.uid,
-          amount: Math.round(parseFloat(selectedRate.amount) * 100), // Convert to cents
-          currency: selectedRate.currency.toLowerCase(),
-          fromAddress: formData.fromAddress,
-          toAddress: formData.toAddress,
-          parcel: parcelData,
-          selectedRate: {
-            objectId: selectedRate.object_id,
-            amount: selectedRate.amount,
-            currency: selectedRate.currency,
-            provider: selectedRate.provider,
-            serviceLevel: selectedRate.servicelevel.name,
-            shipmentId: shipmentId || (selectedRate as any).shipment,
-          },
-        }),
-      });
-
-      if (!paymentResponse.ok) {
-        const errorData = await paymentResponse.json();
-        const errorMessage = errorData.details 
-          ? `${errorData.error}: ${errorData.details}`
-          : errorData.error || "Failed to create payment";
-        throw new Error(errorMessage);
-      }
-
-      const { clientSecret, paymentIntentId, labelPurchaseId } = await paymentResponse.json();
-
-      // Set client secret and open payment dialog
-      setClientSecret(clientSecret);
-      setPaymentDialogOpen(true);
+      setCheckoutMode("single");
+      await createPaymentIntentForItem(item);
     } catch (error: any) {
       console.error("Error purchasing label:", error);
       toast({
@@ -330,13 +383,76 @@ export function BuyLabelsForm() {
     }
   };
 
+  const handleStartBulkCheckout = async () => {
+    if (cartItems.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Cart is empty",
+        description: "Add at least one label to cart first.",
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (!user) throw new Error("You must be logged in to purchase labels.");
+      const response = await fetch("/api/stripe/create-bulk-payment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          items: cartItems.map((item) => ({
+            fromAddress: item.fromAddress,
+            toAddress: item.toAddress,
+            parcel: item.parcel,
+            selectedRate: {
+              objectId: item.selectedRate.object_id,
+              amount: item.selectedRate.amount,
+              currency: item.selectedRate.currency,
+              provider: item.selectedRate.provider,
+              serviceLevel: item.selectedRate.servicelevel.name,
+              shipmentId: item.shipmentId || (item.selectedRate as any).shipment,
+            },
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to start bulk checkout.");
+      }
+
+      const { clientSecret, amount, currency } = await response.json();
+      setCheckoutMode("bulk");
+      setClientSecret(clientSecret);
+      setPaymentAmountCents(amount);
+      setPaymentCurrency(currency || "usd");
+      setPaymentDialogOpen(true);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to start bulk checkout.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handlePaymentSuccess = () => {
+    if (checkoutMode === "bulk") {
+      setCartItems([]);
+    }
+
     // Reset form after successful payment
-    form.reset();
+    form.reset(DEFAULT_FORM_VALUES);
     setRates([]);
     setSelectedRate(null);
     setShipmentId(null);
     setClientSecret(null);
+    setCheckoutMode(null);
     
     // Redirect to purchased labels page
     router.push("/dashboard/purchased-labels");
@@ -350,8 +466,8 @@ export function BuyLabelsForm() {
             open={paymentDialogOpen}
             onOpenChange={setPaymentDialogOpen}
             clientSecret={clientSecret}
-            amount={selectedRate ? Math.round(parseFloat(selectedRate.amount) * 100) : 0}
-            currency={selectedRate?.currency || "usd"}
+            amount={paymentAmountCents}
+            currency={paymentCurrency}
             onSuccess={handlePaymentSuccess}
           />
         </Elements>
@@ -943,25 +1059,89 @@ export function BuyLabelsForm() {
               </div>
 
               {selectedRate && (
-                <Button
-                  onClick={handlePurchaseLabel}
-                  disabled={loading}
-                  className="w-full mt-4"
-                  size="lg"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Processing Payment...
-                    </>
-                  ) : (
-                    <>
-                      <CreditCard className="mr-2 h-4 w-4" />
-                      Purchase Label - ${parseFloat(selectedRate.amount).toFixed(2)}
-                    </>
-                  )}
-                </Button>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 mt-4">
+                  <Button
+                    onClick={handleAddToCart}
+                    variant="outline"
+                    size="lg"
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add To Cart
+                  </Button>
+                  <Button
+                    onClick={handlePurchaseLabel}
+                    disabled={loading}
+                    size="lg"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        Buy Now - ${parseFloat(selectedRate.amount).toFixed(2)}
+                      </>
+                    )}
+                  </Button>
+                </div>
               )}
+            </div>
+          )}
+
+          {cartItems.length > 0 && (
+            <div className="mt-6 space-y-4 pt-6 border-t">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <ShoppingCart className="h-5 w-5" />
+                  Label Cart ({cartItems.length})
+                </h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCartItems([])}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Clear
+                </Button>
+              </div>
+              <div className="space-y-2 max-h-64 overflow-auto pr-1">
+                {cartItems.map((item, idx) => (
+                  <div key={item.id} className="rounded-md border p-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">
+                        {idx + 1}. {item.selectedRate.provider} - {item.selectedRate.servicelevel.name}
+                      </p>
+                      <p className="font-semibold">${parseFloat(item.selectedRate.amount).toFixed(2)}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      To: {item.toAddress.city}, {item.toAddress.state} {item.toAddress.zip}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <Button
+                onClick={handleStartBulkCheckout}
+                disabled={loading}
+                className="w-full"
+                size="lg"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Starting Bulk Checkout...
+                  </>
+                ) : (
+                  <>
+                    <CreditCard className="mr-2 h-4 w-4" />
+                    Checkout Cart ({cartItems.length} labels)
+                  </>
+                )}
+              </Button>
+              <p className="text-xs text-muted-foreground text-center">
+                One payment for all cart labels. Labels are purchased automatically after payment.
+              </p>
             </div>
           )}
         </CardContent>

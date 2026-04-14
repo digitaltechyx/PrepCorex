@@ -191,35 +191,30 @@ export default function EditLogsPage() {
               {paginatedEditLogs.map((item) => (
                 <div 
                   key={item.id}
-                  className="rounded-lg border border-blue-200 bg-blue-50/40 px-3 py-3 sm:px-4"
+                  className="rounded-lg border border-blue-200 bg-blue-50/40 px-3 py-2 sm:px-4"
                 >
-                  <div className="space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
-                      <span className="font-semibold text-slate-900">{item.productName}</span>
-                      {item.previousProductName && item.previousProductName !== item.productName && (
-                        <Badge variant="outline" className="text-[10px]">Renamed</Badge>
-                      )}
-                      <span className="text-slate-600">Qty:</span>
-                      <span>{item.previousQuantity}</span>
-                      <ArrowRight className="h-3 w-3 text-blue-500" />
-                      <span className="font-semibold text-blue-700">{item.newQuantity}</span>
-                      <span className="text-slate-600 ml-2">Status:</span>
-                      <Badge variant="outline" className="text-[10px]">{item.previousStatus}</Badge>
-                      <ArrowRight className="h-3 w-3 text-blue-500" />
-                      <Badge className="bg-blue-500 text-white text-[10px]">{item.newStatus}</Badge>
-                    </div>
+                  <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
+                    <span className="font-semibold text-slate-900 truncate shrink-0 max-w-[180px] sm:max-w-[230px] lg:max-w-[280px]">
+                      {item.productName}
+                    </span>
                     {item.previousProductName && item.previousProductName !== item.productName && (
-                      <div className="text-xs text-slate-600">
-                        Name: <span className="line-through">{item.previousProductName}</span> <ArrowRight className="inline h-3 w-3 text-blue-500" /> <span className="font-semibold text-blue-700">{item.productName}</span>
-                      </div>
+                      <Badge variant="outline" className="text-[10px] shrink-0">Renamed</Badge>
                     )}
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                      <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" /> Edited: <span className="font-semibold text-blue-700">{formatDate(item.editedAt)}</span></span>
-                      <span>By: <span className="font-medium text-slate-800">{item.editedBy}</span></span>
-                    </div>
-                    <div className="text-xs text-blue-800 truncate">
-                      <span className="font-semibold text-blue-700">Reason:</span> {item.reason}
-                    </div>
+                    <span className="text-slate-600 shrink-0">Qty:</span>
+                    <span className="shrink-0">{item.previousQuantity}</span>
+                    <ArrowRight className="h-3 w-3 text-blue-500 shrink-0" />
+                    <span className="font-semibold text-blue-700 shrink-0">{item.newQuantity}</span>
+                    <span className="text-slate-600 ml-1 shrink-0">Status:</span>
+                    <Badge variant="outline" className="text-[10px] shrink-0">{item.previousStatus}</Badge>
+                    <ArrowRight className="h-3 w-3 text-blue-500 shrink-0" />
+                    <Badge className="bg-blue-500 text-white text-[10px] shrink-0">{item.newStatus}</Badge>
+                    <span className="text-slate-600 truncate min-w-0 flex-1">
+                      Reason: {item.reason} | By: {item.editedBy}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-slate-600 shrink-0">
+                      <Calendar className="h-3 w-3" />
+                      {formatDate(item.editedAt)}
+                    </span>
                   </div>
                 </div>
               ))}

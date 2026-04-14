@@ -183,55 +183,61 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     return;
   }
 
-  const labelPurchaseDoc = snapshot.docs[0];
-  const labelPurchaseRef = labelPurchaseDoc.ref;
+  for (const labelPurchaseDoc of snapshot.docs) {
+    const labelPurchaseRef = labelPurchaseDoc.ref;
+    const labelPurchaseData = labelPurchaseDoc.data();
 
-  // Update label purchase with payment success
-  await labelPurchaseRef.update({
-    paymentStatus: 'succeeded',
-    status: 'payment_succeeded',
-    stripeChargeId: paymentIntent.latest_charge as string,
-    paymentCompletedAt: new Date(),
-  });
+    // Idempotency guard: Stripe can resend webhooks; skip already purchased labels.
+    if (labelPurchaseData.status === "label_purchased") {
+      continue;
+    }
 
-  const labelPurchaseData = labelPurchaseDoc.data();
-  const selectedRate = labelPurchaseData.selectedRate;
+    // Update label purchase with payment success
+    await labelPurchaseRef.update({
+      paymentStatus: 'succeeded',
+      status: 'payment_succeeded',
+      stripeChargeId: paymentIntent.latest_charge as string,
+      paymentCompletedAt: new Date(),
+    });
 
-  // Purchase label from Shippo
-  if (selectedRate?.objectId) {
-    try {
-      // Get shipment ID from metadata or from the rate
-      const shipmentId = paymentIntent.metadata?.shipmentId || selectedRate.shipmentId;
-      
-      if (!shipmentId) {
-        console.error('No shipment ID found for label purchase');
+    const selectedRate = labelPurchaseData.selectedRate;
+
+    // Purchase label from Shippo
+    if (selectedRate?.objectId) {
+      try {
+        // For single checkout use metadata shipmentId; for bulk each item stores its own shipmentId.
+        const shipmentId = selectedRate.shipmentId || paymentIntent.metadata?.shipmentId;
+
+        if (!shipmentId) {
+          console.error('No shipment ID found for label purchase');
+          await labelPurchaseRef.update({
+            status: 'label_failed',
+            errorMessage: 'Shipment ID not found',
+          });
+          continue;
+        }
+
+        // Purchase label from Shippo directly
+        await purchaseLabelFromShippo({
+          rateId: selectedRate.objectId,
+          shipmentId: shipmentId,
+          labelPurchaseId: labelPurchaseDoc.id,
+          userId: userId,
+        });
+      } catch (error: any) {
+        console.error('Error purchasing label:', error);
         await labelPurchaseRef.update({
           status: 'label_failed',
-          errorMessage: 'Shipment ID not found',
+          errorMessage: error.message || 'Error purchasing label',
         });
-        return;
       }
-
-      // Purchase label from Shippo directly
-      await purchaseLabelFromShippo({
-        rateId: selectedRate.objectId,
-        shipmentId: shipmentId,
-        labelPurchaseId: labelPurchaseDoc.id,
-        userId: userId,
-      });
-    } catch (error: any) {
-      console.error('Error purchasing label:', error);
+    } else {
+      console.error('No rate ID found in label purchase data');
       await labelPurchaseRef.update({
         status: 'label_failed',
-        errorMessage: error.message || 'Error purchasing label',
+        errorMessage: 'Rate ID not found',
       });
     }
-  } else {
-    console.error('No rate ID found in label purchase data');
-    await labelPurchaseRef.update({
-      status: 'label_failed',
-      errorMessage: 'Rate ID not found',
-    });
   }
 }
 
@@ -255,17 +261,15 @@ async function handlePaymentFailure(paymentIntent: Stripe.PaymentIntent) {
     return;
   }
 
-  const labelPurchaseDoc = snapshot.docs[0];
-  const labelPurchaseRef = labelPurchaseDoc.ref;
-
-  // Update label purchase with payment failure
-  await labelPurchaseRef.update({
-    paymentStatus: 'failed',
-    status: 'payment_pending', // Keep as pending so user can retry
-    errorMessage: paymentIntent.last_payment_error?.message || 'Payment failed',
-  });
-
-  console.log(`Payment failed for label purchase: ${labelPurchaseDoc.id}`);
+  for (const labelPurchaseDoc of snapshot.docs) {
+    const labelPurchaseRef = labelPurchaseDoc.ref;
+    await labelPurchaseRef.update({
+      paymentStatus: 'failed',
+      status: 'payment_pending', // Keep as pending so user can retry
+      errorMessage: paymentIntent.last_payment_error?.message || 'Payment failed',
+    });
+    console.log(`Payment failed for label purchase: ${labelPurchaseDoc.id}`);
+  }
 }
 
 async function handlePaymentCanceled(paymentIntent: Stripe.PaymentIntent) {
@@ -288,17 +292,15 @@ async function handlePaymentCanceled(paymentIntent: Stripe.PaymentIntent) {
     return;
   }
 
-  const labelPurchaseDoc = snapshot.docs[0];
-  const labelPurchaseRef = labelPurchaseDoc.ref;
-
-  // Update label purchase with payment canceled
-  await labelPurchaseRef.update({
-    paymentStatus: 'canceled',
-    status: 'payment_pending', // Keep as pending so user can retry
-    errorMessage: 'Payment was canceled',
-  });
-
-  console.log(`Payment canceled for label purchase: ${labelPurchaseDoc.id}`);
+  for (const labelPurchaseDoc of snapshot.docs) {
+    const labelPurchaseRef = labelPurchaseDoc.ref;
+    await labelPurchaseRef.update({
+      paymentStatus: 'canceled',
+      status: 'payment_pending', // Keep as pending so user can retry
+      errorMessage: 'Payment was canceled',
+    });
+    console.log(`Payment canceled for label purchase: ${labelPurchaseDoc.id}`);
+  }
 }
 
 
