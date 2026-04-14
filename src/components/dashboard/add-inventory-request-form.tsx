@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -191,7 +192,8 @@ export function AddInventoryRequestForm({
   const uploadProductImage = async (ownerUid: string): Promise<string[]> => {
     if (!selectedProductImageFile) return [];
     const cleanName = selectedProductImageFile.name.replace(/\s+/g, "_");
-    const path = `inventory-product-images/${ownerUid}/${Date.now()}_${cleanName}`;
+    // Use the existing inventory-images bucket prefix already permitted by Storage rules.
+    const path = `inventory-images/${ownerUid}/${Date.now()}_${cleanName}`;
     const storageRef = ref(storage, path);
     await uploadBytes(storageRef, selectedProductImageFile);
     const downloadUrl = await getDownloadURL(storageRef);
@@ -314,6 +316,19 @@ export function AddInventoryRequestForm({
         variant: "destructive",
         title: "Error",
         description: "You must be logged in to add inventory.",
+      });
+      return;
+    }
+
+    if (
+      values.inventoryType === "product" &&
+      values.productSubType === "new" &&
+      !selectedProductImageFile
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Product picture required",
+        description: "Please upload a product image for new product requests.",
       });
       return;
     }
@@ -748,7 +763,7 @@ export function AddInventoryRequestForm({
               <div className="space-y-2">
                 <Label htmlFor="productImage" className="flex items-center gap-2">
                   <ImagePlus className="h-4 w-4" />
-                  Product Picture (Optional)
+                  Product Picture *
                 </Label>
                 <Input
                   id="productImage"
@@ -756,6 +771,9 @@ export function AddInventoryRequestForm({
                   accept="image/*"
                   onChange={handleProductImageSelect}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Required for new products.
+                </p>
                 {selectedProductImagePreview && (
                   <div className="rounded-lg border bg-muted/20 p-3">
                     <img
@@ -833,7 +851,15 @@ export function AddInventoryRequestForm({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isLoading}>
+              <Button
+                type="submit"
+                disabled={
+                  isLoading ||
+                  (inventoryType === "product" &&
+                    productSubType === "new" &&
+                    !selectedProductImageFile)
+                }
+              >
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Submit Request
               </Button>

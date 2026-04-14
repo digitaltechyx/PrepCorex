@@ -18,7 +18,7 @@ import * as z from "zod";
 import { doc, updateDoc, deleteDoc, addDoc, collection, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList } from "lucide-react";
+import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff } from "lucide-react";
 import { AddInventoryForm } from "@/components/admin/add-inventory-form";
 import { AddInventoryRequestForm } from "@/components/dashboard/add-inventory-request-form";
 import { ShipInventoryForm } from "@/components/admin/ship-inventory-form";
@@ -84,6 +84,24 @@ function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefi
   if (Array.isArray(data.imageUrls) && data.imageUrls.length > 0) return data.imageUrls;
   if (typeof data.imageUrl === "string" && data.imageUrl.length > 0) return [data.imageUrl];
   return [];
+}
+
+function InventoryAvatar({ item }: { item: InventoryItem & { inventoryType?: string } }) {
+  const imageUrl = getImageUrls(item as any)[0];
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt={item.productName}
+        className="h-9 w-9 rounded-md border object-cover"
+      />
+    );
+  }
+
+  if (item.inventoryType === "box") return <Archive className="h-9 w-9 rounded-md border p-2 text-muted-foreground" />;
+  if (item.inventoryType === "pallet") return <Boxes className="h-9 w-9 rounded-md border p-2 text-muted-foreground" />;
+  if (item.inventoryType === "container") return <Truck className="h-9 w-9 rounded-md border p-2 text-muted-foreground" />;
+  return <ImageOff className="h-9 w-9 rounded-md border p-2 text-muted-foreground" />;
 }
 
 export function AdminInventoryManagement({
@@ -1776,13 +1794,7 @@ export function AdminInventoryManagement({
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          {getImageUrls(item as any)[0] && (
-                            <img
-                              src={getImageUrls(item as any)[0]}
-                              alt={item.productName}
-                              className="h-9 w-9 rounded-md border object-cover"
-                            />
-                          )}
+                          <InventoryAvatar item={item as any} />
                           <p className={`font-medium truncate ${isLowStock ? "text-red-700 dark:text-red-400" : ""}`}>
                             {item.productName}
                           </p>

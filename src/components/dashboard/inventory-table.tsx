@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Search, Filter, X, Clock, Eye, Edit } from "lucide-react";
+import { Search, Filter, X, Clock, Eye, Edit, Archive, Boxes, Truck, Package, ImageOff } from "lucide-react";
 import { format } from "date-fns";
 import { AddInventoryRequestForm } from "./add-inventory-request-form";
 import { useCollection } from "@/hooks/use-collection";
@@ -65,6 +65,35 @@ function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefi
   if (Array.isArray(data.imageUrls) && data.imageUrls.length > 0) return data.imageUrls;
   if (typeof data.imageUrl === "string" && data.imageUrl.length > 0) return [data.imageUrl];
   return [];
+}
+
+function InventoryAvatar({ item, className }: { item: any; className: string }) {
+  const imageUrl = getImageUrls(item)[0];
+  const inventoryType = item?.inventoryType ?? "product";
+
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt={item?.productName || "Inventory item"}
+        className={`${className} rounded-md border object-cover`}
+      />
+    );
+  }
+
+  if (inventoryType === "box") {
+    return <Archive className={`${className} rounded-md border p-2 text-muted-foreground`} />;
+  }
+  if (inventoryType === "pallet") {
+    return <Boxes className={`${className} rounded-md border p-2 text-muted-foreground`} />;
+  }
+  if (inventoryType === "container") {
+    return <Truck className={`${className} rounded-md border p-2 text-muted-foreground`} />;
+  }
+  if (inventoryType === "product") {
+    return <ImageOff className={`${className} rounded-md border p-2 text-muted-foreground`} />;
+  }
+  return <Package className={`${className} rounded-md border p-2 text-muted-foreground`} />;
 }
 
 function getTimestampMs(date: unknown): number {
@@ -409,13 +438,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      {getImageUrls(item as any)[0] && (
-                        <img
-                          src={getImageUrls(item as any)[0]}
-                          alt={item.productName}
-                          className="h-10 w-10 rounded-md border object-cover"
-                        />
-                      )}
+                      <InventoryAvatar item={item as any} className="h-10 w-10" />
                       <div
                         className={cn(
                           "font-semibold text-sm",
@@ -520,13 +543,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                     <TableCell className="font-medium max-w-32 sm:max-w-none truncate">
                       <div className="flex flex-col sm:block">
                         <div className="flex items-center gap-2">
-                          {getImageUrls(item as any)[0] && (
-                            <img
-                              src={getImageUrls(item as any)[0]}
-                              alt={item.productName}
-                              className="h-8 w-8 rounded-md border object-cover"
-                            />
-                          )}
+                          <InventoryAvatar item={item as any} className="h-8 w-8" />
                           <span
                             className={cn(
                               "font-medium",

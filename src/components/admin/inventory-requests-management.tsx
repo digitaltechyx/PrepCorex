@@ -63,7 +63,7 @@ import { db, storage } from "@/lib/firebase";
 import { doc, updateDoc, addDoc, collection, Timestamp, runTransaction, query, where, getDocs } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { format } from "date-fns";
-import { Archive, Boxes, Check, Eye, Loader2, Package, Truck, Upload, X, Image as ImageIcon } from "lucide-react";
+import { Archive, Boxes, Check, Eye, Loader2, Package, Truck, Upload, X, ImageOff } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import imageCompression from "browser-image-compression";
 
@@ -97,6 +97,24 @@ function InventoryTypePill({ type }: { type: InventoryRequest["inventoryType"] }
       {type}
     </span>
   );
+}
+
+function InventoryAvatar({ request }: { request: InventoryRequest }) {
+  const imageUrl = getImageUrls(request as any)[0];
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt={request.productName}
+        className="h-8 w-8 rounded-md border object-cover"
+      />
+    );
+  }
+
+  if (request.inventoryType === "box") return <Archive className="h-8 w-8 rounded-md border p-2 text-muted-foreground" />;
+  if (request.inventoryType === "pallet") return <Boxes className="h-8 w-8 rounded-md border p-2 text-muted-foreground" />;
+  if (request.inventoryType === "container") return <Truck className="h-8 w-8 rounded-md border p-2 text-muted-foreground" />;
+  return <ImageOff className="h-8 w-8 rounded-md border p-2 text-muted-foreground" />;
 }
 
 export function InventoryRequestsManagement({ 
@@ -556,13 +574,7 @@ export function InventoryRequestsManagement({
                       <TableCell><InventoryTypePill type={request.inventoryType} /></TableCell>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
-                          {getImageUrls(request as any)[0] && (
-                            <img
-                              src={getImageUrls(request as any)[0]}
-                              alt={request.productName}
-                              className="h-8 w-8 rounded-md border object-cover"
-                            />
-                          )}
+                          <InventoryAvatar request={request} />
                           <span>{request.productName}</span>
                         </div>
                       </TableCell>
