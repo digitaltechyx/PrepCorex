@@ -31,6 +31,7 @@ const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
   quantity: z.coerce.number().int().positive("Shipped quantity must be a positive number."),
   packOf: z.coerce.number().int().positive("Pack size must be a positive number."),
+  dimensions: z.string().optional(),
   // Custom products use placeholder pricing until admin sets final pricing.
   unitPrice: z.coerce.number().nonnegative("Unit price must be a non-negative number."),
   totalPrice: z.coerce.number().nonnegative("Total price must be a non-negative number."),
@@ -66,15 +67,7 @@ const shipmentGroupSchema = z.object({
           path: ["shipments", i, "productType"],
         });
       }
-      if (s.productType === "Custom") {
-        if (typeof s.customDimensions !== "string" || s.customDimensions.trim().length === 0) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Custom dimensions are required for Custom product type.",
-            path: ["shipments", i, "customDimensions"],
-          });
-        }
-      } else if (s.productType && s.productType !== "Custom") {
+      if (s.productType && s.productType !== "Custom") {
         const p = Number(s.unitPrice);
         if (Number.isNaN(p) || p <= 1e-9) {
           ctx.addIssue({
@@ -568,7 +561,7 @@ export function CreateShipmentWithLabelsForm({
       toast({
         variant: "destructive",
         title: "Error",
-        description: "You must be logged in to create shipment requests.",
+        description: "You must be logged in to create outbound shipment requests.",
       });
       return;
     }
@@ -653,6 +646,13 @@ export function CreateShipmentWithLabelsForm({
             };
             if (shipment.selectedAdditionalServices && shipment.selectedAdditionalServices.length > 0) {
               cleaned.selectedAdditionalServices = shipment.selectedAdditionalServices;
+            }
+            if (
+              (group.shipmentType === "box" || group.shipmentType === "pallet") &&
+              typeof shipment.dimensions === "string" &&
+              shipment.dimensions.trim().length > 0
+            ) {
+              cleaned.dimensions = shipment.dimensions.trim();
             }
             return cleaned;
           });
@@ -806,7 +806,7 @@ export function CreateShipmentWithLabelsForm({
       {!targetUserId && (
         <div className="p-4 border border-green-200 rounded-lg bg-green-50">
           <p className="text-sm text-green-800 font-medium">
-            For same day fulfillment please create shipment before 11 am EST.
+            For same day fulfillment please create outbound shipment before 11 am EST.
           </p>
         </div>
       )}
@@ -816,7 +816,7 @@ export function CreateShipmentWithLabelsForm({
           {/* Add Shipment Button */}
           <div className="flex justify-between items-center">
             <div>
-              <h3 className="text-lg font-semibold">Create Shipment</h3>
+              <h3 className="text-lg font-semibold">Create Outbound Shipment</h3>
               <p className="text-sm text-muted-foreground">Create multiple shipments, each with its own label</p>
             </div>
             <Button
@@ -1149,6 +1149,7 @@ export function CreateShipmentWithLabelsForm({
                                                   productId: item.id,
                                                   quantity: 1,
                                                   packOf: 1,
+                                                  dimensions: "",
                                                   unitPrice: initialUnitPrice,
                                                   totalPrice: initialTotalPrice,
                                                   productType: shipmentType === "product" ? ("Standard" as const) : undefined,
@@ -1453,7 +1454,7 @@ export function CreateShipmentWithLabelsForm({
                                     name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions` as const}
                                     render={({ field }) => (
                                       <FormItem>
-                                        <FormLabel className="text-xs">Custom dimensions *</FormLabel>
+                                        <FormLabel className="text-xs">Custom dimensions (Optional)</FormLabel>
                                         <FormControl>
                                           <Textarea
                                             placeholder="Length × width × height (in), weight (lbs), etc."
@@ -1461,6 +1462,9 @@ export function CreateShipmentWithLabelsForm({
                                             {...field}
                                           />
                                         </FormControl>
+                                        <FormDescription className="text-[10px]">
+                                          If unknown, leave blank. Admin can review and add dimensions before final charge.
+                                        </FormDescription>
                                         <FormMessage />
                                       </FormItem>
                                     )}
@@ -1469,6 +1473,30 @@ export function CreateShipmentWithLabelsForm({
                               </div>
                             )}
                             <div className="flex gap-2">
+                              {(groupShipmentType === "box" || groupShipmentType === "pallet") && (
+                                <FormField
+                                  control={form.control}
+                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.dimensions` as const}
+                                  render={({ field }) => (
+                                    <FormItem className="flex-1">
+                                      <FormLabel className="text-xs">Dimensions</FormLabel>
+                                      <FormControl>
+                                        <Input
+                                          placeholder="L x W x H (e.g. 20x14x10 in)"
+                                          className="h-8"
+                                          {...field}
+                                          value={field.value || ""}
+                                        />
+                                      </FormControl>
+                                      <FormDescription className="text-[10px]">
+                                        Add box/pallet size details for handling.
+                                      </FormDescription>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+
                               <FormField
                                 control={form.control}
                                 name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity` as const}

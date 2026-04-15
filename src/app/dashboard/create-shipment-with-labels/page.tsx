@@ -21,7 +21,7 @@
              <div>
                <CardTitle className="text-2xl font-bold text-white flex items-center gap-2">
                  <PackagePlus className="h-6 w-6" />
-                 Create Shipment
+                Create Outbound Shipment
                </CardTitle>
                <CardDescription className="text-blue-100 mt-2">
                  Create a shipment request and upload labels (if needed)

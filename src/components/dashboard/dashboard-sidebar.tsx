@@ -85,7 +85,7 @@ export function DashboardSidebar() {
       requiredFeature: "view_inventory" as const,
     },
     {
-      title: "Create Shipment",
+      title: "Outbound Shipment",
       url: "/dashboard/create-shipment-with-labels",
       icon: Upload,
       color: "text-indigo-600",

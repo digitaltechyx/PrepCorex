@@ -434,6 +434,17 @@ export function ShipmentRequestsManagement({
         }
       }
 
+      await addDoc(collection(db, `users/${targetUserId}/notifications`), {
+        type: "shipment_request",
+        title: "Outbound shipment request approved",
+        message: "Your outbound shipment request has been approved and processed.",
+        isRead: false,
+        targetUrl: "/dashboard/create-shipment-with-labels",
+        relatedRequestId: request.id,
+        createdAt: Timestamp.now(),
+        createdBy: adminProfile.uid,
+      });
+
       toast({
         title: "Success",
         description: "Shipment request confirmed and processed.",
@@ -548,6 +559,17 @@ export function ShipmentRequestsManagement({
           }
         }
       }
+
+      await addDoc(collection(db, `users/${targetUserId}/notifications`), {
+        type: "shipment_request",
+        title: "Outbound shipment request rejected",
+        message: `Your outbound shipment request was rejected. Reason: ${reason}`,
+        isRead: false,
+        targetUrl: "/dashboard/create-shipment-with-labels",
+        relatedRequestId: request.id,
+        createdAt: Timestamp.now(),
+        createdBy: adminProfile.uid,
+      });
 
       toast({
         title: "Success",

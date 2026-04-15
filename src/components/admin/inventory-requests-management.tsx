@@ -418,6 +418,20 @@ export function InventoryRequestsManagement({
         }
       }
 
+      await addDoc(collection(db, `users/${userId}/notifications`), {
+        type: "inventory_request",
+        title: "Inventory request approved",
+        message:
+          request.inventoryType === "container"
+            ? "Your container handling request has been approved."
+            : "Your inventory request has been approved and added to inventory.",
+        isRead: false,
+        targetUrl: "/dashboard/inventory",
+        relatedRequestId: request.id,
+        createdAt: Timestamp.now(),
+        createdBy: adminProfile.uid,
+      });
+
       const isRestock = (request as any).productSubType === "restock";
       toast({
         title: "Success",
@@ -451,6 +465,17 @@ export function InventoryRequestsManagement({
         rejectedAt: Timestamp.now(),
         rejectionReason: reason,
         remarks: reason, // Also save as remarks so user can see it
+      });
+
+      await addDoc(collection(db, `users/${selectedUser.uid}/notifications`), {
+        type: "inventory_request",
+        title: "Inventory request rejected",
+        message: `Your inventory request was rejected. Reason: ${reason}`,
+        isRead: false,
+        targetUrl: "/dashboard/inventory",
+        relatedRequestId: request.id,
+        createdAt: Timestamp.now(),
+        createdBy: adminProfile.uid,
       });
 
       toast({

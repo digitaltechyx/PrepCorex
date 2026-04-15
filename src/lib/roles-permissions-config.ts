@@ -36,7 +36,7 @@ export const CLIENT_FEATURES_CONFIG: { value: UserFeature; label: string; descri
   { value: "view_dashboard", label: "Dashboard", description: "Access to client dashboard overview" },
   { value: "view_inventory", label: "Inventory", description: "View and manage inventory" },
   { value: "shipped_orders", label: "Shipped Orders", description: "View shipped orders" },
-  { value: "create_shipment", label: "Create Shipment", description: "Create shipment with labels" },
+  { value: "create_shipment", label: "Outbound Shipment", description: "Create outbound shipments with labels" },
   { value: "buy_labels", label: "Buy Labels", description: "Access to purchase labels" },
   { value: "upload_labels", label: "Upload Labels", description: "Upload shipping labels" },
   { value: "request_product_returns", label: "Product Returns", description: "Request and view product returns" },

@@ -18,7 +18,7 @@ import * as z from "zod";
 import { doc, updateDoc, deleteDoc, addDoc, collection, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff } from "lucide-react";
+import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff, ArrowRight } from "lucide-react";
 import { AddInventoryForm } from "@/components/admin/add-inventory-form";
 import { AddInventoryRequestForm } from "@/components/dashboard/add-inventory-request-form";
 import { ShipInventoryForm } from "@/components/admin/ship-inventory-form";
@@ -324,6 +324,12 @@ export function AdminInventoryManagement({
   const [shippedDateFilter, setShippedDateFilter] = useState<string>("all");
   const [restockDateFilter, setRestockDateFilter] = useState<string>("all");
   const [restockSearch, setRestockSearch] = useState("");
+  const [restockFromDate, setRestockFromDate] = useState<Date | undefined>(undefined);
+  const [restockToDate, setRestockToDate] = useState<Date | undefined>(undefined);
+  const [deleteLogsFromDate, setDeleteLogsFromDate] = useState<Date | undefined>(undefined);
+  const [deleteLogsToDate, setDeleteLogsToDate] = useState<Date | undefined>(undefined);
+  const [editLogsFromDate, setEditLogsFromDate] = useState<Date | undefined>(undefined);
+  const [editLogsToDate, setEditLogsToDate] = useState<Date | undefined>(undefined);
 
   const editForm = useForm<z.infer<typeof editProductSchema>>({
     resolver: zodResolver(editProductSchema),
@@ -854,7 +860,8 @@ export function AdminInventoryManagement({
                           item.reason.toLowerCase().includes(deleteLogsSearch.toLowerCase()) ||
                           item.deletedBy.toLowerCase().includes(deleteLogsSearch.toLowerCase());
     const matchesDate = matchesDateFilter(item.deletedAt, deleteLogsDateFilter);
-    return matchesSearch && matchesDate;
+    const matchesDateRange = matchesDatePickerFilter(item.deletedAt, deleteLogsFromDate, deleteLogsToDate);
+    return matchesSearch && matchesDate && matchesDateRange;
   }).sort((a, b) => {
     const dateA = typeof a.deletedAt === 'string' ? new Date(a.deletedAt) : new Date(a.deletedAt.seconds * 1000);
     const dateB = typeof b.deletedAt === 'string' ? new Date(b.deletedAt) : new Date(b.deletedAt.seconds * 1000);
@@ -874,7 +881,8 @@ export function AdminInventoryManagement({
                           item.editedBy.toLowerCase().includes(editLogsSearch.toLowerCase()) ||
                           (item.previousProductName && item.previousProductName.toLowerCase().includes(editLogsSearch.toLowerCase()));
     const matchesDate = matchesDateFilter(item.editedAt, editLogsDateFilter);
-    return matchesSearch && matchesDate;
+    const matchesDateRange = matchesDatePickerFilter(item.editedAt, editLogsFromDate, editLogsToDate);
+    return matchesSearch && matchesDate && matchesDateRange;
   }).sort((a, b) => {
     const dateA = typeof a.editedAt === 'string' ? new Date(a.editedAt) : new Date(a.editedAt.seconds * 1000);
     const dateB = typeof b.editedAt === 'string' ? new Date(b.editedAt) : new Date(b.editedAt.seconds * 1000);
@@ -1319,11 +1327,12 @@ export function AdminInventoryManagement({
     const q = restockSearch.trim().toLowerCase();
     const filtered = restockHistory.filter((item) => {
       const matchesDate = matchesDateFilter(item.restockedAt, restockDateFilter);
+      const matchesDateRange = matchesDatePickerFilter(item.restockedAt, restockFromDate, restockToDate);
       const matchesSearch =
         q.length === 0 ||
         (item.productName || "").toLowerCase().includes(q) ||
         (item.restockedBy || "").toLowerCase().includes(q);
-      return matchesDate && matchesSearch;
+      return matchesDate && matchesDateRange && matchesSearch;
     });
     
     // Sort by date (most recent first)
@@ -1332,7 +1341,7 @@ export function AdminInventoryManagement({
       const dateB = typeof b.restockedAt === 'string' ? new Date(b.restockedAt) : new Date(b.restockedAt.seconds * 1000);
       return dateB.getTime() - dateA.getTime();
     });
-  }, [restockHistory, restockDateFilter, restockSearch]);
+  }, [restockHistory, restockDateFilter, restockSearch, restockFromDate, restockToDate]);
 
   // Pagination for restock history
   const restockHistoryTotalPages = Math.ceil(filteredRestockHistory.length / itemsPerPage);
@@ -2006,7 +2015,7 @@ export function AdminInventoryManagement({
                   value="request"
                   className="rounded-md data-[state=active]:bg-cyan-600 data-[state=active]:text-white"
                 >
-                  Create Shipment Request
+                  Create Outbound Shipment Request
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="quick" className="mt-4">
@@ -2320,6 +2329,20 @@ export function AdminInventoryManagement({
                   </SelectContent>
                 </Select>
               </div>
+              <div className="w-full sm:w-[260px]">
+                <DateRangePicker
+                  fromDate={restockFromDate}
+                  toDate={restockToDate}
+                  setFromDate={(d) => {
+                    setRestockFromDate(d);
+                    resetRestockHistoryPagination();
+                  }}
+                  setToDate={(d) => {
+                    setRestockToDate(d);
+                    resetRestockHistoryPagination();
+                  }}
+                />
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -2330,24 +2353,25 @@ export function AdminInventoryManagement({
                 ))}
               </div>
             ) : filteredRestockHistory.length > 0 ? (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {paginatedRestockHistory.map((item) => (
-                  <div key={item.id} className="p-3 sm:p-4 border rounded-lg">
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-sm sm:text-base truncate">{item.productName}</h3>
-                        <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:text-sm text-muted-foreground">
-                          <span>Previous: {item.previousQuantity}</span>
-                          <span className="text-green-600">+{item.restockedQuantity}</span>
-                          <span>New Total: {item.newQuantity}</span>
-                          <span>Restocked by: {item.restockedBy}</span>
-                          <span>Date: {formatDate(item.restockedAt)}</span>
-                        </div>
-                      </div>
-                      <div className="w-full sm:w-auto grid grid-cols-1 sm:flex gap-2 sm:items-center sm:justify-end">
+                  <div key={item.id} className="rounded-lg border border-green-200 bg-green-50/40 px-3 py-2 sm:px-4">
+                    <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
+                      <span className="font-semibold text-slate-900 truncate shrink-0 max-w-[180px] sm:max-w-[230px] lg:max-w-[280px]">
+                        {item.productName}
+                      </span>
+                      <Badge className="bg-green-500 text-white text-[10px] shrink-0">+{item.restockedQuantity}</Badge>
+                      <span className="text-slate-600 shrink-0">Previous: <span className="text-slate-800">{item.previousQuantity}</span></span>
+                      <span className="text-slate-600 shrink-0">New Total: <span className="font-semibold text-green-700">{item.newQuantity}</span></span>
+                      <span className="text-slate-600 shrink-0">By: <span className="text-slate-800">{item.restockedBy}</span></span>
+                      <span className="inline-flex items-center gap-1 text-slate-600 shrink-0">
+                        <Calendar className="h-3 w-3" />
+                        {formatDate(item.restockedAt)}
+                      </span>
+                      <div className="ml-auto shrink-0">
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="destructive" size="sm" className="w-full sm:w-auto">
+                            <Button variant="destructive" size="sm" className="h-7 w-7 p-0">
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -2581,6 +2605,20 @@ export function AdminInventoryManagement({
                 </SelectContent>
               </Select>
             </div>
+            <div className="w-full sm:w-[260px]">
+              <DateRangePicker
+                fromDate={deleteLogsFromDate}
+                toDate={deleteLogsToDate}
+                setFromDate={(d) => {
+                  setDeleteLogsFromDate(d);
+                  resetDeleteLogsPagination();
+                }}
+                setToDate={(d) => {
+                  setDeleteLogsToDate(d);
+                  resetDeleteLogsPagination();
+                }}
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -2618,28 +2656,23 @@ export function AdminInventoryManagement({
               ))}
             </div>
           ) : filteredDeleteLogs.length > 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {paginatedDeleteLogs.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between p-4 border rounded-lg bg-red-50">
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-red-800">{item.productName}</h4>
-                      <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                        <span>Qty: {item.quantity}</span>
-                        <span>Added: {formatDate(item.dateAdded)}</span>
-                        <span className="text-red-600">Deleted: {formatDate(item.deletedAt)}</span>
-                        <span>By: {item.deletedBy}</span>
-                      </div>
-                      <div className="mt-2 text-sm">
-                        <span className="text-muted-foreground">Reason: </span>
-                        <span className="text-red-700 font-medium">{item.reason}</span>
-                      </div>
-                      <div className="mt-2">
-                        <Badge variant={item.status === "In Stock" ? "default" : "destructive"}>
-                          {item.status}
-                        </Badge>
-                      </div>
-                    </div>
+                <div key={item.id} className="rounded-lg border border-red-200 bg-red-50/40 px-3 py-2 sm:px-4">
+                  <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
+                    <span className="font-semibold text-slate-900 truncate shrink-0 max-w-[180px] sm:max-w-[230px] lg:max-w-[280px]">
+                      {item.productName}
+                    </span>
+                    <Badge className="bg-red-500 text-white text-[10px] shrink-0">-{item.quantity}</Badge>
+                    <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px] shrink-0">
+                      {item.status}
+                    </Badge>
+                    <span className="text-slate-600 shrink-0">Added: {formatDate(item.dateAdded)}</span>
+                    <span className="text-red-700 font-semibold shrink-0">Deleted: {formatDate(item.deletedAt)}</span>
+                    <span className="text-slate-600 shrink-0">By: {item.deletedBy}</span>
+                    <span className="text-red-800 truncate min-w-0 flex-1">Reason: {item.reason}</span>
                   </div>
+                </div>
                 ))}
             </div>
           ) : (
@@ -2711,6 +2744,20 @@ export function AdminInventoryManagement({
                 </SelectContent>
               </Select>
             </div>
+            <div className="w-full sm:w-[260px]">
+              <DateRangePicker
+                fromDate={editLogsFromDate}
+                toDate={editLogsToDate}
+                setFromDate={(d) => {
+                  setEditLogsFromDate(d);
+                  resetEditLogsPagination();
+                }}
+                setToDate={(d) => {
+                  setEditLogsToDate(d);
+                  resetEditLogsPagination();
+                }}
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -2748,34 +2795,33 @@ export function AdminInventoryManagement({
               ))}
             </div>
           ) : filteredEditLogs.length > 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {paginatedEditLogs.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between p-4 border rounded-lg bg-blue-50">
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-blue-800">{item.productName}</h4>
-                      <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                        <span>Qty: {item.previousQuantity} → {item.newQuantity}</span>
-                        <span>Status: {item.previousStatus} → {item.newStatus}</span>
-                        <span className="text-blue-600">Edited: {formatDate(item.editedAt)}</span>
-                        <span>By: {item.editedBy}</span>
-                      </div>
-                      {item.previousProductName && item.previousProductName !== item.productName && (
-                        <div className="mt-1 text-sm">
-                          <span className="text-muted-foreground">Name changed from: </span>
-                          <span className="text-blue-700 font-medium">{item.previousProductName}</span>
-                        </div>
-                      )}
-                      <div className="mt-2 text-sm">
-                        <span className="text-muted-foreground">Reason: </span>
-                        <span className="text-blue-700 font-medium">{item.reason}</span>
-                      </div>
-                      <div className="mt-2">
-                        <Badge variant={item.newStatus === "In Stock" ? "default" : "destructive"}>
-                          {item.newStatus}
-                        </Badge>
-                      </div>
-                    </div>
+                <div key={item.id} className="rounded-lg border border-blue-200 bg-blue-50/40 px-3 py-2 sm:px-4">
+                  <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
+                    <span className="font-semibold text-slate-900 truncate shrink-0 max-w-[180px] sm:max-w-[230px] lg:max-w-[280px]">
+                      {item.productName}
+                    </span>
+                    {item.previousProductName && item.previousProductName !== item.productName && (
+                      <Badge variant="outline" className="text-[10px] shrink-0">Renamed</Badge>
+                    )}
+                    <span className="text-slate-600 shrink-0">Qty:</span>
+                    <span className="shrink-0">{item.previousQuantity}</span>
+                    <ArrowRight className="h-3 w-3 text-blue-500 shrink-0" />
+                    <span className="font-semibold text-blue-700 shrink-0">{item.newQuantity}</span>
+                    <span className="text-slate-600 ml-1 shrink-0">Status:</span>
+                    <Badge variant="outline" className="text-[10px] shrink-0">{item.previousStatus}</Badge>
+                    <ArrowRight className="h-3 w-3 text-blue-500 shrink-0" />
+                    <Badge className="bg-blue-500 text-white text-[10px] shrink-0">{item.newStatus}</Badge>
+                    <span className="text-slate-600 truncate min-w-0 flex-1">
+                      Reason: {item.reason} | By: {item.editedBy}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-slate-600 shrink-0">
+                      <Calendar className="h-3 w-3" />
+                      {formatDate(item.editedAt)}
+                    </span>
                   </div>
+                </div>
                 ))}
             </div>
           ) : (

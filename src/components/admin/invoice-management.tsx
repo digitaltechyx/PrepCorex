@@ -1192,6 +1192,11 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                               <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm min-w-0">
                                 <h4 className="font-semibold truncate min-w-0 max-w-[200px] sm:max-w-[280px]">{invoice.invoiceNumber}</h4>
                                 <Badge variant="secondary" className="text-[9px] sm:text-xs">Pending</Badge>
+                                {Number((invoice as any).lateFeeAmount || 0) > 0.009 && (
+                                  <Badge variant="outline" className="text-[9px] sm:text-xs border-amber-300 bg-amber-100 text-amber-800">
+                                    Late Fee Applied
+                                  </Badge>
+                                )}
                                 <span className="text-muted-foreground whitespace-nowrap">Date: {invoice.date}</span>
                                 <span className="font-semibold whitespace-nowrap">Total: ${invoice.grandTotal.toFixed(2)}</span>
                                 <TooltipProvider delayDuration={150}>
@@ -1283,6 +1288,11 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                               <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm min-w-0">
                                 <h4 className="font-semibold truncate min-w-0 max-w-[200px] sm:max-w-[280px]">{invoice.invoiceNumber}</h4>
                                 <Badge variant="default" className="bg-green-100 text-green-800 text-[9px] sm:text-xs">Paid</Badge>
+                                {Number((invoice as any).lateFeeAmount || 0) > 0.009 && (
+                                  <Badge variant="outline" className="text-[9px] sm:text-xs border-amber-300 bg-amber-100 text-amber-800">
+                                    Late Fee Applied
+                                  </Badge>
+                                )}
                                 <span className="text-muted-foreground whitespace-nowrap">Date: {invoice.date}</span>
                                 <span className="font-semibold whitespace-nowrap">Total: ${invoice.grandTotal.toFixed(2)}</span>
                                 <TooltipProvider delayDuration={150}>

@@ -755,12 +755,12 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
       <DialogTrigger asChild>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
-          Create Shipment Request
+          Create Outbound Shipment Request
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create Shipment Request</DialogTitle>
+          <DialogTitle>Create Outbound Shipment Request</DialogTitle>
           <DialogDescription>
             Select products to ship. Admin will review and confirm your shipment.
           </DialogDescription>
@@ -2253,12 +2253,12 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
       <DialogTrigger asChild>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
-          Create Shipment Request
+          Create Outbound Shipment Request
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create Shipment Request</DialogTitle>
+          <DialogTitle>Create Outbound Shipment Request</DialogTitle>
           <DialogDescription>
             Select products to ship. Admin will review and confirm your shipment.
           </DialogDescription>
@@ -3751,12 +3751,12 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
       <DialogTrigger asChild>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
-          Create Shipment Request
+          Create Outbound Shipment Request
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create Shipment Request</DialogTitle>
+          <DialogTitle>Create Outbound Shipment Request</DialogTitle>
           <DialogDescription>
             Select products to ship. Admin will review and confirm your shipment.
           </DialogDescription>
@@ -5249,12 +5249,12 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
       <DialogTrigger asChild>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
-          Create Shipment Request
+          Create Outbound Shipment Request
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create Shipment Request</DialogTitle>
+          <DialogTitle>Create Outbound Shipment Request</DialogTitle>
           <DialogDescription>
             Select products to ship. Admin will review and confirm your shipment.
           </DialogDescription>
@@ -6747,12 +6747,12 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
       <DialogTrigger asChild>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
-          Create Shipment Request
+          Create Outbound Shipment Request
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create Shipment Request</DialogTitle>
+          <DialogTitle>Create Outbound Shipment Request</DialogTitle>
           <DialogDescription>
             Select products to ship. Admin will review and confirm your shipment.
           </DialogDescription>
@@ -8245,12 +8245,12 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
       <DialogTrigger asChild>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
-          Create Shipment Request
+          Create Outbound Shipment Request
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create Shipment Request</DialogTitle>
+          <DialogTitle>Create Outbound Shipment Request</DialogTitle>
           <DialogDescription>
             Select products to ship. Admin will review and confirm your shipment.
           </DialogDescription>
@@ -9743,12 +9743,12 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
       <DialogTrigger asChild>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
-          Create Shipment Request
+          Create Outbound Shipment Request
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create Shipment Request</DialogTitle>
+          <DialogTitle>Create Outbound Shipment Request</DialogTitle>
           <DialogDescription>
             Select products to ship. Admin will review and confirm your shipment.
           </DialogDescription>

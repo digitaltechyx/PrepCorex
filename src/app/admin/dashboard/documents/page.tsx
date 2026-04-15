@@ -132,6 +132,7 @@ export default function DocumentRequestsPage() {
   const [selectedDocumentType, setSelectedDocumentType] = useState<string>("all");
   const [selectedDateRange, setSelectedDateRange] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<string>("pending");
+  const [managementTab, setManagementTab] = useState<string>("requests");
   const [msaSearchQuery, setMsaSearchQuery] = useState("");
   const [msaSelectedCompany, setMsaSelectedCompany] = useState<string>("all");
   const [msaDateFilter, setMsaDateFilter] = useState<string>("all");
@@ -526,131 +527,15 @@ export default function DocumentRequestsPage() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
-      {/* Signed MSAs */}
-      {usersWithMSA.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileSignature className="h-5 w-5 text-indigo-500" />
-              Signed Master Service Agreements ({filteredMSAUsers.length})
-            </CardTitle>
-            <CardDescription>
-              Clients who have accepted the MSA. Download a copy for any client.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Search client..."
-                    value={msaSearchQuery}
-                    onChange={(e) => setMsaSearchQuery(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-                <Select value={msaSelectedCompany} onValueChange={setMsaSelectedCompany}>
-                  <SelectTrigger><SelectValue placeholder="All companies" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All companies</SelectItem>
-                    {msaCompanyOptions.map((company) => (
-                      <SelectItem key={company} value={company}>{company}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={msaDateFilter} onValueChange={setMsaDateFilter}>
-                  <SelectTrigger><SelectValue placeholder="Effective date" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All time</SelectItem>
-                    <SelectItem value="today">Today</SelectItem>
-                    <SelectItem value="week">Last 7 days</SelectItem>
-                    <SelectItem value="month">Last 30 days</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="flex items-center gap-2">
-                  {hasMsaActiveFilters && (
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setMsaSearchQuery("");
-                        setMsaSelectedCompany("all");
-                        setMsaDateFilter("all");
-                      }}
-                    >
-                      Reset
-                    </Button>
-                  )}
-                  <Badge variant="outline" className="h-10 px-3">
-                    Total Agreements: {filteredMSAUsers.length}
-                  </Badge>
-                </div>
-              </div>
+      <Tabs value={managementTab} onValueChange={setManagementTab} className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="requests">Document Requests</TabsTrigger>
+          <TabsTrigger value="msa">MSA Agreements ({usersWithMSA.length})</TabsTrigger>
+        </TabsList>
 
-              <div className="space-y-2">
-              {paginatedMSAUsers.map((u: UserProfile) => (
-                <div
-                  key={u.uid}
-                  className="flex items-center justify-between rounded-lg border bg-muted/30 p-3"
-                >
-                  <div>
-                    <p className="font-medium">{u.name ?? u.email}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {u.msaClientDetails!.companyName} · Effective {u.msaEffectiveDate}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDownloadMSA(u)}
-                    disabled={msaDownloadingUid === u.uid}
-                  >
-                    {msaDownloadingUid === u.uid ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <>
-                        <Download className="mr-2 h-4 w-4" />
-                        Download MSA
-                      </>
-                    )}
-                  </Button>
-                </div>
-              ))}
-              </div>
-
-              {filteredMSAUsers.length > msaItemsPerPage && (
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-3">
-                  <p className="text-sm text-muted-foreground">
-                    Showing {msaStartIndex + 1} to {Math.min(msaStartIndex + msaItemsPerPage, filteredMSAUsers.length)} of {filteredMSAUsers.length} agreements
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setMsaPage((p) => Math.max(1, p - 1))}
-                      disabled={msaPage === 1}
-                    >
-                      Previous
-                    </Button>
-                    <span className="text-sm">Page {msaPage} of {totalMsaPages}</span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setMsaPage((p) => Math.min(totalMsaPages, p + 1))}
-                      disabled={msaPage === totalMsaPages}
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Stat cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <TabsContent value="requests" className="space-y-6">
+          {/* Stat cards */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card
           role="button"
           tabIndex={0}
@@ -735,10 +620,10 @@ export default function DocumentRequestsPage() {
             )}
           </CardContent>
         </Card>
-      </div>
+          </div>
 
-      {/* Filters Dashboard */}
-      <Card className="border shadow-sm">
+          {/* Filters Dashboard */}
+          <Card className="border shadow-sm">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Filters</CardTitle>
           <CardDescription>Narrow requests by search, client, company, document type, and requested date.</CardDescription>
@@ -810,17 +695,17 @@ export default function DocumentRequestsPage() {
         </CardContent>
       </Card>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="pending">
-            Pending ({pendingRequests.length})
-          </TabsTrigger>
-          <TabsTrigger value="completed">
-            Completed ({completedRequests.length})
-          </TabsTrigger>
-        </TabsList>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="pending">
+                Pending ({pendingRequests.length})
+              </TabsTrigger>
+              <TabsTrigger value="completed">
+                Completed ({completedRequests.length})
+              </TabsTrigger>
+            </TabsList>
 
-        <TabsContent value="pending" className="space-y-4">
+            <TabsContent value="pending" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -966,9 +851,9 @@ export default function DocumentRequestsPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+            </TabsContent>
 
-        <TabsContent value="completed" className="space-y-4">
+            <TabsContent value="completed" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -1054,6 +939,136 @@ export default function DocumentRequestsPage() {
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
+        <TabsContent value="msa" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileSignature className="h-5 w-5 text-indigo-500" />
+                Signed Master Service Agreements ({filteredMSAUsers.length})
+              </CardTitle>
+              <CardDescription>
+                Clients who have accepted the MSA. Download a copy for any client.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {usersWithMSA.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileSignature className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No MSA agreements found yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        placeholder="Search client..."
+                        value={msaSearchQuery}
+                        onChange={(e) => setMsaSearchQuery(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                    <Select value={msaSelectedCompany} onValueChange={setMsaSelectedCompany}>
+                      <SelectTrigger><SelectValue placeholder="All companies" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All companies</SelectItem>
+                        {msaCompanyOptions.map((company) => (
+                          <SelectItem key={company} value={company}>{company}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={msaDateFilter} onValueChange={setMsaDateFilter}>
+                      <SelectTrigger><SelectValue placeholder="Effective date" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All time</SelectItem>
+                        <SelectItem value="today">Today</SelectItem>
+                        <SelectItem value="week">Last 7 days</SelectItem>
+                        <SelectItem value="month">Last 30 days</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <div className="flex items-center gap-2">
+                      {hasMsaActiveFilters && (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setMsaSearchQuery("");
+                            setMsaSelectedCompany("all");
+                            setMsaDateFilter("all");
+                          }}
+                        >
+                          Reset
+                        </Button>
+                      )}
+                      <Badge variant="outline" className="h-10 px-3">
+                        Total Agreements: {filteredMSAUsers.length}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {paginatedMSAUsers.map((u: UserProfile) => (
+                      <div
+                        key={u.uid}
+                        className="flex items-center justify-between rounded-lg border bg-muted/30 p-3"
+                      >
+                        <div>
+                          <p className="font-medium">{u.name ?? u.email}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {u.msaClientDetails!.companyName} · Effective {u.msaEffectiveDate}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDownloadMSA(u)}
+                          disabled={msaDownloadingUid === u.uid}
+                        >
+                          {msaDownloadingUid === u.uid ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Download className="mr-2 h-4 w-4" />
+                              Download MSA
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {filteredMSAUsers.length > msaItemsPerPage && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-3">
+                      <p className="text-sm text-muted-foreground">
+                        Showing {msaStartIndex + 1} to {Math.min(msaStartIndex + msaItemsPerPage, filteredMSAUsers.length)} of {filteredMSAUsers.length} agreements
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMsaPage((p) => Math.max(1, p - 1))}
+                          disabled={msaPage === 1}
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-sm">Page {msaPage} of {totalMsaPages}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMsaPage((p) => Math.min(totalMsaPages, p + 1))}
+                          disabled={msaPage === totalMsaPages}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

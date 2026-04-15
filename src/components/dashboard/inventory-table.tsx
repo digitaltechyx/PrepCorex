@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Search, Filter, X, Clock, Eye, Edit, Archive, Boxes, Truck, Package, ImageOff } from "lucide-react";
+import { Search, Filter, X, Clock, Eye, Edit } from "lucide-react";
 import { format } from "date-fns";
 import { AddInventoryRequestForm } from "./add-inventory-request-form";
 import { useCollection } from "@/hooks/use-collection";
@@ -41,10 +41,10 @@ import { cn } from "@/lib/utils";
 
 function formatDate(date: InventoryItem["dateAdded"]) {
   if (typeof date === 'string') {
-    return format(new Date(date), "PPP");
+    return format(new Date(date), "MMM d, yyyy");
   }
   if (date && typeof date === 'object' && 'seconds' in date) {
-    return format(new Date(date.seconds * 1000), "PPP");
+    return format(new Date(date.seconds * 1000), "MMM d, yyyy");
   }
   return "N/A";
 }
@@ -52,10 +52,10 @@ function formatDate(date: InventoryItem["dateAdded"]) {
 function formatReceivingDate(date: InventoryItem["receivingDate"]) {
   if (!date) return "N/A";
   if (typeof date === 'string') {
-    return format(new Date(date), "PPP");
+    return format(new Date(date), "MMM d, yyyy");
   }
   if (date && typeof date === 'object' && 'seconds' in date) {
-    return format(new Date(date.seconds * 1000), "PPP");
+    return format(new Date(date.seconds * 1000), "MMM d, yyyy");
   }
   return "N/A";
 }
@@ -67,33 +67,45 @@ function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefi
   return [];
 }
 
-function InventoryAvatar({ item, className }: { item: any; className: string }) {
+const NO_IMAGE_PLACEHOLDER_SRC =
+  "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 160'%3E%3Crect width='160' height='160' fill='%23e5e7eb'/%3E%3Crect x='44' y='34' width='72' height='52' rx='6' ry='6' fill='none' stroke='%239ca3af' stroke-width='4'/%3E%3Ccircle cx='62' cy='52' r='5' fill='%239ca3af'/%3E%3Cpath d='M52 78l16-16 13 13 9-9 18 18H52z' fill='%239ca3af'/%3E%3Ctext x='80' y='116' text-anchor='middle' font-size='12' font-family='Arial, sans-serif' fill='%236b7280'%3ENO IMAGE%3C/text%3E%3Ctext x='80' y='132' text-anchor='middle' font-size='12' font-family='Arial, sans-serif' fill='%236b7280'%3EAVAILABLE%3C/text%3E%3C/svg%3E";
+
+function InventoryAvatar({
+  item,
+  className,
+  onImageClick,
+}: {
+  item: any;
+  className: string;
+  onImageClick?: (url: string, name?: string) => void;
+}) {
   const imageUrl = getImageUrls(item)[0];
   const inventoryType = item?.inventoryType ?? "product";
 
   if (imageUrl) {
     return (
-      <img
-        src={imageUrl}
-        alt={item?.productName || "Inventory item"}
-        className={`${className} rounded-md border object-cover`}
-      />
+      <button
+        type="button"
+        className="rounded-md transition-opacity hover:opacity-90"
+        onClick={() => onImageClick?.(imageUrl, item?.productName)}
+        title="View picture"
+      >
+        <img
+          src={imageUrl}
+          alt={item?.productName || "Inventory item"}
+          className={`${className} rounded-md border object-cover`}
+        />
+      </button>
     );
   }
 
-  if (inventoryType === "box") {
-    return <Archive className={`${className} rounded-md border p-2 text-muted-foreground`} />;
-  }
-  if (inventoryType === "pallet") {
-    return <Boxes className={`${className} rounded-md border p-2 text-muted-foreground`} />;
-  }
-  if (inventoryType === "container") {
-    return <Truck className={`${className} rounded-md border p-2 text-muted-foreground`} />;
-  }
-  if (inventoryType === "product") {
-    return <ImageOff className={`${className} rounded-md border p-2 text-muted-foreground`} />;
-  }
-  return <Package className={`${className} rounded-md border p-2 text-muted-foreground`} />;
+  return (
+    <img
+      src={NO_IMAGE_PLACEHOLDER_SRC}
+      alt={`No image available for ${item?.productName || inventoryType || "inventory item"}`}
+      className={`${className} rounded-md border object-cover`}
+    />
+  );
 }
 
 function getTimestampMs(date: unknown): number {
@@ -150,6 +162,9 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
   const [selectedRemarks, setSelectedRemarks] = useState<string>("");
   const [selectedImageUrls, setSelectedImageUrls] = useState<string[]>([]);
   const [isRemarksDialogOpen, setIsRemarksDialogOpen] = useState(false);
+  const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState("");
+  const [previewImageName, setPreviewImageName] = useState("");
   const [editingRequest, setEditingRequest] = useState<InventoryRequest | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editProductName, setEditProductName] = useState("");
@@ -184,6 +199,12 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
     setEditSku((request as any).sku || "");
     setEditQuantity(request.quantity);
     setIsEditDialogOpen(true);
+  };
+
+  const handleImagePreview = (url: string, name?: string) => {
+    setPreviewImageUrl(url);
+    setPreviewImageName(name || "Inventory picture");
+    setIsImagePreviewOpen(true);
   };
 
   const [editSku, setEditSku] = useState("");
@@ -438,7 +459,11 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <InventoryAvatar item={item as any} className="h-10 w-10" />
+                      <InventoryAvatar
+                        item={item as any}
+                        className="h-10 w-10"
+                        onImageClick={handleImagePreview}
+                      />
                       <div
                         className={cn(
                           "font-semibold text-sm",
@@ -536,14 +561,18 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                <TableRow
                  key={item.id}
                  className={cn(
-                   "text-xs sm:text-sm",
+                   "text-xs sm:text-sm [&>td]:py-2 [&>td]:align-middle",
                    isLowStockVisual && lowStockRowCardClass
                  )}
                >
-                    <TableCell className="font-medium max-w-32 sm:max-w-none truncate">
+                    <TableCell className="font-medium max-w-32 sm:max-w-none truncate whitespace-nowrap">
                       <div className="flex flex-col sm:block">
                         <div className="flex items-center gap-2">
-                          <InventoryAvatar item={item as any} className="h-8 w-8" />
+                          <InventoryAvatar
+                            item={item as any}
+                            className="h-8 w-8"
+                            onImageClick={handleImagePreview}
+                          />
                           <span
                             className={cn(
                               "font-medium",
@@ -583,27 +612,27 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="hidden md:table-cell">{(item as any).sku || "N/A"}</TableCell>
+                    <TableCell className="hidden md:table-cell whitespace-nowrap">{(item as any).sku || "N/A"}</TableCell>
                     <TableCell
                       className={cn(
-                        "hidden sm:table-cell",
+                        "hidden sm:table-cell whitespace-nowrap",
                         isLowStockVisual && lowStockQtyClass
                       )}
                     >
                       {item.quantity}
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">
+                    <TableCell className="hidden sm:table-cell whitespace-nowrap">
                       {formatDate(item.dateAdded)}
                     </TableCell>
-                    <TableCell className="hidden md:table-cell">
+                    <TableCell className="hidden md:table-cell whitespace-nowrap">
                       {formatReceivingDate(item.receivingDate)}
                     </TableCell>
-                    <TableCell className="hidden lg:table-cell max-w-xs">
+                    <TableCell className="hidden lg:table-cell max-w-[180px]">
                       {item.remarks && item.remarks.trim() ? (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-auto p-1 text-left justify-start max-w-xs truncate"
+                          className="h-auto p-1 text-left justify-start w-full max-w-[180px] truncate"
                           onClick={() => handleRemarksClick(item.remarks || "", (item as any).imageUrls || (item as any).imageUrl)}
                         >
                           <span className="truncate text-xs">{item.remarks}</span>
@@ -613,7 +642,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                         <span className="text-xs text-muted-foreground">-</span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap">
                       <Badge 
                         variant={
                           item.status === "Pending" ? "outline" :
@@ -770,6 +799,25 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Image Preview Dialog */}
+      <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
+        <DialogContent className="max-w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{previewImageName || "Inventory picture"}</DialogTitle>
+            <DialogDescription>Image preview</DialogDescription>
+          </DialogHeader>
+          {previewImageUrl && (
+            <div className="mt-2 flex items-center justify-center rounded-lg border bg-muted/20 p-3">
+              <img
+                src={previewImageUrl}
+                alt={previewImageName || "Inventory picture"}
+                className="max-h-[70vh] w-auto max-w-full rounded-md object-contain"
+              />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </Card>

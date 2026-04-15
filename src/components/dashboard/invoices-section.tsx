@@ -397,6 +397,11 @@ export function InvoicesSection({
                           {invoice.invoiceNumber}
                         </h3>
                         <Badge variant="secondary" className="text-[10px] sm:text-xs shrink-0">Pending</Badge>
+                        {Number((invoice as any).lateFeeAmount || 0) > 0.009 && (
+                          <Badge variant="outline" className="text-[10px] sm:text-xs shrink-0 border-amber-300 bg-amber-100 text-amber-800">
+                            Late Fee Applied
+                          </Badge>
+                        )}
                         <span className="text-muted-foreground shrink-0">Date: {invoice.date}</span>
                         <span className="font-semibold text-slate-900 shrink-0">Total: ${invoice.grandTotal.toFixed(2)}</span>
                         <div className="ml-auto flex items-center gap-2 shrink-0">
@@ -480,6 +485,11 @@ export function InvoicesSection({
                           {invoice.invoiceNumber}
                         </h3>
                         <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 text-[10px] sm:text-xs shrink-0">Paid</Badge>
+                        {Number((invoice as any).lateFeeAmount || 0) > 0.009 && (
+                          <Badge variant="outline" className="text-[10px] sm:text-xs shrink-0 border-amber-300 bg-amber-100 text-amber-800">
+                            Late Fee Applied
+                          </Badge>
+                        )}
                         <span className="text-muted-foreground shrink-0">Date: {invoice.date}</span>
                         <span className="font-semibold text-slate-900 shrink-0">Total: ${invoice.grandTotal.toFixed(2)}</span>
                         <div className="ml-auto flex items-center gap-2 shrink-0">

@@ -320,19 +320,6 @@ export function AddInventoryRequestForm({
       return;
     }
 
-    if (
-      values.inventoryType === "product" &&
-      values.productSubType === "new" &&
-      !selectedProductImageFile
-    ) {
-      toast({
-        variant: "destructive",
-        title: "Product picture required",
-        description: "Please upload a product image for new product requests.",
-      });
-      return;
-    }
-
     setIsLoading(true);
     try {
       // For Box/Pallet, verify ID uniqueness before submitting
@@ -376,7 +363,11 @@ export function AddInventoryRequestForm({
       }
 
       let finalImageUrls: string[] = [];
-      if (values.inventoryType === "product" && values.productSubType === "new") {
+      if (
+        (values.inventoryType === "product" && values.productSubType === "new") ||
+        values.inventoryType === "box" ||
+        values.inventoryType === "pallet"
+      ) {
         finalImageUrls = await uploadProductImage(ownerId);
       } else if (values.inventoryType === "product" && values.productSubType === "restock" && values.productId) {
         const selectedProduct = availableProductsForRestock.find(p => p.id === values.productId);
@@ -759,11 +750,17 @@ export function AddInventoryRequestForm({
               />
             )}
 
-            {inventoryType === "product" && productSubType === "new" && (
+            {((inventoryType === "product" && productSubType === "new") ||
+              inventoryType === "box" ||
+              inventoryType === "pallet") && (
               <div className="space-y-2">
                 <Label htmlFor="productImage" className="flex items-center gap-2">
                   <ImagePlus className="h-4 w-4" />
-                  Product Picture *
+                  {inventoryType === "box"
+                    ? "Box Picture (Optional)"
+                    : inventoryType === "pallet"
+                      ? "Pallet Picture (Optional)"
+                      : "Product Picture (Optional)"}
                 </Label>
                 <Input
                   id="productImage"
@@ -772,13 +769,17 @@ export function AddInventoryRequestForm({
                   onChange={handleProductImageSelect}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Required for new products.
+                  {inventoryType === "box"
+                    ? "Upload if available. A default placeholder will be shown when no image is provided."
+                    : inventoryType === "pallet"
+                      ? "Upload if available. A default placeholder will be shown when no image is provided."
+                      : "Upload if available. A default placeholder will be shown when no image is provided."}
                 </p>
                 {selectedProductImagePreview && (
                   <div className="rounded-lg border bg-muted/20 p-3">
                     <img
                       src={selectedProductImagePreview}
-                      alt="Selected product preview"
+                      alt="Selected preview"
                       className="h-24 w-24 rounded-md border object-cover"
                     />
                   </div>
@@ -853,12 +854,7 @@ export function AddInventoryRequestForm({
               </Button>
               <Button
                 type="submit"
-                disabled={
-                  isLoading ||
-                  (inventoryType === "product" &&
-                    productSubType === "new" &&
-                    !selectedProductImageFile)
-                }
+                disabled={isLoading}
               >
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Submit Request

@@ -20,8 +20,8 @@ import {
   PlugZap,
   AlertTriangle,
   Wallet,
+  DollarSign,
   ArrowRight,
-  CloudUpload,
   CheckCircle,
   XCircle,
   Loader2,
@@ -404,6 +404,9 @@ export default function AdminDashboardPage() {
   const [financialMetrics, setFinancialMetrics] = useState({
     billedInRange: 0,
     paidInRange: 0,
+    dueInRange: 0,
+    todayPaidRevenue: 0,
+    todayPaidCount: 0,
   });
   const [topClientsByRevenue, setTopClientsByRevenue] = useState<Array<{ user: string; count: number; fill: string }>>([]);
   const [integrationStats, setIntegrationStats] = useState({
@@ -423,9 +426,32 @@ export default function AdminDashboardPage() {
         let totalPendingAmount = 0;
         let billedInRange = 0;
         let paidInRange = 0;
+        let pendingInRangeAmount = 0;
+        let todayPaidRevenue = 0;
+        let todayPaidCount = 0;
         const userRevenueInWindow = new Map<string, number>();
+        const todayStart = startOfDay(new Date()).getTime();
+        const todayEnd = endOfDay(new Date()).getTime();
         const invoiceDate = (inv: Partial<Invoice>): Date | null => {
           const ms = toMs((inv as any)?.issuedAt || (inv as any)?.date || (inv as any)?.createdAt || (inv as any)?.generatedAt);
+          if (ms) return new Date(ms);
+          const rawDate = typeof (inv as any)?.date === "string" ? (inv as any).date.trim() : "";
+          if (rawDate.includes("/")) {
+            const parts = rawDate.split("/");
+            if (parts.length === 3) {
+              const a = Number(parts[0]);
+              const b = Number(parts[1]);
+              const c = Number(parts[2]);
+              if (Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c)) {
+                const year = c < 100 ? 2000 + c : c;
+                const dayFirst = a > 12;
+                const month = dayFirst ? b : a;
+                const day = dayFirst ? a : b;
+                const parsed = new Date(year, month - 1, day);
+                if (!Number.isNaN(parsed.getTime())) return parsed;
+              }
+            }
+          }
           return ms ? new Date(ms) : null;
         };
         const windowFrom = hasDateRange && dateRangeFrom ? startOfDay(dateRangeFrom) : new Date(Date.now() - topUsersRange * 86400000);
@@ -434,7 +460,7 @@ export default function AdminDashboardPage() {
         if (!users || users.length === 0) {
           setPendingInvoicesCount(0);
           setPendingInvoicesAmount(0);
-          setFinancialMetrics({ billedInRange: 0, paidInRange: 0 });
+          setFinancialMetrics({ billedInRange: 0, paidInRange: 0, dueInRange: 0, todayPaidRevenue: 0, todayPaidCount: 0 });
           setTopClientsByRevenue([]);
           setInvoicesLoading(false);
           return;
@@ -452,10 +478,19 @@ export default function AdminDashboardPage() {
             totalPendingAmount += pending.reduce((sum, inv) => sum + (inv.grandTotal || 0), 0);
             userInvoices.forEach((inv) => {
               const d = invoiceDate(inv);
-              if (!isDateInRange(d, dateRangeFrom, dateRangeTo)) return;
+              const includeInFinancials = hasDateRange ? isDateInRange(d, dateRangeFrom, dateRangeTo) : true;
+              if (!includeInFinancials) return;
               const amount = Number(inv.grandTotal || 0);
               billedInRange += amount;
               if ((inv.status || "").toLowerCase() === "paid") paidInRange += amount;
+              if ((inv.status || "").toLowerCase() === "pending") pendingInRangeAmount += amount;
+              if ((inv.status || "").toLowerCase() === "paid" && d) {
+                const dMs = d.getTime();
+                if (dMs >= todayStart && dMs <= todayEnd) {
+                  todayPaidRevenue += amount;
+                  todayPaidCount += 1;
+                }
+              }
               if (inWindow(d)) userRevenue += amount;
             });
             if (userRevenue > 0) userRevenueInWindow.set(displayName, (userRevenueInWindow.get(displayName) ?? 0) + userRevenue);
@@ -465,7 +500,13 @@ export default function AdminDashboardPage() {
         }
         setPendingInvoicesCount(totalPending);
         setPendingInvoicesAmount(totalPendingAmount);
-        setFinancialMetrics({ billedInRange, paidInRange });
+        setFinancialMetrics({
+          billedInRange,
+          paidInRange,
+          dueInRange: hasDateRange ? pendingInRangeAmount : totalPendingAmount,
+          todayPaidRevenue,
+          todayPaidCount,
+        });
         const topClients = Array.from(userRevenueInWindow.entries())
           .map(([user, revenue]) => ({ user, count: revenue, fill: "#06b6d4" }))
           .sort((a, b) => b.count - a.count)
@@ -474,7 +515,7 @@ export default function AdminDashboardPage() {
       } catch {
         setPendingInvoicesCount(0);
         setPendingInvoicesAmount(0);
-        setFinancialMetrics({ billedInRange: 0, paidInRange: 0 });
+        setFinancialMetrics({ billedInRange: 0, paidInRange: 0, dueInRange: 0, todayPaidRevenue: 0, todayPaidCount: 0 });
         setTopClientsByRevenue([]);
       } finally {
         setInvoicesLoading(false);
@@ -708,7 +749,11 @@ export default function AdminDashboardPage() {
     {
       title: "Pending Invoices",
       value: invoicesLoading ? "…" : String(pendingInvoicesCount),
-      hint: invoicesLoading ? "Outstanding…" : `Outstanding $${Number(pendingInvoicesAmount || 0).toLocaleString("en-US")}`,
+      hint: invoicesLoading
+        ? "Outstanding…"
+        : hasDateRange
+          ? `Selected range outstanding $${Number(Math.max(financialMetrics.dueInRange || 0, 0)).toLocaleString("en-US")}`
+          : `Outstanding $${Number(pendingInvoicesAmount || 0).toLocaleString("en-US")}`,
       icon: Receipt,
       iconBg: "bg-blue-500/10 text-blue-600",
       href: "/admin/dashboard/invoices?tab=pending",
@@ -734,12 +779,17 @@ export default function AdminDashboardPage() {
   const collectionRate = financialMetrics.billedInRange > 0
     ? Math.round((financialMetrics.paidInRange / financialMetrics.billedInRange) * 100)
     : 0;
-  const dueAmount = Math.max(financialMetrics.billedInRange - financialMetrics.paidInRange, 0);
+  const dueAmount = Math.max(financialMetrics.dueInRange || 0, 0);
+  const todayRevenueAvg = financialMetrics.todayPaidCount > 0
+    ? financialMetrics.todayPaidRevenue / financialMetrics.todayPaidCount
+    : 0;
   const integrationHealth = integrationStats.shopify + integrationStats.ebay > 0 ? "Healthy" : "Needs setup";
   const alerts = [
     pendingRequestsCount > 0 ? `${pendingRequestsCount} document requests pending` : null,
     pendingInvoicesCount > 0 ? `${pendingInvoicesCount} due invoices` : null,
-    pendingInvoicesAmount > 0 ? `Outstanding balance $${Number(pendingInvoicesAmount || 0).toLocaleString("en-US")}` : null,
+    (hasDateRange ? dueAmount : pendingInvoicesAmount) > 0
+      ? `Outstanding balance $${Number(hasDateRange ? dueAmount : pendingInvoicesAmount).toLocaleString("en-US")}`
+      : null,
   ].filter((v): v is string => Boolean(v));
 
   return (
@@ -838,30 +888,38 @@ export default function AdminDashboardPage() {
           <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-4">
             <CardHeader className="pb-2 pt-6 px-6">
               <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-600">
-                  <PlugZap className="h-4 w-4" />
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+                  <DollarSign className="h-4 w-4" />
                 </div>
                 <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Integrations</CardTitle>
-                  <CardDescription className="text-slate-500">{integrationHealth}</CardDescription>
+                  <CardTitle className="text-base font-semibold text-slate-900">Today's Revenue</CardTitle>
+                  <CardDescription className="text-slate-500">Real-time paid invoices today</CardDescription>
                 </div>
             </div>
           </CardHeader>
             <CardContent className="px-6 pb-6">
-              {integrationLoading ? (
+              {invoicesLoading ? (
                 <Skeleton className="h-20 w-full rounded-lg" />
               ) : (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">Shopify connections</span>
-                    <span className="font-semibold text-slate-900">{integrationStats.shopify}</span>
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
+                    <p className="text-xs uppercase tracking-wide text-emerald-700">Collected today</p>
+                    <p className="mt-1 text-2xl font-semibold text-emerald-700">
+                      ${Number(financialMetrics.todayPaidRevenue || 0).toLocaleString("en-US")}
+                    </p>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">eBay connections</span>
-                    <span className="font-semibold text-slate-900">{integrationStats.ebay}</span>
+                    <span className="text-slate-500">Paid invoices today</span>
+                    <span className="font-semibold text-slate-900">{financialMetrics.todayPaidCount}</span>
                   </div>
-                  <Link href="/admin/dashboard/shopify-orders" className="inline-flex items-center text-xs font-medium text-cyan-600 hover:underline">
-                    Open order integrations <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-500">Average per invoice</span>
+                    <span className="font-semibold text-slate-900">
+                      ${Number(todayRevenueAvg || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <Link href="/admin/dashboard/invoices?tab=paid" className="inline-flex items-center text-xs font-medium text-emerald-600 hover:underline">
+                    Open paid invoices <ArrowRight className="ml-1 h-3.5 w-3.5" />
                   </Link>
                 </div>
             )}
@@ -896,70 +954,96 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
 
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-4">
+          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-12">
             <CardHeader className="pb-2 pt-6 px-6">
               <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600">
-                  <CloudUpload className="h-4 w-4" />
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-600">
+                  <PlugZap className="h-4 w-4" />
                 </div>
                 <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Label storage (OneDrive)</CardTitle>
-                  <CardDescription className="text-slate-500">Labels uploaded in Create Shipment go here</CardDescription>
+                  <CardTitle className="text-base font-semibold text-slate-900">Integrations & Storage</CardTitle>
+                  <CardDescription className="text-slate-500">{integrationHealth}</CardDescription>
                 </div>
             </div>
           </CardHeader>
             <CardContent className="px-6 pb-6">
-              {oneDriveChecking ? (
-                <p className="flex items-center gap-2 text-sm text-slate-500">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Checking…
-                </p>
-              ) : oneDriveConnected ? (
-                <div className="space-y-2">
-                  <p className="flex items-center gap-2 text-sm font-medium text-emerald-600">
-                    <CheckCircle className="h-4 w-4" />
-                    Connected
-                  </p>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setOneDriveDisconnecting(true);
-                      try {
-                        const res = await fetch("/api/onedrive/disconnect", { method: "POST" });
-                        if (res.ok) {
-                          setOneDriveConnected(false);
-                        }
-                      } finally {
-                        setOneDriveDisconnecting(false);
-                      }
-                    }}
-                    disabled={oneDriveDisconnecting}
-                    className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    {oneDriveDisconnecting ? (
-                      <>
-                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                        Disconnecting…
-                      </>
-                    ) : (
-                      "Disconnect"
-                    )}
-                  </button>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Order Integrations</p>
+                  {integrationLoading ? (
+                    <Skeleton className="h-16 w-full rounded-lg" />
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-500">Shopify connections</span>
+                        <span className="font-semibold text-slate-900">{integrationStats.shopify}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-500">eBay connections</span>
+                        <span className="font-semibold text-slate-900">{integrationStats.ebay}</span>
+                      </div>
+                      <Link href="/admin/dashboard/shopify-orders" className="inline-flex items-center text-xs font-medium text-cyan-600 hover:underline">
+                        Open order integrations <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                      </Link>
+                    </>
+                  )}
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="flex items-center gap-2 text-sm text-amber-600">
-                    <XCircle className="h-4 w-4" />
-                    Not connected
-                  </p>
-                  <a
-                    href="/api/onedrive/auth"
-                    className="inline-flex items-center rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-700"
-                  >
-                    Connect OneDrive
-                  </a>
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Label Storage (OneDrive)</p>
+                  <p className="text-xs text-slate-500">Labels uploaded in Outbound Shipment are stored here</p>
+                  {oneDriveChecking ? (
+                    <p className="flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Checking…
+                    </p>
+                  ) : oneDriveConnected ? (
+                    <div className="space-y-2">
+                      <p className="flex items-center gap-2 text-sm font-medium text-emerald-600">
+                        <CheckCircle className="h-4 w-4" />
+                        Connected
+                      </p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setOneDriveDisconnecting(true);
+                          try {
+                            const res = await fetch("/api/onedrive/disconnect", { method: "POST" });
+                            if (res.ok) {
+                              setOneDriveConnected(false);
+                            }
+                          } finally {
+                            setOneDriveDisconnecting(false);
+                          }
+                        }}
+                        disabled={oneDriveDisconnecting}
+                        className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {oneDriveDisconnecting ? (
+                          <>
+                            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                            Disconnecting…
+                          </>
+                        ) : (
+                          "Disconnect"
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="flex items-center gap-2 text-sm text-amber-600">
+                        <XCircle className="h-4 w-4" />
+                        Not connected
+                      </p>
+                      <a
+                        href="/api/onedrive/auth"
+                        className="inline-flex items-center rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-700"
+                      >
+                        Connect OneDrive
+                      </a>
+                    </div>
+                  )}
                 </div>
-            )}
+              </div>
           </CardContent>
         </Card>
         </section>
