@@ -854,6 +854,37 @@ export function AdminInventoryManagement({
     }
   };
 
+  // Helper function for date picker filtering
+  const matchesDatePickerFilter = (date: any, fromDate?: Date, toDate?: Date) => {
+    if (!fromDate && !toDate) return true;
+
+    let itemDate: Date;
+    if (typeof date === "string") {
+      itemDate = new Date(date);
+    } else if (date && typeof date === "object" && date.seconds) {
+      itemDate = new Date(date.seconds * 1000);
+    } else {
+      return false;
+    }
+
+    // Compare by date only, not time.
+    const itemDateOnly = new Date(itemDate.getFullYear(), itemDate.getMonth(), itemDate.getDate());
+
+    if (fromDate && toDate) {
+      const fromDateOnly = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+      const toDateOnly = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
+      return itemDateOnly >= fromDateOnly && itemDateOnly <= toDateOnly;
+    } else if (fromDate) {
+      const fromDateOnly = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+      return itemDateOnly >= fromDateOnly;
+    } else if (toDate) {
+      const toDateOnly = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
+      return itemDateOnly <= toDateOnly;
+    }
+
+    return true;
+  };
+
   // Filtered delete logs
   const filteredDeleteLogs = deleteLogs.filter((item) => {
     const matchesSearch = item.productName.toLowerCase().includes(deleteLogsSearch.toLowerCase()) ||
@@ -914,38 +945,6 @@ export function AdminInventoryManagement({
   const recycleEndIndex = recycleStartIndex + itemsPerPage;
   const paginatedRecycledInventory = filteredRecycledInventory.slice(recycleStartIndex, recycleEndIndex);
   const resetRecyclePagination = () => setRecyclePage(1);
-
-  // Helper function for date picker filtering
-  const matchesDatePickerFilter = (date: any, fromDate?: Date, toDate?: Date) => {
-    if (!fromDate && !toDate) return true;
-    
-    let itemDate: Date;
-    if (typeof date === 'string') {
-      itemDate = new Date(date);
-    } else if (date && typeof date === 'object' && date.seconds) {
-      itemDate = new Date(date.seconds * 1000);
-    } else {
-      return false;
-    }
-    
-    // Set time to start/end of day for accurate comparison
-    const itemDateOnly = new Date(itemDate.getFullYear(), itemDate.getMonth(), itemDate.getDate());
-    
-    if (fromDate && toDate) {
-      const fromDateOnly = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
-      const toDateOnly = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
-      return itemDateOnly >= fromDateOnly && itemDateOnly <= toDateOnly;
-    } else if (fromDate) {
-      const fromDateOnly = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
-      return itemDateOnly >= fromDateOnly;
-    } else if (toDate) {
-      const toDateOnly = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
-      return itemDateOnly <= toDateOnly;
-    }
-    
-    return true;
-  };
-
 
   // Download functions
   const handleDownloadInventory = () => {
