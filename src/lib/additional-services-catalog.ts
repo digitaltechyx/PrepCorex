@@ -57,21 +57,43 @@ export function mergeAdditionalServicesCatalog(extraRaw?: unknown): AdditionalSe
   return merged;
 }
 
-/** Full catalog for a user doc: merged extras, with legacy top-level prices applied to the three core rows. */
+function extraServicesDefinesKey(extraRaw: unknown, key: string): boolean {
+  if (!Array.isArray(extraRaw)) return false;
+  return extraRaw.some(
+    (row: any) => row && typeof row.key === "string" && row.key.trim() === key
+  );
+}
+
+/**
+ * Full catalog for a user doc: merge `extraServices` onto defaults.
+ * For the three legacy keys, prefer the row from `extraServices` when present so admin catalog and
+ * client pricing stay in sync; only fall back to top-level bubbleWrapPrice / stickerRemovalPrice /
+ * warningLabelPrice when that key is not in `extraServices` (older docs).
+ */
 export function catalogFromPricingDoc(
   doc: AdditionalServicesPricingLike | null | undefined
 ): AdditionalServiceCatalogItem[] {
   const base = mergeAdditionalServicesCatalog(doc?.extraServices);
   if (!doc) return base;
+  const extra = doc.extraServices;
   return base.map((row) => {
-    if (row.key === "bubbleWrap" && doc.bubbleWrapPrice != null && Number.isFinite(Number(doc.bubbleWrapPrice))) {
-      return { ...row, price: Number(doc.bubbleWrapPrice) };
+    if (row.key === "bubbleWrap") {
+      if (extraServicesDefinesKey(extra, "bubbleWrap")) return row;
+      if (doc.bubbleWrapPrice != null && Number.isFinite(Number(doc.bubbleWrapPrice))) {
+        return { ...row, price: Number(doc.bubbleWrapPrice) };
+      }
     }
-    if (row.key === "stickerRemoval" && doc.stickerRemovalPrice != null && Number.isFinite(Number(doc.stickerRemovalPrice))) {
-      return { ...row, price: Number(doc.stickerRemovalPrice) };
+    if (row.key === "stickerRemoval") {
+      if (extraServicesDefinesKey(extra, "stickerRemoval")) return row;
+      if (doc.stickerRemovalPrice != null && Number.isFinite(Number(doc.stickerRemovalPrice))) {
+        return { ...row, price: Number(doc.stickerRemovalPrice) };
+      }
     }
-    if (row.key === "warningLabels" && doc.warningLabelPrice != null && Number.isFinite(Number(doc.warningLabelPrice))) {
-      return { ...row, price: Number(doc.warningLabelPrice) };
+    if (row.key === "warningLabels") {
+      if (extraServicesDefinesKey(extra, "warningLabels")) return row;
+      if (doc.warningLabelPrice != null && Number.isFinite(Number(doc.warningLabelPrice))) {
+        return { ...row, price: Number(doc.warningLabelPrice) };
+      }
     }
     return row;
   });
