@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import type { ShipmentRequest, UserProfile, InventoryItem, UserAdditionalServicesPricing, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing } from "@/types";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
-import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { calculatePrepUnitPrice, type FbaPackAddOnConfig } from "@/lib/pricing-utils";
 import {
   Card,
   CardContent,
@@ -39,6 +39,8 @@ import { format } from "date-fns";
 import { Check, X, Eye, Loader2, FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DatePicker } from "@/components/ui/date-picker";
+
+type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & { id: string; updatedAt?: any; createdAt?: any };
 
 function formatDate(date: ShipmentRequest["date"] | ShipmentRequest["requestedAt"]) {
   if (typeof date === 'string') {
@@ -103,6 +105,23 @@ export function ShipmentRequestsManagement({
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
     isValidUserId ? `users/${userId}/palletForwardingPricing` : ""
   );
+  const { data: fbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
+    isValidUserId ? `users/${userId}/fbaPackAddOnPricing` : ""
+  );
+  const latestFbaPackAddOnConfig = useMemo<FbaPackAddOnConfig | undefined>(() => {
+    if (!fbaPackAddOnPricing || fbaPackAddOnPricing.length === 0) return undefined;
+    const latest = [...fbaPackAddOnPricing].sort((a, b) => {
+      const aUpdated = typeof a.updatedAt === "string" ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
+      const bUpdated = typeof b.updatedAt === "string" ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
+      return bUpdated - aUpdated;
+    })[0];
+    return latest
+      ? {
+          pack2to3: typeof latest.pack2to3 === "number" ? latest.pack2to3 : undefined,
+          pack4to12: typeof latest.pack4to12 === "number" ? latest.pack4to12 : undefined,
+        }
+      : undefined;
+  }, [fbaPackAddOnPricing]);
   
   const filteredRequests = useMemo(() => {
     let filtered =
@@ -808,6 +827,7 @@ export function ShipmentRequestsManagement({
           pricingRules={pricingRules || []}
           boxForwardingPricing={boxForwardingPricing}
           palletForwardingPricing={palletForwardingPricing}
+          fbaPackAddOnConfig={latestFbaPackAddOnConfig}
         />
       )}
 
@@ -841,6 +861,7 @@ function ReviewShipmentDialog({
   pricingRules,
   boxForwardingPricing,
   palletForwardingPricing,
+  fbaPackAddOnConfig,
 }: {
   request: ShipmentRequest;
   inventory: InventoryItem[];
@@ -867,6 +888,7 @@ function ReviewShipmentDialog({
   pricingRules: UserPricing[] | null;
   boxForwardingPricing?: UserBoxForwardingPricing[] | null;
   palletForwardingPricing?: UserPalletForwardingPricing[] | null;
+  fbaPackAddOnConfig?: FbaPackAddOnConfig;
 }) {
   const { toast } = useToast();
   const [adminRemarks, setAdminRemarks] = useState("");
@@ -1333,7 +1355,8 @@ function ReviewShipmentDialog({
                       request.service,
                       request.productType,
                       shipment.quantity, // Use quantity to get correct pricing tier
-                      shipment.packOf || 1
+                      shipment.packOf || 1,
+                      fbaPackAddOnConfig
                     );
                     if (calculatedPrice) {
                       // Use the calculated rate from pricing rules (this is the correct unit price)
@@ -1670,7 +1693,8 @@ function ReviewShipmentDialog({
                   request.service,
                   request.productType,
                   shipment.quantity,
-                  shipment.packOf || 1
+                  shipment.packOf || 1,
+                  fbaPackAddOnConfig
                 );
                 if (calculatedPrice) {
                   unitPrice = calculatedPrice.rate || shipment.unitPrice || 0;

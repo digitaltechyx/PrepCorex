@@ -9,6 +9,11 @@ const DEFAULT_FBA_RATES: Record<string, number> = {
   "2500+|Large": 0.5,
 };
 
+export type FbaPackAddOnConfig = {
+  pack2to3?: number;
+  pack4to12?: number;
+};
+
 /**
  * Determine the quantity tier used for pricing lookup.
  * FBA/WFS/TFS now uses simple monthly-volume tiers.
@@ -27,10 +32,12 @@ function getRangeForQuantity(service: ServiceType, quantity: number): string | n
   return null;
 }
 
-export function getPackAddOn(packOf: number): number {
+export function getPackAddOn(packOf: number, config?: FbaPackAddOnConfig): number {
   const value = Number(packOf || 1);
-  if (value >= 4 && value <= 12) return 0.75;
-  if (value >= 2 && value <= 3) return 0.35;
+  const pack2to3 = Number(config?.pack2to3 ?? 0.35);
+  const pack4to12 = Number(config?.pack4to12 ?? 0.75);
+  if (value >= 4 && value <= 12) return Number.isFinite(pack4to12) ? pack4to12 : 0.75;
+  if (value >= 2 && value <= 3) return Number.isFinite(pack2to3) ? pack2to3 : 0.35;
   return 0;
 }
 
@@ -47,10 +54,11 @@ export function calculatePrepUnitPrice(
   service: ServiceType,
   productType: ProductType,
   totalUnits: number,
-  packOf: number = 1
+  packOf: number = 1,
+  packConfig?: FbaPackAddOnConfig
 ): { rate: number; packOf: number } | null {
   const expectedRange = getRangeForQuantity(service, totalUnits);
-  const packOfCharge = getPackAddOn(packOf);
+  const packOfCharge = getPackAddOn(packOf, packConfig);
 
   if (service === "FBA/WFS/TFS") {
     const defaultRate = expectedRange

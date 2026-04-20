@@ -19,7 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCollection } from "@/hooks/use-collection";
-import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { calculatePrepUnitPrice, type FbaPackAddOnConfig } from "@/lib/pricing-utils";
 import imageCompression from "browser-image-compression";
 import { ImageIcon } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -113,6 +113,8 @@ interface LabelUploadState {
   isUploading: boolean;
 }
 
+type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & { id: string; updatedAt?: any; createdAt?: any };
+
 export function CreateShipmentWithLabelsForm({
   inventory,
   targetUserId,
@@ -183,6 +185,24 @@ export function CreateShipmentWithLabelsForm({
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
     ownerId ? `users/${ownerId}/additionalServicesPricing` : ""
   );
+  const { data: fbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
+    ownerId ? `users/${ownerId}/fbaPackAddOnPricing` : ""
+  );
+
+  const latestFbaPackAddOnConfig = useMemo<FbaPackAddOnConfig | undefined>(() => {
+    if (!fbaPackAddOnPricing || fbaPackAddOnPricing.length === 0) return undefined;
+    const latest = [...fbaPackAddOnPricing].sort((a, b) => {
+      const aUpdated = typeof a.updatedAt === "string" ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
+      const bUpdated = typeof b.updatedAt === "string" ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
+      return bUpdated - aUpdated;
+    })[0];
+    return latest
+      ? {
+          pack2to3: typeof latest.pack2to3 === "number" ? latest.pack2to3 : undefined,
+          pack4to12: typeof latest.pack4to12 === "number" ? latest.pack4to12 : undefined,
+        }
+      : undefined;
+  }, [fbaPackAddOnPricing]);
 
 
   // Auto-calculate pricing for all shipment groups
@@ -227,7 +247,8 @@ export function CreateShipmentWithLabelsForm({
             service,
             lineProductType,
             quantity, // Use quantity, not totalUnits, to get consistent unit price
-            packOf
+            packOf,
+            latestFbaPackAddOnConfig
           );
           if (calculatedPrice && calculatedPrice.rate !== undefined && calculatedPrice.rate !== null) {
             finalUnitPrice = calculatedPrice.rate;
@@ -299,7 +320,8 @@ export function CreateShipmentWithLabelsForm({
               service,
               lineProductType,
               quantity, // Use quantity, not totalUnits, to get the correct packOfPrice
-              packOf
+              packOf,
+              latestFbaPackAddOnConfig
             );
             if (calculatedPriceForPackOf) {
               packOfPrice = calculatedPriceForPackOf.packOf || 0; // Charge per pack (beyond the first pack)
@@ -1969,7 +1991,8 @@ export function CreateShipmentWithLabelsForm({
                                         groupService,
                                         lineProductType,
                                         lineQuantity,
-                                        linePackOf
+                                        linePackOf,
+                                        latestFbaPackAddOnConfig
                                       );
 
                                       if (
@@ -1992,7 +2015,8 @@ export function CreateShipmentWithLabelsForm({
                                           groupService,
                                           lineProductType,
                                           lineQuantity,
-                                          linePackOf
+                                          linePackOf,
+                                          latestFbaPackAddOnConfig
                                         );
                                         if (calculatedPriceForPackOf) {
                                           packOfPrice = calculatedPriceForPackOf.packOf || 0;

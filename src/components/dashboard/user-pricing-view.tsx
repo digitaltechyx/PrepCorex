@@ -6,6 +6,7 @@
  import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
  import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
  import { Skeleton } from "@/components/ui/skeleton";
+import type { FbaPackAddOnConfig } from "@/lib/pricing-utils";
 
  type PricingRuleDoc = {
    id: string;
@@ -75,6 +76,12 @@ const DEFAULT_FBA_RATES: Record<string, number> = {
   "1-999|Large": 0.85,
   "1000-2499|Large": 0.65,
   "2500+|Large": 0.5,
+};
+
+type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
+  id: string;
+  updatedAt?: any;
+  createdAt?: any;
 };
 
  function toMs(v: any): number {
@@ -155,6 +162,9 @@ const DEFAULT_FBA_RATES: Record<string, number> = {
    const { data: additionalServicesPricingList, loading: additionalLoading } = useCollection<AdditionalServicesDoc>(
      uid ? `users/${uid}/additionalServicesPricing` : ""
    );
+  const { data: fbaPackAddOnPricingList, loading: fbaPackLoading } = useCollection<FbaPackAddOnPricingDoc>(
+    uid ? `users/${uid}/fbaPackAddOnPricing` : ""
+  );
 
    const pricingByKey = useMemo(() => {
      const map = new Map<string, PricingRuleDoc>();
@@ -173,6 +183,7 @@ const DEFAULT_FBA_RATES: Record<string, number> = {
    const latestBox = useMemo(() => pickLatest(boxForwardingPricingList || []), [boxForwardingPricingList]);
    const latestPallet = useMemo(() => pickLatest(palletForwardingPricingList || []), [palletForwardingPricingList]);
    const latestAdditional = useMemo(() => pickLatest(additionalServicesPricingList || []), [additionalServicesPricingList]);
+  const latestFbaPack = useMemo(() => pickLatest(fbaPackAddOnPricingList || []), [fbaPackAddOnPricingList]);
 
    const containerBySize = useMemo(() => {
      const m = new Map<string, ContainerHandlingDoc>();
@@ -184,7 +195,7 @@ const DEFAULT_FBA_RATES: Record<string, number> = {
      return m;
    }, [containerHandlingPricingList]);
 
-   const isLoading = pricingLoading || storageLoading || boxLoading || palletLoading || containerLoading || additionalLoading;
+  const isLoading = pricingLoading || storageLoading || boxLoading || palletLoading || containerLoading || additionalLoading || fbaPackLoading;
 
    if (!uid) {
      return <div className="text-sm text-muted-foreground">Loading user…</div>;
@@ -281,6 +292,8 @@ const DEFAULT_FBA_RATES: Record<string, number> = {
       { title: "Standard Units", productType: "Standard" },
       { title: "Large/Heavy Units", productType: "Large" },
     ];
+    const pack2to3 = typeof latestFbaPack?.pack2to3 === "number" ? latestFbaPack.pack2to3 : 0.35;
+    const pack4to12 = typeof latestFbaPack?.pack4to12 === "number" ? latestFbaPack.pack4to12 : 0.75;
 
     return (
       <div className="space-y-4">
@@ -309,8 +322,8 @@ const DEFAULT_FBA_RATES: Record<string, number> = {
 
                 <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
                   <div className="mb-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">Pack Add-on Pricing</div>
-                  <div className="text-sm text-emerald-900 dark:text-emerald-200">$0.35 for pack 2-3</div>
-                  <div className="text-sm text-emerald-900 dark:text-emerald-200">$0.75 for pack 4-12</div>
+                  <div className="text-sm text-emerald-900 dark:text-emerald-200">{money(pack2to3)} for pack 2-3</div>
+                  <div className="text-sm text-emerald-900 dark:text-emerald-200">{money(pack4to12)} for pack 4-12</div>
                 </div>
 
                 <div>

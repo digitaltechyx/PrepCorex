@@ -33,6 +33,15 @@ interface PricingManagementProps {
   users: UserProfile[];
 }
 
+type FbaPackAddOnPricingDoc = {
+  id: string;
+  userId?: string;
+  pack2to3?: number;
+  pack4to12?: number;
+  updatedAt?: any;
+  createdAt?: any;
+};
+
 // Pre-defined combinations for pricing
 // FBA/WFS/TFS: 6 rows (3 monthly-volume tiers x 2 product types)
 const FBA_PACKAGES = [
@@ -49,6 +58,15 @@ const FBM_PACKAGES = [
   { package: "Starter" as PackageType, quantityRange: "<25" as QuantityRange },
 ];
 const PRODUCT_TYPES: ProductType[] = ["Standard", "Large"]; // Removed Custom
+
+const DEFAULT_FBA_RATES: Record<string, number> = {
+  "1-999|Standard": 0.65,
+  "1000-2499|Standard": 0.45,
+  "2500+|Standard": 0.35,
+  "1-999|Large": 0.85,
+  "1000-2499|Large": 0.65,
+  "2500+|Large": 0.5,
+};
 
 interface PricingRow {
   service: ServiceType;
@@ -93,6 +111,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const [stickerRemovalPrice, setStickerRemovalPrice] = useState<string>("");
   const [warningLabelPrice, setWarningLabelPrice] = useState<string>("");
   const [additionalServicesPricingId, setAdditionalServicesPricingId] = useState<string | null>(null);
+  const [fbaPack2to3, setFbaPack2to3] = useState<string>("0.35");
+  const [fbaPack4to12, setFbaPack4to12] = useState<string>("0.75");
+  const [fbaPackPricingId, setFbaPackPricingId] = useState<string | null>(null);
 
   // Filter approved users (excluding admins and deleted users)
   const selectableUsers = useMemo(() => {
@@ -138,6 +159,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const { data: additionalServicesPricingList, loading: additionalServicesPricingLoading } = useCollection<UserAdditionalServicesPricing>(
     selectedUser ? `users/${selectedUser.uid}/additionalServicesPricing` : ""
   );
+  const { data: fbaPackAddOnPricingList } = useCollection<FbaPackAddOnPricingDoc>(
+    selectedUser ? `users/${selectedUser.uid}/fbaPackAddOnPricing` : ""
+  );
   
   // Get the most recent storage pricing document
   const latestStoragePricing = useMemo(() => {
@@ -170,7 +194,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
           package: pkgInfo.package,
           quantityRange: pkgInfo.quantityRange,
           productType,
-          rate: "",
+          rate: (
+            DEFAULT_FBA_RATES[`${pkgInfo.quantityRange}|${productType}`] ?? 0
+          ).toFixed(2),
           packOf: "",
         });
       });
@@ -356,6 +382,19 @@ export function PricingManagement({ users }: PricingManagementProps) {
     });
     return sorted[0];
   }, [additionalServicesPricingList]);
+  const latestFbaPackPricing = useMemo(() => {
+    if (!fbaPackAddOnPricingList || fbaPackAddOnPricingList.length === 0) return null;
+    const sorted = [...fbaPackAddOnPricingList].sort((a, b) => {
+      const aUpdated = typeof a.updatedAt === "string"
+        ? new Date(a.updatedAt).getTime()
+        : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
+      const bUpdated = typeof b.updatedAt === "string"
+        ? new Date(b.updatedAt).getTime()
+        : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
+      return bUpdated - aUpdated;
+    });
+    return sorted[0];
+  }, [fbaPackAddOnPricingList]);
 
   // Initialize additional services pricing when user changes
   useEffect(() => {
@@ -373,6 +412,27 @@ export function PricingManagement({ users }: PricingManagementProps) {
       setAdditionalServicesPricingId(null);
     }
   }, [selectedUser, latestAdditionalServicesPricing]);
+
+  useEffect(() => {
+    if (!selectedUser) return;
+    if (latestFbaPackPricing) {
+      setFbaPack2to3(
+        typeof latestFbaPackPricing.pack2to3 === "number"
+          ? latestFbaPackPricing.pack2to3.toFixed(2)
+          : "0.35"
+      );
+      setFbaPack4to12(
+        typeof latestFbaPackPricing.pack4to12 === "number"
+          ? latestFbaPackPricing.pack4to12.toFixed(2)
+          : "0.75"
+      );
+      setFbaPackPricingId(latestFbaPackPricing.id);
+    } else {
+      setFbaPack2to3("0.35");
+      setFbaPack4to12("0.75");
+      setFbaPackPricingId(null);
+    }
+  }, [selectedUser, latestFbaPackPricing]);
 
   const handleUserSelect = (user: UserProfile) => {
     setSelectedUserId(user.uid);
@@ -437,6 +497,26 @@ export function PricingManagement({ users }: PricingManagementProps) {
       }
 
       await batch.commit();
+
+      const pack2to3 = parseFloat(fbaPack2to3);
+      const pack4to12 = parseFloat(fbaPack4to12);
+      if (!isNaN(pack2to3) && !isNaN(pack4to12) && pack2to3 >= 0 && pack4to12 >= 0) {
+        const packPayload = {
+          userId: selectedUser.uid,
+          pack2to3,
+          pack4to12,
+          updatedAt: now,
+        };
+        if (fbaPackPricingId) {
+          await updateDoc(doc(db, `users/${selectedUser.uid}/fbaPackAddOnPricing`, fbaPackPricingId), packPayload);
+        } else {
+          const created = await addDoc(collection(db, `users/${selectedUser.uid}/fbaPackAddOnPricing`), {
+            ...packPayload,
+            createdAt: now,
+          });
+          setFbaPackPricingId(created.id);
+        }
+      }
 
       toast({
         title: "Success",
@@ -1001,8 +1081,42 @@ export function PricingManagement({ users }: PricingManagementProps) {
                 </div>
                 
                 <TabsContent value="FBA/WFS/TFS" className="mt-4">
-                  <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                    FBA pack add-on is fixed for shipment calculations: $0.35 (pack 2-3) and $0.75 (pack 4-12).
+                  <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                    <div className="mb-2 font-semibold">Pack add-on pricing (applies to shipment calculations)</div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-blue-800">Pack 2-3 ($)</Label>
+                        <Input
+                          type="text"
+                          value={fbaPack2to3}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === "" || /^\d*\.?\d*$/.test(value)) setFbaPack2to3(value);
+                          }}
+                          onBlur={(e) => {
+                            const value = e.target.value;
+                            if (value && !isNaN(parseFloat(value))) setFbaPack2to3(parseFloat(value).toFixed(2));
+                          }}
+                          className="h-8 w-28 bg-white"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-blue-800">Pack 4-12 ($)</Label>
+                        <Input
+                          type="text"
+                          value={fbaPack4to12}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === "" || /^\d*\.?\d*$/.test(value)) setFbaPack4to12(value);
+                          }}
+                          onBlur={(e) => {
+                            const value = e.target.value;
+                            if (value && !isNaN(parseFloat(value))) setFbaPack4to12(parseFloat(value).toFixed(2));
+                          }}
+                          className="h-8 w-28 bg-white"
+                        />
+                      </div>
+                    </div>
                   </div>
                   <div className="grid gap-5 md:grid-cols-2">
                     {([
@@ -1066,8 +1180,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
                           <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
                             <div className="mb-2 text-sm font-semibold text-emerald-800">Pack Add-on Pricing</div>
-                            <div className="text-sm text-emerald-900">$0.35 for pack 2-3</div>
-                            <div className="text-sm text-emerald-900">$0.75 for pack 4-12</div>
+                            <div className="text-sm text-emerald-900">${(parseFloat(fbaPack2to3 || "0") || 0).toFixed(2)} for pack 2-3</div>
+                            <div className="text-sm text-emerald-900">${(parseFloat(fbaPack4to12 || "0") || 0).toFixed(2)} for pack 4-12</div>
                           </div>
 
                           <div>
