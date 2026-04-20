@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCollection } from "@/hooks/use-collection";
 import { calculatePrepUnitPrice, type FbaPackAddOnConfig } from "@/lib/pricing-utils";
+import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
 import imageCompression from "browser-image-compression";
 import { ImageIcon } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,7 +40,7 @@ const shipmentItemSchema = z.object({
   customDimensions: z.string().optional(),
   // Additional Services per product - user only selects which services they want (boolean flags)
   // Admin will add quantities during approval
-  selectedAdditionalServices: z.array(z.enum(["bubbleWrap", "stickerRemoval", "warningLabels"])).optional(),
+  selectedAdditionalServices: z.array(z.string()).optional(),
 });
 
 const shipmentGroupSchema = z.object({
@@ -204,6 +205,30 @@ export function CreateShipmentWithLabelsForm({
       : undefined;
   }, [fbaPackAddOnPricing]);
 
+  const latestAdditionalServicesPricingDoc = useMemo(() => {
+    if (!additionalServicesPricing || additionalServicesPricing.length === 0) return null;
+    const sorted = [...additionalServicesPricing].sort((a, b) => {
+      const aUpdated =
+        typeof a.updatedAt === "string"
+          ? new Date(a.updatedAt).getTime()
+          : (a.updatedAt as any)?.seconds
+            ? (a.updatedAt as any).seconds * 1000
+            : 0;
+      const bUpdated =
+        typeof b.updatedAt === "string"
+          ? new Date(b.updatedAt).getTime()
+          : (b.updatedAt as any)?.seconds
+            ? (b.updatedAt as any).seconds * 1000
+            : 0;
+      return bUpdated - aUpdated;
+    });
+    return sorted[0] ?? null;
+  }, [additionalServicesPricing]);
+
+  const additionalServicesCatalog = useMemo(
+    () => catalogFromPricingDoc(latestAdditionalServicesPricingDoc as UserAdditionalServicesPricing | null),
+    [latestAdditionalServicesPricingDoc]
+  );
 
   // Auto-calculate pricing for all shipment groups
   const watchedGroups = useWatch({
@@ -1319,18 +1344,11 @@ export function CreateShipmentWithLabelsForm({
                                         form.watch(
                                           `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices`
                                         ) || [];
-                                      const hasBubbleWrap = selectedServices.includes("bubbleWrap");
-                                      const hasStickerRemoval = selectedServices.includes("stickerRemoval");
-                                      const hasWarningLabels = selectedServices.includes("warningLabels");
-                                      const selectedServicesDisplay: string[] = [];
-                                      if (hasBubbleWrap) selectedServicesDisplay.push("Bubble Wrap");
-                                      if (hasStickerRemoval) selectedServicesDisplay.push("Sticker Removal");
-                                      if (hasWarningLabels) selectedServicesDisplay.push("Warning Labels");
+                                      const labelForServiceKey = (key: string) =>
+                                        additionalServicesCatalog.find((r) => r.key === key)?.name ?? key;
+                                      const selectedServicesDisplay = selectedServices.map(labelForServiceKey);
                                       const servicesPopupKey = `${popupKey}_line_${shipmentIndex}_additionalServicesInline`;
-                                      const updateServices = (
-                                        key: "bubbleWrap" | "stickerRemoval" | "warningLabels",
-                                        checked: boolean
-                                      ) => {
+                                      const updateServices = (key: string, checked: boolean) => {
                                         const current =
                                           form.getValues(
                                             `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices`
@@ -1475,49 +1493,28 @@ export function CreateShipmentWithLabelsForm({
                                                   Choose all additional services needed for this selected product.
                                                 </DialogDescription>
                                               </DialogHeader>
-                                              <div className="space-y-3 py-1">
-                                                <label className="flex items-start gap-2 text-sm">
-                                                  <Checkbox
-                                                    checked={hasBubbleWrap}
-                                                    onCheckedChange={(checked) =>
-                                                      updateServices("bubbleWrap", Boolean(checked))
-                                                    }
-                                                  />
-                                                  <span>
-                                                    <span className="font-medium">Bubble Wrap</span>
-                                                    <span className="block text-xs text-muted-foreground">
-                                                      Extra protective bubble wrapping.
-                                                    </span>
-                                                  </span>
-                                                </label>
-                                                <label className="flex items-start gap-2 text-sm">
-                                                  <Checkbox
-                                                    checked={hasStickerRemoval}
-                                                    onCheckedChange={(checked) =>
-                                                      updateServices("stickerRemoval", Boolean(checked))
-                                                    }
-                                                  />
-                                                  <span>
-                                                    <span className="font-medium">Sticker Removal</span>
-                                                    <span className="block text-xs text-muted-foreground">
-                                                      Remove old marketplace or shipping stickers.
-                                                    </span>
-                                                  </span>
-                                                </label>
-                                                <label className="flex items-start gap-2 text-sm">
-                                                  <Checkbox
-                                                    checked={hasWarningLabels}
-                                                    onCheckedChange={(checked) =>
-                                                      updateServices("warningLabels", Boolean(checked))
-                                                    }
-                                                  />
-                                                  <span>
-                                                    <span className="font-medium">Warning Labels</span>
-                                                    <span className="block text-xs text-muted-foreground">
-                                                      Apply fragile/handling warning labels.
-                                                    </span>
-                                                  </span>
-                                                </label>
+                                              <div className="max-h-[min(60vh,420px)] space-y-3 overflow-y-auto py-1 pr-1">
+                                                {additionalServicesCatalog.map((svc) => {
+                                                  const checked = selectedServices.includes(svc.key);
+                                                  return (
+                                                    <label key={svc.key} className="flex items-start gap-2 text-sm">
+                                                      <Checkbox
+                                                        checked={checked}
+                                                        onCheckedChange={(c) => updateServices(svc.key, Boolean(c))}
+                                                      />
+                                                      <span>
+                                                        <span className="font-medium">{svc.name}</span>
+                                                        <span className="block text-xs text-muted-foreground">
+                                                          {svc.description ||
+                                                            "Admin enters quantity when completing this request."}
+                                                        </span>
+                                                        <span className="block text-xs text-muted-foreground">
+                                                          Rate: ${Number(svc.price || 0).toFixed(2)}
+                                                        </span>
+                                                      </span>
+                                                    </label>
+                                                  );
+                                                })}
                                               </div>
                                             </DialogContent>
                                           </Dialog>
@@ -2168,15 +2165,9 @@ export function CreateShipmentWithLabelsForm({
                                     name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices` as const}
                                     render={({ field }) => {
                                       const selectedServices = field.value || [];
-                                      const hasBubbleWrap = selectedServices.includes("bubbleWrap");
-                                      const hasStickerRemoval = selectedServices.includes("stickerRemoval");
-                                      const hasWarningLabels = selectedServices.includes("warningLabels");
-                                      const selectedServicesDisplay: string[] = [];
-
-                                      if (hasBubbleWrap) selectedServicesDisplay.push("Bubble Wrap");
-                                      if (hasStickerRemoval) selectedServicesDisplay.push("Sticker Removal");
-                                      if (hasWarningLabels) selectedServicesDisplay.push("Warning Labels");
-
+                                      const labelForKey = (key: string) =>
+                                        additionalServicesCatalog.find((r) => r.key === key)?.name ?? key;
+                                      const selectedServicesDisplay = selectedServices.map(labelForKey);
                                       const displayText =
                                         selectedServicesDisplay.length > 0
                                           ? selectedServicesDisplay.join(", ")
@@ -2223,76 +2214,44 @@ export function CreateShipmentWithLabelsForm({
                                                   add quantities and calculate pricing during approval.
                                                 </DialogDescription>
                                               </DialogHeader>
-                                              <div className="space-y-4 py-2">
-                                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                                  <FormControl>
-                                                    <Checkbox
-                                                      checked={hasBubbleWrap}
-                                                      onCheckedChange={(checked) => {
-                                                        const current = field.value || [];
-                                                        if (checked) {
-                                                          field.onChange([...current, "bubbleWrap"]);
-                                                        } else {
-                                                          field.onChange(
-                                                            current.filter((s) => s !== "bubbleWrap")
-                                                          );
-                                                        }
-                                                      }}
-                                                    />
-                                                  </FormControl>
-                                                  <div className="space-y-1 leading-none">
-                                                    <FormLabel>Bubble Wrap</FormLabel>
-                                                    <p className="text-xs text-muted-foreground">
-                                                      Admin will add quantity (feet) during approval
-                                                    </p>
-                                                  </div>
-                                                </FormItem>
-                                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                                  <FormControl>
-                                                    <Checkbox
-                                                      checked={hasStickerRemoval}
-                                                      onCheckedChange={(checked) => {
-                                                        const current = field.value || [];
-                                                        if (checked) {
-                                                          field.onChange([...current, "stickerRemoval"]);
-                                                        } else {
-                                                          field.onChange(
-                                                            current.filter((s) => s !== "stickerRemoval")
-                                                          );
-                                                        }
-                                                      }}
-                                                    />
-                                                  </FormControl>
-                                                  <div className="space-y-1 leading-none">
-                                                    <FormLabel>Sticker Removal</FormLabel>
-                                                    <p className="text-xs text-muted-foreground">
-                                                      Admin will add quantity (items) during approval
-                                                    </p>
-                                                  </div>
-                                                </FormItem>
-                                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                                  <FormControl>
-                                                    <Checkbox
-                                                      checked={hasWarningLabels}
-                                                      onCheckedChange={(checked) => {
-                                                        const current = field.value || [];
-                                                        if (checked) {
-                                                          field.onChange([...current, "warningLabels"]);
-                                                        } else {
-                                                          field.onChange(
-                                                            current.filter((s) => s !== "warningLabels")
-                                                          );
-                                                        }
-                                                      }}
-                                                    />
-                                                  </FormControl>
-                                                  <div className="space-y-1 leading-none">
-                                                    <FormLabel>Warning Labels</FormLabel>
-                                                    <p className="text-xs text-muted-foreground">
-                                                      Admin will add quantity (count) during approval
-                                                    </p>
-                                                  </div>
-                                                </FormItem>
+                                              <div className="max-h-[min(60vh,420px)] space-y-4 overflow-y-auto py-2 pr-1">
+                                                {additionalServicesCatalog.map((svc) => {
+                                                  const checked = selectedServices.includes(svc.key);
+                                                  return (
+                                                    <FormItem
+                                                      key={svc.key}
+                                                      className="flex flex-row items-start space-x-3 space-y-0"
+                                                    >
+                                                      <FormControl>
+                                                        <Checkbox
+                                                          checked={checked}
+                                                          onCheckedChange={(c) => {
+                                                            const current = field.value || [];
+                                                            if (c) {
+                                                              field.onChange(
+                                                                Array.from(new Set([...current, svc.key]))
+                                                              );
+                                                            } else {
+                                                              field.onChange(
+                                                                current.filter((s: string) => s !== svc.key)
+                                                              );
+                                                            }
+                                                          }}
+                                                        />
+                                                      </FormControl>
+                                                      <div className="space-y-1 leading-none">
+                                                        <FormLabel>{svc.name}</FormLabel>
+                                                        <p className="text-xs text-muted-foreground">
+                                                          {svc.description ||
+                                                            "Admin enters quantity when completing this request."}
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground">
+                                                          Rate: ${Number(svc.price || 0).toFixed(2)}
+                                                        </p>
+                                                      </div>
+                                                    </FormItem>
+                                                  );
+                                                })}
                                                 <div className="flex justify-end gap-2 pt-2">
                                                   <Button
                                                     type="button"

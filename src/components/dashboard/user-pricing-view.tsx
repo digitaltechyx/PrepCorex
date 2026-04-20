@@ -8,6 +8,7 @@
  import { Skeleton } from "@/components/ui/skeleton";
 import { Sparkles } from "lucide-react";
 import type { FbaPackAddOnConfig } from "@/lib/pricing-utils";
+import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
 
  type PricingRuleDoc = {
    id: string;
@@ -51,6 +52,7 @@ import type { FbaPackAddOnConfig } from "@/lib/pricing-utils";
    bubbleWrapPrice?: number;
    stickerRemovalPrice?: number;
    warningLabelPrice?: number;
+   extraServices?: unknown;
    updatedAt?: any;
    createdAt?: any;
  };
@@ -194,6 +196,10 @@ type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
    const latestBox = useMemo(() => pickLatest(boxForwardingPricingList || []), [boxForwardingPricingList]);
    const latestPallet = useMemo(() => pickLatest(palletForwardingPricingList || []), [palletForwardingPricingList]);
    const latestAdditional = useMemo(() => pickLatest(additionalServicesPricingList || []), [additionalServicesPricingList]);
+  const additionalServicesCatalogRows = useMemo(
+    () => catalogFromPricingDoc(latestAdditional as AdditionalServicesDoc | null),
+    [latestAdditional]
+  );
   const latestFbaPack = useMemo(() => pickLatest(fbaPackAddOnPricingList || []), [fbaPackAddOnPricingList]);
 
    const containerBySize = useMemo(() => {
@@ -607,22 +613,25 @@ type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
              <div className="text-xs text-muted-foreground">
                These rates are used for invoicing when you request additional services.
              </div>
-             <div className="flex items-center justify-between">
-               <span>Bubble Wrap (per ft)</span>
-               <span className="font-semibold">{latestAdditional ? money(latestAdditional.bubbleWrapPrice) : "-"}</span>
-             </div>
-             <div className="flex items-center justify-between">
-               <span>Sticker Removal (per item)</span>
-               <span className="font-semibold">{latestAdditional ? money(latestAdditional.stickerRemovalPrice) : "-"}</span>
-             </div>
-             <div className="flex items-center justify-between">
-               <span>Warning Labels (per label)</span>
-               <span className="font-semibold">{latestAdditional ? money(latestAdditional.warningLabelPrice) : "-"}</span>
-             </div>
-             {!latestAdditional && (
-               <div className="text-xs text-muted-foreground">
-                 Not configured by admin yet.
+             {latestAdditional ? (
+               <div className="space-y-2">
+                 {additionalServicesCatalogRows.map((row) => (
+                   <div
+                     key={row.key}
+                     className="flex items-start justify-between gap-3 border-b border-border/50 pb-2 last:border-0 last:pb-0"
+                   >
+                     <div>
+                       <div>{row.name}</div>
+                       {row.description ? (
+                         <div className="text-xs text-muted-foreground">{row.description}</div>
+                       ) : null}
+                     </div>
+                     <span className="shrink-0 font-semibold">{money(row.price)}</span>
+                   </div>
+                 ))}
                </div>
+             ) : (
+               <div className="text-xs text-muted-foreground">Not configured by admin yet.</div>
              )}
              {latestAdditional && formatUpdated(latestAdditional.updatedAt || latestAdditional.createdAt) && (
                <div className="text-xs text-muted-foreground pt-2 border-t">

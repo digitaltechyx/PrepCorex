@@ -6,6 +6,11 @@ import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import { calculatePrepUnitPrice, type FbaPackAddOnConfig } from "@/lib/pricing-utils";
 import {
+  catalogFromPricingDoc,
+  unitPriceForServiceKey,
+  isLegacyAdditionalServiceKey,
+} from "@/lib/additional-services-catalog";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -50,6 +55,39 @@ function formatDate(date: ShipmentRequest["date"] | ShipmentRequest["requestedAt
     return format(new Date(date.seconds * 1000), "PPP");
   }
   return "N/A";
+}
+
+type PerShipmentAdditionalQty = {
+  bubbleWrapFeet: number;
+  stickerRemovalItems: number;
+  warningLabels: number;
+  extra: Record<string, number>;
+};
+
+function emptyPerShipmentQty(): PerShipmentAdditionalQty {
+  return { bubbleWrapFeet: 0, stickerRemovalItems: 0, warningLabels: 0, extra: {} };
+}
+
+function initExtraQtyForKeys(keys: string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  keys.filter((k) => !isLegacyAdditionalServiceKey(k)).forEach((k) => {
+    out[k] = 0;
+  });
+  return out;
+}
+
+function subtotalAdditionalForLine(
+  q: PerShipmentAdditionalQty,
+  catalog: ReturnType<typeof catalogFromPricingDoc>
+): number {
+  let sum =
+    (q.bubbleWrapFeet || 0) * unitPriceForServiceKey("bubbleWrap", catalog) +
+    (q.stickerRemovalItems || 0) * unitPriceForServiceKey("stickerRemoval", catalog) +
+    (q.warningLabels || 0) * unitPriceForServiceKey("warningLabels", catalog);
+  Object.entries(q.extra || {}).forEach(([key, qty]) => {
+    sum += (Number(qty) || 0) * unitPriceForServiceKey(key, catalog);
+  });
+  return sum;
 }
 
 export function ShipmentRequestsManagement({ 
@@ -211,6 +249,8 @@ export function ShipmentRequestsManagement({
       pricePerLabel?: number;
       totalAdditionalCost?: number;
       customProductPricing?: Record<number, { unitPrice: number; packOf: number; packOfPrice: number }>;
+      extraServiceQuantities?: Record<string, number>;
+      extraServiceUnitPrices?: Record<string, number>;
     }
   ) => {
     if (!selectedUser || !adminProfile) return;
@@ -226,6 +266,8 @@ export function ShipmentRequestsManagement({
       const pricePerItem = additionalServices?.pricePerItem || 0;
       const pricePerLabel = additionalServices?.pricePerLabel || 0;
       const additionalServicesTotal = additionalServices?.totalAdditionalCost || 0;
+      const extraServiceQuantities = additionalServices?.extraServiceQuantities;
+      const extraServiceUnitPrices = additionalServices?.extraServiceUnitPrices;
 
       await runTransaction(db, async (transaction) => {
         const requestRef = doc(db, `users/${targetUserId}/shipmentRequests`, request.id);
@@ -285,6 +327,12 @@ export function ShipmentRequestsManagement({
             pricePerItem,
             pricePerLabel,
             total: additionalServicesTotal,
+            ...(extraServiceQuantities && Object.keys(extraServiceQuantities).length > 0
+              ? { extraServiceQuantities }
+              : {}),
+            ...(extraServiceUnitPrices && Object.keys(extraServiceUnitPrices).length > 0
+              ? { extraServiceUnitPrices }
+              : {}),
           },
         });
 
@@ -402,6 +450,12 @@ export function ShipmentRequestsManagement({
             pricePerItem,
             pricePerLabel,
             total: additionalServicesTotal,
+            ...(extraServiceQuantities && Object.keys(extraServiceQuantities).length > 0
+              ? { extraServiceQuantities }
+              : {}),
+            ...(extraServiceUnitPrices && Object.keys(extraServiceUnitPrices).length > 0
+              ? { extraServiceUnitPrices }
+              : {}),
           },
           additionalServicesTotal,
           items: allItems, // All products in this shipment
@@ -878,6 +932,8 @@ function ReviewShipmentDialog({
       pricePerLabel?: number;
       totalAdditionalCost?: number;
       customProductPricing?: Record<number, { unitPrice: number; packOf: number; packOfPrice: number }>;
+      extraServiceQuantities?: Record<string, number>;
+      extraServiceUnitPrices?: Record<string, number>;
     }
   ) => void;
   onReject: (request: ShipmentRequest, reason: string) => void;
@@ -921,26 +977,17 @@ function ReviewShipmentDialog({
     requestLevelServices.length > 0
   );
   
-  // Initialize per-shipment admin quantities
-  const [perShipmentQuantities, setPerShipmentQuantities] = useState<Record<number, {
-    bubbleWrapFeet: number;
-    stickerRemovalItems: number;
-    warningLabels: number;
-  }>>(() => {
-    const initial: Record<number, { bubbleWrapFeet: number; stickerRemovalItems: number; warningLabels: number }> = {};
+  // Initialize per-shipment admin quantities (extras live in `extra`; legacy three use numeric fields)
+  const [perShipmentQuantities, setPerShipmentQuantities] = useState<Record<number, PerShipmentAdditionalQty>>(() => {
+    const initial: Record<number, PerShipmentAdditionalQty> = {};
     request.shipments.forEach((shipment: any, index: number) => {
       if (hasPerShipmentServices && shipment.selectedAdditionalServices) {
-        // New format: start at 0
-        initial[index] = { bubbleWrapFeet: 0, stickerRemovalItems: 0, warningLabels: 0 };
-      } else if (hasOldFormat && index === 0) {
-        // Old format: use existing values for first shipment only
         initial[index] = {
-          bubbleWrapFeet: (request as any).bubbleWrapFeet || 0,
-          stickerRemovalItems: (request as any).stickerRemovalItems || 0,
-          warningLabels: (request as any).warningLabels || 0,
+          ...emptyPerShipmentQty(),
+          extra: initExtraQtyForKeys(shipment.selectedAdditionalServices as string[]),
         };
       } else {
-        initial[index] = { bubbleWrapFeet: 0, stickerRemovalItems: 0, warningLabels: 0 };
+        initial[index] = { ...emptyPerShipmentQty() };
       }
     });
     return initial;
@@ -970,6 +1017,15 @@ function ReviewShipmentDialog({
   const [adminWarningLabels, setAdminWarningLabels] = useState(
     hasOldFormat ? ((request as any).warningLabels || 0) : 0
   );
+  const [adminExtraServiceQty, setAdminExtraServiceQty] = useState<Record<string, number>>(() => {
+    const init: Record<string, number> = {};
+    if (!hasPerShipmentServices) {
+      (requestLevelServices as string[]).forEach((k) => {
+        if (!isLegacyAdditionalServiceKey(k)) init[k] = 0;
+      });
+    }
+    return init;
+  });
 
   const isCustomProduct =
     String(request.productType || "").toLowerCase() === "custom" &&
@@ -1016,32 +1072,35 @@ function ReviewShipmentDialog({
     if (!additionalServicesPricing || additionalServicesPricing.length === 0) return null;
     return [...additionalServicesPricing].sort((a, b) => {
       const aUpdated = typeof a.updatedAt === "string" ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
-      const bUpdated = typeof b.updatedAt === "string" ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (bUpdated as any).seconds * 1000 : 0;
+      const bUpdated = typeof b.updatedAt === "string" ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
       return bUpdated - aUpdated;
     })[0];
   }, [additionalServicesPricing]);
 
-  const pricePerFoot = latestAdditionalPricing?.bubbleWrapPrice || 0;
-  const pricePerItem = latestAdditionalPricing?.stickerRemovalPrice || 0;
-  const pricePerLabel = latestAdditionalPricing?.warningLabelPrice || 0;
-  
+  const serviceCatalog = useMemo(
+    () => catalogFromPricingDoc(latestAdditionalPricing as any),
+    [latestAdditionalPricing]
+  );
+
+  const pricePerFoot = unitPriceForServiceKey("bubbleWrap", serviceCatalog);
+  const pricePerItem = unitPriceForServiceKey("stickerRemoval", serviceCatalog);
+  const pricePerLabel = unitPriceForServiceKey("warningLabels", serviceCatalog);
+
   // Calculate totals: per-shipment (new format) or request-level (old format)
   let additionalServicesTotal = 0;
   if (hasPerShipmentServices) {
-    // New format: sum up all per-shipment quantities
-    request.shipments.forEach((shipment: any, index: number) => {
-      const quantities = perShipmentQuantities[index] || { bubbleWrapFeet: 0, stickerRemovalItems: 0, warningLabels: 0 };
-      additionalServicesTotal += 
-        (quantities.bubbleWrapFeet || 0) * pricePerFoot +
-        (quantities.stickerRemovalItems || 0) * pricePerItem +
-        (quantities.warningLabels || 0) * pricePerLabel;
+    request.shipments.forEach((_: any, index: number) => {
+      const quantities = perShipmentQuantities[index] || emptyPerShipmentQty();
+      additionalServicesTotal += subtotalAdditionalForLine(quantities, serviceCatalog);
     });
   } else {
-    // Old format: request-level quantities
     additionalServicesTotal =
-      (adminBubbleWrapFeet || 0) * pricePerFoot +
-      (adminStickerRemovalItems || 0) * pricePerItem +
-      (adminWarningLabels || 0) * pricePerLabel;
+      (adminBubbleWrapFeet || 0) * unitPriceForServiceKey("bubbleWrap", serviceCatalog) +
+      (adminStickerRemovalItems || 0) * unitPriceForServiceKey("stickerRemoval", serviceCatalog) +
+      (adminWarningLabels || 0) * unitPriceForServiceKey("warningLabels", serviceCatalog);
+    Object.entries(adminExtraServiceQty).forEach(([k, qty]) => {
+      additionalServicesTotal += (Number(qty) || 0) * unitPriceForServiceKey(k, serviceCatalog);
+    });
   }
 
   const handleConfirmClick = () => {
@@ -1106,19 +1165,42 @@ function ReviewShipmentDialog({
         } as any)
       : request;
 
+    const extraAgg: Record<string, number> = {};
+    if (hasPerShipmentServices) {
+      request.shipments.forEach((_: any, index: number) => {
+        const q = perShipmentQuantities[index] || emptyPerShipmentQty();
+        Object.entries(q.extra || {}).forEach(([k, v]) => {
+          extraAgg[k] = (extraAgg[k] || 0) + (Number(v) || 0);
+        });
+      });
+    } else {
+      Object.assign(extraAgg, adminExtraServiceQty);
+    }
+    const extraUnitPrices: Record<string, number> = {};
+    Object.keys(extraAgg).forEach((k) => {
+      extraUnitPrices[k] = unitPriceForServiceKey(k, serviceCatalog);
+    });
+    const extraPayload =
+      Object.keys(extraAgg).length > 0
+        ? {
+            extraServiceQuantities: extraAgg,
+            extraServiceUnitPrices: extraUnitPrices,
+          }
+        : {};
+
     if (hasPerShipmentServices) {
       // New format: combine all per-shipment quantities
       let totalBubbleWrapFeet = 0;
       let totalStickerRemovalItems = 0;
       let totalWarningLabels = 0;
-      
+
       request.shipments.forEach((shipment: any, index: number) => {
-        const quantities = perShipmentQuantities[index] || { bubbleWrapFeet: 0, stickerRemovalItems: 0, warningLabels: 0 };
+        const quantities = perShipmentQuantities[index] || emptyPerShipmentQty();
         totalBubbleWrapFeet += quantities.bubbleWrapFeet || 0;
         totalStickerRemovalItems += quantities.stickerRemovalItems || 0;
         totalWarningLabels += quantities.warningLabels || 0;
       });
-      
+
       onConfirm(requestForConfirm, adminRemarks, shippingDate, {
         bubbleWrapFeet: totalBubbleWrapFeet,
         stickerRemovalItems: totalStickerRemovalItems,
@@ -1128,6 +1210,7 @@ function ReviewShipmentDialog({
         pricePerLabel,
         totalAdditionalCost: additionalServicesTotal,
         customProductPricing: isCustomProduct ? customProductPricing : undefined,
+        ...extraPayload,
       });
     } else {
       // Old format: use request-level quantities
@@ -1140,6 +1223,7 @@ function ReviewShipmentDialog({
         pricePerLabel,
         totalAdditionalCost: additionalServicesTotal,
         customProductPricing: isCustomProduct ? customProductPricing : undefined,
+        ...extraPayload,
       });
     }
   };
@@ -1284,22 +1368,23 @@ function ReviewShipmentDialog({
                 const hasEnoughStock = product ? product.quantity >= totalUnits : false;
                 
                 // Get selected services for this shipment (new format) or use request-level (old format)
-                const shipmentSelectedServices = hasPerShipmentServices 
+                const shipmentSelectedServices = hasPerShipmentServices
                   ? (shipment.selectedAdditionalServices || [])
                   : (index === 0 ? requestLevelServices : []);
-                
-                const hasBubbleWrap = shipmentSelectedServices.includes("bubbleWrap");
-                const hasStickerRemoval = shipmentSelectedServices.includes("stickerRemoval");
-                const hasWarningLabels = shipmentSelectedServices.includes("warningLabels");
-                const hasAnyService = hasBubbleWrap || hasStickerRemoval || hasWarningLabels;
-                
-                // Get quantities for this shipment
-                const quantities = perShipmentQuantities[index] || { bubbleWrapFeet: 0, stickerRemovalItems: 0, warningLabels: 0 };
+
+                const catalogName = (key: string) =>
+                  serviceCatalog.find((r) => r.key === key)?.name ?? key;
+                const catalogRow = (key: string) => serviceCatalog.find((r) => r.key === key);
+
+                const hasAnyService =
+                  Array.isArray(shipmentSelectedServices) && shipmentSelectedServices.length > 0;
+
+                const quantities = perShipmentQuantities[index] || emptyPerShipmentQty();
                 const shipmentTotal = hasPerShipmentServices
-                  ? (quantities.bubbleWrapFeet || 0) * pricePerFoot +
-                    (quantities.stickerRemovalItems || 0) * pricePerItem +
-                    (quantities.warningLabels || 0) * pricePerLabel
-                  : (index === 0 ? additionalServicesTotal : 0);
+                  ? subtotalAdditionalForLine(quantities, serviceCatalog)
+                  : index === 0
+                    ? additionalServicesTotal
+                    : 0;
 
                 // Calculate unit price and packOfPrice from pricing rules
                 let unitPrice = shipment.unitPrice || 0; // Fallback to stored value
@@ -1564,95 +1649,163 @@ function ReviewShipmentDialog({
                     {/* Additional Services per shipment */}
                     {hasAnyService && (
                       <div className="border rounded-lg p-3 bg-muted/30 space-y-3">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                           <label className="text-xs font-medium">Additional Services for this product</label>
-                          <span className="text-xs text-muted-foreground">
-                            User selected: {[
-                              hasBubbleWrap && "Bubble Wrap",
-                              hasStickerRemoval && "Sticker Removal",
-                              hasWarningLabels && "Warning Labels"
-                            ].filter(Boolean).join(", ")}
+                          <span className="text-xs text-muted-foreground text-right">
+                            User selected: {shipmentSelectedServices.map(catalogName).join(", ")}
                           </span>
                         </div>
-                        <div className="grid gap-3 sm:grid-cols-3">
-                          {hasBubbleWrap && (
-                            <div className="space-y-1">
-                              <label className="text-xs text-muted-foreground">Bubble Wrap (feet)</label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={hasPerShipmentServices ? quantities.bubbleWrapFeet : (index === 0 ? adminBubbleWrapFeet : 0)}
-                                onChange={(e) => {
-                                  if (hasPerShipmentServices) {
-                                    setPerShipmentQuantities(prev => ({
-                                      ...prev,
-                                      [index]: {
-                                        ...prev[index],
-                                        bubbleWrapFeet: parseInt(e.target.value) || 0,
+                        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+                          {shipmentSelectedServices.map((serviceKey: string) => {
+                            const row = catalogRow(serviceKey);
+                            const unit = unitPriceForServiceKey(serviceKey, serviceCatalog);
+
+                            if (serviceKey === "bubbleWrap") {
+                              return (
+                                <div key={serviceKey} className="space-y-1">
+                                  <label className="text-xs text-muted-foreground">Bubble Wrap (feet)</label>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    value={
+                                      hasPerShipmentServices
+                                        ? quantities.bubbleWrapFeet
+                                        : index === 0
+                                          ? adminBubbleWrapFeet
+                                          : 0
+                                    }
+                                    onChange={(e) => {
+                                      const v = parseInt(e.target.value, 10) || 0;
+                                      if (hasPerShipmentServices) {
+                                        setPerShipmentQuantities((prev) => ({
+                                          ...prev,
+                                          [index]: {
+                                            ...(prev[index] || emptyPerShipmentQty()),
+                                            bubbleWrapFeet: v,
+                                          },
+                                        }));
+                                      } else if (index === 0) {
+                                        setAdminBubbleWrapFeet(v);
                                       }
-                                    }));
-                                  } else if (index === 0) {
-                                    setAdminBubbleWrapFeet(parseInt(e.target.value) || 0);
-                                  }
-                                }}
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                ${pricePerFoot.toFixed(2)} per foot
-                              </p>
-                            </div>
-                          )}
-                          {hasStickerRemoval && (
-                            <div className="space-y-1">
-                              <label className="text-xs text-muted-foreground">Sticker Removal (items)</label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={hasPerShipmentServices ? quantities.stickerRemovalItems : (index === 0 ? adminStickerRemovalItems : 0)}
-                                onChange={(e) => {
-                                  if (hasPerShipmentServices) {
-                                    setPerShipmentQuantities(prev => ({
-                                      ...prev,
-                                      [index]: {
-                                        ...prev[index],
-                                        stickerRemovalItems: parseInt(e.target.value) || 0,
+                                    }}
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    ${unit.toFixed(2)} per foot
+                                  </p>
+                                </div>
+                              );
+                            }
+                            if (serviceKey === "stickerRemoval") {
+                              return (
+                                <div key={serviceKey} className="space-y-1">
+                                  <label className="text-xs text-muted-foreground">Sticker Removal (items)</label>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    value={
+                                      hasPerShipmentServices
+                                        ? quantities.stickerRemovalItems
+                                        : index === 0
+                                          ? adminStickerRemovalItems
+                                          : 0
+                                    }
+                                    onChange={(e) => {
+                                      const v = parseInt(e.target.value, 10) || 0;
+                                      if (hasPerShipmentServices) {
+                                        setPerShipmentQuantities((prev) => ({
+                                          ...prev,
+                                          [index]: {
+                                            ...(prev[index] || emptyPerShipmentQty()),
+                                            stickerRemovalItems: v,
+                                          },
+                                        }));
+                                      } else if (index === 0) {
+                                        setAdminStickerRemovalItems(v);
                                       }
-                                    }));
-                                  } else if (index === 0) {
-                                    setAdminStickerRemovalItems(parseInt(e.target.value) || 0);
-                                  }
-                                }}
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                ${pricePerItem.toFixed(2)} per item
-                              </p>
-                            </div>
-                          )}
-                          {hasWarningLabels && (
-                            <div className="space-y-1">
-                              <label className="text-xs text-muted-foreground">Warning Labels (count)</label>
-                              <Input
-                                type="number"
-                                min={0}
-                                value={hasPerShipmentServices ? quantities.warningLabels : (index === 0 ? adminWarningLabels : 0)}
-                                onChange={(e) => {
-                                  if (hasPerShipmentServices) {
-                                    setPerShipmentQuantities(prev => ({
-                                      ...prev,
-                                      [index]: {
-                                        ...prev[index],
-                                        warningLabels: parseInt(e.target.value) || 0,
+                                    }}
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    ${unit.toFixed(2)} per item
+                                  </p>
+                                </div>
+                              );
+                            }
+                            if (serviceKey === "warningLabels") {
+                              return (
+                                <div key={serviceKey} className="space-y-1">
+                                  <label className="text-xs text-muted-foreground">Warning Labels (count)</label>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    value={
+                                      hasPerShipmentServices
+                                        ? quantities.warningLabels
+                                        : index === 0
+                                          ? adminWarningLabels
+                                          : 0
+                                    }
+                                    onChange={(e) => {
+                                      const v = parseInt(e.target.value, 10) || 0;
+                                      if (hasPerShipmentServices) {
+                                        setPerShipmentQuantities((prev) => ({
+                                          ...prev,
+                                          [index]: {
+                                            ...(prev[index] || emptyPerShipmentQty()),
+                                            warningLabels: v,
+                                          },
+                                        }));
+                                      } else if (index === 0) {
+                                        setAdminWarningLabels(v);
                                       }
-                                    }));
-                                  } else if (index === 0) {
-                                    setAdminWarningLabels(parseInt(e.target.value) || 0);
+                                    }}
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    ${unit.toFixed(2)} per label
+                                  </p>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div key={serviceKey} className="space-y-1">
+                                <label className="text-xs text-muted-foreground">
+                                  {row?.name ?? serviceKey} (qty)
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  value={
+                                    hasPerShipmentServices
+                                      ? quantities.extra[serviceKey] ?? 0
+                                      : index === 0
+                                        ? adminExtraServiceQty[serviceKey] ?? 0
+                                        : 0
                                   }
-                                }}
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                ${pricePerLabel.toFixed(2)} per label
-                              </p>
-                            </div>
-                          )}
+                                  onChange={(e) => {
+                                    const v = parseInt(e.target.value, 10) || 0;
+                                    if (hasPerShipmentServices) {
+                                      setPerShipmentQuantities((prev) => ({
+                                        ...prev,
+                                        [index]: {
+                                          ...(prev[index] || emptyPerShipmentQty()),
+                                          extra: {
+                                            ...(prev[index]?.extra || {}),
+                                            [serviceKey]: v,
+                                          },
+                                        },
+                                      }));
+                                    } else if (index === 0) {
+                                      setAdminExtraServiceQty((prev) => ({ ...prev, [serviceKey]: v }));
+                                    }
+                                  }}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                  ${unit.toFixed(2)}
+                                  {row?.description ? ` · ${row.description}` : ""}
+                                </p>
+                              </div>
+                            );
+                          })}
                         </div>
                         {shipmentTotal > 0 && (
                           <div className="flex items-center justify-between text-xs font-semibold border-t pt-2">

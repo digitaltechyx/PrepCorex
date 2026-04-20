@@ -23,6 +23,8 @@ import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { collection, addDoc, updateDoc, doc, Timestamp, writeBatch } from "firebase/firestore";
+import type { AdditionalServiceCatalogItem } from "@/lib/additional-services-catalog";
+import { DEFAULT_ADDITIONAL_SERVICES, mergeAdditionalServicesCatalog } from "@/lib/additional-services-catalog";
 import { Users, ChevronsUpDown, Search, X, Loader2, Save } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
@@ -33,6 +35,8 @@ import { Sparkles } from "lucide-react";
 interface PricingManagementProps {
   users: UserProfile[];
 }
+
+type AdditionalServiceItem = AdditionalServiceCatalogItem;
 
 type FbaPackAddOnPricingDoc = {
   id: string;
@@ -122,6 +126,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const [stickerRemovalPrice, setStickerRemovalPrice] = useState<string>("");
   const [warningLabelPrice, setWarningLabelPrice] = useState<string>("");
   const [additionalServicesPricingId, setAdditionalServicesPricingId] = useState<string | null>(null);
+  const [additionalServiceItems, setAdditionalServiceItems] = useState<AdditionalServiceItem[]>(DEFAULT_ADDITIONAL_SERVICES);
   const [fbaPack2to3, setFbaPack2to3] = useState<string>("0.35");
   const [fbaPack4to12, setFbaPack4to12] = useState<string>("0.75");
   const [fbaPackPricingId, setFbaPackPricingId] = useState<string | null>(null);
@@ -414,15 +419,19 @@ export function PricingManagement({ users }: PricingManagementProps) {
     if (!selectedUser) return;
     
     if (latestAdditionalServicesPricing) {
-      setBubbleWrapPrice(latestAdditionalServicesPricing.bubbleWrapPrice.toString());
-      setStickerRemovalPrice(latestAdditionalServicesPricing.stickerRemovalPrice.toString());
-      setWarningLabelPrice(latestAdditionalServicesPricing.warningLabelPrice.toString());
+      setBubbleWrapPrice((latestAdditionalServicesPricing.bubbleWrapPrice ?? 0.35).toString());
+      setStickerRemovalPrice((latestAdditionalServicesPricing.stickerRemovalPrice ?? 0.15).toString());
+      setWarningLabelPrice((latestAdditionalServicesPricing.warningLabelPrice ?? 0.15).toString());
       setAdditionalServicesPricingId(latestAdditionalServicesPricing.id);
+      setAdditionalServiceItems(
+        mergeAdditionalServicesCatalog((latestAdditionalServicesPricing as any).extraServices)
+      );
     } else {
-      setBubbleWrapPrice("");
-      setStickerRemovalPrice("");
-      setWarningLabelPrice("");
+      setBubbleWrapPrice("0.35");
+      setStickerRemovalPrice("0.15");
+      setWarningLabelPrice("0.15");
       setAdditionalServicesPricingId(null);
+      setAdditionalServiceItems(DEFAULT_ADDITIONAL_SERVICES);
     }
   }, [selectedUser, latestAdditionalServicesPricing]);
 
@@ -790,11 +799,21 @@ export function PricingManagement({ users }: PricingManagementProps) {
     setIsSaving(true);
     try {
       const now = Timestamp.now();
+      const cleanedExtraServices = additionalServiceItems
+        .filter((svc) => svc.key && svc.name)
+        .map((svc) => ({
+          key: svc.key,
+          name: svc.name,
+          price: Number.isFinite(Number(svc.price)) ? Number(svc.price) : 0,
+          description: svc.description || "",
+          isDefault: !!svc.isDefault,
+        }));
       const pricingData = {
         userId: selectedUser.uid,
         bubbleWrapPrice: bubbleWrap,
         stickerRemovalPrice: stickerRemoval,
         warningLabelPrice: warningLabel,
+        extraServices: cleanedExtraServices,
         updatedAt: now,
       };
 
@@ -1734,6 +1753,87 @@ export function PricingManagement({ users }: PricingManagementProps) {
                             <p className="text-xs text-muted-foreground mt-1">
                               This amount will be charged per warning label applied.
                             </p>
+                          </div>
+
+                          <div className="border-t pt-4">
+                            <div className="mb-3 flex items-center justify-between">
+                              <h4 className="text-sm font-semibold">Service Catalog (Shipment Dropdown)</h4>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const next = additionalServiceItems.length + 1;
+                                  setAdditionalServiceItems((prev) => [
+                                    ...prev,
+                                    {
+                                      key: `customService${next}`,
+                                      name: `Custom Service ${next}`,
+                                      price: 0,
+                                      description: "Per item",
+                                      isDefault: false,
+                                    },
+                                  ]);
+                                }}
+                              >
+                                Add Service
+                              </Button>
+                            </div>
+                            <div className="space-y-3">
+                              {additionalServiceItems.map((svc, index) => (
+                                <div key={`${svc.key}-${index}`} className="grid gap-2 rounded-md border p-3 sm:grid-cols-4">
+                                  <Input
+                                    value={svc.name}
+                                    onChange={(e) =>
+                                      setAdditionalServiceItems((prev) =>
+                                        prev.map((item, i) => (i === index ? { ...item, name: e.target.value } : item))
+                                      )
+                                    }
+                                    placeholder="Service name"
+                                    disabled={svc.isDefault}
+                                  />
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={svc.price}
+                                    onChange={(e) =>
+                                      setAdditionalServiceItems((prev) =>
+                                        prev.map((item, i) =>
+                                          i === index ? { ...item, price: parseFloat(e.target.value || "0") || 0 } : item
+                                        )
+                                      )
+                                    }
+                                    placeholder="0.00"
+                                  />
+                                  <Input
+                                    value={svc.description || ""}
+                                    onChange={(e) =>
+                                      setAdditionalServiceItems((prev) =>
+                                        prev.map((item, i) => (i === index ? { ...item, description: e.target.value } : item))
+                                      )
+                                    }
+                                    placeholder="Description"
+                                  />
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-muted-foreground">{svc.isDefault ? "Default" : "Custom"}</span>
+                                    {!svc.isDefault && (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-destructive"
+                                        onClick={() =>
+                                          setAdditionalServiceItems((prev) => prev.filter((_, i) => i !== index))
+                                        }
+                                      >
+                                        Remove
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                           
                           <Button 
