@@ -1349,14 +1349,12 @@ function ReviewShipmentDialog({
                 }
                 
                 // Calculate pricing breakdown
-                // Formula: (Unit Price Ã— Quantity) + (Pack Of Price Ã— (Pack Of - 1))
-                // Custom: use the same formula as shipment form:
-                // total = (unitPrice Ã— quantity) + (packOfPrice Ã— (packOf - 1))
+                // Formula: (Unit Price x Quantity) + fixed pack add-on.
                 const isCustom = String(request.productType || "").toLowerCase() === "custom";
                 const baseTotal = isCustom ? unitPrice * shipment.quantity : unitPrice * shipment.quantity; // unitPrice is per-box
                 const packCharge = isCustom
-                  ? (packOfPrice * Math.max(0, effectivePackOf - 1))
-                  : (packOfPrice * Math.max(0, shipment.packOf - 1));
+                  ? packOfPrice
+                  : packOfPrice;
                 // Always recalculate total - don't use stored shipment.totalPrice as it may be incorrect
                 const productTotal = baseTotal + packCharge;
 
@@ -1514,7 +1512,7 @@ function ReviewShipmentDialog({
                             {packOfPrice > 0 && shipment.packOf > 1 && (
                               <div className="flex justify-between text-xs">
                                 <span className="text-muted-foreground">Pack Of Price:</span>
-                                <span className="font-medium">${packOfPrice.toFixed(2)} × {shipment.packOf - 1} (packs)</span>
+                                <span className="font-medium">${packOfPrice.toFixed(2)} (fixed add-on)</span>
                               </div>
                             )}
                             <div className="flex justify-between text-sm font-semibold border-t pt-1 mt-1">

@@ -1,5 +1,14 @@
 import type { UserPricing, ServiceType, ProductType } from "@/types";
 
+const DEFAULT_FBA_RATES: Record<string, number> = {
+  "1-999|Standard": 0.65,
+  "1000-2499|Standard": 0.45,
+  "2500+|Standard": 0.35,
+  "1-999|Large": 0.85,
+  "1000-2499|Large": 0.65,
+  "2500+|Large": 0.5,
+};
+
 /**
  * Determine the quantity tier used for pricing lookup.
  * FBA/WFS/TFS now uses simple monthly-volume tiers.
@@ -40,12 +49,23 @@ export function calculatePrepUnitPrice(
   totalUnits: number,
   packOf: number = 1
 ): { rate: number; packOf: number } | null {
+  const expectedRange = getRangeForQuantity(service, totalUnits);
+  const packOfCharge = getPackAddOn(packOf);
+
+  if (service === "FBA/WFS/TFS") {
+    const defaultRate = expectedRange
+      ? DEFAULT_FBA_RATES[`${expectedRange}|${productType}`]
+      : undefined;
+    if ((!pricingRules || pricingRules.length === 0) && defaultRate != null) {
+      return { rate: defaultRate, packOf: packOfCharge };
+    }
+  }
+
   if (!pricingRules || pricingRules.length === 0) {
     return null;
   }
 
   // Determine quantity tier based on monthly volume / quantity.
-  const expectedRange = getRangeForQuantity(service, totalUnits);
   
   // Find matching pricing rules by service, type, and quantity tier.
   const matchingRules = pricingRules.filter(
@@ -61,6 +81,17 @@ export function calculatePrepUnitPrice(
   );
 
   if (matchingRules.length === 0) {
+    // For FBA, do not fallback to legacy ranges. Use default new-tier pricing only.
+    if (service === "FBA/WFS/TFS") {
+      const defaultRate = expectedRange
+        ? DEFAULT_FBA_RATES[`${expectedRange}|${productType}`]
+        : undefined;
+      if (defaultRate != null) {
+        return { rate: defaultRate, packOf: packOfCharge };
+      }
+      return null;
+    }
+
     // Fallback: try without package filter in case of data inconsistency
     const fallbackRules = pricingRules.filter(
       (rule) =>
@@ -95,7 +126,7 @@ export function calculatePrepUnitPrice(
     
     return {
       rate: latestRule.rate || 0,
-      packOf: latestRule.packOf || 0,
+      packOf: packOfCharge,
     };
   }
 
@@ -127,8 +158,6 @@ export function calculatePrepUnitPrice(
   const rate = latestRule.rate || 0;
   // Pack charge is now fixed by pack bucket (not multiplied per extra pack).
   // We still return it in "packOf" field to minimize caller changes.
-  const packOfCharge = getPackAddOn(packOf);
-
   return {
     rate,
     packOf: packOfCharge,
