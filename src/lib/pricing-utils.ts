@@ -8,6 +8,16 @@ const DEFAULT_FBA_RATES: Record<string, number> = {
   "1000-2499|Large": 0.65,
   "2500+|Large": 0.5,
 };
+const DEFAULT_FBM_RATES: Record<string, number> = {
+  "1-10|Standard": 2.25,
+  "11-24|Standard": 2.0,
+  "25-49|Standard": 1.75,
+  "50+|Standard": 1.5,
+  "1-10|Large": 2.5,
+  "11-24|Large": 2.25,
+  "25-49|Large": 2.0,
+  "50+|Large": 1.75,
+};
 
 export type FbaPackAddOnConfig = {
   pack2to3?: number;
@@ -24,10 +34,10 @@ function getRangeForQuantity(service: ServiceType, quantity: number): string | n
     if (quantity >= 1000) return "1000-2499";
     return "1-999";
   } else if (service === "FBM") {
-    if (quantity >= 101) return "101+";
-    if (quantity >= 50 && quantity < 101) return "50+";
-    if (quantity >= 25 && quantity < 50) return "25+";
-    if (quantity < 25) return "<25";
+    if (quantity >= 50) return "50+";
+    if (quantity >= 25) return "25-49";
+    if (quantity >= 11) return "11-24";
+    return "1-10";
   }
   return null;
 }
@@ -58,11 +68,14 @@ export function calculatePrepUnitPrice(
   packConfig?: FbaPackAddOnConfig
 ): { rate: number; packOf: number } | null {
   const expectedRange = getRangeForQuantity(service, totalUnits);
-  const packOfCharge = getPackAddOn(packOf, packConfig);
+  const packOfCharge =
+    service === "FBA/WFS/TFS" ? getPackAddOn(packOf, packConfig) : 0;
+  const defaultRateMap =
+    service === "FBA/WFS/TFS" ? DEFAULT_FBA_RATES : service === "FBM" ? DEFAULT_FBM_RATES : null;
 
-  if (service === "FBA/WFS/TFS") {
+  if (defaultRateMap) {
     const defaultRate = expectedRange
-      ? DEFAULT_FBA_RATES[`${expectedRange}|${productType}`]
+      ? defaultRateMap[`${expectedRange}|${productType}`]
       : undefined;
     if ((!pricingRules || pricingRules.length === 0) && defaultRate != null) {
       return { rate: defaultRate, packOf: packOfCharge };
@@ -89,10 +102,10 @@ export function calculatePrepUnitPrice(
   );
 
   if (matchingRules.length === 0) {
-    // For FBA, do not fallback to legacy ranges. Use default new-tier pricing only.
-    if (service === "FBA/WFS/TFS") {
+    // For FBA/FBM, do not fallback to legacy ranges. Use default new-tier pricing only.
+    if (defaultRateMap) {
       const defaultRate = expectedRange
-        ? DEFAULT_FBA_RATES[`${expectedRange}|${productType}`]
+        ? defaultRateMap[`${expectedRange}|${productType}`]
         : undefined;
       if (defaultRate != null) {
         return { rate: defaultRate, packOf: packOfCharge };
@@ -181,6 +194,10 @@ function normalizeRange(range: string | undefined | null): string {
   if (value === "2500+") return "2500+";
   if (value === "1000-2499") return "1000-2499";
   if (value === "1-999") return "1-999";
+  if (value === "50+") return "50+";
+  if (value === "25-49") return "25-49";
+  if (value === "11-24") return "11-24";
+  if (value === "1-10") return "1-10";
   return value;
 }
 
@@ -202,10 +219,18 @@ function isQuantityInRange(quantity: number, range: string): boolean {
     return quantity < 50;
   }
   // Handle FBM ranges
+  else if (range === "50+") {
+    return quantity >= 50;
+  } else if (range === "25-49") {
+    return quantity >= 25 && quantity <= 49;
+  } else if (range === "11-24") {
+    return quantity >= 11 && quantity <= 24;
+  } else if (range === "1-10") {
+    return quantity >= 1 && quantity <= 10;
+  }
+  // Handle legacy FBM ranges (backward compatibility)
   else if (range === "101+") {
     return quantity >= 101;
-  } else if (range === "50+") {
-    return quantity >= 50 && quantity < 101;
   } else if (range === "25+") {
     return quantity >= 25 && quantity < 50;
   } else if (range === "<25") {

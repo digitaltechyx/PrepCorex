@@ -52,10 +52,10 @@ const FBA_PACKAGES = [
 // FBM: 8 rows (4 packages Ã— 2 product types)
 // Premium (101+), Small Business (50+), Standard (25+), Starter (<25)
 const FBM_PACKAGES = [
-  { package: "Premium" as PackageType, quantityRange: "101+" as QuantityRange },
-  { package: "Small Business" as PackageType, quantityRange: "50+" as QuantityRange },
-  { package: "Standard" as PackageType, quantityRange: "25+" as QuantityRange },
-  { package: "Starter" as PackageType, quantityRange: "<25" as QuantityRange },
+  { package: "Tier 1" as PackageType, quantityRange: "1-10" as QuantityRange },
+  { package: "Tier 2" as PackageType, quantityRange: "11-24" as QuantityRange },
+  { package: "Tier 3" as PackageType, quantityRange: "25-49" as QuantityRange },
+  { package: "Tier 4" as PackageType, quantityRange: "50+" as QuantityRange },
 ];
 const PRODUCT_TYPES: ProductType[] = ["Standard", "Large"]; // Removed Custom
 
@@ -66,6 +66,16 @@ const DEFAULT_FBA_RATES: Record<string, number> = {
   "1-999|Large": 0.85,
   "1000-2499|Large": 0.65,
   "2500+|Large": 0.5,
+};
+const DEFAULT_FBM_RATES: Record<string, number> = {
+  "1-10|Standard": 2.25,
+  "11-24|Standard": 2.0,
+  "25-49|Standard": 1.75,
+  "50+|Standard": 1.5,
+  "1-10|Large": 2.5,
+  "11-24|Large": 2.25,
+  "25-49|Large": 2.0,
+  "50+|Large": 1.75,
 };
 
 interface PricingRow {
@@ -210,7 +220,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
           package: pkgInfo.package,
           quantityRange: pkgInfo.quantityRange,
           productType,
-          rate: "",
+          rate: (
+            DEFAULT_FBM_RATES[`${pkgInfo.quantityRange}|${productType}`] ?? 0
+          ).toFixed(2),
           packOf: "",
         });
       });
@@ -1207,93 +1219,108 @@ export function PricingManagement({ users }: PricingManagementProps) {
                 </TabsContent>
 
                 <TabsContent value="FBM" className="mt-4">
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="border-b bg-muted">
-                          <th className="text-left p-2 text-sm font-medium">Package</th>
-                          <th className="text-left p-2 text-sm font-medium">Range</th>
-                          <th className="text-left p-2 text-sm font-medium">Product Type</th>
-                          <th className="text-left p-2 text-sm font-medium">Rate ($)</th>
-                          <th className="text-left p-2 text-sm font-medium">Pack Of ($+)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pricingRows
-                          .filter((row) => row.service === "FBM")
-                          .map((row, index) => {
-                            const globalIndex = pricingRows.findIndex(
-                              (r) =>
-                                r.service === row.service &&
-                                r.package === row.package &&
-                                r.quantityRange === row.quantityRange &&
-                                r.productType === row.productType
-                            );
-                            return (
-                              <tr key={`${row.service}-${row.package}-${row.quantityRange}-${row.productType}`} className="border-b hover:bg-muted/50">
-                                <td className="p-2 text-sm">{row.package}</td>
-                                <td className="p-2 text-sm">{row.quantityRange}</td>
-                                <td className="p-2 text-sm">
-                                  {row.productType === "Standard"
-                                    ? "Standard (6x6x6) - <3lbs"
-                                    : "Large (10x10x10) - <6lbs"}
-                                </td>
-                                <td className="p-2">
-                                  <Input
-                                    type="text"
-                                    placeholder="0.00"
-                                    value={row.rate ?? ""}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      // Allow empty, numbers, and one decimal point
-                                      if (value === "" || /^\d*\.?\d*$/.test(value)) {
-                                        handleRateChange(globalIndex, "rate", value);
-                                      }
-                                    }}
-                                    onBlur={(e) => {
-                                      // Format to 2 decimal places on blur to preserve trailing zeros
-                                      const value = e.target.value;
-                                      if (value && !isNaN(parseFloat(value))) {
-                                        const formatted = parseFloat(value).toFixed(2);
-                                        handleRateChange(globalIndex, "rate", formatted);
-                                      } else if (value === "") {
-                                        handleRateChange(globalIndex, "rate", "");
-                                      }
-                                    }}
-                                    className="w-28"
-                                  />
-                                </td>
-                                <td className="p-2">
-                                  <Input
-                                    type="text"
-                                    placeholder="0.00"
-                                    value={row.packOf ?? ""}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      // Allow empty, numbers, and one decimal point
-                                      if (value === "" || /^\d*\.?\d*$/.test(value)) {
-                                        handleRateChange(globalIndex, "packOf", value);
-                                      }
-                                    }}
-                                    onBlur={(e) => {
-                                      // Format to 2 decimal places on blur to preserve trailing zeros
-                                      const value = e.target.value;
-                                      if (value && !isNaN(parseFloat(value))) {
-                                        const formatted = parseFloat(value).toFixed(2);
-                                        handleRateChange(globalIndex, "packOf", formatted);
-                                      } else if (value === "") {
-                                        handleRateChange(globalIndex, "packOf", "");
-                                      }
-                                    }}
-                                    className="w-28"
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
+                  <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm">
+                    <CardHeader className="border-b bg-gradient-to-r from-violet-50 to-indigo-50 pb-3">
+                      <CardTitle className="text-xl text-violet-700">FBM Fulfillment Plan</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-5 p-5 text-sm">
+                      <div className="grid grid-cols-3 gap-3 border-b pb-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Volume (Daily)</div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price (Standard)</div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Large Items</div>
+                        {([
+                          { pkg: "Tier 1", range: "1-10", label: "1-10" },
+                          { pkg: "Tier 2", range: "11-24", label: "11-24" },
+                          { pkg: "Tier 3", range: "25-49", label: "25-49" },
+                          { pkg: "Tier 4", range: "50+", label: "50+" },
+                        ]).map((tier) => {
+                          const standardIndex = pricingRows.findIndex(
+                            (r) =>
+                              r.service === "FBM" &&
+                              r.package === tier.pkg &&
+                              r.quantityRange === tier.range &&
+                              r.productType === "Standard"
+                          );
+                          const largeIndex = pricingRows.findIndex(
+                            (r) =>
+                              r.service === "FBM" &&
+                              r.package === tier.pkg &&
+                              r.quantityRange === tier.range &&
+                              r.productType === "Large"
+                          );
+                          const standardRow = standardIndex >= 0 ? pricingRows[standardIndex] : null;
+                          const largeRow = largeIndex >= 0 ? pricingRows[largeIndex] : null;
+                          return (
+                            <div key={tier.range} className="contents">
+                              <div className="text-[15px]">{tier.label}</div>
+                              <div>
+                                <Input
+                                  type="text"
+                                  placeholder="0.00"
+                                  value={standardRow?.rate ?? ""}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (standardIndex >= 0 && (value === "" || /^\d*\.?\d*$/.test(value))) {
+                                      handleRateChange(standardIndex, "rate", value);
+                                    }
+                                  }}
+                                  onBlur={(e) => {
+                                    if (standardIndex < 0) return;
+                                    const value = e.target.value;
+                                    if (value && !isNaN(parseFloat(value))) {
+                                      handleRateChange(standardIndex, "rate", parseFloat(value).toFixed(2));
+                                    } else if (value === "") {
+                                      handleRateChange(standardIndex, "rate", "");
+                                    }
+                                  }}
+                                  className="h-8 w-28"
+                                />
+                              </div>
+                              <div>
+                                <Input
+                                  type="text"
+                                  placeholder="0.00"
+                                  value={largeRow?.rate ?? ""}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (largeIndex >= 0 && (value === "" || /^\d*\.?\d*$/.test(value))) {
+                                      handleRateChange(largeIndex, "rate", value);
+                                    }
+                                  }}
+                                  onBlur={(e) => {
+                                    if (largeIndex < 0) return;
+                                    const value = e.target.value;
+                                    if (value && !isNaN(parseFloat(value))) {
+                                      handleRateChange(largeIndex, "rate", parseFloat(value).toFixed(2));
+                                    } else if (value === "") {
+                                      handleRateChange(largeIndex, "rate", "");
+                                    }
+                                  }}
+                                  className="h-8 w-28"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div>
+                        <div className="mb-2 text-sm font-semibold">What's Included</div>
+                        <div className="space-y-1.5 text-[15px]">
+                          {[
+                            "Pick, pack, packaging, labeling",
+                            "Same-day shipping (before cutoff)",
+                            "24-48 hr guaranteed turnaround",
+                          ].map((item) => (
+                            <div key={item} className="flex items-start gap-2">
+                              <span className="mt-0.5 text-emerald-600">{"\u2713"}</span>
+                              <span>{item}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </TabsContent>
 
                 <TabsContent value="Storage" className="mt-4">

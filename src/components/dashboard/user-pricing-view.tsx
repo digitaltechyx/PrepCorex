@@ -61,10 +61,10 @@ const FBA_PACKAGES = [
 ] as const;
 
  const FBM_PACKAGES = [
-   { package: "Premium", quantityRange: "101+" },
-   { package: "Small Business", quantityRange: "50+" },
-   { package: "Standard", quantityRange: "25+" },
-   { package: "Starter", quantityRange: "<25" },
+  { package: "Tier 1", quantityRange: "1-10" },
+  { package: "Tier 2", quantityRange: "11-24" },
+  { package: "Tier 3", quantityRange: "25-49" },
+  { package: "Tier 4", quantityRange: "50+" },
  ] as const;
 
  const PRODUCT_TYPES = ["Standard", "Large"] as const;
@@ -76,6 +76,16 @@ const DEFAULT_FBA_RATES: Record<string, number> = {
   "1-999|Large": 0.85,
   "1000-2499|Large": 0.65,
   "2500+|Large": 0.5,
+};
+const DEFAULT_FBM_RATES: Record<string, number> = {
+  "1-10|Standard": 2.25,
+  "11-24|Standard": 2.0,
+  "25-49|Standard": 1.75,
+  "50+|Standard": 1.5,
+  "1-10|Large": 2.5,
+  "11-24|Large": 2.25,
+  "25-49|Large": 2.0,
+  "50+|Large": 1.75,
 };
 
 type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
@@ -345,6 +355,63 @@ type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
     );
   };
 
+  const renderFbmPlan = () => {
+    const rows: Array<{ range: "1-10" | "11-24" | "25-49" | "50+"; label: string }> = [
+      { range: "1-10", label: "1-10" },
+      { range: "11-24", label: "11-24" },
+      { range: "25-49", label: "25-49" },
+      { range: "50+", label: "50+" },
+    ];
+    const getFbmPrice = (range: (typeof rows)[number]["range"], productType: "Standard" | "Large") => {
+      const pkg = FBM_PACKAGES.find((p) => p.quantityRange === range);
+      if (!pkg) return undefined;
+      const key = `FBM|${pkg.package}|${pkg.quantityRange}|${productType}`;
+      const rule = pricingByKey.get(key);
+      if (rule?.rate !== undefined && rule?.rate !== null) return rule.rate;
+      return DEFAULT_FBM_RATES[`${range}|${productType}`];
+    };
+
+    const includedItems = [
+      "Pick, pack, packaging, labeling",
+      "Same-day shipping (before cutoff)",
+      "24-48 hr guaranteed turnaround",
+    ];
+
+    return (
+      <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+        <CardHeader className="border-b bg-gradient-to-r from-violet-50 to-indigo-50 pb-3 dark:from-slate-900 dark:to-slate-900">
+          <CardTitle className="text-xl text-violet-700 dark:text-violet-300">FBM Fulfillment Plan</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5 p-5 text-sm">
+          <div className="grid grid-cols-3 gap-3 border-b pb-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Volume (Daily)</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price (Standard)</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Large Items</div>
+            {rows.map((row) => (
+              <div key={row.range} className="contents">
+                <div className="text-[15px]">{row.label}</div>
+                <div className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">{money(getFbmPrice(row.range, "Standard"))}</div>
+                <div className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">{money(getFbmPrice(row.range, "Large"))}</div>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <div className="mb-2 text-sm font-semibold">What's Included</div>
+            <div className="space-y-1.5 text-[15px]">
+              {includedItems.map((item) => (
+                <div key={item} className="flex items-start gap-2">
+                  <span className="mt-0.5 text-emerald-600">{"\u2713"}</span>
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
    return (
      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v)} className="w-full">
        <div className="overflow-x-auto mb-4">
@@ -378,7 +445,7 @@ type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
        </TabsContent>
 
        <TabsContent value="FBM" className="mt-4">
-         {renderServiceTable("FBM")}
+        {renderFbmPlan()}
        </TabsContent>
 
        <TabsContent value="Storage" className="mt-4">
