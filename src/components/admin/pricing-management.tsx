@@ -1001,92 +1001,94 @@ export function PricingManagement({ users }: PricingManagementProps) {
                 </div>
                 
                 <TabsContent value="FBA/WFS/TFS" className="mt-4">
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="border-b bg-muted">
-                          <th className="text-left p-2 text-sm font-medium">Package</th>
-                          <th className="text-left p-2 text-sm font-medium">Range</th>
-                          <th className="text-left p-2 text-sm font-medium">Product Type</th>
-                          <th className="text-left p-2 text-sm font-medium">Rate ($)</th>
-                          <th className="text-left p-2 text-sm font-medium">Pack Of ($+)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pricingRows
-                          .filter((row) => row.service === "FBA/WFS/TFS")
-                          .map((row, index) => {
-                            const globalIndex = pricingRows.findIndex(
-                              (r) =>
-                                r.service === row.service &&
-                                r.package === row.package &&
-                                r.quantityRange === row.quantityRange &&
-                                r.productType === row.productType
-                            );
-                            return (
-                              <tr key={`${row.service}-${row.package}-${row.quantityRange}-${row.productType}`} className="border-b hover:bg-muted/50">
-                                <td className="p-2 text-sm">{row.package}</td>
-                                <td className="p-2 text-sm">{row.quantityRange}</td>
-                                <td className="p-2 text-sm">
-                                  {row.productType === "Standard"
-                                    ? "Standard (6x6x6) - <3lbs"
-                                    : "Large (10x10x10) - <6lbs"}
-                                </td>
-                                <td className="p-2">
-                                  <Input
-                                    type="text"
-                                    placeholder="0.00"
-                                    value={row.rate ?? ""}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      // Allow empty, numbers, and one decimal point
-                                      if (value === "" || /^\d*\.?\d*$/.test(value)) {
-                                        handleRateChange(globalIndex, "rate", value);
-                                      }
-                                    }}
-                                    onBlur={(e) => {
-                                      // Format to 2 decimal places on blur to preserve trailing zeros
-                                      const value = e.target.value;
-                                      if (value && !isNaN(parseFloat(value))) {
-                                        const formatted = parseFloat(value).toFixed(2);
-                                        handleRateChange(globalIndex, "rate", formatted);
-                                      } else if (value === "") {
-                                        handleRateChange(globalIndex, "rate", "");
-                                      }
-                                    }}
-                                    className="w-28"
-                                  />
-                                </td>
-                                <td className="p-2">
-                                  <Input
-                                    type="text"
-                                    placeholder="0.00"
-                                    value={row.packOf ?? ""}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      // Allow empty, numbers, and one decimal point
-                                      if (value === "" || /^\d*\.?\d*$/.test(value)) {
-                                        handleRateChange(globalIndex, "packOf", value);
-                                      }
-                                    }}
-                                    onBlur={(e) => {
-                                      // Format to 2 decimal places on blur to preserve trailing zeros
-                                      const value = e.target.value;
-                                      if (value && !isNaN(parseFloat(value))) {
-                                        const formatted = parseFloat(value).toFixed(2);
-                                        handleRateChange(globalIndex, "packOf", formatted);
-                                      } else if (value === "") {
-                                        handleRateChange(globalIndex, "packOf", "");
-                                      }
-                                    }}
-                                    className="w-28"
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
+                  <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                    FBA pack add-on is fixed for shipment calculations: $0.35 (pack 2-3) and $0.75 (pack 4-12).
+                  </div>
+                  <div className="grid gap-5 md:grid-cols-2">
+                    {([
+                      { title: "Standard Units", productType: "Standard" as const },
+                      { title: "Large/Heavy Units", productType: "Large" as const },
+                    ]).map((plan) => (
+                      <Card
+                        key={plan.title}
+                        className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+                      >
+                        <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 pb-3">
+                          <CardTitle className="text-xl text-blue-700">{plan.title}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-5 p-5 text-sm">
+                          <div className="grid grid-cols-2 gap-3 border-b pb-4">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Monthly Volume</div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
+                            {([
+                              { pkg: "Starter", range: "1-999", label: "1-999 units" },
+                              { pkg: "Standard", range: "1000-2499", label: "1,000-2,499 units" },
+                              { pkg: "Premium", range: "2500+", label: "2,500+ units" },
+                            ]).map((tier) => {
+                              const globalIndex = pricingRows.findIndex(
+                                (r) =>
+                                  r.service === "FBA/WFS/TFS" &&
+                                  r.package === tier.pkg &&
+                                  r.quantityRange === tier.range &&
+                                  r.productType === plan.productType
+                              );
+                              const row = globalIndex >= 0 ? pricingRows[globalIndex] : null;
+                              return (
+                                <div key={`${plan.productType}-${tier.range}`} className="contents">
+                                  <div className="text-[15px]">{tier.label}</div>
+                                  <div>
+                                    <Input
+                                      type="text"
+                                      placeholder="0.00"
+                                      value={row?.rate ?? ""}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (globalIndex >= 0 && (value === "" || /^\d*\.?\d*$/.test(value))) {
+                                          handleRateChange(globalIndex, "rate", value);
+                                        }
+                                      }}
+                                      onBlur={(e) => {
+                                        if (globalIndex < 0) return;
+                                        const value = e.target.value;
+                                        if (value && !isNaN(parseFloat(value))) {
+                                          handleRateChange(globalIndex, "rate", parseFloat(value).toFixed(2));
+                                        } else if (value === "") {
+                                          handleRateChange(globalIndex, "rate", "");
+                                        }
+                                      }}
+                                      className="h-8 w-28"
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+                            <div className="mb-2 text-sm font-semibold text-emerald-800">Pack Add-on Pricing</div>
+                            <div className="text-sm text-emerald-900">$0.35 for pack 2-3</div>
+                            <div className="text-sm text-emerald-900">$0.75 for pack 4-12</div>
+                          </div>
+
+                          <div>
+                            <div className="mb-2 text-sm font-semibold">What's Included</div>
+                            <div className="space-y-1.5 text-[15px]">
+                              {[
+                                "Receiving & inspection",
+                                "Labeling & standard prep",
+                                "Packaging & forwarding",
+                                "24-72 hour turnaround",
+                              ].map((item) => (
+                                <div key={item} className="flex items-start gap-2">
+                                  <span className="mt-0.5 text-emerald-600">{"\u2713"}</span>
+                                  <span>{item}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
                 </TabsContent>
 
