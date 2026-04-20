@@ -1275,14 +1275,33 @@ export function CreateShipmentWithLabelsForm({
                                 <div className="min-w-[1480px]">
                                   <div className="grid grid-cols-[220px_170px_220px_90px_90px_120px_250px_180px_120px] gap-2 border-b bg-muted/30 px-2 py-2 text-[11px] font-medium text-muted-foreground">
                                     <div>Product</div>
-                                    <div>Type</div>
-                                    <div>Custom dimensions (Custom only)</div>
+                                    <div className="flex items-center gap-1">
+                                      <span>Type</span>
+                                      <span
+                                        className="inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold text-muted-foreground"
+                                        title="Custom workflow: If user does not know exact dimensions, select Custom and submit. Admin can correct dimensions, set pricing, and request label upload. If dimensions and label are already correct, admin can complete directly."
+                                      >
+                                        ?
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <span>Custom dimensions (Custom only)</span>
+                                      <span
+                                        className="inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold text-muted-foreground"
+                                        title="Dimensions are optional for Custom. You can submit without dimensions or labels if unknown. Admin will review and guide the next step."
+                                      >
+                                        ?
+                                      </span>
+                                    </div>
                                     <div>Qty</div>
                                     <div>Pack</div>
                                     <div>Price ($)</div>
                                     <div>Additional Services</div>
                                     <div>Labels</div>
                                     <div>Remove</div>
+                                  </div>
+                                  <div className="border-b bg-blue-50/60 px-2 py-2 text-[11px] text-blue-900">
+                                    Custom submission help: If dimensions or labels are not available, submit anyway. Admin can update dimensions and pricing, then ask for label upload. If everything is correct with labels, admin can complete directly.
                                   </div>
                                   {groupShipments.length === 0 ? (
                                     <div className="px-2 py-4 text-xs text-muted-foreground">
