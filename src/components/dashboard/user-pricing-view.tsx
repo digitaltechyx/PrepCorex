@@ -6,6 +6,7 @@
  import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
  import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
  import { Skeleton } from "@/components/ui/skeleton";
+import { Sparkles } from "lucide-react";
 import type { FbaPackAddOnConfig } from "@/lib/pricing-utils";
 
  type PricingRuleDoc = {
@@ -383,6 +384,23 @@ type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
           <CardTitle className="text-xl text-violet-700 dark:text-violet-300">FBM Fulfillment Plan</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5 p-5 text-sm">
+          <div className="relative overflow-hidden rounded-lg border border-amber-300/80 bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-100 px-3 py-2.5 text-sm text-amber-900 shadow-sm dark:border-amber-700/60 dark:from-amber-950/50 dark:via-yellow-950/40 dark:to-amber-900/30 dark:text-amber-200">
+            <div className="pointer-events-none absolute -left-10 top-0 h-full w-1/3 -skew-x-12 bg-white/40 blur-sm animate-pulse dark:bg-white/10" />
+            <div className="relative flex items-start gap-2">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 animate-pulse dark:text-amber-300" />
+              <div className="space-y-0.5">
+                <div className="font-medium">
+                  You are currently in: <span className="font-semibold">25-49 orders/day</span> ->{" "}
+                  <span className="font-semibold">{money(getFbmPrice("25-49", "Standard"))}</span> (Standard)
+                </div>
+                <div>
+                  Reach <span className="font-semibold">50+ orders/day</span> to unlock:{" "}
+                  <span className="font-semibold">{money(getFbmPrice("50+", "Standard"))}</span> pricing.
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-3 gap-3 border-b pb-4">
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Volume (Daily)</div>
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price (Standard)</div>
