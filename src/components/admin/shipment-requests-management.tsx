@@ -34,7 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { doc, updateDoc, collection, Timestamp, runTransaction } from "firebase/firestore";
+import { doc, updateDoc, collection, Timestamp, runTransaction, addDoc } from "firebase/firestore";
 import { format } from "date-fns";
 import { Check, X, Eye, Loader2, FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -105,7 +105,15 @@ export function ShipmentRequestsManagement({
   );
   
   const filteredRequests = useMemo(() => {
-    let filtered = statusFilter === "all" ? requests : requests.filter(req => req.status === statusFilter);
+    let filtered =
+      statusFilter === "all"
+        ? requests
+        : statusFilter === "pending"
+          ? requests.filter(
+              (req) =>
+                req.status === "pending" || req.status === "awaiting_label_upload"
+            )
+          : requests.filter((req) => req.status === statusFilter);
     
     // Sort by requestedAt (most recent first), fallback to date if requestedAt is not available
     filtered = [...filtered].sort((a, b) => {
@@ -137,7 +145,9 @@ export function ShipmentRequestsManagement({
     return filtered;
   }, [requests, statusFilter]);
 
-  const pendingCount = requests.filter(req => req.status === "pending").length;
+  const pendingCount = requests.filter(
+    (req) => req.status === "pending" || req.status === "awaiting_label_upload"
+  ).length;
   const confirmedCount = requests.filter(req => req.status === "confirmed").length;
   const rejectedCount = requests.filter(req => req.status === "rejected").length;
 
@@ -587,6 +597,59 @@ export function ShipmentRequestsManagement({
     }
   };
 
+  const handleApproveForLabelUpload = async (
+    request: ShipmentRequest,
+    adminRemarks: string
+  ) => {
+    if (!selectedUser || !adminProfile) return;
+    const targetUserId = selectedUser?.uid || (selectedUser as any)?.id;
+    if (!targetUserId || typeof targetUserId !== "string" || targetUserId.trim() === "") return;
+    if (!adminRemarks.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Admin remarks required",
+        description: "Please add admin remarks before approving custom request for label upload.",
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      await updateDoc(doc(db, `users/${targetUserId}/shipmentRequests`, request.id), {
+        status: "awaiting_label_upload",
+        approvedForLabelBy: adminProfile.uid,
+        approvedForLabelAt: Timestamp.now(),
+        adminRemarks: adminRemarks.trim(),
+      });
+
+      await addDoc(collection(db, `users/${targetUserId}/notifications`), {
+        type: "shipment_request",
+        title: "Label upload needed",
+        message:
+          "Your custom shipment was reviewed. Please upload your shipping label so admin can complete this request.",
+        isRead: false,
+        targetUrl: "/dashboard/create-shipment-with-labels",
+        relatedRequestId: request.id,
+        createdAt: Timestamp.now(),
+        createdBy: adminProfile.uid,
+      });
+
+      toast({
+        title: "Approved for label upload",
+        description: "Custom request moved to waiting-label stage.",
+      });
+      setSelectedRequest(null);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error?.message || "Failed to approve request for label upload.",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   if (!selectedUser) {
     return (
       <Card>
@@ -706,7 +769,7 @@ export function ShipmentRequestsManagement({
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {request.status === "pending" ? (
+                      {request.status === "pending" || request.status === "awaiting_label_upload" ? (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -738,6 +801,7 @@ export function ShipmentRequestsManagement({
           inventory={inventory}
           onConfirm={handleConfirm}
           onReject={handleReject}
+          onApproveForLabelUpload={handleApproveForLabelUpload}
           onClose={() => setSelectedRequest(null)}
           isProcessing={isProcessing}
           additionalServicesPricing={additionalServicesPricing || []}
@@ -770,6 +834,7 @@ function ReviewShipmentDialog({
   inventory,
   onConfirm,
   onReject,
+  onApproveForLabelUpload,
   onClose,
   isProcessing,
   additionalServicesPricing,
@@ -795,6 +860,7 @@ function ReviewShipmentDialog({
     }
   ) => void;
   onReject: (request: ShipmentRequest, reason: string) => void;
+  onApproveForLabelUpload: (request: ShipmentRequest, adminRemarks: string) => void;
   onClose: () => void;
   isProcessing: boolean;
   additionalServicesPricing: UserAdditionalServicesPricing[] | null;
@@ -805,7 +871,7 @@ function ReviewShipmentDialog({
   const { toast } = useToast();
   const [adminRemarks, setAdminRemarks] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
-  const [action, setAction] = useState<"confirm" | "reject" | null>(null);
+  const [action, setAction] = useState<"confirm" | "reject" | "approve_for_label" | null>(null);
   const [shippingDate, setShippingDate] = useState<Date | undefined>(() => {
     // Initialize with request date if available
     if (request.date) {
@@ -886,6 +952,8 @@ function ReviewShipmentDialog({
   const isCustomProduct =
     String(request.productType || "").toLowerCase() === "custom" &&
     String(request.shipmentType || "").toLowerCase() === "product";
+  const hasLabelUploaded =
+    typeof request.labelUrl === "string" && request.labelUrl.trim().length > 0;
 
   const isPalletExistingInventory =
     String(request.shipmentType || "").toLowerCase() === "pallet" &&
@@ -966,6 +1034,14 @@ function ReviewShipmentDialog({
 
     // Validate custom product pricing if applicable
     if (isCustomProduct) {
+      if (!adminRemarks.trim()) {
+        toast({
+          variant: "destructive",
+          title: "Admin Remarks Required",
+          description: "Please add admin remarks before confirming custom shipment requests.",
+        });
+        return;
+      }
       const hasInvalidPricing = request.shipments.some((shipment: any, index: number) => {
         const pricing = customProductPricing[index];
         return !pricing || pricing.unitPrice <= 0 || pricing.packOf <= 0 || pricing.packOfPrice < 0;
@@ -1256,7 +1332,8 @@ function ReviewShipmentDialog({
                       pricingRules,
                       request.service,
                       request.productType,
-                      shipment.quantity // Use quantity to get correct pricing tier
+                      shipment.quantity, // Use quantity to get correct pricing tier
+                      shipment.packOf || 1
                     );
                     if (calculatedPrice) {
                       // Use the calculated rate from pricing rules (this is the correct unit price)
@@ -1594,7 +1671,8 @@ function ReviewShipmentDialog({
                   pricingRules,
                   request.service,
                   request.productType,
-                  shipment.quantity
+                  shipment.quantity,
+                  shipment.packOf || 1
                 );
                 if (calculatedPrice) {
                   unitPrice = calculatedPrice.rate || shipment.unitPrice || 0;
@@ -1603,7 +1681,7 @@ function ReviewShipmentDialog({
               }
               // Formula: (Unit Price Ã— Quantity) + (Pack Of Price Ã— (Pack Of - 1))
               const baseTotal = unitPrice * shipment.quantity; // unitPrice Ã— quantity (not totalUnits)
-              const packCharge = packOfPrice * Math.max(0, shipment.packOf - 1);
+              const packCharge = packOfPrice;
               return sum + (baseTotal + packCharge);
             }, 0);
             const grandTotal = totalProductCost + additionalServicesTotal;
@@ -1644,6 +1722,15 @@ function ReviewShipmentDialog({
               <Check className="h-4 w-4 mr-2" />
               Confirm
             </Button>
+            {isCustomProduct && !hasLabelUploaded && (
+              <Button
+                variant="outline"
+                onClick={() => setAction("approve_for_label")}
+                className="flex-1"
+              >
+                Approve for Label Upload
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => setAction("reject")}
@@ -1677,7 +1764,9 @@ function ReviewShipmentDialog({
                 </p>
               </div>
               <div>
-                <label className="text-sm font-medium">Admin Remarks</label>
+                <label className="text-sm font-medium">
+                  Admin Remarks{isCustomProduct ? " *" : ""}
+                </label>
                 <Textarea
                   placeholder="Add remarks about this shipment..."
                   value={adminRemarks}
@@ -1685,17 +1774,54 @@ function ReviewShipmentDialog({
                   className="mt-1"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Optional remarks about this shipment.
+                  {isCustomProduct
+                    ? "Required for custom requests. Explain corrected dimensions/pricing decisions."
+                    : "Optional remarks about this shipment."}
                 </p>
               </div>
               <div className="flex gap-2">
                 <Button
                   onClick={handleConfirmClick}
-                  disabled={isProcessing || !shippingDate}
+                  disabled={
+                    isProcessing ||
+                    !shippingDate ||
+                    (isCustomProduct && (!adminRemarks.trim() || !hasLabelUploaded))
+                  }
                   className="flex-1"
                 >
                   {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Confirm Shipment
+                  {isCustomProduct ? "Complete Shipment" : "Confirm Shipment"}
+                </Button>
+                <Button variant="outline" onClick={() => setAction(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {action === "approve_for_label" && (
+            <div className="space-y-4 border-t pt-4">
+              <h3 className="font-semibold">Approve For Label Upload</h3>
+              <p className="text-sm text-muted-foreground">
+                Use this when custom dimensions/pricing were reviewed but label is missing.
+              </p>
+              <div>
+                <label className="text-sm font-medium">Admin Remarks *</label>
+                <Textarea
+                  placeholder="Explain what was corrected and ask user to upload labels."
+                  value={adminRemarks}
+                  onChange={(e) => setAdminRemarks(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => onApproveForLabelUpload(request, adminRemarks)}
+                  disabled={isProcessing || !adminRemarks.trim()}
+                  className="flex-1"
+                >
+                  {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save & Notify User
                 </Button>
                 <Button variant="outline" onClick={() => setAction(null)}>
                   Cancel

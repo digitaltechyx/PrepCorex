@@ -35,6 +35,8 @@ import {
   ArrowLeftRight,
   FolderOpen,
   Plug,
+  ChevronLeft,
+  Shield,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
@@ -240,6 +242,43 @@ export function DashboardSidebar() {
     (hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders")) &&
     onClientIntegrationsSubtree;
 
+  const showAffiliateAccess =
+    hasAgentRole && hasFeature(userProfile, "affiliate_dashboard");
+  const isAffiliateZone =
+    pathname === "/dashboard/agent" || pathname?.startsWith("/dashboard/agent/");
+  const showAffiliateShell =
+    !adminOnlyNeedsIntegrationsNav && isAffiliateZone && showAffiliateAccess;
+
+  const affiliateBackHref = hasUserRole ? "/dashboard" : hasAdminRole ? "/admin/dashboard" : "/dashboard";
+  const affiliateBackLabel = hasUserRole ? "Client dashboard" : hasAdminRole ? "Admin dashboard" : "Dashboard";
+
+  // Client + affiliate: keep affiliate out of the main list so opening it feels like a separate workspace (with back).
+  const mainClientNavItems =
+    hasUserRole && showAffiliateAccess
+      ? filteredClientMenu.filter((item) => item.url !== "/dashboard/agent")
+      : filteredClientMenu;
+
+  type NavItem = (typeof filteredClientMenu)[number];
+  const otherWorkspaces: NavItem[] = [];
+  if (hasAdminRole && (hasUserRole || hasAgentRole)) {
+    otherWorkspaces.push({
+      title: "Admin dashboard",
+      url: "/admin/dashboard",
+      icon: Shield,
+      color: "text-blue-600",
+      badge: null,
+    });
+  }
+  if (hasUserRole && showAffiliateAccess) {
+    otherWorkspaces.push({
+      title: "Affiliate program",
+      url: "/dashboard/agent",
+      icon: UserCheck,
+      color: "text-purple-600",
+      badge: null,
+    });
+  }
+
   const menuItems = adminOnlyNeedsIntegrationsNav
     ? [
         {
@@ -257,7 +296,7 @@ export function DashboardSidebar() {
           badge: null as number | null | undefined,
         },
       ]
-    : filteredClientMenu;
+    : mainClientNavItems;
 
   return (
     <Sidebar className="border-r border-border/40 bg-gradient-to-b from-background to-muted/20">
@@ -287,56 +326,169 @@ export function DashboardSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent className="px-2 py-4">
-        <SidebarGroup>
-          <SidebarGroupLabel className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-            Navigation
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="space-y-1">
-              {menuItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = pathname === item.url;
-                
-                return (
-                  <SidebarMenuItem key={item.url}>
+        {showAffiliateShell ? (
+          <>
+            <div className="mb-4 border-b border-border/40 px-1 pb-4">
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    tooltip={affiliateBackLabel}
+                    className="group h-11 rounded-lg border border-border/50 bg-muted/30 text-muted-foreground transition-all hover:bg-muted/60 hover:text-foreground"
+                  >
+                    <Link href={affiliateBackHref} className="flex items-center gap-2">
+                      <ChevronLeft className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-x-0.5" />
+                      <span className="font-medium">Back to {affiliateBackLabel}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </div>
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                Affiliate
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu className="space-y-1">
+                  <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
-                      isActive={isActive}
-                      tooltip={item.title}
+                      isActive={pathname === "/dashboard/agent"}
+                      tooltip="Overview"
                       className={cn(
                         "group relative h-11 rounded-lg transition-all duration-200",
-                        isActive 
-                          ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20" 
+                        pathname === "/dashboard/agent"
+                          ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
                           : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                       )}
                     >
-                      <Link href={item.url} className="flex items-center gap-3">
-                        <Icon className={cn(
-                          "h-5 w-5 transition-transform group-hover:scale-110",
-                          isActive ? item.color : "text-muted-foreground"
-                        )} />
-                        <span className={cn(
-                          "font-medium transition-colors",
-                          isActive && "font-semibold"
-                        )}>
-                          {item.title}
+                      <Link href="/dashboard/agent" className="flex items-center gap-3">
+                        <UserCheck
+                          className={cn(
+                            "h-5 w-5 transition-transform group-hover:scale-110",
+                            pathname === "/dashboard/agent" ? "text-purple-600" : "text-muted-foreground"
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "font-medium transition-colors",
+                            pathname === "/dashboard/agent" && "font-semibold"
+                          )}
+                        >
+                          Overview
                         </span>
-                        {item.badge !== null && item.badge !== undefined && (
-                          <SidebarMenuBadge className={cn(
-                            "ml-auto bg-primary text-primary-foreground shadow-sm",
-                            isActive && "bg-primary/90"
-                          )}>
-                            {item.badge}
-                          </SidebarMenuBadge>
-                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        ) : (
+          <>
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                Navigation
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu className="space-y-1">
+                  {menuItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = pathname === item.url;
+
+                    return (
+                      <SidebarMenuItem key={item.url}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive}
+                          tooltip={item.title}
+                          className={cn(
+                            "group relative h-11 rounded-lg transition-all duration-200",
+                            isActive
+                              ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
+                              : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          <Link href={item.url} className="flex items-center gap-3">
+                            <Icon
+                              className={cn(
+                                "h-5 w-5 transition-transform group-hover:scale-110",
+                                isActive ? item.color : "text-muted-foreground"
+                              )}
+                            />
+                            <span
+                              className={cn("font-medium transition-colors", isActive && "font-semibold")}
+                            >
+                              {item.title}
+                            </span>
+                            {item.badge !== null && item.badge !== undefined && (
+                              <SidebarMenuBadge
+                                className={cn(
+                                  "ml-auto bg-primary text-primary-foreground shadow-sm",
+                                  isActive && "bg-primary/90"
+                                )}
+                              >
+                                {item.badge}
+                              </SidebarMenuBadge>
+                            )}
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+
+            {!adminOnlyNeedsIntegrationsNav && otherWorkspaces.length > 0 && (
+              <SidebarGroup className="mt-6">
+                <SidebarGroupLabel className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                  Other workspaces
+                </SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu className="space-y-1">
+                    {otherWorkspaces.map((item) => {
+                      const Icon = item.icon;
+                      const isActive =
+                        pathname === item.url ||
+                        (item.url === "/dashboard/agent" && pathname?.startsWith("/dashboard/agent"));
+
+                      return (
+                        <SidebarMenuItem key={item.url}>
+                          <SidebarMenuButton
+                            asChild
+                            isActive={isActive}
+                            tooltip={item.title}
+                            className={cn(
+                              "group relative h-11 rounded-lg transition-all duration-200",
+                              isActive
+                                ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
+                                : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                            )}
+                          >
+                            <Link href={item.url} className="flex items-center gap-3">
+                              <Icon
+                                className={cn(
+                                  "h-5 w-5 transition-transform group-hover:scale-110",
+                                  isActive ? item.color : "text-muted-foreground"
+                                )}
+                              />
+                              <span
+                                className={cn("font-medium transition-colors", isActive && "font-semibold")}
+                              >
+                                {item.title}
+                              </span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
+          </>
+        )}
       </SidebarContent>
     </Sidebar>
   );

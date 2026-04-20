@@ -729,3 +729,49 @@ body *::-webkit-scrollbar,
     display: none !important;
   }
 }
+
+/* Explicit horizontal scrollbar for mouse users */
+.mouse-h-scroll {
+  overflow-x: scroll !important;
+  overflow-y: hidden !important;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+}
+
+.mouse-h-scroll::-webkit-scrollbar {
+  height: 12px;
+  display: block;
+}
+
+.mouse-h-scroll::-webkit-scrollbar-track {
+  background: #e2e8f0;
+  border-radius: 9999px;
+}
+
+.mouse-h-scroll::-webkit-scrollbar-thumb {
+  background: #64748b;
+  border-radius: 9999px;
+}
+
+/* Explicit vertical+horizontal scrollbar for editors */
+.mouse-both-scroll {
+  overflow: scroll !important;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: auto;
+}
+
+.mouse-both-scroll::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+.mouse-both-scroll::-webkit-scrollbar-track {
+  background: #e2e8f0;
+  border-radius: 9999px;
+}
+
+.mouse-both-scroll::-webkit-scrollbar-thumb {
+  background: #64748b;
+  border-radius: 9999px;
+}

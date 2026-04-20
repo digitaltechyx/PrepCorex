@@ -138,7 +138,9 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     return map;
   }, [restockHistory]);
 
-  const pendingCount = pendingShipmentRequests.filter(req => req.status === "pending").length;
+  const pendingCount = pendingShipmentRequests.filter(
+    (req) => req.status === "pending" || req.status === "awaiting_label_upload"
+  ).length;
   const rejectedCount = pendingShipmentRequests.filter(req => req.status?.toLowerCase() === "rejected").length;
 
   const handleRemarksClick = (remarks: string) => {
@@ -191,7 +193,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     // Convert pending shipment requests - expand each shipment into separate row
     const pendingItems: any[] = [];
     pendingShipmentRequests
-      .filter(req => req.status === "pending")
+      .filter(req => req.status === "pending" || req.status === "awaiting_label_upload")
       .forEach(req => {
         req.shipments.forEach((shipment, index) => {
           pendingItems.push(convertShipmentToDisplay(req, shipment, "Pending", index));

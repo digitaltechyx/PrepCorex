@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
 import { collection, doc, Timestamp, writeBatch } from "firebase/firestore";
 import { useMemo, useState, useEffect } from "react";
@@ -31,11 +31,10 @@ const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
   quantity: z.coerce.number().int().positive("Shipped quantity must be a positive number."),
   packOf: z.coerce.number().int().positive("Pack size must be a positive number."),
-  dimensions: z.string().optional(),
   // Custom products use placeholder pricing until admin sets final pricing.
   unitPrice: z.coerce.number().nonnegative("Unit price must be a non-negative number."),
   totalPrice: z.coerce.number().nonnegative("Total price must be a non-negative number."),
-  // Per-line type/dimensions (product shipments only; validated in group superRefine)
+  // Per-line type/details (product shipments only; validated in group superRefine)
   productType: z.enum(["Standard", "Large", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   // Additional Services per product - user only selects which services they want (boolean flags)
@@ -129,7 +128,10 @@ export function CreateShipmentWithLabelsForm({
   const [query, setQuery] = useState("");
   
   // Label upload states for each shipment group
-  const [labelStates, setLabelStates] = useState<Record<number, LabelUploadState>>({});
+  // Stored per shipment line: `${groupIndex}_${shipmentIndex}`
+  const [labelStates, setLabelStates] = useState<Record<string, LabelUploadState>>({});
+
+  const getLineKey = (groupIndex: number, shipmentIndex: number) => `${groupIndex}_${shipmentIndex}`;
   
   // Popup states for each group
   const [openPopups, setOpenPopups] = useState<Record<string, boolean>>({});
@@ -184,7 +186,10 @@ export function CreateShipmentWithLabelsForm({
 
 
   // Auto-calculate pricing for all shipment groups
-  const watchedGroups = form.watch("shipmentGroups");
+  const watchedGroups = useWatch({
+    control: form.control,
+    name: "shipmentGroups",
+  });
   useEffect(() => {
     try {
       const allGroups = watchedGroups || [];
@@ -221,7 +226,8 @@ export function CreateShipmentWithLabelsForm({
             pricingRules,
             service,
             lineProductType,
-            quantity // Use quantity, not totalUnits, to get consistent unit price
+            quantity, // Use quantity, not totalUnits, to get consistent unit price
+            packOf
           );
           if (calculatedPrice && calculatedPrice.rate !== undefined && calculatedPrice.rate !== null) {
             finalUnitPrice = calculatedPrice.rate;
@@ -292,19 +298,16 @@ export function CreateShipmentWithLabelsForm({
               pricingRules,
               service,
               lineProductType,
-              quantity // Use quantity, not totalUnits, to get the correct packOfPrice
+              quantity, // Use quantity, not totalUnits, to get the correct packOfPrice
+              packOf
             );
             if (calculatedPriceForPackOf) {
               packOfPrice = calculatedPriceForPackOf.packOf || 0; // Charge per pack (beyond the first pack)
             }
           }
-          // Pack charge: packOfPrice Ã— (packOf - 1)
-          // First pack is free, charge applies from 2nd pack onwards
-          // When packOf = 1, charge = 0 (no additional packs)
-          // When packOf = 2, charge = packOfPrice Ã— 1 (charge for 2nd pack)
-          // When packOf = 3, charge = packOfPrice Ã— 2 (charge for 2nd and 3rd pack)
-          // When packOf = 5, charge = packOfPrice Ã— 4 (charge for 2nd, 3rd, 4th, 5th pack)
-          const packCharge = packOfPrice * Math.max(0, packOf - 1);
+          // Fixed pack surcharge by bucket:
+          // pack 1 => +0, pack 2-3 => +0.35, pack 4-12 => +0.75
+          const packCharge = packOfPrice;
           calculatedTotal = parseFloat((baseTotal + packCharge).toFixed(2));
         } else if (finalUnitPrice > 0 && quantity > 0) {
           calculatedTotal = parseFloat((finalUnitPrice * quantity).toFixed(2));
@@ -347,10 +350,6 @@ export function CreateShipmentWithLabelsForm({
       remarks: undefined,
       service: "FBA/WFS/TFS",
     });
-    setLabelStates(prev => ({
-      ...prev,
-      [newIndex]: { items: [], isUploading: false }
-    }));
   };
 
   const compressImage = async (file: File): Promise<File> => {
@@ -370,7 +369,7 @@ export function CreateShipmentWithLabelsForm({
     }
   };
 
-  const handleLabelSelect = async (groupIndex: number, event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLabelSelect = async (lineKey: string, event: React.ChangeEvent<HTMLInputElement>) => {
     try {
       const fileList = event.target.files;
       if (!fileList?.length) return;
@@ -407,10 +406,10 @@ export function CreateShipmentWithLabelsForm({
 
       setLabelStates(prev => ({
         ...prev,
-        [groupIndex]: {
-          ...prev[groupIndex],
-          items: [...(prev[groupIndex]?.items ?? []), ...newItems],
-          isUploading: prev[groupIndex]?.isUploading ?? false,
+        [lineKey]: {
+          ...prev[lineKey],
+          items: [...(prev[lineKey]?.items ?? []), ...newItems],
+          isUploading: prev[lineKey]?.isUploading ?? false,
         }
       }));
       event.target.value = "";
@@ -424,7 +423,7 @@ export function CreateShipmentWithLabelsForm({
     }
   };
 
-  const uploadOneLabel = async (groupIndex: number, itemIndex: number, file: File): Promise<string | null> => {
+  const uploadOneLabel = async (lineKey: string, itemIndex: number, file: File): Promise<string | null> => {
     if (!ownerId) return null;
     let fileToUpload = file;
     if (file.type.startsWith("image/")) {
@@ -456,15 +455,15 @@ export function CreateShipmentWithLabelsForm({
     if (!urlToStore) throw new Error('Label upload failed.');
 
     setLabelStates(prev => {
-      const items = [...(prev[groupIndex]?.items ?? [])];
+      const items = [...(prev[lineKey]?.items ?? [])];
       if (items[itemIndex]) items[itemIndex] = { ...items[itemIndex], uploadedUrl: urlToStore };
-      return { ...prev, [groupIndex]: { ...prev[groupIndex], items, isUploading: prev[groupIndex]?.isUploading ?? false } };
+      return { ...prev, [lineKey]: { ...prev[lineKey], items, isUploading: prev[lineKey]?.isUploading ?? false } };
     });
     return urlToStore;
   };
 
-  const handleLabelUpload = async (groupIndex: number): Promise<string[]> => {
-    const labelState = labelStates[groupIndex];
+  const handleLabelUpload = async (lineKey: string): Promise<string[]> => {
+    const labelState = labelStates[lineKey];
     const items = labelState?.items ?? [];
     const pending = items
       .map((item, idx) => ({ item, idx }))
@@ -473,11 +472,11 @@ export function CreateShipmentWithLabelsForm({
       return items.map((i) => i.uploadedUrl).filter(Boolean) as string[];
     }
     try {
-      setLabelStates(prev => ({ ...prev, [groupIndex]: { items: prev[groupIndex]?.items ?? [], isUploading: true } }));
+      setLabelStates(prev => ({ ...prev, [lineKey]: { items: prev[lineKey]?.items ?? [], isUploading: true } }));
       const urls: string[] = [];
       for (const { item, idx } of pending) {
         if (!item.file) continue;
-        const url = await uploadOneLabel(groupIndex, idx, item.file);
+        const url = await uploadOneLabel(lineKey, idx, item.file);
         if (url) urls.push(url);
       }
       const allUrls = [...items.map((i) => i.uploadedUrl).filter(Boolean), ...urls] as string[];
@@ -487,6 +486,13 @@ export function CreateShipmentWithLabelsForm({
           description: urls.length === 1 ? "Label uploaded successfully!" : `${urls.length} labels uploaded successfully!`,
         });
       }
+      setLabelStates(prev => ({
+        ...prev,
+        [lineKey]: {
+          items: prev[lineKey]?.items ?? [],
+          isUploading: false,
+        }
+      }));
       return allUrls;
     } catch (error: any) {
       console.error("Error uploading label:", error);
@@ -495,37 +501,92 @@ export function CreateShipmentWithLabelsForm({
         title: "Upload Failed",
         description: error.message || "Label upload failed. Please try again.",
       });
-      setLabelStates(prev => ({ ...prev, [groupIndex]: { ...prev[groupIndex], isUploading: false } }));
+      setLabelStates(prev => ({ ...prev, [lineKey]: { ...prev[lineKey], isUploading: false } }));
       return items.map((i) => i.uploadedUrl).filter(Boolean) as string[];
     }
   };
 
-  const handleRemoveLabel = (groupIndex: number, itemIndex?: number) => {
+  const handleRemoveLabel = (lineKey: string, itemIndex?: number) => {
     setLabelStates(prev => {
-      const state = prev[groupIndex];
+      const state = prev[lineKey];
       const items = state?.items ?? [];
       if (itemIndex !== undefined) {
         const item = items[itemIndex];
         if (item?.preview) URL.revokeObjectURL(item.preview);
         const newItems = items.filter((_, i) => i !== itemIndex);
-        return { ...prev, [groupIndex]: { items: newItems, isUploading: false } };
+        return { ...prev, [lineKey]: { items: newItems, isUploading: false } };
       }
       items.forEach((item) => { if (item.preview) URL.revokeObjectURL(item.preview); });
-      return { ...prev, [groupIndex]: { items: [], isUploading: false } };
+      return { ...prev, [lineKey]: { items: [], isUploading: false } };
     });
   };
 
   const handleRemoveGroup = (index: number) => {
-    handleRemoveLabel(index);
     removeGroup(index);
-    const newStates: Record<number, LabelUploadState> = {};
-    shipmentGroups.forEach((_, i) => {
-      if (i !== index) {
-        const oldIndex = i > index ? i - 1 : i;
-        newStates[oldIndex] = labelStates[i] || { items: [], isUploading: false };
+    setLabelStates(prev => {
+      const next: Record<string, LabelUploadState> = {};
+      for (const [key, state] of Object.entries(prev)) {
+        const [gStr, sStr] = key.split("_");
+        const g = Number(gStr);
+        const s = Number(sStr);
+        if (!Number.isFinite(g) || !Number.isFinite(s)) continue;
+        if (g === index) {
+          state.items.forEach((it) => {
+            if (it.preview) URL.revokeObjectURL(it.preview);
+          });
+          continue;
+        }
+        const newG = g > index ? g - 1 : g;
+        next[`${newG}_${s}`] = state;
       }
+      return next;
     });
-    setLabelStates(newStates);
+  };
+
+  const handleRemoveShipmentLine = (groupIndex: number, shipmentIndex: number) => {
+    const removeKey = getLineKey(groupIndex, shipmentIndex);
+    setLabelStates(prev => {
+      const next: Record<string, LabelUploadState> = {};
+      for (const [key, state] of Object.entries(prev)) {
+        const [gStr, sStr] = key.split("_");
+        const g = Number(gStr);
+        const s = Number(sStr);
+        if (!Number.isFinite(g) || !Number.isFinite(s)) continue;
+        if (g !== groupIndex) {
+          next[key] = state;
+          continue;
+        }
+        if (key === removeKey) {
+          state.items.forEach((it) => {
+            if (it.preview) URL.revokeObjectURL(it.preview);
+          });
+          continue;
+        }
+        if (s > shipmentIndex) {
+          next[getLineKey(groupIndex, s - 1)] = state;
+        } else {
+          next[key] = state;
+        }
+      }
+      return next;
+    });
+  };
+
+  const clearLabelStatesForGroup = (groupIndex: number) => {
+    const prefix = `${groupIndex}_`;
+    setLabelStates(prev => {
+      const next: Record<string, LabelUploadState> = {};
+      for (const [key, state] of Object.entries(prev)) {
+        if (!key.startsWith(prefix)) {
+          next[key] = state;
+          continue;
+        }
+        state.items.forEach((it) => {
+          if (it.preview) URL.revokeObjectURL(it.preview);
+        });
+      }
+      return next;
+    });
   };
 
   // Helper function to remove undefined values from objects (Firestore doesn't allow undefined)
@@ -591,8 +652,6 @@ export function CreateShipmentWithLabelsForm({
       // Process each shipment group
       for (let i = 0; i < values.shipmentGroups.length; i++) {
         const group = values.shipmentGroups[i];
-        // Get the current label state - check both the index and ensure we have the latest state
-        const labelState = labelStates[i] || { items: [], isUploading: false };
 
         // Validate stock availability for this group
         const stockErrors: string[] = [];
@@ -620,19 +679,15 @@ export function CreateShipmentWithLabelsForm({
           return;
         }
 
-        // Upload labels if selected (optional) - get fresh state to ensure we have the latest
-        const currentLabelState = labelStates[i] || { items: [], isUploading: false };
-        const hasPending = currentLabelState.items.some((it) => it.file && !it.uploadedUrl);
-        const existingUrls = currentLabelState.items.map((it) => it.uploadedUrl).filter(Boolean) as string[];
-        let labelUrl = "";
-        if (existingUrls.length > 0 && !hasPending) {
-          labelUrl = existingUrls.join(",");
-          console.log(`[Group ${i + 1}] Using existing label URL(s):`, labelUrl);
-        } else if (currentLabelState.items.length > 0 || hasPending) {
-          const uploadedUrls = await handleLabelUpload(i);
-          labelUrl = uploadedUrls.join(",");
-          if (labelUrl) console.log(`[Group ${i + 1}] Label(s) uploaded:`, labelUrl);
-        }
+        const uploadLabelsForShipmentIndices = async (shipmentIndices: number[]) => {
+          const urls: string[] = [];
+          for (const shipmentIndex of shipmentIndices) {
+            const lineKey = getLineKey(i, shipmentIndex);
+            const lineUrls = await handleLabelUpload(lineKey);
+            urls.push(...lineUrls);
+          }
+          return urls;
+        };
 
         const dateTimestamp = Timestamp.fromDate(group.date);
 
@@ -647,17 +702,17 @@ export function CreateShipmentWithLabelsForm({
             if (shipment.selectedAdditionalServices && shipment.selectedAdditionalServices.length > 0) {
               cleaned.selectedAdditionalServices = shipment.selectedAdditionalServices;
             }
-            if (
-              (group.shipmentType === "box" || group.shipmentType === "pallet") &&
-              typeof shipment.dimensions === "string" &&
-              shipment.dimensions.trim().length > 0
-            ) {
-              cleaned.dimensions = shipment.dimensions.trim();
-            }
             return cleaned;
           });
 
-        const writeOneRequest = (shipmentsSlice: typeof group.shipments, productType?: ProductType, customDimensions?: string) => {
+        const writeOneRequest = async (
+          shipmentsSlice: typeof group.shipments,
+          shipmentIndices: number[],
+          productType?: ProductType,
+          customDimensions?: string
+        ) => {
+          const labelUrls = await uploadLabelsForShipmentIndices(shipmentIndices);
+          const labelUrl = labelUrls.join(",");
           const requestRef = doc(collection(db, `users/${ownerId}/shipmentRequests`));
           const requestData: any = {
             userId: ownerId,
@@ -702,28 +757,36 @@ export function CreateShipmentWithLabelsForm({
         if (group.shipmentType === "product") {
           const buckets = new Map<
             string,
-            { productType: ProductType; customDimensions?: string; rows: typeof group.shipments }
+            {
+              productType: ProductType;
+              customDimensions?: string;
+              rows: typeof group.shipments;
+              shipmentIndices: number[];
+            }
           >();
-          for (const row of group.shipments) {
+          group.shipments.forEach((row, shipmentIndex) => {
             const pt = row.productType;
-            if (!pt) continue;
+            if (!pt) return;
             const key = `${pt}||${(row.customDimensions || "").trim()}`;
             const existing = buckets.get(key);
             if (existing) {
               existing.rows.push(row);
+              existing.shipmentIndices.push(shipmentIndex);
             } else {
               buckets.set(key, {
                 productType: pt,
                 customDimensions: pt === "Custom" ? row.customDimensions : undefined,
                 rows: [row],
+                shipmentIndices: [shipmentIndex],
               });
             }
-          }
+          });
           for (const b of buckets.values()) {
-            writeOneRequest(b.rows, b.productType, b.customDimensions);
+            await writeOneRequest(b.rows, b.shipmentIndices, b.productType, b.customDimensions);
           }
         } else {
-          writeOneRequest(group.shipments);
+          const shipmentIndices = group.shipments.map((_, idx) => idx);
+          await writeOneRequest(group.shipments, shipmentIndices);
         }
       }
 
@@ -875,9 +938,6 @@ export function CreateShipmentWithLabelsForm({
                 }
               })
               .filter((item) => item.productName.toLowerCase().includes(normalizedQuery));
-
-            const labelState = labelStates[groupIndex] || { items: [], isUploading: false };
-
             const popupKey = group.id;
 
             return (
@@ -886,9 +946,11 @@ export function CreateShipmentWithLabelsForm({
                   <AccordionTrigger className="hover:no-underline pr-12 [&>svg]:hidden">
                     <div className="flex items-center justify-between w-full">
                       <div className="text-left">
-                        <div className="text-lg font-semibold">Shipment {groupIndex + 1}</div>
-                        <div className="text-sm text-muted-foreground mt-1">
-                          Each shipment creates a separate shipment request with its own label
+                        <div className="text-sm font-semibold">
+                          Shipment {groupIndex + 1}
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            ({groupShipments.length} product{groupShipments.length === 1 ? "" : "s"})
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -907,17 +969,18 @@ export function CreateShipmentWithLabelsForm({
                   </Button>
                 </div>
                 <AccordionContent>
-                  <div className="pt-4">
-                    {/* Horizontal Entry-Type View (single line) */}
-                    <div className="overflow-x-auto">
-                      <div className="flex flex-nowrap items-end gap-3 min-w-max pb-4 border-b">
+                  <div className="pt-3">
+                    <div className="border-b pb-2">
+                      <div className="mouse-h-scroll pb-2">
+                        <div className="min-w-[1220px] space-y-2">
+                          <div className="flex flex-nowrap items-start gap-2">
                     {/* Shipment Type - Popup */}
                     <FormField
                       control={form.control}
                       name={`shipmentGroups.${groupIndex}.shipmentType`}
                       render={({ field }) => (
-                        <FormItem className="flex-shrink-0">
-                          <FormLabel className="text-xs text-muted-foreground mb-1 block">Shipment Type *</FormLabel>
+                        <FormItem className="order-1 w-[130px] shrink-0 space-y-1">
+                          <FormLabel className="text-[11px] text-muted-foreground">Shipment Type *</FormLabel>
                           <Dialog open={openPopups[`${popupKey}_shipmentType`] || false} onOpenChange={(open) => {
                             if (open) {
                               setOpenPopups(prev => ({ ...prev, [`${popupKey}_shipmentType`]: true }));
@@ -929,7 +992,7 @@ export function CreateShipmentWithLabelsForm({
                               <Button
                                 type="button"
                                 variant="outline"
-                                className="w-[120px] justify-between"
+                                className="h-8 w-full justify-between"
                                 onClick={() => togglePopup(popupKey, 'shipmentType')}
                               >
                                 <span className="truncate">{field.value ? field.value.charAt(0).toUpperCase() + field.value.slice(1) : "Select"}</span>
@@ -952,6 +1015,7 @@ export function CreateShipmentWithLabelsForm({
                                       if (type !== "pallet") {
                                         form.setValue(`shipmentGroups.${groupIndex}.palletSubType`, undefined);
                                       }
+                                      clearLabelStatesForGroup(groupIndex);
                                       form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
                                       closePopup(popupKey, 'shipmentType');
                                     }}
@@ -973,8 +1037,8 @@ export function CreateShipmentWithLabelsForm({
                         control={form.control}
                         name={`shipmentGroups.${groupIndex}.palletSubType`}
                         render={({ field }) => (
-                          <FormItem className="flex-shrink-0">
-                            <FormLabel className="text-xs text-muted-foreground mb-1 block">Pallet Type *</FormLabel>
+                          <FormItem className="order-2 w-[170px] shrink-0 space-y-1">
+                            <FormLabel className="text-[11px] text-muted-foreground">Pallet Type *</FormLabel>
                             <Dialog open={openPopups[`${popupKey}_palletType`] || false} onOpenChange={(open) => {
                               if (open) {
                                 setOpenPopups(prev => ({ ...prev, [`${popupKey}_palletType`]: true }));
@@ -986,7 +1050,7 @@ export function CreateShipmentWithLabelsForm({
                                 <Button
                                   type="button"
                                   variant="outline"
-                                  className="w-[150px] justify-between"
+                                  className="h-8 w-full justify-between"
                                   onClick={() => togglePopup(popupKey, 'palletType')}
                                 >
                                   <span className="truncate">
@@ -1007,6 +1071,7 @@ export function CreateShipmentWithLabelsForm({
                                     className="w-full justify-start"
                                     onClick={() => {
                                       field.onChange("existing_inventory");
+                                      clearLabelStatesForGroup(groupIndex);
                                       form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
                                       closePopup(popupKey, 'palletType');
                                     }}
@@ -1019,6 +1084,7 @@ export function CreateShipmentWithLabelsForm({
                                     className="w-full justify-start"
                                     onClick={() => {
                                       field.onChange("forwarding");
+                                      clearLabelStatesForGroup(groupIndex);
                                       form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
                                       closePopup(popupKey, 'palletType');
                                     }}
@@ -1035,8 +1101,8 @@ export function CreateShipmentWithLabelsForm({
                     )}
 
                     {/* Products - Popup (FIRST) */}
-                    <FormItem className="flex-shrink-0">
-                      <FormLabel className="text-xs text-muted-foreground mb-1 block">Products</FormLabel>
+                    <FormItem className="order-4 w-[290px] shrink-0 space-y-1">
+                      <FormLabel className="text-[11px] text-muted-foreground">Select Product</FormLabel>
                       <Dialog open={openPopups[`${popupKey}_products`] || false} onOpenChange={(open) => {
                         if (open) {
                           setOpenPopups(prev => ({ ...prev, [`${popupKey}_products`]: true }));
@@ -1048,7 +1114,7 @@ export function CreateShipmentWithLabelsForm({
                           <Button
                             type="button"
                             variant="outline"
-                            className="w-[160px] justify-between"
+                            className="h-8 w-full justify-between"
                             onClick={() => togglePopup(popupKey, 'products')}
                           >
                             <span className="truncate">
@@ -1059,20 +1125,20 @@ export function CreateShipmentWithLabelsForm({
                             <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="max-w-md">
+                        <DialogContent className="max-h-[85vh] max-w-6xl overflow-hidden">
                           <DialogHeader>
-                            <DialogTitle>Select Products</DialogTitle>
+                            <DialogTitle>Select Products And Fill Details</DialogTitle>
                             <DialogDescription>
-                              Search and select products for this shipment
+                              Select products, update line details, and remove rows from one place.
                             </DialogDescription>
                           </DialogHeader>
-                          <div className="space-y-4 py-4">
+                          <div className="mouse-both-scroll max-h-[70vh] space-y-4 py-4 pr-2">
                             <Input
                               placeholder="Search products..."
                               value={query}
                               onChange={(e) => setQuery(e.target.value)}
                             />
-                            <ScrollArea className="h-[300px]">
+                            <ScrollArea className="h-[220px] rounded-md border p-2">
                               <div className="space-y-2">
                                 {availableInventory.length === 0 ? (
                                   <p className="text-sm text-muted-foreground text-center py-4">
@@ -1149,7 +1215,6 @@ export function CreateShipmentWithLabelsForm({
                                                   productId: item.id,
                                                   quantity: 1,
                                                   packOf: 1,
-                                                  dimensions: "",
                                                   unitPrice: initialUnitPrice,
                                                   totalPrice: initialTotalPrice,
                                                   productType: shipmentType === "product" ? ("Standard" as const) : undefined,
@@ -1181,12 +1246,304 @@ export function CreateShipmentWithLabelsForm({
                                 )}
                               </div>
                             </ScrollArea>
+
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium">Selected Product Details</div>
+                              <div className="mouse-both-scroll max-h-[44vh] rounded-md border">
+                                <div className="min-w-[1480px]">
+                                  <div className="grid grid-cols-[220px_170px_220px_90px_90px_120px_250px_180px_120px] gap-2 border-b bg-muted/30 px-2 py-2 text-[11px] font-medium text-muted-foreground">
+                                    <div>Product</div>
+                                    <div>Type</div>
+                                    <div>Custom dimensions (Custom only)</div>
+                                    <div>Qty</div>
+                                    <div>Pack</div>
+                                    <div>Price ($)</div>
+                                    <div>Additional Services</div>
+                                    <div>Labels</div>
+                                    <div>Remove</div>
+                                  </div>
+                                  {groupShipments.length === 0 ? (
+                                    <div className="px-2 py-4 text-xs text-muted-foreground">
+                                      No products selected yet.
+                                    </div>
+                                  ) : (
+                                    groupShipments.map((shipment, shipmentIndex) => {
+                                      const selectedProduct = inventory.find((item) => item.id === shipment.productId);
+                                      const lineProductType = form.watch(
+                                        `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType`
+                                      );
+                                      const lineKey = getLineKey(groupIndex, shipmentIndex);
+                                      const lineLabelState = labelStates[lineKey] || { items: [], isUploading: false };
+                                      const selectedServices =
+                                        form.watch(
+                                          `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices`
+                                        ) || [];
+                                      const hasBubbleWrap = selectedServices.includes("bubbleWrap");
+                                      const hasStickerRemoval = selectedServices.includes("stickerRemoval");
+                                      const hasWarningLabels = selectedServices.includes("warningLabels");
+                                      const selectedServicesDisplay: string[] = [];
+                                      if (hasBubbleWrap) selectedServicesDisplay.push("Bubble Wrap");
+                                      if (hasStickerRemoval) selectedServicesDisplay.push("Sticker Removal");
+                                      if (hasWarningLabels) selectedServicesDisplay.push("Warning Labels");
+                                      const servicesPopupKey = `${popupKey}_line_${shipmentIndex}_additionalServicesInline`;
+                                      const updateServices = (
+                                        key: "bubbleWrap" | "stickerRemoval" | "warningLabels",
+                                        checked: boolean
+                                      ) => {
+                                        const current =
+                                          form.getValues(
+                                            `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices`
+                                          ) || [];
+                                        const next = checked
+                                          ? Array.from(new Set([...current, key]))
+                                          : current.filter((s: string) => s !== key);
+                                        form.setValue(
+                                          `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices`,
+                                          next,
+                                          { shouldValidate: true }
+                                        );
+                                      };
+
+                                      return (
+                                        <div
+                                          key={shipment.productId || shipmentIndex}
+                                          className="grid grid-cols-[220px_170px_220px_90px_90px_120px_250px_180px_120px] gap-2 border-b px-2 py-2"
+                                        >
+                                          <div className="truncate text-xs font-medium">
+                                            {selectedProduct?.productName || "Unknown"}
+                                          </div>
+                                          {groupShipmentType === "product" ? (
+                                            <Select
+                                              value={
+                                                form.watch(
+                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType`
+                                                ) || "Standard"
+                                              }
+                                              onValueChange={(value) => {
+                                                form.setValue(
+                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType`,
+                                                  value as ProductType,
+                                                  { shouldValidate: true }
+                                                );
+                                                if (value !== "Custom") {
+                                                  form.setValue(
+                                                    `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions`,
+                                                    undefined,
+                                                    { shouldValidate: true }
+                                                  );
+                                                }
+                                              }}
+                                            >
+                                              <SelectTrigger className="h-8">
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="Standard">Standard</SelectItem>
+                                                <SelectItem value="Large">Large</SelectItem>
+                                                <SelectItem value="Custom">Custom</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          ) : (
+                                            <Input className="h-8" value="N/A" readOnly />
+                                          )}
+                                          {groupShipmentType === "product" && lineProductType === "Custom" ? (
+                                            <Input
+                                              className="h-8"
+                                              placeholder="Optional custom dimensions"
+                                              value={
+                                                form.watch(
+                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions`
+                                                ) || ""
+                                              }
+                                              onChange={(e) =>
+                                                form.setValue(
+                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions`,
+                                                  e.target.value,
+                                                  { shouldValidate: true }
+                                                )
+                                              }
+                                            />
+                                          ) : (
+                                            <div className="flex h-8 items-center px-2 text-[11px] text-muted-foreground">
+                                              -
+                                            </div>
+                                          )}
+                                          <Input
+                                            type="number"
+                                            min="1"
+                                            className="h-8"
+                                            value={form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`) || 1}
+                                            onChange={(e) => {
+                                              const value = Math.max(1, parseInt(e.target.value || "1", 10) || 1);
+                                              form.setValue(
+                                                `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`,
+                                                value,
+                                                { shouldValidate: true }
+                                              );
+                                            }}
+                                          />
+                                          <Input
+                                            type="number"
+                                            min="1"
+                                            className="h-8"
+                                            value={form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf`) || 1}
+                                            onChange={(e) => {
+                                              const value = Math.max(1, parseInt(e.target.value || "1", 10) || 1);
+                                              form.setValue(
+                                                `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf`,
+                                                value,
+                                                { shouldValidate: true }
+                                              );
+                                            }}
+                                            disabled={groupShipmentType !== "product"}
+                                          />
+                                          <Input
+                                            className="h-8"
+                                            value={Number(
+                                              form.watch(
+                                                `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice`
+                                              ) || 0
+                                            ).toFixed(2)}
+                                            readOnly
+                                          />
+                                          <Dialog
+                                            open={openPopups[servicesPopupKey] || false}
+                                            onOpenChange={(open) =>
+                                              setOpenPopups((prev) => ({ ...prev, [servicesPopupKey]: open }))
+                                            }
+                                          >
+                                            <DialogTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 w-full justify-between text-xs"
+                                              >
+                                                <span className="truncate">
+                                                  {selectedServicesDisplay.length > 0
+                                                    ? selectedServicesDisplay.join(", ")
+                                                    : "Select additional services"}
+                                                </span>
+                                                <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                                              </Button>
+                                            </DialogTrigger>
+                                            <DialogContent className="max-w-md">
+                                              <DialogHeader>
+                                                <DialogTitle>Additional Services</DialogTitle>
+                                                <DialogDescription>
+                                                  Choose all additional services needed for this selected product.
+                                                </DialogDescription>
+                                              </DialogHeader>
+                                              <div className="space-y-3 py-1">
+                                                <label className="flex items-start gap-2 text-sm">
+                                                  <Checkbox
+                                                    checked={hasBubbleWrap}
+                                                    onCheckedChange={(checked) =>
+                                                      updateServices("bubbleWrap", Boolean(checked))
+                                                    }
+                                                  />
+                                                  <span>
+                                                    <span className="font-medium">Bubble Wrap</span>
+                                                    <span className="block text-xs text-muted-foreground">
+                                                      Extra protective bubble wrapping.
+                                                    </span>
+                                                  </span>
+                                                </label>
+                                                <label className="flex items-start gap-2 text-sm">
+                                                  <Checkbox
+                                                    checked={hasStickerRemoval}
+                                                    onCheckedChange={(checked) =>
+                                                      updateServices("stickerRemoval", Boolean(checked))
+                                                    }
+                                                  />
+                                                  <span>
+                                                    <span className="font-medium">Sticker Removal</span>
+                                                    <span className="block text-xs text-muted-foreground">
+                                                      Remove old marketplace or shipping stickers.
+                                                    </span>
+                                                  </span>
+                                                </label>
+                                                <label className="flex items-start gap-2 text-sm">
+                                                  <Checkbox
+                                                    checked={hasWarningLabels}
+                                                    onCheckedChange={(checked) =>
+                                                      updateServices("warningLabels", Boolean(checked))
+                                                    }
+                                                  />
+                                                  <span>
+                                                    <span className="font-medium">Warning Labels</span>
+                                                    <span className="block text-xs text-muted-foreground">
+                                                      Apply fragile/handling warning labels.
+                                                    </span>
+                                                  </span>
+                                                </label>
+                                              </div>
+                                            </DialogContent>
+                                          </Dialog>
+                                          <div className="space-y-1">
+                                            <Input
+                                              type="file"
+                                              accept="image/*,application/pdf"
+                                              multiple
+                                              className="h-8 text-[11px]"
+                                              disabled={lineLabelState.isUploading || isLoading}
+                                              onChange={(e) => {
+                                                handleLabelSelect(lineKey, e).catch((error) => {
+                                                  console.error("Unhandled error in handleLabelSelect:", error);
+                                                  toast({
+                                                    variant: "destructive",
+                                                    title: "Error",
+                                                    description: "Failed to process file selection. Please try again.",
+                                                  });
+                                                });
+                                              }}
+                                            />
+                                            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                              <span>{lineLabelState.items?.length ?? 0} file(s)</span>
+                                              {(lineLabelState.items?.length ?? 0) > 0 && (
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  className="h-6 px-2 text-[11px]"
+                                                  onClick={() => handleRemoveLabel(lineKey)}
+                                                  disabled={lineLabelState.isUploading || isLoading}
+                                                >
+                                                  Clear
+                                                </Button>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 text-destructive hover:text-destructive"
+                                            onClick={() => {
+                                              handleRemoveShipmentLine(groupIndex, shipmentIndex);
+                                              const currentShipments = form.getValues(
+                                                `shipmentGroups.${groupIndex}.shipments`
+                                              );
+                                              const updated = currentShipments.filter((_, i) => i !== shipmentIndex);
+                                              form.setValue(`shipmentGroups.${groupIndex}.shipments`, updated);
+                                            }}
+                                          >
+                                            Remove
+                                          </Button>
+                                        </div>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
                             <div className="flex justify-end">
                               <Button
                                 type="button"
                                 onClick={() => closePopup(popupKey, 'products')}
                               >
-                                Done
+                                Save and Close
                               </Button>
                             </div>
                           </div>
@@ -1200,8 +1557,8 @@ export function CreateShipmentWithLabelsForm({
                         control={form.control}
                         name={`shipmentGroups.${groupIndex}.service`}
                         render={({ field }) => (
-                          <FormItem className="flex-shrink-0">
-                            <FormLabel className="text-xs text-muted-foreground mb-1 block">Service *</FormLabel>
+                          <FormItem className="order-2 w-[150px] shrink-0 space-y-1">
+                            <FormLabel className="text-[11px] text-muted-foreground">Service *</FormLabel>
                             <Dialog open={openPopups[`${popupKey}_service`] || false} onOpenChange={(open) => {
                               if (open) {
                                 setOpenPopups(prev => ({ ...prev, [`${popupKey}_service`]: true }));
@@ -1213,7 +1570,7 @@ export function CreateShipmentWithLabelsForm({
                                 <Button
                                   type="button"
                                   variant="outline"
-                                  className="w-[130px] justify-between"
+                                  className="h-8 w-full justify-between"
                                   onClick={() => togglePopup(popupKey, 'service')}
                                 >
                                   <span className="truncate">{field.value || "Select"}</span>
@@ -1261,9 +1618,11 @@ export function CreateShipmentWithLabelsForm({
                       control={form.control}
                       name={`shipmentGroups.${groupIndex}.date`}
                       render={({ field }) => (
-                        <FormItem className="flex-shrink-0">
-                          <FormLabel className="text-xs text-muted-foreground mb-1 block">Shipping Date</FormLabel>
-                          <DatePicker date={field.value} setDate={field.onChange} />
+                        <FormItem className="order-3 w-[170px] shrink-0 space-y-1">
+                          <FormLabel className="text-[11px] text-muted-foreground">Shipping Date</FormLabel>
+                          <div className="w-full">
+                            <DatePicker date={field.value} setDate={field.onChange} />
+                          </div>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -1274,86 +1633,66 @@ export function CreateShipmentWithLabelsForm({
                       control={form.control}
                       name={`shipmentGroups.${groupIndex}.remarks`}
                       render={({ field }) => (
-                        <FormItem className="flex-1 min-w-[160px]">
-                          <FormLabel className="text-xs text-muted-foreground mb-1 block">Remarks (Optional)</FormLabel>
+                        <FormItem className="order-5 w-[260px] shrink-0 space-y-1">
+                          <FormLabel className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            Remarks (Optional)
+                            <span
+                              className="inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold text-muted-foreground"
+                              title="Add handling notes for admin. For Custom items, mention any missing size/weight details here."
+                            >
+                              ?
+                            </span>
+                          </FormLabel>
                           <FormControl>
-                            <Textarea placeholder="Add any additional remarks or notes..." {...field} className="w-full min-h-[80px]" />
+                            <Input placeholder="Remarks (optional)" {...field} className="h-8 w-full" />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
+                          </div>
 
-                    {/* Label Upload - Multiple files */}
-                    <div className="flex-shrink-0">
-                      <FormLabel className="text-xs text-muted-foreground mb-1 block">Upload Shipping Label(s) (Optional)</FormLabel>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Input
-                          type="file"
-                          accept="image/*,application/pdf"
-                          multiple
-                          onChange={(e) => {
-                            handleLabelSelect(groupIndex, e).catch((error) => {
-                              console.error("Unhandled error in handleLabelSelect:", error);
-                              toast({
-                                variant: "destructive",
-                                title: "Error",
-                                description: "Failed to process file selection. Please try again.",
-                              });
-                            });
-                          }}
-                          className="w-[170px]"
-                          disabled={labelState.isUploading || isLoading}
-                        />
-                        {(labelState.items?.length ?? 0) > 0 && (
-                          <>
-                            {labelState.items.map((item, itemIdx) => (
-                              <div key={itemIdx} className="flex items-center gap-1.5 rounded border bg-muted/40 px-2 py-1">
-                                {item.preview ? (
-                                  <img src={item.preview} alt="" className="h-6 w-6 rounded object-cover" />
-                                ) : (
-                                  <ImageIcon className="h-5 w-5 text-muted-foreground" />
-                                )}
-                                <span className="text-xs max-w-[100px] truncate" title={item.file.name}>{item.file.name}</span>
-                                {item.uploadedUrl ? (
-                                  <span className="text-xs text-green-600">Uploaded</span>
-                                ) : null}
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-5 w-5 p-0"
-                                  onClick={() => handleRemoveLabel(groupIndex, itemIdx)}
-                                  disabled={labelState.isUploading || isLoading}
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            ))}
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="text-xs"
-                              onClick={() => handleRemoveLabel(groupIndex)}
-                              disabled={labelState.isUploading || isLoading}
-                            >
-                              Clear all
-                            </Button>
-                          </>
-                        )}
-                        {labelState.isUploading && (
-                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                        )}
-                      </div>
-                    </div>
+                          <div className="rounded-md border bg-muted/20 px-2 py-1">
+                            <div className="flex min-w-max items-center gap-1">
+                              {groupShipments.length > 0 ? (
+                                groupShipments.map((shipment, shipmentIndex) => {
+                                  const summaryProduct = inventory.find((item) => item.id === shipment.productId);
+                                  const lineEditorPopupKey = `${popupKey}_line_${shipmentIndex}_editor`;
+                                  return (
+                                    <Button
+                                      key={shipment.productId || shipmentIndex}
+                                      type="button"
+                                      variant="secondary"
+                                      size="sm"
+                                      className="h-7 shrink-0 px-2 text-xs"
+                                      onClick={() =>
+                                        setOpenPopups((prev) => ({
+                                          ...prev,
+                                          [lineEditorPopupKey]: true,
+                                        }))
+                                      }
+                                    >
+                                      {summaryProduct?.productName || "Line item"}
+                                    </Button>
+                                  );
+                                })
+                              ) : (
+                                <span className="px-1 text-[11px] text-muted-foreground">
+                                  No products selected
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
                   {/* Selected Products Details */}
                   {groupShipments.length > 0 ? (
-                    <div className="mt-4 space-y-2">
-                      <div className="text-sm font-medium mb-2">Selected Products:</div>
+                    <div className="hidden">
+                      <div className="mb-1 text-xs font-medium text-muted-foreground">Selected Products (single-line view)</div>
+                      <div className="overflow-x-scroll">
+                        <div className="flex min-w-max items-center gap-2 pb-1">
                       {groupShipments.map((shipment, shipmentIndex) => {
                         const product = inventory.find((item) => item.id === shipment.productId);
                         const quantity = form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`) || 0;
@@ -1362,176 +1701,179 @@ export function CreateShipmentWithLabelsForm({
                         const availableStock = product?.quantity || 0;
                         const lineProductType = form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType`);
                         const lineProductTypePopupKey = `${popupKey}_line_${shipmentIndex}_productType`;
+                        const lineEditorPopupKey = `${popupKey}_line_${shipmentIndex}_editor`;
+                        const lineKey = getLineKey(groupIndex, shipmentIndex);
+                        const lineLabelState = labelStates[lineKey] || { items: [], isUploading: false };
+                        const lineLabelsCount = lineLabelState.items?.length ?? 0;
+                        const lineServicesCount = shipment.selectedAdditionalServices?.length ?? 0;
+                        const linePrice = Number(shipment.totalPrice || 0);
 
                         return (
-                          <div key={shipment.productId || shipmentIndex} className="border rounded-lg p-3 bg-muted/30">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex-1">
-                                <div className="font-medium text-sm">{product?.productName}</div>
-                                <div className="text-xs text-muted-foreground">In Stock: {availableStock}</div>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  const currentShipments = form.getValues(`shipmentGroups.${groupIndex}.shipments`);
-                                  const updated = currentShipments.filter((_, i) => i !== shipmentIndex);
-                                  form.setValue(`shipmentGroups.${groupIndex}.shipments`, updated);
-                                }}
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            </div>
-                            {groupShipmentType === "product" && (
-                              <div className="mb-3 space-y-2">
-                                <FormField
-                                  control={form.control}
-                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType` as const}
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel className="text-xs">Product type / dimension *</FormLabel>
-                                      <Dialog
-                                        open={openPopups[lineProductTypePopupKey] || false}
-                                        onOpenChange={(open) => {
-                                          setOpenPopups((prev) => ({ ...prev, [lineProductTypePopupKey]: open }));
-                                        }}
-                                      >
-                                        <DialogTrigger asChild>
-                                          <Button type="button" variant="outline" className="w-full max-w-md justify-between">
-                                            <span className="truncate">
-                                              {field.value === "Standard"
-                                                ? "Standard (6×6×6) - <3lbs"
-                                                : field.value === "Large"
-                                                  ? "Large (10×10×10) - <6lbs"
-                                                  : field.value === "Custom"
-                                                    ? "Custom"
-                                                    : "Select"}
-                                            </span>
-                                            <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
-                                          </Button>
-                                        </DialogTrigger>
-                                        <DialogContent>
-                                          <DialogHeader>
-                                            <DialogTitle>Product type / dimension</DialogTitle>
-                                            <DialogDescription>Applies to this line only. Submit splits requests by type.</DialogDescription>
-                                          </DialogHeader>
-                                          <div className="space-y-2 py-2">
-                                            {(["Standard", "Large", "Custom"] as const).map((opt) => (
-                                              <Button
-                                                key={opt}
-                                                type="button"
-                                                variant={field.value === opt ? "default" : "outline"}
-                                                className="w-full justify-start"
-                                                onClick={() => {
-                                                  field.onChange(opt);
-                                                  if (opt !== "Custom") {
-                                                    form.setValue(
-                                                      `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions`,
-                                                      undefined
-                                                    );
-                                                  }
-                                                  setOpenPopups((prev) => ({ ...prev, [lineProductTypePopupKey]: false }));
-                                                }}
-                                              >
-                                                {opt === "Standard"
-                                                  ? "Standard (6×6×6) - <3lbs"
-                                                  : opt === "Large"
-                                                    ? "Large (10×10×10) - <6lbs"
-                                                    : "Custom"}
+                          <div
+                            key={shipment.productId || shipmentIndex}
+                            className="shrink-0 rounded-md border bg-muted/20 px-2 py-1"
+                          >
+                            <div className="mouse-h-scroll">
+                              <div className="flex min-w-max items-center gap-3">
+                                <div className="min-w-[180px] shrink-0 text-xs font-medium text-foreground">
+                                  {product?.productName}
+                                </div>
+                                <div className="min-w-[120px] shrink-0 text-xs text-muted-foreground">
+                                  Stock: <span className="font-medium text-foreground">{availableStock}</span>
+                                </div>
+                                <div className="min-w-[180px] shrink-0 text-xs text-muted-foreground">
+                                  Type: <span className="font-medium text-foreground">{lineProductType || "N/A"}</span>
+                                </div>
+                                <div className="min-w-[100px] shrink-0 text-xs text-muted-foreground">
+                                  Qty: <span className="font-medium text-foreground">{quantity}</span>
+                                </div>
+                                {groupShipmentType === "product" && (
+                                  <div className="min-w-[110px] shrink-0 text-xs text-muted-foreground">
+                                    Pack: <span className="font-medium text-foreground">{packOf}</span>
+                                  </div>
+                                )}
+                                <div className="min-w-[120px] shrink-0 text-xs text-muted-foreground">
+                                  Units: <span className="font-medium text-foreground">{totalUnits}</span>
+                                </div>
+                                <div className="min-w-[130px] shrink-0 text-xs text-muted-foreground">
+                                  Price: <span className="font-medium text-foreground">${linePrice.toFixed(2)}</span>
+                                </div>
+                                <div className="min-w-[130px] shrink-0 text-xs text-muted-foreground">
+                                  Labels: <span className="font-medium text-foreground">{lineLabelsCount}</span>
+                                </div>
+                                <div className="min-w-[140px] shrink-0 text-xs text-muted-foreground">
+                                  Services: <span className="font-medium text-foreground">{lineServicesCount}</span>
+                                </div>
+                                <Dialog
+                                  open={openPopups[lineEditorPopupKey] || false}
+                                  onOpenChange={(open) => {
+                                    setOpenPopups((prev) => ({ ...prev, [lineEditorPopupKey]: open }));
+                                  }}
+                                >
+                                  <DialogTrigger asChild>
+                                    <Button type="button" variant="outline" size="sm" className="shrink-0">
+                                      Edit line details
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent className="max-w-5xl">
+                                    <DialogHeader>
+                                      <DialogTitle>Line details - {product?.productName}</DialogTitle>
+                                      <DialogDescription>
+                                        Update quantity, pricing details, labels, and additional services for this line.
+                                      </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="mouse-h-scroll">
+                                      <div className="flex min-w-max items-end gap-2 pb-1">
+                                {groupShipmentType === "product" && (
+                                  <>
+                                    <FormField
+                                      control={form.control}
+                                      name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType` as const}
+                                      render={({ field }) => (
+                                        <FormItem className="w-[320px] shrink-0">
+                                          <FormLabel className="text-xs">Product type / dimension *</FormLabel>
+                                          <Dialog
+                                            open={openPopups[lineProductTypePopupKey] || false}
+                                            onOpenChange={(open) => {
+                                              setOpenPopups((prev) => ({ ...prev, [lineProductTypePopupKey]: open }));
+                                            }}
+                                          >
+                                            <DialogTrigger asChild>
+                                              <Button type="button" variant="outline" className="w-full max-w-md justify-between">
+                                                <span className="truncate">
+                                                  {field.value === "Standard"
+                                                    ? "Standard (6×6×6) - <3lbs"
+                                                    : field.value === "Large"
+                                                      ? "Large (10×10×10) - <6lbs"
+                                                      : field.value === "Custom"
+                                                        ? "Custom"
+                                                        : "Select"}
+                                                </span>
+                                                <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
                                               </Button>
-                                            ))}
-                                          </div>
-                                        </DialogContent>
-                                      </Dialog>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                {lineProductType === "Custom" && (
-                                  <FormField
-                                    control={form.control}
-                                    name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions` as const}
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormLabel className="text-xs">Custom dimensions (Optional)</FormLabel>
-                                        <FormControl>
-                                          <Textarea
-                                            placeholder="Length × width × height (in), weight (lbs), etc."
-                                            className="min-h-[72px] text-sm"
-                                            {...field}
-                                          />
-                                        </FormControl>
-                                        <FormDescription className="text-[10px]">
-                                          If unknown, leave blank. Admin can review and add dimensions before final charge.
-                                        </FormDescription>
-                                        <FormMessage />
-                                      </FormItem>
-                                    )}
-                                  />
-                                )}
-                              </div>
-                            )}
-                            <div className="flex gap-2">
-                              {(groupShipmentType === "box" || groupShipmentType === "pallet") && (
-                                <FormField
-                                  control={form.control}
-                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.dimensions` as const}
-                                  render={({ field }) => (
-                                    <FormItem className="flex-1">
-                                      <FormLabel className="text-xs">Dimensions</FormLabel>
-                                      <FormControl>
-                                        <Input
-                                          placeholder="L x W x H (e.g. 20x14x10 in)"
-                                          className="h-8"
-                                          {...field}
-                                          value={field.value || ""}
-                                        />
-                                      </FormControl>
-                                      <FormDescription className="text-[10px]">
-                                        Add box/pallet size details for handling.
-                                      </FormDescription>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                              )}
+                                            </DialogTrigger>
+                                            <DialogContent>
+                                              <DialogHeader>
+                                                <DialogTitle>Product type / dimension</DialogTitle>
+                                                <DialogDescription>
+                                                  Applies to this line only. Submit splits requests by type.
+                                                </DialogDescription>
+                                              </DialogHeader>
+                                              <div className="space-y-2 py-2">
+                                                {(["Standard", "Large", "Custom"] as const).map((opt) => (
+                                                  <Button
+                                                    key={opt}
+                                                    type="button"
+                                                    variant={field.value === opt ? "default" : "outline"}
+                                                    className="w-full justify-start"
+                                                    onClick={() => {
+                                                      field.onChange(opt);
+                                                      if (opt !== "Custom") {
+                                                        form.setValue(
+                                                          `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions`,
+                                                          undefined
+                                                        );
+                                                      }
+                                                      setOpenPopups((prev) => ({
+                                                        ...prev,
+                                                        [lineProductTypePopupKey]: false,
+                                                      }));
+                                                    }}
+                                                  >
+                                                    {opt === "Standard"
+                                                      ? "Standard (6×6×6) - <3lbs"
+                                                      : opt === "Large"
+                                                        ? "Large (10×10×10) - <6lbs"
+                                                        : "Custom"}
+                                                  </Button>
+                                                ))}
+                                              </div>
+                                            </DialogContent>
+                                          </Dialog>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
 
-                              <FormField
-                                control={form.control}
-                                name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity` as const}
-                                render={({ field }) => (
-                                  <FormItem className="flex-1">
-                                    <FormLabel className="text-xs">Qty</FormLabel>
-                                    <FormControl>
-                                      <Input
-                                        type="number"
-                                        min="1"
-                                        className="h-8"
-                                        {...field}
-                                        onChange={(e) => {
-                                          const value = parseInt(e.target.value) || 0;
-                                          field.onChange(value);
-                                        }}
+                                    {lineProductType === "Custom" && (
+                                      <FormField
+                                        control={form.control}
+                                        name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions` as const}
+                                        render={({ field }) => (
+                                          <FormItem className="w-[280px] shrink-0">
+                                            <FormLabel className="text-xs flex items-center gap-1">
+                                              Custom dimensions (Optional)
+                                              <span
+                                                className="inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold text-muted-foreground"
+                                                title="If dimensions are unknown or approximate, submit anyway. Admin will correct dimensions, set pricing, and guide next step."
+                                              >
+                                                ?
+                                              </span>
+                                            </FormLabel>
+                                            <FormControl>
+                                              <Textarea
+                                                placeholder="Length × width × height (in), weight (lbs), etc."
+                                                className="min-h-[72px] text-sm"
+                                                {...field}
+                                              />
+                                            </FormControl>
+                                            <FormDescription className="text-[10px]">
+                                              If unknown, leave blank. Admin can review and add dimensions before final charge.
+                                            </FormDescription>
+                                            <FormMessage />
+                                          </FormItem>
+                                        )}
                                       />
-                                    </FormControl>
-                                    {totalUnits > availableStock && (
-                                      <p className="text-xs font-medium text-destructive">
-                                        Insufficient stock!
-                                      </p>
                                     )}
-                                    <FormMessage />
-                                  </FormItem>
+                                  </>
                                 )}
-                              />
 
-                              {groupShipmentType === "product" && (
                                 <FormField
                                   control={form.control}
-                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf` as const}
+                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity` as const}
                                   render={({ field }) => (
-                                    <FormItem className="flex-1">
-                                      <FormLabel className="text-xs">Pack Of</FormLabel>
+                                    <FormItem className="w-[120px] shrink-0">
+                                      <FormLabel className="text-xs">Qty</FormLabel>
                                       <FormControl>
                                         <Input
                                           type="number"
@@ -1539,270 +1881,435 @@ export function CreateShipmentWithLabelsForm({
                                           className="h-8"
                                           {...field}
                                           onChange={(e) => {
-                                            const value = parseInt(e.target.value) || 1;
+                                            const value = parseInt(e.target.value) || 0;
                                             field.onChange(value);
                                           }}
                                         />
                                       </FormControl>
+                                      {totalUnits > availableStock && (
+                                        <p className="text-xs font-medium text-destructive">Insufficient stock!</p>
+                                      )}
                                       <FormMessage />
                                     </FormItem>
                                   )}
                                 />
-                              )}
 
-                              <FormField
-                                control={form.control}
-                                name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice` as const}
-                                render={({ field }) => {
-                                  // Custom: show placeholder $1 and admin message; admin sets final pricing on approval.
-                                  if (groupShipmentType === "product" && lineProductType === "Custom") {
+                                {groupShipmentType === "product" && (
+                                  <FormField
+                                    control={form.control}
+                                    name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf` as const}
+                                    render={({ field }) => (
+                                      <FormItem className="w-[120px] shrink-0">
+                                        <FormLabel className="text-xs">Pack Of</FormLabel>
+                                        <FormControl>
+                                          <Input
+                                            type="number"
+                                            min="1"
+                                            className="h-8"
+                                            {...field}
+                                            onChange={(e) => {
+                                              const value = parseInt(e.target.value) || 1;
+                                              field.onChange(value);
+                                            }}
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                )}
+
+                                <FormField
+                                  control={form.control}
+                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice` as const}
+                                  render={({ field }) => {
+                                    if (groupShipmentType === "product" && lineProductType === "Custom") {
+                                      return (
+                                        <FormItem className="w-[180px] shrink-0">
+                                          <FormLabel className="text-xs">Price ($)</FormLabel>
+                                          <FormControl>
+                                            <Input
+                                              type="text"
+                                              className="h-8 [appearance:textfield]"
+                                              readOnly
+                                              value={"1.00"}
+                                            />
+                                          </FormControl>
+                                          <div className="mt-2 rounded-md border-2 border-blue-200 border-dashed bg-blue-50 p-2">
+                                            <p className="text-center text-xs font-medium text-blue-700">
+                                              Admin can review your request and then charge
+                                            </p>
+                                          </div>
+                                          <FormMessage />
+                                        </FormItem>
+                                      );
+                                    }
+
+                                    const lineQuantity =
+                                      form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`) || 0;
+                                    const linePackOf =
+                                      groupShipmentType === "product"
+                                        ? form.watch(
+                                            `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf`
+                                          ) || 1
+                                        : 1;
+                                    let unitPrice =
+                                      form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`) || 0;
+
+                                    if (
+                                      groupShipmentType === "product" &&
+                                      groupService &&
+                                      lineProductType &&
+                                      pricingRules &&
+                                      pricingRules.length > 0 &&
+                                      lineQuantity > 0
+                                    ) {
+                                      const calculatedPrice = calculatePrepUnitPrice(
+                                        pricingRules,
+                                        groupService,
+                                        lineProductType,
+                                        lineQuantity,
+                                        linePackOf
+                                      );
+
+                                      if (
+                                        calculatedPrice &&
+                                        calculatedPrice.rate !== undefined &&
+                                        calculatedPrice.rate !== null
+                                      ) {
+                                        unitPrice = calculatedPrice.rate;
+                                      }
+                                    }
+
+                                    let calculatedTotal = 0;
+                                    if (groupShipmentType === "product" && unitPrice > 0 && lineQuantity > 0) {
+                                      const baseTotal = unitPrice * lineQuantity;
+                                      let packOfPrice = 0;
+
+                                      if (groupService && lineProductType && pricingRules && pricingRules.length > 0) {
+                                        const calculatedPriceForPackOf = calculatePrepUnitPrice(
+                                          pricingRules,
+                                          groupService,
+                                          lineProductType,
+                                          lineQuantity,
+                                          linePackOf
+                                        );
+                                        if (calculatedPriceForPackOf) {
+                                          packOfPrice = calculatedPriceForPackOf.packOf || 0;
+                                        }
+                                      }
+
+                                      const packCharge = packOfPrice;
+                                      calculatedTotal = parseFloat((baseTotal + packCharge).toFixed(2));
+                                    } else if (unitPrice > 0 && lineQuantity > 0) {
+                                      calculatedTotal = parseFloat((unitPrice * lineQuantity).toFixed(2));
+                                    }
+
+                                    const displayValue = calculatedTotal > 0 ? calculatedTotal : field.value || 0;
+                                    const formattedValue =
+                                      typeof displayValue === "number"
+                                        ? displayValue.toFixed(2)
+                                        : parseFloat(displayValue || 0).toFixed(2);
+
                                     return (
-                                      <FormItem className="flex-1">
+                                      <FormItem className="w-[180px] shrink-0">
                                         <FormLabel className="text-xs">Price ($)</FormLabel>
                                         <FormControl>
                                           <Input
                                             type="text"
+                                            placeholder="Auto"
                                             className="h-8 [appearance:textfield]"
                                             readOnly
-                                            value={"1.00"}
+                                            value={formattedValue}
                                           />
                                         </FormControl>
-                                        <div className="mt-2 rounded-md border-2 border-blue-200 border-dashed bg-blue-50 p-2">
-                                          <p className="text-xs font-medium text-blue-700 text-center">
-                                            Admin can review your request and then charge
-                                          </p>
-                                        </div>
                                         <FormMessage />
                                       </FormItem>
                                     );
-                                  }
+                                  }}
+                                />
 
-                                  const quantity = form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`) || 0;
-                                  const packOf = groupShipmentType === "product" ? (form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf`) || 1) : 1;
-                                  const totalUnits = quantity * packOf;
-                                  let unitPrice = form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`) || 0;
-                                  
-                                  // Recalculate unit price if not set or if we have pricing rules
-                                  // Use quantity (not totalUnits) to determine unit price
-                                  // This ensures unit price stays consistent regardless of packOf value
-                                  if (groupShipmentType === "product" && groupService && lineProductType && pricingRules && pricingRules.length > 0 && quantity > 0) {
-                                    const calculatedPrice = calculatePrepUnitPrice(
-                                      pricingRules,
-                                      groupService,
-                                      lineProductType,
-                                      quantity // Use quantity, not totalUnits, to get consistent unit price
-                                    );
-                                    // Always use calculated rate if available (even if it's 0.10)
-                                    if (calculatedPrice && calculatedPrice.rate !== undefined && calculatedPrice.rate !== null) {
-                                      unitPrice = calculatedPrice.rate;
-                                    }
-                                  }
-                                  
-                                  // Calculate total price with pack of charge
-                                  // Formula: Total = (Unit Price Ã— Quantity) + (Pack Of Price Ã— (Pack Of - 1))
-                                  // The unit price is per item, and packOfPrice is charged for each pack beyond the first one
-                                  let calculatedTotal = 0;
-                                  if (groupShipmentType === "product" && unitPrice > 0 && quantity > 0) {
-                                    const baseTotal = unitPrice * quantity; // Unit price Ã— quantity (not multiplied by packOf)
-                                    let packOfPrice = 0;
-                                    if (groupService && lineProductType && pricingRules && pricingRules.length > 0) {
-                                      // Look up packOfPrice based on quantity only, not totalUnits
-                                      // This ensures packOfPrice doesn't change when packOf changes
-                                      const calculatedPriceForPackOf = calculatePrepUnitPrice(
-                                        pricingRules,
-                                        groupService,
-                                        lineProductType,
-                                        quantity // Use quantity, not totalUnits, to get the correct packOfPrice
-                                      );
-                                      if (calculatedPriceForPackOf) {
-                                        packOfPrice = calculatedPriceForPackOf.packOf || 0; // Charge per pack (beyond the first pack)
-                                      }
-                                    }
-                                    // Pack charge: packOfPrice Ã— (packOf - 1)
-                                    // First pack is free, charge applies from 2nd pack onwards
-                                    const packCharge = packOfPrice * Math.max(0, packOf - 1);
-                                    calculatedTotal = parseFloat((baseTotal + packCharge).toFixed(2));
-                                  } else if (unitPrice > 0 && quantity > 0) {
-                                    calculatedTotal = parseFloat((unitPrice * quantity).toFixed(2));
-                                  }
-                                  
-                                  // Always show calculated total if available, otherwise show field value
-                                  const displayValue = calculatedTotal > 0 ? calculatedTotal : (field.value || 0);
-                                  // Format to always show 2 decimal places (e.g., 0.10 instead of 0.1)
-                                  const formattedValue = typeof displayValue === 'number' ? displayValue.toFixed(2) : parseFloat(displayValue || 0).toFixed(2);
-                                  
-                                  return (
-                                    <FormItem className="flex-1">
-                                      <FormLabel className="text-xs">Price ($)</FormLabel>
-                                      <FormControl>
-                                        <Input
-                                          type="text"
-                                          placeholder="Auto"
-                                          className="h-8 [appearance:textfield]"
-                                          readOnly
-                                          value={formattedValue}
-                                        />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  );
-                                }}
-                              />
-                              {/* Hidden unitPrice field: required by schema even though we don't show it in the UI */}
-                              <FormField
-                                control={form.control}
-                                name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice` as const}
-                                render={({ field }) => (
-                                  <input type="hidden" {...field} value={field.value ?? ""} />
-                                )}
-                              />
-                            </div>
-                            
-                            {/* Additional Services - Per Product */}
-                            <div className="mt-3 pt-3 border-t">
-                              <FormField
-                                control={form.control}
-                                name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices` as const}
-                                render={({ field }) => {
-                                  const selectedServices = field.value || [];
-                                  const hasBubbleWrap = selectedServices.includes("bubbleWrap");
-                                  const hasStickerRemoval = selectedServices.includes("stickerRemoval");
-                                  const hasWarningLabels = selectedServices.includes("warningLabels");
-                                  const selectedServicesDisplay: string[] = [];
-                                  if (hasBubbleWrap) selectedServicesDisplay.push("Bubble Wrap");
-                                  if (hasStickerRemoval) selectedServicesDisplay.push("Sticker Removal");
-                                  if (hasWarningLabels) selectedServicesDisplay.push("Warning Labels");
-                                  const displayText = selectedServicesDisplay.length > 0 
-                                    ? selectedServicesDisplay.join(", ")
-                                    : "Select (optional)";
-                                  const productPopupKey = `${popupKey}_product_${shipmentIndex}_additionalServices`;
+                                <FormField
+                                  control={form.control}
+                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice` as const}
+                                  render={({ field }) => (
+                                    <input type="hidden" {...field} value={field.value ?? ""} />
+                                  )}
+                                />
 
-                                  return (
-                                    <FormItem>
-                                      <FormLabel className="text-xs font-medium">Additional Services (Optional)</FormLabel>
-                                      <Dialog
-                                        open={openPopups[productPopupKey] || false}
-                                        onOpenChange={(open) => {
-                                          if (open) {
-                                            setOpenPopups(prev => ({ ...prev, [productPopupKey]: true }));
-                                          } else {
-                                            setOpenPopups(prev => ({ ...prev, [productPopupKey]: false }));
-                                          }
+                                <div className="w-[460px] shrink-0">
+                                  <FormLabel className="mb-1 block text-xs text-muted-foreground">
+                                    Upload Shipping Label(s) (Optional)
+                                  </FormLabel>
+                                  <div className="mouse-h-scroll">
+                                    <div className="flex min-w-max flex-nowrap items-center gap-2 pb-1">
+                                      <Input
+                                        type="file"
+                                        accept="image/*,application/pdf"
+                                        multiple
+                                        onChange={(e) => {
+                                          handleLabelSelect(lineKey, e).catch((error) => {
+                                            console.error("Unhandled error in handleLabelSelect:", error);
+                                            toast({
+                                              variant: "destructive",
+                                              title: "Error",
+                                              description: "Failed to process file selection. Please try again.",
+                                            });
+                                          });
                                         }}
-                                      >
-                                        <DialogTrigger asChild>
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            className="w-full justify-between"
-                                            onClick={() => {
-                                              setOpenPopups(prev => ({ ...prev, [productPopupKey]: !prev[productPopupKey] }));
-                                            }}
-                                          >
-                                            <span className="truncate">
-                                              {displayText}
-                                            </span>
-                                            <ChevronDown className="h-4 w-4 opacity-50" />
-                                          </Button>
-                                        </DialogTrigger>
-                                        <DialogContent>
-                                          <DialogHeader>
-                                            <DialogTitle>Additional Services for {product?.productName}</DialogTitle>
-                                            <DialogDescription>
-                                              Select which additional services you need for this product. Admin will add quantities and calculate pricing during approval.
-                                            </DialogDescription>
-                                          </DialogHeader>
-                                          <div className="space-y-4 py-2">
-                                            <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                              <FormControl>
-                                                <Checkbox
-                                                  checked={hasBubbleWrap}
-                                                  onCheckedChange={(checked) => {
-                                                    const current = field.value || [];
-                                                    if (checked) {
-                                                      field.onChange([...current, "bubbleWrap"]);
-                                                    } else {
-                                                      field.onChange(current.filter(s => s !== "bubbleWrap"));
-                                                    }
-                                                  }}
+                                        className="w-[190px] shrink-0"
+                                        disabled={lineLabelState.isUploading || isLoading}
+                                      />
+
+                                      {(lineLabelState.items?.length ?? 0) > 0 && (
+                                        <>
+                                          {lineLabelState.items.map((item, itemIdx) => (
+                                            <div
+                                              key={itemIdx}
+                                              className="flex shrink-0 items-center gap-1.5 rounded border bg-muted/40 px-2 py-1"
+                                            >
+                                              {item.preview ? (
+                                                <img
+                                                  src={item.preview}
+                                                  alt=""
+                                                  className="h-6 w-6 rounded object-cover"
                                                 />
-                                              </FormControl>
-                                              <div className="space-y-1 leading-none">
-                                                <FormLabel>Bubble Wrap</FormLabel>
-                                                <p className="text-xs text-muted-foreground">
-                                                  Admin will add quantity (feet) during approval
-                                                </p>
-                                              </div>
-                                            </FormItem>
-                                            <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                              <FormControl>
-                                                <Checkbox
-                                                  checked={hasStickerRemoval}
-                                                  onCheckedChange={(checked) => {
-                                                    const current = field.value || [];
-                                                    if (checked) {
-                                                      field.onChange([...current, "stickerRemoval"]);
-                                                    } else {
-                                                      field.onChange(current.filter(s => s !== "stickerRemoval"));
-                                                    }
-                                                  }}
-                                                />
-                                              </FormControl>
-                                              <div className="space-y-1 leading-none">
-                                                <FormLabel>Sticker Removal</FormLabel>
-                                                <p className="text-xs text-muted-foreground">
-                                                  Admin will add quantity (items) during approval
-                                                </p>
-                                              </div>
-                                            </FormItem>
-                                            <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                              <FormControl>
-                                                <Checkbox
-                                                  checked={hasWarningLabels}
-                                                  onCheckedChange={(checked) => {
-                                                    const current = field.value || [];
-                                                    if (checked) {
-                                                      field.onChange([...current, "warningLabels"]);
-                                                    } else {
-                                                      field.onChange(current.filter(s => s !== "warningLabels"));
-                                                    }
-                                                  }}
-                                                />
-                                              </FormControl>
-                                              <div className="space-y-1 leading-none">
-                                                <FormLabel>Warning Labels</FormLabel>
-                                                <p className="text-xs text-muted-foreground">
-                                                  Admin will add quantity (count) during approval
-                                                </p>
-                                              </div>
-                                            </FormItem>
-                                            <div className="flex justify-end gap-2 pt-2">
+                                              ) : (
+                                                <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                                              )}
+                                              <span
+                                                className="max-w-[100px] truncate text-xs"
+                                                title={item.file.name}
+                                              >
+                                                {item.file.name}
+                                              </span>
+                                              {item.uploadedUrl ? (
+                                                <span className="text-xs text-green-600">Uploaded</span>
+                                              ) : null}
                                               <Button
                                                 type="button"
                                                 variant="ghost"
-                                                onClick={() => {
-                                                  field.onChange([]);
-                                                  setOpenPopups(prev => ({ ...prev, [productPopupKey]: false }));
-                                                }}
+                                                size="sm"
+                                                className="h-5 w-5 p-0"
+                                                onClick={() => handleRemoveLabel(lineKey, itemIdx)}
+                                                disabled={lineLabelState.isUploading || isLoading}
                                               >
-                                                Clear All
-                                              </Button>
-                                              <Button type="button" onClick={() => setOpenPopups(prev => ({ ...prev, [productPopupKey]: false }))}>
-                                                Done
+                                                <X className="h-3 w-3" />
                                               </Button>
                                             </div>
-                                          </div>
-                                        </DialogContent>
-                                      </Dialog>
-                                      <FormMessage />
-                                    </FormItem>
-                                  );
-                                }}
-                              />
+                                          ))}
+
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="shrink-0 text-xs"
+                                            onClick={() => handleRemoveLabel(lineKey)}
+                                            disabled={lineLabelState.isUploading || isLoading}
+                                          >
+                                            Clear all
+                                          </Button>
+                                        </>
+                                      )}
+
+                                      {lineLabelState.isUploading && (
+                                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="w-[260px] shrink-0">
+                                  <FormField
+                                    control={form.control}
+                                    name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices` as const}
+                                    render={({ field }) => {
+                                      const selectedServices = field.value || [];
+                                      const hasBubbleWrap = selectedServices.includes("bubbleWrap");
+                                      const hasStickerRemoval = selectedServices.includes("stickerRemoval");
+                                      const hasWarningLabels = selectedServices.includes("warningLabels");
+                                      const selectedServicesDisplay: string[] = [];
+
+                                      if (hasBubbleWrap) selectedServicesDisplay.push("Bubble Wrap");
+                                      if (hasStickerRemoval) selectedServicesDisplay.push("Sticker Removal");
+                                      if (hasWarningLabels) selectedServicesDisplay.push("Warning Labels");
+
+                                      const displayText =
+                                        selectedServicesDisplay.length > 0
+                                          ? selectedServicesDisplay.join(", ")
+                                          : "Select (optional)";
+                                      const productPopupKey = `${popupKey}_product_${shipmentIndex}_additionalServices`;
+
+                                      return (
+                                        <FormItem>
+                                          <FormLabel className="text-xs font-medium">
+                                            Additional Services (Optional)
+                                          </FormLabel>
+                                          <Dialog
+                                            open={openPopups[productPopupKey] || false}
+                                            onOpenChange={(open) => {
+                                              setOpenPopups((prev) => ({
+                                                ...prev,
+                                                [productPopupKey]: open,
+                                              }));
+                                            }}
+                                          >
+                                            <DialogTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="w-full justify-between"
+                                                onClick={() => {
+                                                  setOpenPopups((prev) => ({
+                                                    ...prev,
+                                                    [productPopupKey]: !prev[productPopupKey],
+                                                  }));
+                                                }}
+                                              >
+                                                <span className="truncate">{displayText}</span>
+                                                <ChevronDown className="h-4 w-4 opacity-50" />
+                                              </Button>
+                                            </DialogTrigger>
+                                            <DialogContent>
+                                              <DialogHeader>
+                                                <DialogTitle>
+                                                  Additional Services for {product?.productName}
+                                                </DialogTitle>
+                                                <DialogDescription>
+                                                  Select which additional services you need for this product. Admin will
+                                                  add quantities and calculate pricing during approval.
+                                                </DialogDescription>
+                                              </DialogHeader>
+                                              <div className="space-y-4 py-2">
+                                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                                  <FormControl>
+                                                    <Checkbox
+                                                      checked={hasBubbleWrap}
+                                                      onCheckedChange={(checked) => {
+                                                        const current = field.value || [];
+                                                        if (checked) {
+                                                          field.onChange([...current, "bubbleWrap"]);
+                                                        } else {
+                                                          field.onChange(
+                                                            current.filter((s) => s !== "bubbleWrap")
+                                                          );
+                                                        }
+                                                      }}
+                                                    />
+                                                  </FormControl>
+                                                  <div className="space-y-1 leading-none">
+                                                    <FormLabel>Bubble Wrap</FormLabel>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      Admin will add quantity (feet) during approval
+                                                    </p>
+                                                  </div>
+                                                </FormItem>
+                                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                                  <FormControl>
+                                                    <Checkbox
+                                                      checked={hasStickerRemoval}
+                                                      onCheckedChange={(checked) => {
+                                                        const current = field.value || [];
+                                                        if (checked) {
+                                                          field.onChange([...current, "stickerRemoval"]);
+                                                        } else {
+                                                          field.onChange(
+                                                            current.filter((s) => s !== "stickerRemoval")
+                                                          );
+                                                        }
+                                                      }}
+                                                    />
+                                                  </FormControl>
+                                                  <div className="space-y-1 leading-none">
+                                                    <FormLabel>Sticker Removal</FormLabel>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      Admin will add quantity (items) during approval
+                                                    </p>
+                                                  </div>
+                                                </FormItem>
+                                                <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                                  <FormControl>
+                                                    <Checkbox
+                                                      checked={hasWarningLabels}
+                                                      onCheckedChange={(checked) => {
+                                                        const current = field.value || [];
+                                                        if (checked) {
+                                                          field.onChange([...current, "warningLabels"]);
+                                                        } else {
+                                                          field.onChange(
+                                                            current.filter((s) => s !== "warningLabels")
+                                                          );
+                                                        }
+                                                      }}
+                                                    />
+                                                  </FormControl>
+                                                  <div className="space-y-1 leading-none">
+                                                    <FormLabel>Warning Labels</FormLabel>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      Admin will add quantity (count) during approval
+                                                    </p>
+                                                  </div>
+                                                </FormItem>
+                                                <div className="flex justify-end gap-2 pt-2">
+                                                  <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    onClick={() => {
+                                                      field.onChange([]);
+                                                      setOpenPopups((prev) => ({
+                                                        ...prev,
+                                                        [productPopupKey]: false,
+                                                      }));
+                                                    }}
+                                                  >
+                                                    Clear All
+                                                  </Button>
+                                                  <Button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      setOpenPopups((prev) => ({
+                                                        ...prev,
+                                                        [productPopupKey]: false,
+                                                      }))
+                                                    }
+                                                  >
+                                                    Done
+                                                  </Button>
+                                                </div>
+                                              </div>
+                                            </DialogContent>
+                                          </Dialog>
+                                          <FormMessage />
+                                        </FormItem>
+                                      );
+                                    }}
+                                  />
+                                </div>
+                                      </div>
+                                    </div>
+                                  </DialogContent>
+                                </Dialog>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 shrink-0 p-0"
+                                  onClick={() => {
+                                    handleRemoveShipmentLine(groupIndex, shipmentIndex);
+                                    const currentShipments = form.getValues(`shipmentGroups.${groupIndex}.shipments`);
+                                    const updated = currentShipments.filter((_, i) => i !== shipmentIndex);
+                                    form.setValue(`shipmentGroups.${groupIndex}.shipments`, updated);
+                                  }}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         );
                       })}
+                        </div>
+                      </div>
                     </div>
                   ) : null}
                   </div>

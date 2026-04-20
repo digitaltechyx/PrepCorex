@@ -1,21 +1,28 @@
-import type { UserPricing, ServiceType, ProductType, PackageType, QuantityRange } from "@/types";
+import type { UserPricing, ServiceType, ProductType } from "@/types";
 
 /**
- * Determine which package type should be used based on service and quantity
+ * Determine the quantity tier used for pricing lookup.
+ * FBA/WFS/TFS now uses simple monthly-volume tiers.
  */
-function getPackageForQuantity(service: ServiceType, quantity: number): PackageType | null {
+function getRangeForQuantity(service: ServiceType, quantity: number): string | null {
   if (service === "FBA/WFS/TFS") {
-    if (quantity >= 1001) return "Premium";
-    if (quantity >= 501 && quantity <= 1000) return "Small Business";
-    if (quantity >= 50 && quantity <= 500) return "Standard";
-    if (quantity < 50) return "Starter";
+    if (quantity >= 2500) return "2500+";
+    if (quantity >= 1000) return "1000-2499";
+    return "1-999";
   } else if (service === "FBM") {
-    if (quantity >= 101) return "Premium";
-    if (quantity >= 50 && quantity < 101) return "Small Business";
-    if (quantity >= 25 && quantity < 50) return "Standard";
-    if (quantity < 25) return "Starter";
+    if (quantity >= 101) return "101+";
+    if (quantity >= 50 && quantity < 101) return "50+";
+    if (quantity >= 25 && quantity < 50) return "25+";
+    if (quantity < 25) return "<25";
   }
   return null;
+}
+
+export function getPackAddOn(packOf: number): number {
+  const value = Number(packOf || 1);
+  if (value >= 4 && value <= 12) return 0.75;
+  if (value >= 2 && value <= 3) return 0.35;
+  return 0;
 }
 
 /**
@@ -30,24 +37,26 @@ export function calculatePrepUnitPrice(
   pricingRules: UserPricing[],
   service: ServiceType,
   productType: ProductType,
-  totalUnits: number
+  totalUnits: number,
+  packOf: number = 1
 ): { rate: number; packOf: number } | null {
   if (!pricingRules || pricingRules.length === 0) {
     return null;
   }
 
-  // Determine which package should be used based on quantity
-  const expectedPackage = getPackageForQuantity(service, totalUnits);
+  // Determine quantity tier based on monthly volume / quantity.
+  const expectedRange = getRangeForQuantity(service, totalUnits);
   
-  // Find matching pricing rules - filter by service, productType, quantityRange, and package
+  // Find matching pricing rules by service, type, and quantity tier.
   const matchingRules = pricingRules.filter(
     (rule) => {
       const matchesService = rule.service === service;
       const matchesProductType = rule.productType === productType;
-      const matchesQuantityRange = isQuantityInRange(totalUnits, rule.quantityRange);
-      const matchesPackage = expectedPackage ? rule.package === expectedPackage : true;
+      const matchesQuantityRange = expectedRange
+        ? normalizeRange(rule.quantityRange) === expectedRange
+        : isQuantityInRange(totalUnits, rule.quantityRange);
       
-      return matchesService && matchesProductType && matchesQuantityRange && matchesPackage;
+      return matchesService && matchesProductType && matchesQuantityRange;
     }
   );
 
@@ -116,20 +125,37 @@ export function calculatePrepUnitPrice(
   // The rate already includes the base unit price
   // packOf is an additional charge per pack
   const rate = latestRule.rate || 0;
-  const packOf = latestRule.packOf || 0;
+  // Pack charge is now fixed by pack bucket (not multiplied per extra pack).
+  // We still return it in "packOf" field to minimize caller changes.
+  const packOfCharge = getPackAddOn(packOf);
 
   return {
     rate,
-    packOf,
+    packOf: packOfCharge,
   };
 }
 
 /**
  * Check if quantity falls within a quantity range
  */
+function normalizeRange(range: string | undefined | null): string {
+  const value = String(range || "").trim();
+  if (!value) return "";
+  if (value === "2500+") return "2500+";
+  if (value === "1000-2499") return "1000-2499";
+  if (value === "1-999") return "1-999";
+  return value;
+}
+
 function isQuantityInRange(quantity: number, range: string): boolean {
   // Handle FBA/WFS/TFS ranges
-  if (range === "1001+") {
+  if (range === "2500+") {
+    return quantity >= 2500;
+  } else if (range === "1000-2499") {
+    return quantity >= 1000 && quantity <= 2499;
+  } else if (range === "1-999") {
+    return quantity >= 1 && quantity <= 999;
+  } else if (range === "1001+") {
     return quantity >= 1001;
   } else if (range === "501-1000") {
     return quantity >= 501 && quantity <= 1000;

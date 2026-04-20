@@ -1,11 +1,12 @@
 "use client";
 
-import { LogOut, User as UserIcon, CheckCircle, Bell, CheckCheck } from "lucide-react";
+import { LogOut, User as UserIcon, CheckCircle, Bell, CheckCheck, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { hasRole, isAccountActivated } from "@/lib/permissions";
+import { hasRole, isAccountActivated, hasFeature } from "@/lib/permissions";
 import { Badge } from "@/components/ui/badge";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
@@ -38,6 +39,7 @@ interface DashboardHeaderProps {
 export function DashboardHeader({ onProfileClick }: DashboardHeaderProps) {
   const { signOut, userProfile } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const { data: notifications } = useCollection<UserNotification>(
     userProfile?.uid ? `users/${userProfile.uid}/notifications` : ""
   );
@@ -119,9 +121,31 @@ export function DashboardHeader({ onProfileClick }: DashboardHeaderProps) {
     }
   };
 
+  const isAffiliateZone =
+    pathname === "/dashboard/agent" || pathname?.startsWith("/dashboard/agent/");
+  const hasAgentRole = hasRole(userProfile, "commission_agent");
+  const hasUserRole = hasRole(userProfile, "user");
+  const hasAdminRole = hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
+  const affiliateShell =
+    isAffiliateZone &&
+    hasAgentRole &&
+    hasFeature(userProfile, "affiliate_dashboard");
+  const affiliateBackHref = hasUserRole ? "/dashboard" : hasAdminRole ? "/admin/dashboard" : "/dashboard";
+  const affiliateBackLabel = hasUserRole ? "Client dashboard" : hasAdminRole ? "Admin dashboard" : "Dashboard";
+
   return (
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-3 border-b border-border/40 bg-white px-3 sm:gap-4 sm:px-4 lg:px-6">
       <SidebarTrigger className="-ml-1 shrink-0" />
+
+      {affiliateShell && (
+        <Link
+          href={affiliateBackHref}
+          className="group flex min-w-0 max-w-[min(100%,14rem)] shrink items-center gap-1 rounded-md border border-transparent px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:border-border hover:bg-muted/60 hover:text-foreground sm:max-w-xs"
+        >
+          <ChevronLeft className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-x-0.5" />
+          <span className="truncate font-medium">{affiliateBackLabel}</span>
+        </Link>
+      )}
 
       <div className="flex flex-1 items-center justify-between gap-2 overflow-hidden sm:justify-end sm:gap-4">
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">

@@ -53,12 +53,11 @@
    createdAt?: any;
  };
 
- const FBA_PACKAGES = [
-   { package: "Premium", quantityRange: "1001+" },
-   { package: "Small Business", quantityRange: "501-1000" },
-   { package: "Standard", quantityRange: "50-500" },
-   { package: "Starter", quantityRange: "<50" },
- ] as const;
+const FBA_PACKAGES = [
+  { package: "Starter", quantityRange: "1-999" },
+  { package: "Standard", quantityRange: "1000-2499" },
+  { package: "Premium", quantityRange: "2500+" },
+] as const;
 
  const FBM_PACKAGES = [
    { package: "Premium", quantityRange: "101+" },
@@ -68,6 +67,15 @@
  ] as const;
 
  const PRODUCT_TYPES = ["Standard", "Large"] as const;
+
+const DEFAULT_FBA_RATES: Record<string, number> = {
+  "1-999|Standard": 0.65,
+  "1000-2499|Standard": 0.45,
+  "2500+|Standard": 0.35,
+  "1-999|Large": 0.85,
+  "1000-2499|Large": 0.65,
+  "2500+|Large": 0.5,
+};
 
  function toMs(v: any): number {
    if (!v) return 0;
@@ -211,7 +219,7 @@
                <th className="text-left p-2 text-sm font-medium">Range</th>
                <th className="text-left p-2 text-sm font-medium">Product Type</th>
                <th className="text-left p-2 text-sm font-medium">Rate ($)</th>
-               <th className="text-left p-2 text-sm font-medium">Pack Of ($+)</th>
+                    <th className="text-left p-2 text-sm font-medium">Pack Add-on</th>
              </tr>
            </thead>
            <tbody>
@@ -219,13 +227,23 @@
                PRODUCT_TYPES.map((pt) => {
                  const key = `${service}|${pkg.package}|${pkg.quantityRange}|${pt}`;
                  const rule = pricingByKey.get(key);
+                const fbaDefaultRate =
+                  service === "FBA/WFS/TFS"
+                    ? DEFAULT_FBA_RATES[`${pkg.quantityRange}|${pt}`]
+                    : undefined;
+                const rateToShow =
+                  rule?.rate !== undefined && rule?.rate !== null ? rule.rate : fbaDefaultRate;
                  return (
                    <tr key={key} className="border-b hover:bg-muted/50">
                      <td className="p-2 text-sm">{pkg.package}</td>
                      <td className="p-2 text-sm">{pkg.quantityRange}</td>
                      <td className="p-2 text-sm">{productTypeLabel(pt)}</td>
-                     <td className="p-2 text-sm font-medium">{money(rule?.rate)}</td>
-                     <td className="p-2 text-sm font-medium">{money(rule?.packOf)}</td>
+                    <td className="p-2 text-sm font-medium">{money(rateToShow)}</td>
+                    <td className="p-2 text-sm font-medium">
+                      {service === "FBA/WFS/TFS"
+                        ? "$0.35 (2-3) / $0.75 (4-12)"
+                        : money(rule?.packOf)}
+                    </td>
                    </tr>
                  );
                })
@@ -235,6 +253,84 @@
        </div>
      );
    };
+
+  const renderFbaPlans = () => {
+    const getFbaPrice = (range: (typeof FBA_PACKAGES)[number]["quantityRange"], productType: "Standard" | "Large") => {
+      const pkg = FBA_PACKAGES.find((p) => p.quantityRange === range);
+      if (!pkg) return undefined;
+      const key = `FBA/WFS/TFS|${pkg.package}|${pkg.quantityRange}|${productType}`;
+      const rule = pricingByKey.get(key);
+      if (rule?.rate !== undefined && rule?.rate !== null) return rule.rate;
+      return DEFAULT_FBA_RATES[`${range}|${productType}`];
+    };
+
+    const volumeRows: Array<{ range: "1-999" | "1000-2499" | "2500+"; label: string }> = [
+      { range: "1-999", label: "1-999 units" },
+      { range: "1000-2499", label: "1,000-2,499 units" },
+      { range: "2500+", label: "2,500+ units" },
+    ];
+
+    const includedItems = [
+      "Receiving & inspection",
+      "Labeling & standard prep",
+      "Packaging & forwarding",
+      "24-72 hour turnaround",
+    ];
+
+    const plans: Array<{ title: string; productType: "Standard" | "Large" }> = [
+      { title: "Standard Units", productType: "Standard" },
+      { title: "Large/Heavy Units", productType: "Large" },
+    ];
+
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-5 md:grid-cols-2">
+          {plans.map((plan) => (
+            <Card
+              key={plan.title}
+              className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-950/70"
+            >
+              <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 pb-3 dark:from-slate-900 dark:to-slate-900">
+                <CardTitle className="text-xl text-blue-700 dark:text-blue-300">{plan.title}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5 p-5 text-sm">
+                <div className="grid grid-cols-2 gap-3 border-b pb-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Monthly Volume</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
+                  {volumeRows.map((row) => (
+                    <div key={`${plan.productType}-${row.range}`} className="contents">
+                      <div className="text-[15px]">{row.label}</div>
+                      <div className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">
+                        {money(getFbaPrice(row.range, plan.productType))}/unit
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                  <div className="mb-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">Pack Add-on Pricing</div>
+                  <div className="text-sm text-emerald-900 dark:text-emerald-200">$0.35 for pack 2-3</div>
+                  <div className="text-sm text-emerald-900 dark:text-emerald-200">$0.75 for pack 4-12</div>
+                </div>
+
+                <div>
+                  <div className="mb-2 text-sm font-semibold">What's Included</div>
+                  <div className="space-y-1.5 text-[15px]">
+                    {includedItems.map((item) => (
+                      <div key={item} className="flex items-start gap-2">
+                        <span className="mt-0.5 text-emerald-600">{"\u2713"}</span>
+                        <span>{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
    return (
      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v)} className="w-full">
@@ -265,7 +361,7 @@
        </div>
 
        <TabsContent value="FBA/WFS/TFS" className="mt-4">
-         {renderServiceTable("FBA/WFS/TFS")}
+        {renderFbaPlans()}
        </TabsContent>
 
        <TabsContent value="FBM" className="mt-4">

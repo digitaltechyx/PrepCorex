@@ -34,13 +34,11 @@ interface PricingManagementProps {
 }
 
 // Pre-defined combinations for pricing
-// FBA/WFS/TFS: 8 rows (4 packages Ã— 2 product types)
-// Premium (1001+), Small Business (501+), Standard (50+), Starter (<50)
+// FBA/WFS/TFS: 6 rows (3 monthly-volume tiers x 2 product types)
 const FBA_PACKAGES = [
-  { package: "Premium" as PackageType, quantityRange: "1001+" as QuantityRange },
-  { package: "Small Business" as PackageType, quantityRange: "501-1000" as QuantityRange },
-  { package: "Standard" as PackageType, quantityRange: "50-500" as QuantityRange },
-  { package: "Starter" as PackageType, quantityRange: "<50" as QuantityRange },
+  { package: "Starter" as PackageType, quantityRange: "1-999" as QuantityRange },
+  { package: "Standard" as PackageType, quantityRange: "1000-2499" as QuantityRange },
+  { package: "Premium" as PackageType, quantityRange: "2500+" as QuantityRange },
 ];
 // FBM: 8 rows (4 packages Ã— 2 product types)
 // Premium (101+), Small Business (50+), Standard (25+), Starter (<25)
@@ -164,7 +162,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
     // Generate all combinations
     const allCombinations: PricingRow[] = [];
     
-    // FBA/WFS/TFS service: 8 rows (4 packages Ã— 2 product types)
+    // FBA/WFS/TFS service: 6 rows (3 tiers x 2 product types)
     FBA_PACKAGES.forEach((pkgInfo) => {
       PRODUCT_TYPES.forEach((productType) => {
         allCombinations.push({
