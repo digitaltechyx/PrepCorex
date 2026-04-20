@@ -390,7 +390,8 @@ type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
               <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 animate-pulse dark:text-amber-300" />
               <div className="space-y-0.5">
                 <div className="font-medium">
-                  You are currently in: <span className="font-semibold">25-49 orders/day</span> ->{" "}
+                  You are currently in: <span className="font-semibold">25-49 orders/day</span>{" "}
+                  {"->"}{" "}
                   <span className="font-semibold">{money(getFbmPrice("25-49", "Standard"))}</span> (Standard)
                 </div>
                 <div>

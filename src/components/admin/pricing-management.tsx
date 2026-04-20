@@ -1231,7 +1231,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
                           <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 animate-pulse" />
                           <div className="space-y-0.5">
                             <div className="font-medium">
-                              Example notice: You are currently in <span className="font-semibold">25-49 orders/day</span> ->
+                              Example notice: You are currently in <span className="font-semibold">25-49 orders/day</span>{" "}
+                              {"->"}
                               <span className="font-semibold"> $1.75 </span> (Standard)
                             </div>
                             <div>
