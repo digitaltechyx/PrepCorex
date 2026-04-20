@@ -24,7 +24,7 @@ import { db } from "@/lib/firebase";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { collection, addDoc, updateDoc, doc, Timestamp, writeBatch } from "firebase/firestore";
 import type { AdditionalServiceCatalogItem } from "@/lib/additional-services-catalog";
-import { DEFAULT_ADDITIONAL_SERVICES, mergeAdditionalServicesCatalog } from "@/lib/additional-services-catalog";
+import { DEFAULT_ADDITIONAL_SERVICES, catalogFromPricingDoc } from "@/lib/additional-services-catalog";
 import { Users, ChevronsUpDown, Search, X, Loader2, Save } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
@@ -121,10 +121,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const [container40ftPrice, setContainer40ftPrice] = useState<string>("");
   const [container40ftPricingId, setContainer40ftPricingId] = useState<string | null>(null);
   
-  // Additional Services Pricing
-  const [bubbleWrapPrice, setBubbleWrapPrice] = useState<string>("");
-  const [stickerRemovalPrice, setStickerRemovalPrice] = useState<string>("");
-  const [warningLabelPrice, setWarningLabelPrice] = useState<string>("");
+  // Additional Services Pricing (single catalog; legacy bubble/sticker/warning prices sync from catalog on save)
   const [additionalServicesPricingId, setAdditionalServicesPricingId] = useState<string | null>(null);
   const [additionalServiceItems, setAdditionalServiceItems] = useState<AdditionalServiceItem[]>(DEFAULT_ADDITIONAL_SERVICES);
   const [fbaPack2to3, setFbaPack2to3] = useState<string>("0.35");
@@ -419,19 +416,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
     if (!selectedUser) return;
     
     if (latestAdditionalServicesPricing) {
-      setBubbleWrapPrice((latestAdditionalServicesPricing.bubbleWrapPrice ?? 0.35).toString());
-      setStickerRemovalPrice((latestAdditionalServicesPricing.stickerRemovalPrice ?? 0.15).toString());
-      setWarningLabelPrice((latestAdditionalServicesPricing.warningLabelPrice ?? 0.15).toString());
       setAdditionalServicesPricingId(latestAdditionalServicesPricing.id);
-      setAdditionalServiceItems(
-        mergeAdditionalServicesCatalog((latestAdditionalServicesPricing as any).extraServices)
-      );
+      setAdditionalServiceItems(catalogFromPricingDoc(latestAdditionalServicesPricing as any));
     } else {
-      setBubbleWrapPrice("0.35");
-      setStickerRemovalPrice("0.15");
-      setWarningLabelPrice("0.15");
       setAdditionalServicesPricingId(null);
-      setAdditionalServiceItems(DEFAULT_ADDITIONAL_SERVICES);
+      setAdditionalServiceItems(catalogFromPricingDoc(null));
     }
   }, [selectedUser, latestAdditionalServicesPricing]);
 
@@ -770,31 +759,30 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const handleSaveAdditionalServices = async () => {
     if (!selectedUser) return;
 
-    if (!bubbleWrapPrice || bubbleWrapPrice.trim() === "" || 
-        !stickerRemovalPrice || stickerRemovalPrice.trim() === "" ||
-        !warningLabelPrice || warningLabelPrice.trim() === "") {
+    const invalidRow = additionalServiceItems.some(
+      (svc) =>
+        !String(svc.key || "").trim() ||
+        !String(svc.name || "").trim() ||
+        !Number.isFinite(Number(svc.price)) ||
+        Number(svc.price) < 0
+    );
+    if (invalidRow) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Please enter prices for all additional services.",
+        description: "Each service needs a name, key, and a valid non-negative price.",
       });
       return;
     }
 
-    const bubbleWrap = parseFloat(bubbleWrapPrice);
-    const stickerRemoval = parseFloat(stickerRemovalPrice);
-    const warningLabel = parseFloat(warningLabelPrice);
-
-    if (isNaN(bubbleWrap) || bubbleWrap < 0 || 
-        isNaN(stickerRemoval) || stickerRemoval < 0 ||
-        isNaN(warningLabel) || warningLabel < 0) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please enter valid prices for all services.",
-      });
-      return;
-    }
+    const priceForKey = (key: string, fallback: number) => {
+      const row = additionalServiceItems.find((s) => s.key === key);
+      const p = row != null ? Number(row.price) : NaN;
+      return Number.isFinite(p) && p >= 0 ? p : fallback;
+    };
+    const bubbleWrap = priceForKey("bubbleWrap", 0.35);
+    const stickerRemoval = priceForKey("stickerRemoval", 0.15);
+    const warningLabel = priceForKey("warningLabels", 0.15);
 
     setIsSaving(true);
     try {
@@ -1701,61 +1689,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
                     ) : (
                       <div className="p-4 border rounded-lg bg-muted/50">
                         <div className="space-y-4">
+                          <p className="text-xs text-muted-foreground">
+                            Edit all rates in the catalog. Bubble Wrap, Sticker Removal, and Warning Labels stay aligned
+                            with legacy billing fields when you save.
+                          </p>
                           <div>
-                            <Label className="text-sm font-medium mb-2 block">
-                              Bubble Wrap Price per Foot ($)
-                            </Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              value={bubbleWrapPrice}
-                              onChange={(e) => setBubbleWrapPrice(e.target.value)}
-                              className="w-48"
-                            />
-                            <p className="text-xs text-muted-foreground mt-1">
-                              This amount will be charged per foot of bubble wrap used.
-                            </p>
-                          </div>
-                          
-                          <div>
-                            <Label className="text-sm font-medium mb-2 block">
-                              Sticker Removal Price per Item ($)
-                            </Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              value={stickerRemovalPrice}
-                              onChange={(e) => setStickerRemovalPrice(e.target.value)}
-                              className="w-48"
-                            />
-                            <p className="text-xs text-muted-foreground mt-1">
-                              This amount will be charged per item for sticker removal service.
-                            </p>
-                          </div>
-                          
-                          <div>
-                            <Label className="text-sm font-medium mb-2 block">
-                              Warning Label Price per Label ($)
-                            </Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              value={warningLabelPrice}
-                              onChange={(e) => setWarningLabelPrice(e.target.value)}
-                              className="w-48"
-                            />
-                            <p className="text-xs text-muted-foreground mt-1">
-                              This amount will be charged per warning label applied.
-                            </p>
-                          </div>
-
-                          <div className="border-t pt-4">
                             <div className="mb-3 flex items-center justify-between">
                               <h4 className="text-sm font-semibold">Service Catalog (Shipment Dropdown)</h4>
                               <Button
@@ -1835,7 +1773,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                               ))}
                             </div>
                           </div>
-                          
+
                           <Button 
                             onClick={handleSaveAdditionalServices} 
                             disabled={isSaving || additionalServicesPricingLoading}
