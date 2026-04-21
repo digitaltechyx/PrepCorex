@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
@@ -45,6 +46,16 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hasRole, hasFeature } from "@/lib/permissions";
 import { brandLogoSrc } from "@/components/logo";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+type LocationDoc = {
+  id: string;
+  name?: string;
+  country?: string;
+  stateOrProvince?: string;
+  active?: boolean;
+};
 
 export function DashboardSidebar() {
   const pathname = usePathname();
@@ -55,6 +66,7 @@ export function DashboardSidebar() {
   const { data: invoices } = useCollection<Invoice>(
     userProfile ? `users/${userProfile.uid}/invoices` : ""
   );
+  const { data: locationDocs } = useCollection<LocationDoc>("locations");
   const { data: allUploadedPDFs } = useCollection<UploadedPDF>("uploadedPDFs");
   const uploadedPDFs = userProfile?.role === "admin" 
     ? allUploadedPDFs 
@@ -62,6 +74,97 @@ export function DashboardSidebar() {
 
   const pendingInvoicesCount = invoices.filter(inv => inv.status === 'pending').length;
   const labelsCount = uploadedPDFs.length;
+  const assignedLocationIds = useMemo(
+    () => new Set((userProfile?.locations ?? []).filter(Boolean)),
+    [userProfile?.locations]
+  );
+  const assignedLocations = useMemo(
+    () =>
+      locationDocs.filter(
+        (loc) => loc.active !== false && assignedLocationIds.has(loc.id)
+      ),
+    [locationDocs, assignedLocationIds]
+  );
+  const countries = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          assignedLocations
+            .map((loc) => (loc.country || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [assignedLocations]
+  );
+  const [selectedCountry, setSelectedCountry] = useState("");
+  const statesForCountry = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          assignedLocations
+            .filter((loc) => (loc.country || "").trim() === selectedCountry)
+            .map((loc) => (loc.stateOrProvince || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [assignedLocations, selectedCountry]
+  );
+  const [selectedStateOrProvince, setSelectedStateOrProvince] = useState("");
+  const locationsForState = useMemo(
+    () =>
+      assignedLocations
+        .filter(
+          (loc) =>
+            (loc.country || "").trim() === selectedCountry &&
+            (loc.stateOrProvince || "").trim() === selectedStateOrProvince
+        )
+        .sort((a, b) => (a.name || "").localeCompare(b.name || "")),
+    [assignedLocations, selectedCountry, selectedStateOrProvince]
+  );
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
+
+  useEffect(() => {
+    if (!userProfile?.uid) return;
+    const key = `warehouseSelection:${userProfile.uid}`;
+    try {
+      const saved = localStorage.getItem(key);
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as {
+        country?: string;
+        stateOrProvince?: string;
+        locationId?: string;
+      };
+      if (parsed.country) setSelectedCountry(parsed.country);
+      if (parsed.stateOrProvince) setSelectedStateOrProvince(parsed.stateOrProvince);
+      if (parsed.locationId) setSelectedWarehouseId(parsed.locationId);
+    } catch {
+      // ignore malformed local storage values
+    }
+  }, [userProfile?.uid]);
+
+  useEffect(() => {
+    if (!userProfile?.uid) return;
+    const key = `warehouseSelection:${userProfile.uid}`;
+    const payload = JSON.stringify({
+      country: selectedCountry || undefined,
+      stateOrProvince: selectedStateOrProvince || undefined,
+      locationId: selectedWarehouseId || undefined,
+    });
+    localStorage.setItem(key, payload);
+  }, [userProfile?.uid, selectedCountry, selectedStateOrProvince, selectedWarehouseId]);
+
+  useEffect(() => {
+    if (!selectedCountry || !statesForCountry.includes(selectedStateOrProvince)) {
+      setSelectedStateOrProvince("");
+      setSelectedWarehouseId("");
+    }
+  }, [selectedCountry, statesForCountry, selectedStateOrProvince]);
+
+  useEffect(() => {
+    if (!locationsForState.some((loc) => loc.id === selectedWarehouseId)) {
+      setSelectedWarehouseId("");
+    }
+  }, [locationsForState, selectedWarehouseId]);
 
   // Check if user has "user" role - if yes, show full client dashboard
   // If only commission_agent, show only affiliate menu
@@ -386,6 +489,71 @@ export function DashboardSidebar() {
           </>
         ) : (
           <>
+            {hasUserRole && assignedLocations.length > 0 && (
+              <SidebarGroup>
+                <SidebarGroupLabel className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                  Warehouse Location
+                </SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] font-medium text-muted-foreground">Country</Label>
+                      <Select value={selectedCountry} onValueChange={setSelectedCountry}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select country" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {countries.map((country) => (
+                            <SelectItem key={country} value={country}>
+                              {country}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] font-medium text-muted-foreground">State / Province</Label>
+                      <Select
+                        value={selectedStateOrProvince}
+                        onValueChange={setSelectedStateOrProvince}
+                        disabled={!selectedCountry}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select state/province" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {statesForCountry.map((stateOrProvince) => (
+                            <SelectItem key={stateOrProvince} value={stateOrProvince}>
+                              {stateOrProvince}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] font-medium text-muted-foreground">Warehouse</Label>
+                      <Select
+                        value={selectedWarehouseId}
+                        onValueChange={setSelectedWarehouseId}
+                        disabled={!selectedCountry || !selectedStateOrProvince}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select warehouse" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {locationsForState.map((loc) => (
+                            <SelectItem key={loc.id} value={loc.id}>
+                              {loc.name || "Unnamed"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
+
             <SidebarGroup>
               <SidebarGroupLabel className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                 Navigation
