@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   PlugZap,
   FileText,
+  Copy,
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
@@ -80,6 +81,20 @@ type ShipmentRequestLite = {
 
 type InventoryItemWithSource = InventoryItem & {
   source?: "shopify" | "ebay";
+};
+
+type WarehouseLocationDoc = {
+  id: string;
+  name?: string;
+  country?: string;
+  stateOrProvince?: string;
+  active?: boolean;
+  shippingName?: string;
+  street1?: string;
+  street2?: string;
+  city?: string;
+  zip?: string;
+  state?: string;
 };
 
 function normalizeDate(value: ShippedItem["date"]): Date | null {
@@ -189,6 +204,46 @@ export default function DashboardPage() {
   const { data: disposeRequests, loading: disposeRequestsLoading } = useCollection<DisposeRequest>(
     userProfile ? `users/${userProfile.uid}/disposeRequests` : ""
   );
+  const { data: warehouseLocations } = useCollection<WarehouseLocationDoc>("locations");
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
+
+  useEffect(() => {
+    if (!userProfile?.uid) return;
+    const key = `warehouseSelection:${userProfile.uid}`;
+    const read = () => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) {
+          setSelectedWarehouseId("");
+          return;
+        }
+        const parsed = JSON.parse(raw) as { locationId?: string };
+        setSelectedWarehouseId(parsed.locationId || "");
+      } catch {
+        setSelectedWarehouseId("");
+      }
+    };
+    read();
+    const onChange = () => read();
+    window.addEventListener("storage", onChange);
+    window.addEventListener("warehouse-selection-changed", onChange);
+    return () => {
+      window.removeEventListener("storage", onChange);
+      window.removeEventListener("warehouse-selection-changed", onChange);
+    };
+  }, [userProfile?.uid]);
+
+  const selectedWarehouse = useMemo(
+    () => warehouseLocations.find((loc) => loc.id === selectedWarehouseId) || null,
+    [warehouseLocations, selectedWarehouseId]
+  );
+  const assignedLocationIds = useMemo(
+    () => new Set((userProfile?.locations ?? []).filter(Boolean)),
+    [userProfile?.locations]
+  );
+  const isSelectedWarehouseAssigned = selectedWarehouseId
+    ? assignedLocationIds.has(selectedWarehouseId)
+    : true;
 
   const hasDateRange = Boolean(dateRangeFrom && dateRangeTo);
 
@@ -554,6 +609,85 @@ export default function DashboardPage() {
             <span className="font-mono font-semibold text-foreground">#{userProfile.clientId}</span>
           </div>
         )}
+        <section className="max-w-md">
+          <Card
+            className={cn(
+              "rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm",
+              !isSelectedWarehouseAssigned && "opacity-70"
+            )}
+          >
+            <CardHeader className="pb-2 pt-5 px-5">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-semibold">Shipment address</CardTitle>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={async () => {
+                    if (!selectedWarehouse) return;
+                    const text = [
+                      selectedWarehouse.shippingName || userProfile?.name || "",
+                      selectedWarehouse.street1 || "",
+                      selectedWarehouse.street2 || "",
+                      selectedWarehouse.city || "",
+                      selectedWarehouse.zip || "",
+                      selectedWarehouse.state || selectedWarehouse.stateOrProvince || "",
+                      selectedWarehouse.country || "",
+                    ]
+                      .filter(Boolean)
+                      .join("\n");
+                    if (!text) return;
+                    try {
+                      await navigator.clipboard.writeText(text);
+                    } catch {
+                      // ignore clipboard errors
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="px-5 pb-5">
+              {selectedWarehouse ? (
+                <>
+                  <div className="grid grid-cols-[110px_1fr] gap-y-1 text-sm">
+                    <span className="text-muted-foreground">Shipping Name:</span>
+                    <span className="font-medium text-primary">
+                      {selectedWarehouse.shippingName || userProfile?.name || "-"}
+                    </span>
+                    <span className="text-muted-foreground">Street1:</span>
+                    <span>{selectedWarehouse.street1 || "-"}</span>
+                    <span className="text-muted-foreground">Street2:</span>
+                    <span>{selectedWarehouse.street2 || "-"}</span>
+                    <span className="text-muted-foreground">City:</span>
+                    <span>{selectedWarehouse.city || "-"}</span>
+                    <span className="text-muted-foreground">Zip:</span>
+                    <span>{selectedWarehouse.zip || "-"}</span>
+                    <span className="text-muted-foreground">State:</span>
+                    <span>{selectedWarehouse.state || selectedWarehouse.stateOrProvince || "-"}</span>
+                  </div>
+                  <p className="mt-4 text-sm text-muted-foreground">
+                    To ensure accurate processing and avoid any misplacement, all shipments to our warehouse must be
+                    addressed with your full name.
+                  </p>
+                  {!isSelectedWarehouseAssigned && (
+                    <div className="mt-4 rounded-md bg-white p-3 text-center shadow-sm">
+                      <p className="font-semibold text-red-600">Inbound shipping disabled</p>
+                      <p className="text-sm text-foreground">Do not ship inventory to this address</p>
+                      <p className="text-sm text-foreground">If you need this location contact with admin</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Select a warehouse location from the sidebar to view your shipment address.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </section>
         {/* KPI cards - soft shadows, rounded-xl */}
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {kpiCards.map((kpi) => {

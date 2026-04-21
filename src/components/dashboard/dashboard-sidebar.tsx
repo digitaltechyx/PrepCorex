@@ -78,48 +78,53 @@ export function DashboardSidebar() {
     () => new Set((userProfile?.locations ?? []).filter(Boolean)),
     [userProfile?.locations]
   );
-  const assignedLocations = useMemo(
+  const allActiveLocations = useMemo(
     () =>
       locationDocs.filter(
-        (loc) => loc.active !== false && assignedLocationIds.has(loc.id)
+        (loc) => loc.active !== false
       ),
-    [locationDocs, assignedLocationIds]
+    [locationDocs]
+  );
+  const assignedLocations = useMemo(
+    () => allActiveLocations.filter((loc) => assignedLocationIds.has(loc.id)),
+    [allActiveLocations, assignedLocationIds]
   );
   const countries = useMemo(
     () =>
       Array.from(
         new Set(
-          assignedLocations
-            .map((loc) => (loc.country || "").trim())
-            .filter(Boolean)
+          allActiveLocations
+            .map((loc) => (loc.country || "").trim() || "Uncategorized")
         )
       ).sort((a, b) => a.localeCompare(b)),
-    [assignedLocations]
+    [allActiveLocations]
   );
   const [selectedCountry, setSelectedCountry] = useState("");
   const statesForCountry = useMemo(
     () =>
       Array.from(
         new Set(
-          assignedLocations
-            .filter((loc) => (loc.country || "").trim() === selectedCountry)
-            .map((loc) => (loc.stateOrProvince || "").trim())
-            .filter(Boolean)
+          allActiveLocations
+            .filter((loc) => {
+              const c = (loc.country || "").trim() || "Uncategorized";
+              return c === selectedCountry;
+            })
+            .map((loc) => (loc.stateOrProvince || "").trim() || "Unspecified")
         )
       ).sort((a, b) => a.localeCompare(b)),
-    [assignedLocations, selectedCountry]
+    [allActiveLocations, selectedCountry]
   );
   const [selectedStateOrProvince, setSelectedStateOrProvince] = useState("");
   const locationsForState = useMemo(
     () =>
-      assignedLocations
+      allActiveLocations
         .filter(
           (loc) =>
-            (loc.country || "").trim() === selectedCountry &&
-            (loc.stateOrProvince || "").trim() === selectedStateOrProvince
+            ((loc.country || "").trim() || "Uncategorized") === selectedCountry &&
+            ((loc.stateOrProvince || "").trim() || "Unspecified") === selectedStateOrProvince
         )
         .sort((a, b) => (a.name || "").localeCompare(b.name || "")),
-    [assignedLocations, selectedCountry, selectedStateOrProvince]
+    [allActiveLocations, selectedCountry, selectedStateOrProvince]
   );
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
 
@@ -143,6 +148,20 @@ export function DashboardSidebar() {
   }, [userProfile?.uid]);
 
   useEffect(() => {
+    if (!userProfile?.uid || selectedWarehouseId) return;
+    const all = allActiveLocations;
+    if (all.length === 0) return;
+    const preferred =
+      all.find((loc) => /^nj[\s-]?2$/i.test((loc.name || "").trim())) || all[0];
+    if (!preferred) return;
+    const c = (preferred.country || "").trim() || "Uncategorized";
+    const s = (preferred.stateOrProvince || "").trim() || "Unspecified";
+    setSelectedCountry(c);
+    setSelectedStateOrProvince(s);
+    setSelectedWarehouseId(preferred.id);
+  }, [userProfile?.uid, selectedWarehouseId, allActiveLocations]);
+
+  useEffect(() => {
     if (!userProfile?.uid) return;
     const key = `warehouseSelection:${userProfile.uid}`;
     const payload = JSON.stringify({
@@ -151,6 +170,7 @@ export function DashboardSidebar() {
       locationId: selectedWarehouseId || undefined,
     });
     localStorage.setItem(key, payload);
+    window.dispatchEvent(new Event("warehouse-selection-changed"));
   }, [userProfile?.uid, selectedCountry, selectedStateOrProvince, selectedWarehouseId]);
 
   useEffect(() => {
@@ -489,13 +509,19 @@ export function DashboardSidebar() {
           </>
         ) : (
           <>
-            {hasUserRole && assignedLocations.length > 0 && (
+            {hasUserRole && (
               <SidebarGroup>
                 <SidebarGroupLabel className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                   Warehouse Location
                 </SidebarGroupLabel>
                 <SidebarGroupContent>
                   <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
+                    {allActiveLocations.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No warehouse available yet.
+                      </p>
+                    ) : (
+                      <>
                     <div className="space-y-1">
                       <Label className="text-[11px] font-medium text-muted-foreground">Country</Label>
                       <Select value={selectedCountry} onValueChange={setSelectedCountry}>
@@ -544,11 +570,19 @@ export function DashboardSidebar() {
                           {locationsForState.map((loc) => (
                             <SelectItem key={loc.id} value={loc.id}>
                               {loc.name || "Unnamed"}
+                              {assignedLocationIds.has(loc.id) ? "" : " (unassigned)"}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
+                    {selectedWarehouseId && !assignedLocationIds.has(selectedWarehouseId) && (
+                      <p className="text-[11px] text-amber-700">
+                        Selected warehouse is not assigned to your account.
+                      </p>
+                    )}
+                      </>
+                    )}
                   </div>
                 </SidebarGroupContent>
               </SidebarGroup>
