@@ -7,6 +7,8 @@ export type UserStatus = "pending" | "approved" | "deleted";
 export interface Location {
   id: string;
   name: string;
+  country?: string;
+  stateOrProvince?: string;
   active: boolean;
   createdAt?: Date;
 }

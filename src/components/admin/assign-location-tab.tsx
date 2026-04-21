@@ -26,8 +26,15 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-type LocationDoc = { id: string; name?: string; active?: boolean };
+type LocationDoc = {
+  id: string;
+  name?: string;
+  active?: boolean;
+  country?: string;
+  stateOrProvince?: string;
+};
 
 export function AssignLocationTab() {
   const { toast } = useToast();
@@ -35,6 +42,10 @@ export function AssignLocationTab() {
   const { data: users } = useCollection<UserProfile>("users");
 
   const [newLocationName, setNewLocationName] = useState("");
+  const [selectedCountry, setSelectedCountry] = useState("");
+  const [newCountryName, setNewCountryName] = useState("");
+  const [selectedStateOrProvince, setSelectedStateOrProvince] = useState("");
+  const [newStateOrProvinceName, setNewStateOrProvinceName] = useState("");
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
@@ -48,9 +59,51 @@ export function AssignLocationTab() {
     () =>
       locationDocs
         .filter((l) => l.active !== false)
-        .map((l) => ({ id: l.id, name: l.name ?? "", active: true } as LocationType)),
+        .map(
+          (l) =>
+            ({
+              id: l.id,
+              name: l.name ?? "",
+              country: l.country ?? "",
+              stateOrProvince: l.stateOrProvince ?? "",
+              active: true,
+            } as LocationType)
+        ),
     [locationDocs]
   );
+
+  const countries = useMemo(() => {
+    const vals = Array.from(
+      new Set(activeLocations.map((loc) => (loc.country || "").trim() || "Uncategorized"))
+    );
+    return vals.sort((a, b) => a.localeCompare(b));
+  }, [activeLocations]);
+
+  const resolvedCountry = (selectedCountry === "__new__" ? newCountryName : selectedCountry).trim();
+  const statesOrProvinces = useMemo(() => {
+    if (!resolvedCountry) return [] as string[];
+    const vals = Array.from(
+      new Set(
+        activeLocations
+          .filter((loc) => (loc.country || "").trim().toLowerCase() === resolvedCountry.toLowerCase())
+          .map((loc) => (loc.stateOrProvince || "").trim())
+          .filter(Boolean)
+      )
+    );
+    return vals.sort((a, b) => a.localeCompare(b));
+  }, [activeLocations, resolvedCountry]);
+
+  const resolvedStateOrProvince = (
+    selectedStateOrProvince === "__new__" ? newStateOrProvinceName : selectedStateOrProvince
+  ).trim();
+
+  const locationLabel = (loc: LocationType) => {
+    const country = (loc.country || "").trim();
+    const stateOrProvince = (loc.stateOrProvince || "").trim();
+    if (country && stateOrProvince) return `${country} > ${stateOrProvince} > ${loc.name}`;
+    if (country) return `${country} > ${loc.name}`;
+    return loc.name;
+  };
 
   const assignableUsers = useMemo(
     () =>
@@ -74,20 +127,46 @@ export function AssignLocationTab() {
   const filteredLocations = useMemo(() => {
     const q = locationSearch.trim().toLowerCase();
     if (!q) return activeLocations;
-    return activeLocations.filter((loc) => (loc.name ?? "").toLowerCase().includes(q));
+    return activeLocations.filter((loc) => {
+      const country = (loc.country || "").trim();
+      const stateOrProvince = (loc.stateOrProvince || "").trim();
+      const path = country && stateOrProvince
+        ? `${country} > ${stateOrProvince} > ${loc.name}`
+        : country
+          ? `${country} > ${loc.name}`
+          : loc.name;
+      return path.toLowerCase().includes(q);
+    });
   }, [activeLocations, locationSearch]);
 
   const handleAddLocation = async () => {
     const name = newLocationName.trim();
+    const country = resolvedCountry;
+    const stateOrProvince = resolvedStateOrProvince;
     if (!name) {
       toast({ variant: "destructive", title: "Error", description: "Enter a location name." });
       return;
     }
+    if (!country) {
+      toast({ variant: "destructive", title: "Error", description: "Select or enter a country." });
+      return;
+    }
+    if (!stateOrProvince) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Select or enter a state/province.",
+      });
+      return;
+    }
     setAdding(true);
     try {
-      await createLocation(name);
+      await createLocation({ name, country, stateOrProvince });
       setNewLocationName("");
-      toast({ title: "Success", description: `Location "${name}" added.` });
+      toast({
+        title: "Success",
+        description: `Location "${name}" added under ${country} / ${stateOrProvince}.`,
+      });
     } catch (e) {
       toast({ variant: "destructive", title: "Error", description: (e as Error).message });
     } finally {
@@ -165,16 +244,81 @@ export function AssignLocationTab() {
             Active locations
           </CardTitle>
           <CardDescription className="text-base">
-            Add or remove locations. Then assign locations to users below so sub admins can scope by location.
+            Add locations in a hierarchy (Country → State/Province → Location). Then assign locations to users below.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 pt-6">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Country</Label>
+              <Select
+                value={selectedCountry}
+                onValueChange={(v) => {
+                  setSelectedCountry(v);
+                  setSelectedStateOrProvince("");
+                  setNewStateOrProvinceName("");
+                }}
+              >
+                <SelectTrigger className="h-11 rounded-xl border-2">
+                  <SelectValue placeholder="Select country" />
+                </SelectTrigger>
+                <SelectContent>
+                  {countries.map((country) => (
+                    <SelectItem key={country} value={country}>
+                      {country}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__new__">+ Add new country</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                New country (if adding)
+              </Label>
+              <Input
+                placeholder="e.g. USA"
+                value={newCountryName}
+                onChange={(e) => setNewCountryName(e.target.value)}
+                className="rounded-xl border-2 h-11"
+                disabled={selectedCountry !== "__new__"}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">State / Province</Label>
+              <Select value={selectedStateOrProvince} onValueChange={setSelectedStateOrProvince}>
+                <SelectTrigger className="h-11 rounded-xl border-2">
+                  <SelectValue placeholder="Select state/province" />
+                </SelectTrigger>
+                <SelectContent>
+                  {statesOrProvinces.map((stateOrProvince) => (
+                    <SelectItem key={stateOrProvince} value={stateOrProvince}>
+                      {stateOrProvince}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__new__">+ Add new state/province</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                New state/province (if adding)
+              </Label>
+              <Input
+                placeholder="e.g. New Jersey"
+                value={newStateOrProvinceName}
+                onChange={(e) => setNewStateOrProvinceName(e.target.value)}
+                className="rounded-xl border-2 h-11"
+                disabled={selectedStateOrProvince !== "__new__"}
+              />
+            </div>
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <Input
-              placeholder="New location name"
+              placeholder="New location name (city/site/warehouse)"
               value={newLocationName}
               onChange={(e) => setNewLocationName(e.target.value)}
-              className="max-w-xs rounded-xl border-2 h-11"
+              className="max-w-md rounded-xl border-2 h-11"
               onKeyDown={(e) => e.key === "Enter" && handleAddLocation()}
             />
             <Button onClick={handleAddLocation} disabled={adding} className="rounded-xl h-11 px-5">
@@ -191,29 +335,69 @@ export function AssignLocationTab() {
               No active locations. Add one above.
             </p>
           ) : (
-            <div className="flex flex-wrap gap-3">
-              {activeLocations.map((loc) => (
-                <div
-                  key={loc.id}
-                  className="flex items-center gap-2 rounded-xl border-2 border-border/60 bg-card px-4 py-2.5 shadow-sm transition-all duration-200 hover:border-primary/30 hover:shadow-md"
-                >
-                  <MapPin className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium text-foreground">{loc.name}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => setConfirmRemoveId(loc.id)}
-                    disabled={removingId === loc.id}
-                  >
-                    {removingId === loc.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                  </Button>
+            <div className="space-y-4">
+              {countries.map((country) => {
+                const countryMatch = (locCountry?: string) =>
+                  country === "Uncategorized"
+                    ? !(locCountry || "").trim()
+                    : (locCountry || "").trim() === country;
+                const states = Array.from(
+                  new Set(
+                    activeLocations
+                      .filter((loc) => countryMatch(loc.country))
+                      .map((loc) => (loc.stateOrProvince || "").trim() || "Unspecified")
+                  )
+                ).sort((a, b) => a.localeCompare(b));
+                return (
+                  <div key={country} className="rounded-xl border-2 border-border/60 bg-card p-4">
+                    <h4 className="text-sm font-semibold">{country}</h4>
+                    <div className="mt-3 space-y-3">
+                      {states.map((stateOrProvince) => {
+                        const locationsInState = activeLocations.filter(
+                          (loc) =>
+                            countryMatch(loc.country) &&
+                            ((loc.stateOrProvince || "").trim() || "Unspecified") === stateOrProvince
+                        );
+                        return (
+                          <div key={`${country}-${stateOrProvince}`} className="rounded-lg border bg-muted/20 p-3">
+                            <p className="text-sm font-medium">{stateOrProvince}</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {locationsInState.map((loc) => (
+                                <div
+                                  key={loc.id}
+                                  className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2"
+                                >
+                                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm font-medium text-foreground">{loc.name}</span>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={() => setConfirmRemoveId(loc.id)}
+                                    disabled={removingId === loc.id}
+                                  >
+                                    {removingId === loc.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              {activeLocations.filter((loc) => !(loc.country || "").trim()).length > 0 && (
+                <div className="rounded-xl border-2 border-dashed border-amber-300/80 bg-amber-50 p-3 text-xs text-amber-800">
+                  Legacy locations without country/state exist. You can keep using them, or recreate them in the new
+                  Country → State/Province → Location structure.
                 </div>
-              ))}
+              )}
             </div>
           )}
         </CardContent>
@@ -303,7 +487,7 @@ export function AssignLocationTab() {
                                 onCheckedChange={() => toggleLocation(loc.id)}
                               />
                               <label htmlFor={`loc-${loc.id}`} className="cursor-pointer text-sm font-medium">
-                                {loc.name}
+                                {locationLabel(loc)}
                               </label>
                             </div>
                           ))

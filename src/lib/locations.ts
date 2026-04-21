@@ -4,9 +4,27 @@ import type { Location } from "@/types";
 
 const COLLECTION = "locations";
 
-export async function createLocation(name: string): Promise<string> {
+type CreateLocationInput =
+  | string
+  | {
+      name: string;
+      country?: string;
+      stateOrProvince?: string;
+    };
+
+export async function createLocation(input: CreateLocationInput): Promise<string> {
+  const payload =
+    typeof input === "string"
+      ? { name: input.trim(), country: "", stateOrProvince: "" }
+      : {
+          name: input.name.trim(),
+          country: (input.country || "").trim(),
+          stateOrProvince: (input.stateOrProvince || "").trim(),
+        };
   const ref = await addDoc(collection(db, COLLECTION), {
-    name: name.trim(),
+    name: payload.name,
+    country: payload.country || undefined,
+    stateOrProvince: payload.stateOrProvince || undefined,
     active: true,
     createdAt: new Date(),
   });
@@ -26,6 +44,8 @@ export function docToLocation(docData: { id: string } & Record<string, unknown>)
   return {
     id: docData.id,
     name: String(docData.name ?? ""),
+    country: docData.country ? String(docData.country) : undefined,
+    stateOrProvince: docData.stateOrProvince ? String(docData.stateOrProvince) : undefined,
     active: Boolean(docData.active !== false),
     createdAt: docData.createdAt instanceof Date ? docData.createdAt : undefined,
   };
