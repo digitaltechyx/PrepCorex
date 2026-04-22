@@ -99,6 +99,7 @@ export function DashboardSidebar() {
     [allActiveLocations]
   );
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
+  const [warehouseSelectionTouched, setWarehouseSelectionTouched] = useState(false);
 
   useEffect(() => {
     if (!userProfile?.uid) return;
@@ -127,6 +128,19 @@ export function DashboardSidebar() {
     if (!preferred) return;
     setSelectedWarehouseId(preferred.id);
   }, [userProfile?.uid, selectedWarehouseId, allActiveLocations]);
+
+  useEffect(() => {
+    if (!userProfile?.uid || warehouseSelectionTouched) return;
+    const all = allActiveLocations;
+    if (all.length === 0) return;
+    const defaultId = findDefaultWarehouseLocationIdInList(all);
+    const preferred =
+      (defaultId ? all.find((loc) => loc.id === defaultId) : undefined) ||
+      all.find((loc) => normalizeWarehouseKey(loc.name || "") === "nj2");
+    if (!preferred) return;
+    if (selectedWarehouseId === preferred.id) return;
+    setSelectedWarehouseId(preferred.id);
+  }, [userProfile?.uid, allActiveLocations, selectedWarehouseId, warehouseSelectionTouched]);
 
   useEffect(() => {
     if (!userProfile?.uid) return;
@@ -482,7 +496,13 @@ export function DashboardSidebar() {
                       <>
                     <div className="space-y-1">
                       <Label className="text-[11px] font-medium text-muted-foreground">Warehouse</Label>
-                      <Select value={selectedWarehouseId} onValueChange={setSelectedWarehouseId}>
+                      <Select
+                        value={selectedWarehouseId}
+                        onValueChange={(value) => {
+                          setWarehouseSelectionTouched(true);
+                          setSelectedWarehouseId(value);
+                        }}
+                      >
                         <SelectTrigger className="h-9">
                           <SelectValue placeholder="Select warehouse" />
                         </SelectTrigger>
