@@ -491,7 +491,6 @@ export function DashboardSidebar() {
                             <SelectItem
                               key={loc.id}
                               value={loc.id}
-                              disabled={!assignedLocationIds.has(loc.id)}
                             >
                               {formatWarehouseDisplayName(loc.name)}
                               {assignedLocationIds.has(loc.id) ? "" : " (unassigned)"}
