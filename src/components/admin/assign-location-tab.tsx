@@ -36,6 +36,10 @@ type LocationDoc = {
   active?: boolean;
   country?: string;
   stateOrProvince?: string;
+  street1?: string;
+  street2?: string;
+  city?: string;
+  zip?: string;
 };
 
 export function AssignLocationTab() {
@@ -48,6 +52,10 @@ export function AssignLocationTab() {
   const [newCountryName, setNewCountryName] = useState("");
   const [selectedStateOrProvince, setSelectedStateOrProvince] = useState("");
   const [newStateOrProvinceName, setNewStateOrProvinceName] = useState("");
+  const [street1, setStreet1] = useState("");
+  const [street2, setStreet2] = useState("");
+  const [city, setCity] = useState("");
+  const [zip, setZip] = useState("");
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
@@ -68,6 +76,10 @@ export function AssignLocationTab() {
               name: l.name ?? "",
               country: l.country ?? "",
               stateOrProvince: l.stateOrProvince ?? "",
+              street1: l.street1 ?? "",
+              street2: l.street2 ?? "",
+              city: l.city ?? "",
+              zip: l.zip ?? "",
               active: true,
             } as LocationType)
         ),
@@ -159,13 +171,37 @@ export function AssignLocationTab() {
       });
       return;
     }
+    if (!street1.trim()) {
+      toast({ variant: "destructive", title: "Error", description: "Enter street address (Street1)." });
+      return;
+    }
+    if (!city.trim()) {
+      toast({ variant: "destructive", title: "Error", description: "Enter city." });
+      return;
+    }
+    if (!zip.trim()) {
+      toast({ variant: "destructive", title: "Error", description: "Enter zip/postal code." });
+      return;
+    }
     setAdding(true);
     try {
-      await createLocation({ name, country, stateOrProvince });
+      await createLocation({
+        name,
+        country,
+        stateOrProvince,
+        street1,
+        street2,
+        city,
+        zip,
+      });
       setNewLocationName("");
+      setStreet1("");
+      setStreet2("");
+      setCity("");
+      setZip("");
       toast({
         title: "Success",
-        description: `Location "${name}" added under ${country} / ${stateOrProvince}.`,
+        description: `Location "${name}" added with address in ${stateOrProvince}, ${country}.`,
       });
     } catch (e) {
       toast({ variant: "destructive", title: "Error", description: (e as Error).message });
@@ -244,11 +280,23 @@ export function AssignLocationTab() {
             Active locations
           </CardTitle>
           <CardDescription className="text-base">
-            Add locations in a hierarchy (Country → State/Province → Location). Then assign locations to users below.
+            Create warehouse locations by entering location name first, then the full address fields.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 pt-6">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2 md:col-span-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Location Name
+              </Label>
+              <Input
+                placeholder="Warehouse name (e.g. NJ1, NJ2, CA1)"
+                value={newLocationName}
+                onChange={(e) => setNewLocationName(e.target.value)}
+                className="rounded-xl border-2 h-11"
+                onKeyDown={(e) => e.key === "Enter" && handleAddLocation()}
+              />
+            </div>
             <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Country</Label>
               <Select
@@ -312,15 +360,48 @@ export function AssignLocationTab() {
                 disabled={selectedStateOrProvince !== "__new__"}
               />
             </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Street 1</Label>
+              <Input
+                placeholder="e.g. 7000 Atrium Way"
+                value={street1}
+                onChange={(e) => setStreet1(e.target.value)}
+                className="rounded-xl border-2 h-11"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Street 2 (optional)
+              </Label>
+              <Input
+                placeholder="e.g. Unit B05"
+                value={street2}
+                onChange={(e) => setStreet2(e.target.value)}
+                className="rounded-xl border-2 h-11"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">City</Label>
+              <Input
+                placeholder="e.g. Mount Laurel"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="rounded-xl border-2 h-11"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Zip / Postal Code
+              </Label>
+              <Input
+                placeholder="e.g. 08054"
+                value={zip}
+                onChange={(e) => setZip(e.target.value)}
+                className="rounded-xl border-2 h-11"
+              />
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Input
-              placeholder="Warehouse name (e.g. NJ1, NJ2, CA1)"
-              value={newLocationName}
-              onChange={(e) => setNewLocationName(e.target.value)}
-              className="max-w-md rounded-xl border-2 h-11"
-              onKeyDown={(e) => e.key === "Enter" && handleAddLocation()}
-            />
             <Button onClick={handleAddLocation} disabled={adding} className="rounded-xl h-11 px-5">
               {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               <span className="ml-2">Add location</span>
@@ -368,13 +449,18 @@ export function AssignLocationTab() {
                                   className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2"
                                 >
                                   <MapPin className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm font-medium text-foreground">
-                                    {formatWarehouseDisplayName(loc.name)}
-                                  </span>
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium text-foreground">
+                                      {formatWarehouseDisplayName(loc.name)}
+                                    </p>
+                                    <p className="truncate text-xs text-muted-foreground">
+                                      {[loc.street1, loc.street2, loc.city, loc.zip].filter(Boolean).join(", ") || "Address not set"}
+                                    </p>
+                                  </div>
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-7 w-7 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    className="ml-auto h-7 w-7 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
                                     onClick={() => setConfirmRemoveId(loc.id)}
                                     disabled={removingId === loc.id}
                                   >

@@ -643,7 +643,7 @@ export default function DashboardPage() {
                       ...(selectedWarehouse.name?.trim()
                         ? [formatWarehouseDisplayName(selectedWarehouse.name)]
                         : []),
-                      selectedWarehouse.shippingName || userProfile?.name || "",
+                      userProfile?.name || "",
                       selectedWarehouse.street1 || "",
                       selectedWarehouse.street2 || "",
                       selectedWarehouse.city || "",
@@ -673,7 +673,7 @@ export default function DashboardPage() {
                     <span className="font-medium">{formatWarehouseDisplayName(selectedWarehouse.name)}</span>
                     <span className="text-muted-foreground">Shipping Name:</span>
                     <span className="font-medium text-primary">
-                      {selectedWarehouse.shippingName || userProfile?.name || "-"}
+                      {userProfile?.name || "-"}
                     </span>
                     <span className="text-muted-foreground">Street1:</span>
                     <span>{selectedWarehouse.street1 || "-"}</span>

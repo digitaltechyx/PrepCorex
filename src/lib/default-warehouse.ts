@@ -1,13 +1,13 @@
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { isDefaultNj1Warehouse } from "@/lib/warehouse-display";
+import { isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 
 /**
  * Seed fields for the primary inbound warehouse (Mount Laurel, NJ).
- * Create a `locations` doc with `name` normalizing to **nj1** (e.g. `NJ1` or `nj1`) so it is auto-assigned to clients.
+ * Create a `locations` doc with `name` normalizing to **nj2** (e.g. `NJ2` or `nj2`) so it is auto-assigned to clients.
  */
 export const DEFAULT_WAREHOUSE_SEED = {
-  name: "NJ1",
+  name: "NJ2",
   country: "United States",
   stateOrProvince: "New Jersey",
   shippingName: "",
@@ -34,7 +34,7 @@ export function invalidateDefaultWarehouseLocationCache(): void {
 }
 
 /**
- * Firestore id of the active default warehouse (`nj1` by name), preferring New Jersey when multiple match.
+ * Firestore id of the active default warehouse (`nj2` by name), preferring New Jersey when multiple match.
  */
 export async function findDefaultWarehouseLocationId(): Promise<string | null> {
   const now = Date.now();
@@ -47,7 +47,7 @@ export async function findDefaultWarehouseLocationId(): Promise<string | null> {
     const data = d.data();
     if (data.active === false) return;
     const n = String(data.name ?? "");
-    if (!isDefaultNj1Warehouse(n)) return;
+    if (!isDefaultNj2Warehouse(n)) return;
     matches.push({ id: d.id, stateOrProvince: String(data.stateOrProvince ?? "") });
   });
   if (matches.length === 0) {
@@ -67,7 +67,7 @@ export function findDefaultWarehouseLocationIdInList(
   locations: { id: string; name?: string; active?: boolean; stateOrProvince?: string }[]
 ): string | undefined {
   const active = locations.filter((l) => l.active !== false);
-  const matches = active.filter((l) => isDefaultNj1Warehouse(l.name));
+  const matches = active.filter((l) => isDefaultNj2Warehouse(l.name));
   if (matches.length === 0) return undefined;
   return [...matches].sort(
     (a, b) => njStateRank(a.stateOrProvince) - njStateRank(b.stateOrProvince)

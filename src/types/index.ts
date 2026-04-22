@@ -9,6 +9,10 @@ export interface Location {
   name: string;
   country?: string;
   stateOrProvince?: string;
+  street1?: string;
+  street2?: string;
+  city?: string;
+  zip?: string;
   active: boolean;
   createdAt?: Date;
 }

@@ -91,42 +91,12 @@ export function DashboardSidebar() {
     () => allActiveLocations.filter((loc) => assignedLocationIds.has(loc.id)),
     [allActiveLocations, assignedLocationIds]
   );
-  const countries = useMemo(
+  const sortedLocations = useMemo(
     () =>
-      Array.from(
-        new Set(
-          allActiveLocations
-            .map((loc) => (loc.country || "").trim() || "Uncategorized")
-        )
-      ).sort((a, b) => a.localeCompare(b)),
+      [...allActiveLocations].sort((a, b) =>
+        formatWarehouseDisplayName(a.name).localeCompare(formatWarehouseDisplayName(b.name))
+      ),
     [allActiveLocations]
-  );
-  const [selectedCountry, setSelectedCountry] = useState("");
-  const statesForCountry = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          allActiveLocations
-            .filter((loc) => {
-              const c = (loc.country || "").trim() || "Uncategorized";
-              return c === selectedCountry;
-            })
-            .map((loc) => (loc.stateOrProvince || "").trim() || "Unspecified")
-        )
-      ).sort((a, b) => a.localeCompare(b)),
-    [allActiveLocations, selectedCountry]
-  );
-  const [selectedStateOrProvince, setSelectedStateOrProvince] = useState("");
-  const locationsForState = useMemo(
-    () =>
-      allActiveLocations
-        .filter(
-          (loc) =>
-            ((loc.country || "").trim() || "Uncategorized") === selectedCountry &&
-            ((loc.stateOrProvince || "").trim() || "Unspecified") === selectedStateOrProvince
-        )
-        .sort((a, b) => (a.name || "").localeCompare(b.name || "")),
-    [allActiveLocations, selectedCountry, selectedStateOrProvince]
   );
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
 
@@ -137,12 +107,8 @@ export function DashboardSidebar() {
       const saved = localStorage.getItem(key);
       if (!saved) return;
       const parsed = JSON.parse(saved) as {
-        country?: string;
-        stateOrProvince?: string;
         locationId?: string;
       };
-      if (parsed.country) setSelectedCountry(parsed.country);
-      if (parsed.stateOrProvince) setSelectedStateOrProvince(parsed.stateOrProvince);
       if (parsed.locationId) setSelectedWarehouseId(parsed.locationId);
     } catch {
       // ignore malformed local storage values
@@ -159,10 +125,6 @@ export function DashboardSidebar() {
       all.find((loc) => normalizeWarehouseKey(loc.name || "") === "nj2") ||
       all[0];
     if (!preferred) return;
-    const c = (preferred.country || "").trim() || "Uncategorized";
-    const s = (preferred.stateOrProvince || "").trim() || "Unspecified";
-    setSelectedCountry(c);
-    setSelectedStateOrProvince(s);
     setSelectedWarehouseId(preferred.id);
   }, [userProfile?.uid, selectedWarehouseId, allActiveLocations]);
 
@@ -170,26 +132,17 @@ export function DashboardSidebar() {
     if (!userProfile?.uid) return;
     const key = `warehouseSelection:${userProfile.uid}`;
     const payload = JSON.stringify({
-      country: selectedCountry || undefined,
-      stateOrProvince: selectedStateOrProvince || undefined,
       locationId: selectedWarehouseId || undefined,
     });
     localStorage.setItem(key, payload);
     window.dispatchEvent(new Event("warehouse-selection-changed"));
-  }, [userProfile?.uid, selectedCountry, selectedStateOrProvince, selectedWarehouseId]);
+  }, [userProfile?.uid, selectedWarehouseId]);
 
   useEffect(() => {
-    if (!selectedCountry || !statesForCountry.includes(selectedStateOrProvince)) {
-      setSelectedStateOrProvince("");
+    if (!allActiveLocations.some((loc) => loc.id === selectedWarehouseId)) {
       setSelectedWarehouseId("");
     }
-  }, [selectedCountry, statesForCountry, selectedStateOrProvince]);
-
-  useEffect(() => {
-    if (!locationsForState.some((loc) => loc.id === selectedWarehouseId)) {
-      setSelectedWarehouseId("");
-    }
-  }, [locationsForState, selectedWarehouseId]);
+  }, [allActiveLocations, selectedWarehouseId]);
 
   // Check if user has "user" role - if yes, show full client dashboard
   // If only commission_agent, show only affiliate menu
@@ -528,52 +481,18 @@ export function DashboardSidebar() {
                     ) : (
                       <>
                     <div className="space-y-1">
-                      <Label className="text-[11px] font-medium text-muted-foreground">Country</Label>
-                      <Select value={selectedCountry} onValueChange={setSelectedCountry}>
-                        <SelectTrigger className="h-9">
-                          <SelectValue placeholder="Select country" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {countries.map((country) => (
-                            <SelectItem key={country} value={country}>
-                              {country}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[11px] font-medium text-muted-foreground">State / Province</Label>
-                      <Select
-                        value={selectedStateOrProvince}
-                        onValueChange={setSelectedStateOrProvince}
-                        disabled={!selectedCountry}
-                      >
-                        <SelectTrigger className="h-9">
-                          <SelectValue placeholder="Select state/province" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {statesForCountry.map((stateOrProvince) => (
-                            <SelectItem key={stateOrProvince} value={stateOrProvince}>
-                              {stateOrProvince}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
                       <Label className="text-[11px] font-medium text-muted-foreground">Warehouse</Label>
-                      <Select
-                        value={selectedWarehouseId}
-                        onValueChange={setSelectedWarehouseId}
-                        disabled={!selectedCountry || !selectedStateOrProvince}
-                      >
+                      <Select value={selectedWarehouseId} onValueChange={setSelectedWarehouseId}>
                         <SelectTrigger className="h-9">
                           <SelectValue placeholder="Select warehouse" />
                         </SelectTrigger>
                         <SelectContent>
-                          {locationsForState.map((loc) => (
-                            <SelectItem key={loc.id} value={loc.id}>
+                          {sortedLocations.map((loc) => (
+                            <SelectItem
+                              key={loc.id}
+                              value={loc.id}
+                              disabled={!assignedLocationIds.has(loc.id)}
+                            >
                               {formatWarehouseDisplayName(loc.name)}
                               {assignedLocationIds.has(loc.id) ? "" : " (unassigned)"}
                             </SelectItem>

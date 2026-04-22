@@ -3,9 +3,9 @@ export function normalizeWarehouseKey(name: string): string {
   return name.trim().replace(/\s+/g, "").toLowerCase();
 }
 
-/** Default inbound warehouse: any active location whose name normalizes to `nj1`. */
-export function isDefaultNj1Warehouse(name: string | undefined | null): boolean {
-  return normalizeWarehouseKey(name ?? "") === "nj1";
+/** Default inbound warehouse: any active location whose name normalizes to `nj2`. */
+export function isDefaultNj2Warehouse(name: string | undefined | null): boolean {
+  return normalizeWarehouseKey(name ?? "") === "nj2";
 }
 
 /**
