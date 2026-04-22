@@ -24,12 +24,14 @@ import {
   CheckCircle2,
   PlugZap,
   FileText,
+  Copy,
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { hasRole } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
 import { useDashboardNav } from "@/contexts/dashboard-nav-context";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
@@ -80,6 +82,20 @@ type ShipmentRequestLite = {
 
 type InventoryItemWithSource = InventoryItem & {
   source?: "shopify" | "ebay";
+};
+
+type WarehouseLocationDoc = {
+  id: string;
+  name?: string;
+  country?: string;
+  stateOrProvince?: string;
+  active?: boolean;
+  shippingName?: string;
+  street1?: string;
+  street2?: string;
+  city?: string;
+  zip?: string;
+  state?: string;
 };
 
 function normalizeDate(value: ShippedItem["date"]): Date | null {
@@ -189,6 +205,51 @@ export default function DashboardPage() {
   const { data: disposeRequests, loading: disposeRequestsLoading } = useCollection<DisposeRequest>(
     userProfile ? `users/${userProfile.uid}/disposeRequests` : ""
   );
+  const { data: warehouseLocations } = useCollection<WarehouseLocationDoc>("locations");
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
+
+  useEffect(() => {
+    if (!userProfile?.uid) return;
+    const key = `warehouseSelection:${userProfile.uid}`;
+    const read = () => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) {
+          setSelectedWarehouseId("");
+          return;
+        }
+        const parsed = JSON.parse(raw) as { locationId?: string };
+        setSelectedWarehouseId(parsed.locationId || "");
+      } catch {
+        setSelectedWarehouseId("");
+      }
+    };
+    read();
+    const onChange = () => read();
+    window.addEventListener("storage", onChange);
+    window.addEventListener("warehouse-selection-changed", onChange);
+    return () => {
+      window.removeEventListener("storage", onChange);
+      window.removeEventListener("warehouse-selection-changed", onChange);
+    };
+  }, [userProfile?.uid]);
+
+  const selectedWarehouse = useMemo(
+    () => warehouseLocations.find((loc) => loc.id === selectedWarehouseId) || null,
+    [warehouseLocations, selectedWarehouseId]
+  );
+  const assignedLocationIds = useMemo(
+    () => new Set((userProfile?.locations ?? []).filter(Boolean)),
+    [userProfile?.locations]
+  );
+  const isSelectedWarehouseAssigned = selectedWarehouseId
+    ? assignedLocationIds.has(selectedWarehouseId)
+    : true;
+  const selectedWarehouseStateDisplay = useMemo(() => {
+    if (!selectedWarehouse) return "-";
+    const raw = (selectedWarehouse.stateOrProvince || selectedWarehouse.state || "").trim();
+    return raw || "-";
+  }, [selectedWarehouse]);
 
   const hasDateRange = Boolean(dateRangeFrom && dateRangeTo);
 
@@ -226,38 +287,6 @@ export default function DashboardPage() {
   const rejectedInventoryRequests = useMemo(() => {
     return inventoryRequests.filter((r) => (r.status || "").toLowerCase() === "rejected");
   }, [inventoryRequests]);
-  const requestProcessingRows = useMemo(() => {
-    const requests = [
-      ...inventoryRequests.map((r) => r.status),
-      ...shipmentRequests.map((r) => r.status),
-      ...documentRequestsLite.map((r) => r.status),
-      ...productReturns.map((r) => r.status),
-      ...disposeRequests.map((r) => r.status),
-    ];
-    const counts = {
-      pending: 0,
-      in_progress: 0,
-      approved: 0,
-      rejected: 0,
-    };
-    requests.forEach((status) => {
-      const s = (status || "").toLowerCase();
-      if (s === "pending") counts.pending += 1;
-      else if (s === "in_progress") counts.in_progress += 1;
-      else if (s === "approved" || s === "complete" || s === "closed" || s === "shipped") counts.approved += 1;
-      else if (s === "rejected" || s === "cancelled") counts.rejected += 1;
-    });
-    return [
-      { label: "Pending", value: counts.pending, tone: "bg-amber-100 text-amber-800" },
-      { label: "In Progress", value: counts.in_progress, tone: "bg-sky-100 text-sky-800" },
-      { label: "Approved/Completed", value: counts.approved, tone: "bg-emerald-100 text-emerald-800" },
-      { label: "Rejected/Cancelled", value: counts.rejected, tone: "bg-rose-100 text-rose-800" },
-    ];
-  }, [inventoryRequests, shipmentRequests, documentRequestsLite, productReturns, disposeRequests]);
-  const totalTrackedRequests = useMemo(
-    () => requestProcessingRows.reduce((sum, row) => sum + row.value, 0),
-    [requestProcessingRows]
-  );
 
   const [currentDate, setCurrentDate] = useState(() => {
     const today = new Date();
@@ -586,101 +615,6 @@ export default function DashboardPage() {
             <span className="font-mono font-semibold text-foreground">#{userProfile.clientId}</span>
           </div>
         )}
-        <section className="grid gap-6 xl:grid-cols-2">
-          <Card className="rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
-            <CardHeader className="pb-2 pt-5 px-5">
-              <CardTitle className="text-base font-semibold">Request Processing Status</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 pb-5">
-              {totalTrackedRequests > 0 ? (
-                <div className="space-y-3">
-                  {requestProcessingRows.map((row) => (
-                    <div key={row.label} className="flex items-center justify-between rounded-md border px-3 py-2">
-                      <span className="text-sm text-muted-foreground">{row.label}</span>
-                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", row.tone)}>
-                        {row.value}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                    Total tracked requests: <span className="font-semibold text-foreground">{totalTrackedRequests}</span>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No processing requests found yet.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-          <Card className="overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
-            <CardHeader className="pb-2 pt-5 px-5">
-              <CardTitle className="text-base font-semibold text-neutral-900">Alerts</CardTitle>
-              <CardDescription className="text-neutral-500">Needs attention</CardDescription>
-            </CardHeader>
-            <CardContent className="px-5 pb-5">
-              <div className="grid grid-cols-2 gap-3">
-                <Link
-                  href="/dashboard/inventory?status=low-stock"
-                  className="block min-w-0 rounded-lg border border-amber-200/80 bg-amber-50/60 p-3 transition-colors hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-                >
-                  <p className="text-sm font-medium text-amber-900">Low Stock ({lowStockItems.length})</p>
-                  {lowStockItems.length === 0 ? (
-                    <p className="mt-1 text-xs text-amber-700">All good</p>
-                  ) : (
-                    lowStockItems.slice(0, 3).map((item) => (
-                      <p key={item.id} className="mt-1 text-xs text-amber-800">
-                        {item.productName}: {item.quantity} left
-                      </p>
-                    ))
-                  )}
-                  {lowStockItems.length > 0 && (
-                    <p className="mt-2 text-xs font-medium text-amber-700 underline-offset-2 hover:underline">
-                      View filtered inventory →
-                    </p>
-                  )}
-                </Link>
-                <div className="min-w-0 rounded-lg border border-rose-200/80 bg-rose-50/60 p-3">
-                  <p className="text-sm font-medium text-rose-900">Rejected Requests ({rejectedInventoryRequests.length})</p>
-                  {rejectedInventoryRequests.length === 0 ? (
-                    <p className="mt-1 text-xs text-rose-700">None</p>
-                  ) : (
-                    rejectedInventoryRequests.slice(0, 2).map((req, idx) => (
-                      <p key={`${req.productName}-${idx}`} className="mt-1 text-xs text-rose-800">
-                        {req.productName || "Item"}: {req.rejectionReason || "Rejected"}
-                      </p>
-                    ))
-                  )}
-                </div>
-                <div className="min-w-0 rounded-lg border border-blue-200/80 bg-blue-50/60 p-3">
-                  <p className="text-sm font-medium text-blue-900">Pending Fulfillment ({pendingFulfillmentCount})</p>
-                  <p className="mt-1 text-xs text-blue-700">Shipment requests waiting</p>
-                  <Link
-                    href="/dashboard/shipped-orders?status=pending"
-                    className="mt-2 inline-block text-xs font-medium text-blue-600 hover:underline"
-                  >
-                    Review →
-                  </Link>
-                </div>
-                <div className="min-w-0 rounded-lg border border-emerald-200/80 bg-emerald-50/60 p-3">
-                  <p className="text-sm font-medium text-emerald-900">Integrations</p>
-                  <p className="mt-1 text-xs text-emerald-800">
-                    Shopify: {shopifyConnections.length > 0 ? "Connected" : "Not connected"}
-                  </p>
-                  <p className="text-xs text-emerald-800">
-                    eBay: {ebayConnections.length > 0 ? "Connected" : "Not connected"}
-                  </p>
-                  <Link
-                    href="/dashboard/integrations"
-                    className="mt-2 inline-block text-xs font-medium text-emerald-600 hover:underline"
-                  >
-                    Settings →
-                  </Link>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
         {/* KPI cards - soft shadows, rounded-xl */}
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {kpiCards.map((kpi) => {
@@ -773,8 +707,96 @@ export default function DashboardPage() {
               </ChartContainer>
             </CardContent>
           </Card>
+          <Card
+            className={cn(
+              "xl:col-span-5 rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm",
+              !isSelectedWarehouseAssigned && "opacity-70"
+            )}
+          >
+            <CardHeader className="pb-2 pt-6 px-6">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base font-semibold">Shipment address</CardTitle>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={async () => {
+                    if (!selectedWarehouse) return;
+                    const stateLine = (
+                      selectedWarehouse.stateOrProvince ||
+                      selectedWarehouse.state ||
+                      ""
+                    ).trim();
+                    const text = [
+                      ...(selectedWarehouse.name?.trim()
+                        ? [formatWarehouseDisplayName(selectedWarehouse.name)]
+                        : []),
+                      userProfile?.name || "",
+                      selectedWarehouse.street1 || "",
+                      selectedWarehouse.street2 || "",
+                      selectedWarehouse.city || "",
+                      stateLine,
+                      selectedWarehouse.zip || "",
+                      selectedWarehouse.country || "",
+                    ]
+                      .filter(Boolean)
+                      .join("\n");
+                    if (!text) return;
+                    try {
+                      await navigator.clipboard.writeText(text);
+                    } catch {
+                      // ignore clipboard errors
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="px-6 pb-6">
+              {selectedWarehouse ? (
+                <>
+                  <div className="grid grid-cols-[110px_1fr] gap-y-1 text-sm">
+                    <span className="text-muted-foreground">Warehouse:</span>
+                    <span className="font-medium">{formatWarehouseDisplayName(selectedWarehouse.name)}</span>
+                    <span className="text-muted-foreground">Shipping Name:</span>
+                    <span className="font-medium text-primary">{userProfile?.name || "-"}</span>
+                    <span className="text-muted-foreground">Street1:</span>
+                    <span>{selectedWarehouse.street1 || "-"}</span>
+                    <span className="text-muted-foreground">Street2:</span>
+                    <span>{selectedWarehouse.street2 || "-"}</span>
+                    <span className="text-muted-foreground">City:</span>
+                    <span>{selectedWarehouse.city || "-"}</span>
+                    <span className="text-muted-foreground">Zip:</span>
+                    <span>{selectedWarehouse.zip || "-"}</span>
+                    <span className="text-muted-foreground">State:</span>
+                    <span>{selectedWarehouseStateDisplay}</span>
+                  </div>
+                  <p className="mt-4 text-sm text-muted-foreground">
+                    To ensure accurate processing and avoid any misplacement, all shipments to our warehouse must be
+                    addressed with your full name.
+                  </p>
+                  {!isSelectedWarehouseAssigned && (
+                    <div className="mt-4 rounded-md bg-white p-3 text-center shadow-sm">
+                      <p className="font-semibold text-red-600">Inbound shipping disabled</p>
+                      <p className="text-sm text-foreground">Do not ship inventory to this address</p>
+                      <p className="text-sm text-foreground">If you need this location contact with admin</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Select a warehouse location from the sidebar to view your shipment address.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </section>
 
-          <Card className="xl:col-span-5 overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
+        {/* Request status + alerts in one row */}
+        <section className="grid gap-6 xl:grid-cols-2">
+          <Card className="overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
             <CardHeader className="pb-2 pt-6 px-6">
               <CardTitle className="text-base font-semibold text-neutral-900">Request Processing Status</CardTitle>
               <CardDescription className="text-neutral-500">Shipped, pending, processing, rejected</CardDescription>
@@ -783,7 +805,14 @@ export default function DashboardPage() {
               <ChartContainer config={orderStatusChartConfig} className="h-[280px] w-full">
                 <PieChart>
                   <ChartTooltip content={<ChartTooltipContent />} />
-                  <ChartLegend content={<ChartLegendContent nameKey="name" className="grid grid-cols-2 gap-x-6 gap-y-2 justify-items-start" />} />
+                  <ChartLegend
+                    content={
+                      <ChartLegendContent
+                        nameKey="name"
+                        className="grid grid-cols-2 gap-x-6 gap-y-2 justify-items-start"
+                      />
+                    }
+                  />
                   <Pie data={orderStatusData} dataKey="value" nameKey="name" innerRadius={56} outerRadius={88} paddingAngle={2}>
                     {orderStatusData.map((entry) => (
                       <Cell key={entry.name} fill={entry.fill} />
@@ -791,6 +820,51 @@ export default function DashboardPage() {
                   </Pie>
                 </PieChart>
               </ChartContainer>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
+            <CardHeader className="pb-2 pt-6 px-6">
+              <CardTitle className="text-base font-semibold text-neutral-900">Alerts</CardTitle>
+              <CardDescription className="text-neutral-500">Needs attention</CardDescription>
+            </CardHeader>
+            <CardContent className="px-6 pb-6">
+              <div className="grid grid-cols-2 gap-3">
+                <Link href="/dashboard/inventory?status=low-stock" className="block min-w-0 rounded-lg border border-amber-200/80 bg-amber-50/60 p-3 transition-colors hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                  <p className="text-sm font-medium text-amber-900">Low Stock ({lowStockItems.length})</p>
+                  {lowStockItems.length === 0 ? (
+                    <p className="mt-1 text-xs text-amber-700">All good</p>
+                  ) : (
+                    lowStockItems.slice(0, 3).map((item) => (
+                      <p key={item.id} className="mt-1 text-xs text-amber-800">{item.productName}: {item.quantity} left</p>
+                    ))
+                  )}
+                  {lowStockItems.length > 0 && (
+                    <p className="mt-2 text-xs font-medium text-amber-700 underline-offset-2 hover:underline">View filtered inventory →</p>
+                  )}
+                </Link>
+                <div className="min-w-0 rounded-lg border border-rose-200/80 bg-rose-50/60 p-3">
+                  <p className="text-sm font-medium text-rose-900">Rejected Requests ({rejectedInventoryRequests.length})</p>
+                  {rejectedInventoryRequests.length === 0 ? (
+                    <p className="mt-1 text-xs text-rose-700">None</p>
+                  ) : (
+                    rejectedInventoryRequests.slice(0, 2).map((req, idx) => (
+                      <p key={`${req.productName}-${idx}`} className="mt-1 text-xs text-rose-800">{req.productName || "Item"}: {req.rejectionReason || "Rejected"}</p>
+                    ))
+                  )}
+                </div>
+                <div className="min-w-0 rounded-lg border border-blue-200/80 bg-blue-50/60 p-3">
+                  <p className="text-sm font-medium text-blue-900">Pending Fulfillment ({pendingFulfillmentCount})</p>
+                  <p className="mt-1 text-xs text-blue-700">Shipment requests waiting</p>
+                  <Link href="/dashboard/shipped-orders?status=pending" className="mt-2 inline-block text-xs font-medium text-blue-600 hover:underline">Review →</Link>
+                </div>
+                <div className="min-w-0 rounded-lg border border-emerald-200/80 bg-emerald-50/60 p-3">
+                  <p className="text-sm font-medium text-emerald-900">Integrations</p>
+                  <p className="mt-1 text-xs text-emerald-800">Shopify: {shopifyConnections.length > 0 ? "Connected" : "Not connected"}</p>
+                  <p className="text-xs text-emerald-800">eBay: {ebayConnections.length > 0 ? "Connected" : "Not connected"}</p>
+                  <Link href="/dashboard/integrations" className="mt-2 inline-block text-xs font-medium text-emerald-600 hover:underline">Settings →</Link>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </section>
