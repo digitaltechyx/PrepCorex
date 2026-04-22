@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { auth, db } from "@/lib/firebase";
+import { findDefaultWarehouseLocationId } from "@/lib/default-warehouse";
 import { Logo } from "@/components/logo";
 import { Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
@@ -137,6 +138,11 @@ export default function RegisterPage() {
       if (values.referralCode && values.referralCode.trim() !== "" && referredByAgentId) {
         userData.referredBy = values.referralCode.trim().toUpperCase();
         userData.referredByAgentId = referredByAgentId;
+      }
+
+      const defaultWarehouseId = await findDefaultWarehouseLocationId();
+      if (defaultWarehouseId) {
+        userData.locations = [defaultWarehouseId];
       }
 
       await setDoc(doc(db, "users", user.uid), userData);

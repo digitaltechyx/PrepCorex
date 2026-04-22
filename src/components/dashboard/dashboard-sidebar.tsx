@@ -48,6 +48,8 @@ import { hasRole, hasFeature } from "@/lib/permissions";
 import { brandLogoSrc } from "@/components/logo";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { findDefaultWarehouseLocationIdInList } from "@/lib/default-warehouse";
+import { formatWarehouseDisplayName, normalizeWarehouseKey } from "@/lib/warehouse-display";
 
 type LocationDoc = {
   id: string;
@@ -151,8 +153,11 @@ export function DashboardSidebar() {
     if (!userProfile?.uid || selectedWarehouseId) return;
     const all = allActiveLocations;
     if (all.length === 0) return;
+    const defaultId = findDefaultWarehouseLocationIdInList(all);
     const preferred =
-      all.find((loc) => /^nj[\s-]?2$/i.test((loc.name || "").trim())) || all[0];
+      (defaultId ? all.find((loc) => loc.id === defaultId) : undefined) ||
+      all.find((loc) => normalizeWarehouseKey(loc.name || "") === "nj2") ||
+      all[0];
     if (!preferred) return;
     const c = (preferred.country || "").trim() || "Uncategorized";
     const s = (preferred.stateOrProvince || "").trim() || "Unspecified";
@@ -569,7 +574,7 @@ export function DashboardSidebar() {
                         <SelectContent>
                           {locationsForState.map((loc) => (
                             <SelectItem key={loc.id} value={loc.id}>
-                              {loc.name || "Unnamed"}
+                              {formatWarehouseDisplayName(loc.name)}
                               {assignedLocationIds.has(loc.id) ? "" : " (unassigned)"}
                             </SelectItem>
                           ))}

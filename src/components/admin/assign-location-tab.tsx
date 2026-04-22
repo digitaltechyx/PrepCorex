@@ -6,6 +6,8 @@ import { db } from "@/lib/firebase";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { useCollection } from "@/hooks/use-collection";
 import { createLocation, removeLocation } from "@/lib/locations";
+import { formatLocationPath } from "@/lib/region-display";
+import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
 import type { Location as LocationType, UserProfile } from "@/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -97,13 +99,8 @@ export function AssignLocationTab() {
     selectedStateOrProvince === "__new__" ? newStateOrProvinceName : selectedStateOrProvince
   ).trim();
 
-  const locationLabel = (loc: LocationType) => {
-    const country = (loc.country || "").trim();
-    const stateOrProvince = (loc.stateOrProvince || "").trim();
-    if (country && stateOrProvince) return `${country} > ${stateOrProvince} > ${loc.name}`;
-    if (country) return `${country} > ${loc.name}`;
-    return loc.name;
-  };
+  const locationLabel = (loc: LocationType) =>
+    formatLocationPath(loc.country, loc.stateOrProvince, loc.name);
 
   const assignableUsers = useMemo(
     () =>
@@ -130,12 +127,15 @@ export function AssignLocationTab() {
     return activeLocations.filter((loc) => {
       const country = (loc.country || "").trim();
       const stateOrProvince = (loc.stateOrProvince || "").trim();
-      const path = country && stateOrProvince
-        ? `${country} > ${stateOrProvince} > ${loc.name}`
-        : country
-          ? `${country} > ${loc.name}`
-          : loc.name;
-      return path.toLowerCase().includes(q);
+      const path = formatLocationPath(loc.country, loc.stateOrProvince, loc.name);
+      const pathLegacy =
+        country && stateOrProvince
+          ? `${country} > ${stateOrProvince} > ${loc.name}`
+          : country
+            ? `${country} > ${loc.name}`
+            : loc.name;
+      const hay = `${path} ${pathLegacy}`.toLowerCase();
+      return hay.includes(q);
     });
   }, [activeLocations, locationSearch]);
 
@@ -315,7 +315,7 @@ export function AssignLocationTab() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Input
-              placeholder="New location name (city/site/warehouse)"
+              placeholder="Warehouse name (e.g. NJ1, NJ2, CA1)"
               value={newLocationName}
               onChange={(e) => setNewLocationName(e.target.value)}
               className="max-w-md rounded-xl border-2 h-11"
@@ -368,7 +368,9 @@ export function AssignLocationTab() {
                                   className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2"
                                 >
                                   <MapPin className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm font-medium text-foreground">{loc.name}</span>
+                                  <span className="text-sm font-medium text-foreground">
+                                    {formatWarehouseDisplayName(loc.name)}
+                                  </span>
                                   <Button
                                     variant="ghost"
                                     size="icon"

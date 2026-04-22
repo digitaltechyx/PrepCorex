@@ -30,6 +30,7 @@ import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { hasRole } from "@/lib/permissions";
+import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
 import { cn } from "@/lib/utils";
 import { useDashboardNav } from "@/contexts/dashboard-nav-context";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
@@ -94,6 +95,7 @@ type WarehouseLocationDoc = {
   street2?: string;
   city?: string;
   zip?: string;
+  /** Legacy line; hierarchy uses `stateOrProvince` for the full region name when present. */
   state?: string;
 };
 
@@ -244,6 +246,12 @@ export default function DashboardPage() {
   const isSelectedWarehouseAssigned = selectedWarehouseId
     ? assignedLocationIds.has(selectedWarehouseId)
     : true;
+
+  const selectedWarehouseStateDisplay = useMemo(() => {
+    if (!selectedWarehouse) return "-";
+    const raw = (selectedWarehouse.stateOrProvince || selectedWarehouse.state || "").trim();
+    return raw || "-";
+  }, [selectedWarehouse]);
 
   const hasDateRange = Boolean(dateRangeFrom && dateRangeTo);
 
@@ -626,13 +634,21 @@ export default function DashboardPage() {
                   className="h-7 w-7"
                   onClick={async () => {
                     if (!selectedWarehouse) return;
+                    const stateLine = (
+                      selectedWarehouse.stateOrProvince ||
+                      selectedWarehouse.state ||
+                      ""
+                    ).trim();
                     const text = [
+                      ...(selectedWarehouse.name?.trim()
+                        ? [formatWarehouseDisplayName(selectedWarehouse.name)]
+                        : []),
                       selectedWarehouse.shippingName || userProfile?.name || "",
                       selectedWarehouse.street1 || "",
                       selectedWarehouse.street2 || "",
                       selectedWarehouse.city || "",
+                      stateLine,
                       selectedWarehouse.zip || "",
-                      selectedWarehouse.state || selectedWarehouse.stateOrProvince || "",
                       selectedWarehouse.country || "",
                     ]
                       .filter(Boolean)
@@ -653,6 +669,8 @@ export default function DashboardPage() {
               {selectedWarehouse ? (
                 <>
                   <div className="grid grid-cols-[110px_1fr] gap-y-1 text-sm">
+                    <span className="text-muted-foreground">Warehouse:</span>
+                    <span className="font-medium">{formatWarehouseDisplayName(selectedWarehouse.name)}</span>
                     <span className="text-muted-foreground">Shipping Name:</span>
                     <span className="font-medium text-primary">
                       {selectedWarehouse.shippingName || userProfile?.name || "-"}
@@ -666,7 +684,7 @@ export default function DashboardPage() {
                     <span className="text-muted-foreground">Zip:</span>
                     <span>{selectedWarehouse.zip || "-"}</span>
                     <span className="text-muted-foreground">State:</span>
-                    <span>{selectedWarehouse.state || selectedWarehouse.stateOrProvince || "-"}</span>
+                    <span>{selectedWarehouseStateDisplay}</span>
                   </div>
                   <p className="mt-4 text-sm text-muted-foreground">
                     To ensure accurate processing and avoid any misplacement, all shipments to our warehouse must be

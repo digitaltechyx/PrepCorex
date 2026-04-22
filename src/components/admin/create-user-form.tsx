@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
+import { findDefaultWarehouseLocationId } from "@/lib/default-warehouse";
 import { generateClientId } from "@/lib/client-id";
 import { useState, useMemo } from "react";
 import { useCollection } from "@/hooks/use-collection";
@@ -152,6 +153,10 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
       if (values.role === "sub_admin") {
         profileData.managedLocationIds = subAdminManagedLocationIds;
         profileData.assignedUserIds = subAdminAssignedUserIds;
+      }
+      const defaultWarehouseId = await findDefaultWarehouseLocationId();
+      if (defaultWarehouseId && values.role === "user") {
+        profileData.locations = [defaultWarehouseId];
       }
       await setDoc(doc(db, "users", userCredential.user.uid), profileData);
 

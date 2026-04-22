@@ -1,5 +1,6 @@
 import { collection, addDoc, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { invalidateDefaultWarehouseLocationCache } from "@/lib/default-warehouse";
 import type { Location } from "@/types";
 
 const COLLECTION = "locations";
@@ -28,15 +29,20 @@ export async function createLocation(input: CreateLocationInput): Promise<string
     active: true,
     createdAt: new Date(),
   });
+  invalidateDefaultWarehouseLocationCache();
   return ref.id;
 }
 
 export async function removeLocation(id: string): Promise<void> {
   await deleteDoc(doc(db, COLLECTION, id));
+  invalidateDefaultWarehouseLocationCache();
 }
 
 export async function updateLocation(id: string, data: { name?: string; active?: boolean }): Promise<void> {
   await updateDoc(doc(db, COLLECTION, id), data as Record<string, unknown>);
+  if (data.name !== undefined || data.active !== undefined) {
+    invalidateDefaultWarehouseLocationCache();
+  }
 }
 
 /** Map Firestore doc to Location (doc id = location id) */
