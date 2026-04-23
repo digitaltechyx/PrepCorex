@@ -63,7 +63,7 @@ import { db, storage } from "@/lib/firebase";
 import { doc, updateDoc, addDoc, collection, Timestamp, runTransaction, query, where, getDocs } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { format } from "date-fns";
-import { Archive, Boxes, Check, Eye, Loader2, Package, Truck, Upload, X, ImageOff } from "lucide-react";
+import { Archive, Boxes, Check, Clock, Eye, Filter, Loader2, Package, Search, Truck, Upload, X, ImageOff } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import imageCompression from "browser-image-compression";
 
@@ -74,6 +74,19 @@ function formatDate(date: InventoryRequest["addDate"] | InventoryRequest["reques
   }
   if (date && typeof date === 'object' && 'seconds' in date) {
     return format(new Date(date.seconds * 1000), "PPP");
+  }
+  return "N/A";
+}
+
+function formatOptionalDate(date: unknown) {
+  if (!date) return "N/A";
+  if (typeof date === "string") {
+    const d = new Date(date);
+    if (Number.isNaN(d.getTime())) return "N/A";
+    return format(d, "MMM d, yyyy");
+  }
+  if (date && typeof date === "object" && "seconds" in (date as any)) {
+    return format(new Date((date as any).seconds * 1000), "MMM d, yyyy");
   }
   return "N/A";
 }
@@ -129,6 +142,7 @@ export function InventoryRequestsManagement({
   const [selectedRequest, setSelectedRequest] = useState<InventoryRequest | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -169,7 +183,21 @@ export function InventoryRequestsManagement({
 
   // Sort and filter requests - latest first
   const filteredRequests = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
     let filtered = statusFilter === "all" ? requests : requests.filter(req => req.status === statusFilter);
+    filtered = filtered.filter((req) => {
+      if (!query) return true;
+      const productName = (req.productName || "").toLowerCase();
+      const sku = String((req as any).sku || "").toLowerCase();
+      const variantLabel = String((req as any).variantLabel || "").toLowerCase();
+      const retailIdentifier = String((req as any).retailIdentifier || "").toLowerCase();
+      return (
+        productName.includes(query) ||
+        sku.includes(query) ||
+        variantLabel.includes(query) ||
+        retailIdentifier.includes(query)
+      );
+    });
     
     // Sort by requestedAt (most recent first), fallback to addDate if requestedAt is not available
     filtered = [...filtered].sort((a, b) => {
@@ -199,7 +227,7 @@ export function InventoryRequestsManagement({
     });
     
     return filtered;
-  }, [requests, statusFilter]);
+  }, [requests, statusFilter, searchTerm]);
 
   // Pagination
   const totalPages = Math.ceil(filteredRequests.length / itemsPerPage);
@@ -210,7 +238,7 @@ export function InventoryRequestsManagement({
   // Reset to page 1 when filter changes
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter]);
+  }, [statusFilter, searchTerm]);
 
   const pendingCount = requests.filter(req => req.status === "pending").length;
   const approvedCount = requests.filter(req => req.status === "approved").length;
@@ -534,19 +562,43 @@ export function InventoryRequestsManagement({
         </Card>
       </div>
 
-      {/* Filter */}
-      <div className="flex items-center gap-4">
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filter by status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="approved">Approved</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
-          </SelectContent>
-        </Select>
+      {/* Search + Filter */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex-1">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search product, SKU, variant, or identifier..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+            {searchTerm && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 p-0"
+                onClick={() => setSearchTerm("")}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="sm:w-56">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger>
+              <Filter className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Filter by status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Requests Table */}
@@ -586,6 +638,9 @@ export function InventoryRequestsManagement({
                   <TableRow>
                     <TableHead>Type</TableHead>
                     <TableHead>Name</TableHead>
+                    <TableHead>SKU</TableHead>
+                    <TableHead className="hidden md:table-cell">Identifier</TableHead>
+                    <TableHead className="hidden lg:table-cell">Expiry</TableHead>
                     <TableHead>Quantity</TableHead>
                     <TableHead>Requested Date</TableHead>
                     <TableHead>Receiving Date</TableHead>
@@ -600,8 +655,22 @@ export function InventoryRequestsManagement({
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           <InventoryAvatar request={request} />
-                          <span>{request.productName}</span>
+                          <div className="flex flex-col">
+                            <span>{request.productName}</span>
+                            {(request as any).variantLabel && (
+                              <span className="text-xs text-muted-foreground">
+                                {(request as any).variantLabel}
+                              </span>
+                            )}
+                          </div>
                         </div>
+                      </TableCell>
+                      <TableCell>{(request as any).sku || "N/A"}</TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        {(request as any).retailIdentifier || "N/A"}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {(request as any).expiryDate ? formatOptionalDate((request as any).expiryDate) : "N/A"}
                       </TableCell>
                       <TableCell>{request.quantity}</TableCell>
                       <TableCell>{formatDate(request.requestedAt)}</TableCell>
@@ -618,7 +687,12 @@ export function InventoryRequestsManagement({
                               : "secondary"
                           }
                         >
-                          {request.status}
+                          {request.status === "pending" ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Pending
+                            </span>
+                          ) : request.status}
                         </Badge>
                       </TableCell>
                       <TableCell>

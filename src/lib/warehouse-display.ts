@@ -6,7 +6,8 @@ export function normalizeWarehouseKey(name: string): string {
 
 /** Default inbound warehouse: any active location whose name normalizes to `nj2`. */
 export function isDefaultNj2Warehouse(name: string | undefined | null): boolean {
-  return normalizeWarehouseKey(name ?? "") === "nj2";
+  // Accept NJ2 variants like NJ-2, NJ 2, NJ02, NJ-02.
+  return /^nj0*2$/.test(normalizeWarehouseKey(name ?? ""));
 }
 
 /**

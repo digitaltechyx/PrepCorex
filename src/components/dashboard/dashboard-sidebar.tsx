@@ -49,7 +49,7 @@ import { brandLogoSrc } from "@/components/logo";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { findDefaultWarehouseLocationIdInList } from "@/lib/default-warehouse";
-import { formatWarehouseDisplayName, normalizeWarehouseKey } from "@/lib/warehouse-display";
+import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 
 type LocationDoc = {
   id: string;
@@ -99,46 +99,22 @@ export function DashboardSidebar() {
     [allActiveLocations]
   );
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
-
   useEffect(() => {
     if (!userProfile?.uid) return;
-    const key = `warehouseSelection:${userProfile.uid}`;
-    try {
-      const saved = localStorage.getItem(key);
-      if (!saved) return;
-      const parsed = JSON.parse(saved) as {
-        locationId?: string;
-      };
-      if (parsed.locationId) setSelectedWarehouseId(parsed.locationId);
-    } catch {
-      // ignore malformed local storage values
-    }
-  }, [userProfile?.uid]);
-
-  useEffect(() => {
-    if (!userProfile?.uid || selectedWarehouseId) return;
     const all = allActiveLocations;
-    if (all.length === 0) return;
+    if (all.length === 0) {
+      setSelectedWarehouseId("");
+      return;
+    }
     const defaultId = findDefaultWarehouseLocationIdInList(all);
     const preferred =
       (defaultId ? all.find((loc) => loc.id === defaultId) : undefined) ||
-      all.find((loc) => normalizeWarehouseKey(loc.name || "") === "nj2") ||
+      all.find((loc) => isDefaultNj2Warehouse(loc.name)) ||
       all[0];
     if (!preferred) return;
-    setSelectedWarehouseId(preferred.id);
-  }, [userProfile?.uid, selectedWarehouseId, allActiveLocations]);
-
-  useEffect(() => {
-    if (!userProfile?.uid) return;
-    const all = allActiveLocations;
-    if (all.length === 0) return;
-    const defaultId = findDefaultWarehouseLocationIdInList(all);
-    const preferred =
-      (defaultId ? all.find((loc) => loc.id === defaultId) : undefined) ||
-      all.find((loc) => normalizeWarehouseKey(loc.name || "") === "nj2");
-    if (!preferred) return;
-    if (selectedWarehouseId === preferred.id) return;
-    setSelectedWarehouseId(preferred.id);
+    if (selectedWarehouseId !== preferred.id) {
+      setSelectedWarehouseId(preferred.id);
+    }
   }, [userProfile?.uid, allActiveLocations, selectedWarehouseId]);
 
   useEffect(() => {

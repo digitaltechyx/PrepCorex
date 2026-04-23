@@ -837,23 +837,26 @@ export function AddInventoryRequestForm({
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="flex min-h-0 flex-1 flex-col"
+        className="flex min-h-0 flex-1 flex-col bg-gradient-to-b from-background to-muted/20"
       >
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
-          <div className="space-y-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+          <div className="space-y-5">
             <FormField
               control={form.control}
               name="inventoryType"
               render={({ field }) => (
-                <FormItem className="space-y-3">
-                  <FormLabel>Inventory Type</FormLabel>
+                <FormItem className="space-y-3 rounded-xl border bg-card/90 p-4 shadow-sm">
+                  <FormLabel className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <Package className="h-3.5 w-3.5 text-primary" />
+                    Inventory Type
+                  </FormLabel>
                   <FormControl>
                     <RadioGroup
                       onValueChange={field.onChange}
                       value={field.value}
-                      className="flex flex-col space-y-1"
+                      className="grid gap-2 sm:grid-cols-2"
                     >
-                      <FormItem className="flex items-center space-x-3 space-y-0">
+                      <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
                         <FormControl>
                           <RadioGroupItem value="product" />
                         </FormControl>
@@ -862,7 +865,7 @@ export function AddInventoryRequestForm({
                           Product
                         </FormLabel>
                       </FormItem>
-                      <FormItem className="flex items-center space-x-3 space-y-0">
+                      <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
                         <FormControl>
                           <RadioGroupItem value="box" />
                         </FormControl>
@@ -871,7 +874,7 @@ export function AddInventoryRequestForm({
                           Box
                         </FormLabel>
                       </FormItem>
-                      <FormItem className="flex items-center space-x-3 space-y-0">
+                      <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
                         <FormControl>
                           <RadioGroupItem value="pallet" />
                         </FormControl>
@@ -880,7 +883,7 @@ export function AddInventoryRequestForm({
                           Pallet
                         </FormLabel>
                       </FormItem>
-                      <FormItem className="flex items-center space-x-3 space-y-0">
+                      <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
                         <FormControl>
                           <RadioGroupItem value="container" />
                         </FormControl>
@@ -902,8 +905,11 @@ export function AddInventoryRequestForm({
                 control={form.control}
                 name="productSubType"
                 render={({ field }) => (
-                  <FormItem className="space-y-3">
-                    <FormLabel>Product Type</FormLabel>
+                  <FormItem className="space-y-3 rounded-xl border bg-card/90 p-4 shadow-sm">
+                    <FormLabel className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      <Boxes className="h-3.5 w-3.5 text-violet-600" />
+                      Product Type
+                    </FormLabel>
                     <FormControl>
                       <RadioGroup
                         onValueChange={(value) => {
@@ -923,9 +929,9 @@ export function AddInventoryRequestForm({
                           }
                         }}
                         value={field.value}
-                        className="flex flex-col space-y-1"
+                        className="grid gap-2 sm:grid-cols-2"
                       >
-                        <FormItem className="flex items-center space-x-3 space-y-0">
+                        <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
                           <FormControl>
                             <RadioGroupItem value="new" />
                           </FormControl>
@@ -933,7 +939,7 @@ export function AddInventoryRequestForm({
                             New Product
                           </FormLabel>
                         </FormItem>
-                        <FormItem className="flex items-center space-x-3 space-y-0">
+                        <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
                           <FormControl>
                             <RadioGroupItem value="restock" />
                           </FormControl>
@@ -954,8 +960,11 @@ export function AddInventoryRequestForm({
                 control={form.control}
                 name="productEntryMode"
                 render={({ field }) => (
-                  <FormItem className="space-y-3">
-                    <FormLabel>Entry Mode</FormLabel>
+                  <FormItem className="space-y-3 rounded-xl border bg-card/90 p-4 shadow-sm">
+                    <FormLabel className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      <Archive className="h-3.5 w-3.5 text-amber-600" />
+                      Entry Mode
+                    </FormLabel>
                     <FormControl>
                       <RadioGroup
                         onValueChange={(value) => {
@@ -968,9 +977,9 @@ export function AddInventoryRequestForm({
                           }
                         }}
                         value={field.value}
-                        className="flex flex-col space-y-1"
+                        className="grid gap-2 sm:grid-cols-2"
                       >
-                        <FormItem className="flex items-center space-x-3 space-y-0">
+                        <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
                           <FormControl>
                             <RadioGroupItem value="single" />
                           </FormControl>
@@ -978,7 +987,7 @@ export function AddInventoryRequestForm({
                             Single Product
                           </FormLabel>
                         </FormItem>
-                        <FormItem className="flex items-center space-x-3 space-y-0">
+                        <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
                           <FormControl>
                             <RadioGroupItem value="variants" />
                           </FormControl>
@@ -1016,7 +1025,7 @@ export function AddInventoryRequestForm({
                       value={field.value}
                     >
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className="h-11 rounded-lg">
                           <SelectValue placeholder="Select a product to restock" />
                         </SelectTrigger>
                       </FormControl>
@@ -1069,7 +1078,7 @@ export function AddInventoryRequestForm({
                       value={field.value}
                     >
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className="h-11 rounded-lg">
                           <SelectValue placeholder="Select container size" />
                         </SelectTrigger>
                       </FormControl>
@@ -1097,7 +1106,7 @@ export function AddInventoryRequestForm({
                         placeholder={`Enter ${getTypeLabel(inventoryType).toLowerCase()} name`}
                         {...field}
                         readOnly={inventoryType === "box" || inventoryType === "pallet" || inventoryType === "container"}
-                        className={inventoryType === "box" || inventoryType === "pallet" || inventoryType === "container" ? "bg-muted" : ""}
+                        className={`h-11 rounded-lg ${inventoryType === "box" || inventoryType === "pallet" || inventoryType === "container" ? "bg-muted" : ""}`}
                       />
                     </FormControl>
                     {(inventoryType === "box" || inventoryType === "pallet" || inventoryType === "container") && generatedId && (
@@ -1128,6 +1137,7 @@ export function AddInventoryRequestForm({
                       <Input
                         placeholder="Enter SKU"
                         {...field}
+                        className="h-11 rounded-lg"
                       />
                     </FormControl>
                     <FormMessage />
@@ -1148,6 +1158,7 @@ export function AddInventoryRequestForm({
                         <Input
                           placeholder="Enter one identifier if applicable"
                           {...field}
+                          className="h-11 rounded-lg"
                         />
                       </FormControl>
                       <FormMessage />
@@ -1167,7 +1178,7 @@ export function AddInventoryRequestForm({
             )}
 
             {inventoryType === "product" && productSubType === "new" && productEntryMode === "variants" && (
-              <div className="space-y-4 rounded-lg border p-4">
+              <div className="space-y-4 rounded-xl border bg-card p-4 shadow-sm">
                 <p className="text-sm font-medium">Variant Builder</p>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-1">
@@ -1176,6 +1187,7 @@ export function AddInventoryRequestForm({
                       placeholder="Black, White, Red"
                       value={variantColorInput}
                       onChange={(e) => setVariantColorInput(e.target.value)}
+                      className="h-11 rounded-lg"
                     />
                   </div>
                   <div className="space-y-1">
@@ -1184,16 +1196,17 @@ export function AddInventoryRequestForm({
                       placeholder="S, M, L, XL"
                       value={variantSizeInput}
                       onChange={(e) => setVariantSizeInput(e.target.value)}
+                      className="h-11 rounded-lg"
                     />
                   </div>
                 </div>
-                <Button type="button" variant="outline" onClick={regenerateVariantRows}>
+                <Button type="button" variant="outline" className="h-10 rounded-lg" onClick={regenerateVariantRows}>
                   Generate Variants
                 </Button>
                 {variantRows.length > 0 && (
                   <div className="space-y-2">
                     {variantRows.map((row) => (
-                      <div key={row.id} className="space-y-3 rounded-md border p-3">
+                      <div key={row.id} className="space-y-3 rounded-lg border bg-background p-3">
                         <div className="grid gap-3 md:grid-cols-4">
                           <div className="text-sm">
                             <p className="text-muted-foreground">Color</p>
@@ -1208,6 +1221,7 @@ export function AddInventoryRequestForm({
                             <Input
                               value={row.sku}
                               onChange={(e) => updateVariantRow(row.id, { sku: e.target.value })}
+                              className="h-10 rounded-lg"
                             />
                           </div>
                         </div>
@@ -1223,6 +1237,7 @@ export function AddInventoryRequestForm({
                                   quantity: Math.max(1, Number.parseInt(e.target.value || "1", 10)),
                                 })
                               }
+                              className="h-10 rounded-lg"
                             />
                           </div>
                           <div className="space-y-2 md:col-span-2">
@@ -1234,6 +1249,7 @@ export function AddInventoryRequestForm({
                               type="file"
                               accept="image/*"
                               onChange={(e) => handleVariantImageSelect(row.id, e)}
+                              className="rounded-lg"
                             />
                             <p className="text-xs text-muted-foreground">
                               Each variant can use a different photo. Max 5 MB, same as the main product upload.
@@ -1286,6 +1302,7 @@ export function AddInventoryRequestForm({
                   type="file"
                   accept="image/*"
                   onChange={handleProductImageSelect}
+                  className="rounded-lg"
                 />
                 <p className="text-xs text-muted-foreground">
                   {inventoryType === "box"
@@ -1324,6 +1341,7 @@ export function AddInventoryRequestForm({
                         {...field}
                         onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
                         value={field.value}
+                        className="h-11 rounded-lg"
                       />
                     </FormControl>
                     <FormMessage />
@@ -1342,7 +1360,7 @@ export function AddInventoryRequestForm({
                   <FormControl>
                     <Textarea
                       placeholder="Add any additional notes or remarks about this inventory request..."
-                      className="min-h-[100px]"
+                      className="min-h-[110px] rounded-lg"
                       {...field}
                     />
                   </FormControl>
@@ -1352,10 +1370,11 @@ export function AddInventoryRequestForm({
             />
           </div>
         </div>
-        <div className="mt-auto flex shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-background px-6 py-4">
+        <div className="mt-auto flex shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-background/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <Button
             type="button"
             variant="outline"
+            className="h-10 rounded-lg px-5"
             onClick={() => {
               if (mode === "dialog") {
                 setOpen(false);
@@ -1388,7 +1407,7 @@ export function AddInventoryRequestForm({
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={isLoading}>
+          <Button type="submit" className="h-10 rounded-lg px-5 shadow-sm" disabled={isLoading}>
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Submit Request
           </Button>
@@ -1421,10 +1440,13 @@ export function AddInventoryRequestForm({
       </SheetTrigger>
       <SheetContent
         side="right"
-        className="flex h-full max-h-[100dvh] w-full flex-col gap-0 border-l p-0 sm:max-w-xl md:max-w-[600px]"
+        className="flex h-full max-h-[100dvh] w-full flex-col gap-0 border-l p-0 sm:max-w-xl md:max-w-[50vw]"
       >
-        <SheetHeader className="space-y-1 border-b px-6 pb-4 pt-6 pr-14 text-left">
-          <SheetTitle>Add Inventory Request</SheetTitle>
+        <SheetHeader className="space-y-2 border-b bg-gradient-to-r from-background via-background to-primary/5 px-6 pb-4 pt-6 pr-14 text-left">
+          <p className="inline-flex w-fit items-center rounded-full border border-primary/15 bg-primary/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-primary">
+            Request Workspace
+          </p>
+          <SheetTitle className="text-[1.55rem] tracking-tight">Add Inventory Request</SheetTitle>
           <SheetDescription>
             Submit an inventory request. Admin will review and approve it.
           </SheetDescription>

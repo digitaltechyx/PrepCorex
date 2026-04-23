@@ -27,6 +27,7 @@ import { ShipmentRequestsManagement } from "@/components/admin/shipment-requests
 import { InventoryRequestsManagement } from "@/components/admin/inventory-requests-management";
 import { ProductReturnsManagement } from "@/components/admin/product-returns-management";
 import { DisposeRequestsManagement } from "@/components/admin/dispose-requests-management";
+import { InventoryTable } from "@/components/dashboard/inventory-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
@@ -1694,246 +1695,18 @@ export function AdminInventoryManagement({
           </div>
         </CardHeader>
         <CardContent>
-          {/* Search and Filter Controls */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div className="sm:col-span-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search products..."
-                  value={inventorySearch}
-                  onChange={(e) => {
-                    setInventorySearch(e.target.value);
-                    resetInventoryPagination();
-                  }}
-                  className="pl-10"
-                />
-                {inventorySearch && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                    onClick={() => setInventorySearch("")}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                )}
-              </div>
-            </div>
-            <div className="sm:w-48">
-              <Select value={inventoryStatusFilter} onValueChange={(value) => {
-                setInventoryStatusFilter(value);
-                resetInventoryPagination();
-              }}>
-                <SelectTrigger>
-                  <Filter className="h-4 w-4 mr-2" />
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="In Stock">In Stock</SelectItem>
-                  <SelectItem value="Out of Stock">Out of Stock</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="sm:w-48">
-              <Select value={inventoryDateFilter} onValueChange={(value) => {
-                setInventoryDateFilter(value);
-                resetInventoryPagination();
-              }}>
-                <SelectTrigger>
-                  <Filter className="h-4 w-4 mr-2" />
-                  <SelectValue placeholder="Filter by date" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Time</SelectItem>
-                  <SelectItem value="today">Today</SelectItem>
-                  <SelectItem value="week">This Week</SelectItem>
-                  <SelectItem value="month">This Month</SelectItem>
-                  <SelectItem value="year">This Year</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="sm:w-48">
-              <DateRangePicker
-                fromDate={inventoryFromDate}
-                toDate={inventoryToDate}
-                setFromDate={setInventoryFromDate}
-                setToDate={setInventoryToDate}
-                className="w-full"
-              />
-            </div>
-            <div className="sm:w-48">
-              <Select value={inventorySortBy} onValueChange={(value) => {
-                setInventorySortBy(value);
-                resetInventoryPagination();
-              }}>
-                <SelectTrigger>
-                  <Filter className="h-4 w-4 mr-2" />
-                  <SelectValue placeholder="Sort by" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="name-asc">Sort by Name (A-Z)</SelectItem>
-                  <SelectItem value="name-desc">Sort by Name (Z-A)</SelectItem>
-                  <SelectItem value="date-asc">Sort by Date (Oldest)</SelectItem>
-                  <SelectItem value="date-desc">Sort by Date (Newest)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
           {loading ? (
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
               ))}
             </div>
-          ) : filteredInventory.length > 0 ? (
-            <div className="space-y-2">
-              {paginatedInventory.map((item) => {
-                const isEbayListing = item.source === "ebay";
-                const isLowStock = !isEbayListing && item.quantity < 5;
-                return (
-                  <div
-                    key={item.id}
-                    className={`rounded-lg border px-3 py-3 sm:px-4 ${
-                      isLowStock ? "border-red-400 bg-red-50/70 dark:bg-red-950/20" : "bg-card"
-                    }`}
-                  >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <InventoryAvatar item={item as any} />
-                          <p className={`font-medium truncate ${isLowStock ? "text-red-700 dark:text-red-400" : ""}`}>
-                            {item.productName}
-                          </p>
-                          <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px] sm:text-xs">
-                            {item.status}
-                          </Badge>
-                          {isLowStock && (
-                            <Badge variant="destructive" className="text-[10px] sm:text-xs">
-                              Low stock
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs sm:text-sm text-muted-foreground">
-                          <span className={`${isLowStock ? "text-red-700 dark:text-red-400" : ""}`}>
-                            Qty: <span className="font-semibold">{item.quantity}</span>
-                          </span>
-                          <span>Added: {formatDate(item.dateAdded)}</span>
-                          {isEbayListing && <span>Source: eBay (restock sync enabled)</span>}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 lg:w-auto">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={isEbayListing}
-                              onClick={() => handleEditProductWithLog(item)}
-                              className="h-8 px-2"
-                            >
-                              <Edit className="h-3.5 w-3.5 mr-1" />
-                              <span className="text-xs">Edit</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{isEbayListing ? "Edit not supported for eBay listings" : "Edit product details"}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleRestockProduct(item)}
-                              className="h-8 px-2 text-green-600 hover:text-green-700"
-                            >
-                              <Package className="h-3.5 w-3.5 mr-1" />
-                              <span className="text-xs">Restock</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{isEbayListing ? "Restock product and update quantity on eBay" : "Restock product"}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={isEbayListing}
-                              onClick={() => handleRecycleProduct(item)}
-                              className="h-8 px-2 text-orange-600 hover:text-orange-700"
-                            >
-                              <RotateCcw className="h-3.5 w-3.5 mr-1" />
-                              <span className="text-xs">Recycle</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{isEbayListing ? "Recycle not supported for eBay listings" : "Move to Recycle Bin"}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={isEbayListing}
-                              onClick={() => handleDeleteProduct(item)}
-                              className="h-8 px-2 text-red-600 hover:text-red-700"
-                            >
-                              <Trash2 className="h-3.5 w-3.5 mr-1" />
-                              <span className="text-xs">Delete</span>
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{isEbayListing ? "Remove from Integrations → eBay listings" : "Permanently delete product"}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           ) : (
-            <div className="text-center py-8">
-              <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No inventory items</h3>
-              <p className="text-muted-foreground">This user has no products in their inventory.</p>
-              </div>
-          )}
-
-          {/* Pagination Controls */}
-          {filteredInventory.length > inventoryItemsPerPage && (
-            <div className="flex items-center justify-between mt-4 pt-4 border-t">
-              <div className="text-sm text-muted-foreground">
-                Showing {inventoryStartIndex + 1} to {Math.min(inventoryEndIndex, filteredInventory.length)} of {filteredInventory.length} items
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setInventoryPage(p => Math.max(1, p - 1))}
-                  disabled={inventoryPage === 1}
-                >
-                  Previous
-                </Button>
-                <span className="text-sm">
-                  Page {inventoryPage} of {inventoryTotalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setInventoryPage(p => Math.min(inventoryTotalPages, p + 1))}
-                  disabled={inventoryPage === inventoryTotalPages}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
+            <InventoryTable
+              data={inventory}
+              ownerUserId={selectedUser.uid}
+              ownerUserName={selectedUser.name ?? selectedUser.email ?? "User"}
+            />
           )}
         </CardContent>
       </Card>
@@ -2128,7 +1901,7 @@ export function AdminInventoryManagement({
             </div>
             
             {filteredShipped.length > 0 ? (
-              <div className="rounded-md border overflow-x-auto">
+              <div className="rounded-md border overflow-x-auto mouse-h-scroll">
                 <Table className="min-w-[900px]">
                   <TableHeader>
                     <TableRow>

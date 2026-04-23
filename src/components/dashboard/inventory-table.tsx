@@ -35,7 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +58,36 @@ function formatReceivingDate(date: InventoryItem["receivingDate"]) {
     return format(new Date(date.seconds * 1000), "MMM d, yyyy");
   }
   return "N/A";
+}
+
+function formatOptionalDate(date: unknown) {
+  if (!date) return "N/A";
+  if (typeof date === "string") {
+    const d = new Date(date);
+    if (Number.isNaN(d.getTime())) return "N/A";
+    return format(d, "MMM d, yyyy");
+  }
+  if (typeof date === "object" && date !== null && "seconds" in (date as any)) {
+    const sec = Number((date as any).seconds);
+    if (!Number.isFinite(sec)) return "N/A";
+    return format(new Date(sec * 1000), "MMM d, yyyy");
+  }
+  return "N/A";
+}
+
+function toDateInputValue(date: unknown): string {
+  if (!date) return "";
+  if (typeof date === "string") {
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return parsed.toISOString().slice(0, 10);
+  }
+  if (typeof date === "object" && date !== null && "seconds" in (date as any)) {
+    const sec = Number((date as any).seconds);
+    if (!Number.isFinite(sec)) return "";
+    return new Date(sec * 1000).toISOString().slice(0, 10);
+  }
+  return "";
 }
 
 function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefined): string[] {
@@ -146,9 +176,19 @@ const lowStockRowCardClass =
 const lowStockTextClass = "text-red-700 dark:text-red-400";
 const lowStockQtyClass = "text-red-800 dark:text-red-300";
 
-export function InventoryTable({ data }: { data: InventoryItem[] }) {
+export function InventoryTable({
+  data,
+  ownerUserId,
+  ownerUserName,
+}: {
+  data: InventoryItem[];
+  ownerUserId?: string;
+  ownerUserName?: string;
+}) {
   const searchParams = useSearchParams();
   const { userProfile } = useAuth();
+  const effectiveUserId = ownerUserId || userProfile?.uid;
+  const effectiveUserName = ownerUserName || userProfile?.name || "Unknown User";
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
@@ -174,7 +214,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
 
   // Fetch inventory requests
   const { data: inventoryRequests } = useCollection<InventoryRequest>(
-    userProfile ? `users/${userProfile.uid}/inventoryRequests` : ""
+    effectiveUserId ? `users/${effectiveUserId}/inventoryRequests` : ""
   );
 
   const pendingCount = inventoryRequests.filter(req => req.status === "pending").length;
@@ -198,6 +238,8 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
     setEditProductName(request.productName || "");
     setEditSku((request as any).sku || "");
     setEditQuantity(request.quantity);
+    setEditRetailIdentifier((request as any).retailIdentifier || "");
+    setEditExpiryDate(toDateInputValue((request as any).expiryDate));
     setIsEditDialogOpen(true);
   };
 
@@ -208,9 +250,11 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
   };
 
   const [editSku, setEditSku] = useState("");
+  const [editRetailIdentifier, setEditRetailIdentifier] = useState("");
+  const [editExpiryDate, setEditExpiryDate] = useState("");
 
   const handleUpdateRequest = async () => {
-    if (!editingRequest || !userProfile) return;
+    if (!editingRequest || !effectiveUserId) return;
     
     if (!editProductName.trim()) {
       toast({
@@ -241,12 +285,20 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
 
     setIsUpdating(true);
     try {
-      const requestRef = doc(db, `users/${userProfile.uid}/inventoryRequests`, editingRequest.id);
-      await updateDoc(requestRef, {
+      const requestRef = doc(db, `users/${effectiveUserId}/inventoryRequests`, editingRequest.id);
+      const updatePayload: Record<string, unknown> = {
         productName: editProductName.trim(),
         sku: editSku.trim(),
         quantity: editQuantity,
-      });
+        retailIdentifier: editRetailIdentifier.trim(),
+      };
+      if (editExpiryDate.trim()) {
+        const d = new Date(`${editExpiryDate.trim()}T12:00:00`);
+        if (!Number.isNaN(d.getTime())) updatePayload.expiryDate = Timestamp.fromDate(d);
+      } else {
+        updatePayload.expiryDate = null;
+      }
+      await updateDoc(requestRef, updatePayload);
 
       toast({
         title: "Success",
@@ -278,6 +330,12 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
         id: `request-${req.id}`,
         productName: req.productName,
         sku: (req as any).sku || "",
+        variantLabel: (req as any).variantLabel,
+        color: (req as any).color,
+        size: (req as any).size,
+        productEntryMode: (req as any).productEntryMode,
+        retailIdentifier: (req as any).retailIdentifier,
+        expiryDate: (req as any).expiryDate,
         quantity: req.quantity,
         dateAdded: req.addDate,
         receivingDate: undefined,
@@ -298,6 +356,12 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
         id: `request-${req.id}`,
         productName: req.productName,
         sku: (req as any).sku || "",
+        variantLabel: (req as any).variantLabel,
+        color: (req as any).color,
+        size: (req as any).size,
+        productEntryMode: (req as any).productEntryMode,
+        retailIdentifier: (req as any).retailIdentifier,
+        expiryDate: (req as any).expiryDate,
         quantity: req.quantity,
         dateAdded: req.addDate,
         receivingDate: undefined,
@@ -314,11 +378,16 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
     // Convert approved inventory items - get remarks from inventory item OR approved request
     const inventoryItems = data.map(item => {
       // Try to find matching approved request to get remarks
-      const matchingRequest = approvedRequests.find(req => 
-        req.productName === item.productName && 
-        req.requestedBy === item.requestedBy &&
-        req.quantity === item.quantity
-      );
+      const matchingRequest = approvedRequests.find(req => {
+        const requestSku = ((req as any).sku || "").trim().toLowerCase();
+        const itemSku = (((item as any).sku as string) || "").trim().toLowerCase();
+        if (requestSku && itemSku) return requestSku === itemSku;
+        return (
+          req.productName === item.productName &&
+          req.requestedBy === item.requestedBy &&
+          req.quantity === item.quantity
+        );
+      });
       
       // Use remarks from inventory item first, then from approved request
       const remarks = item.remarks || matchingRequest?.remarks;
@@ -333,6 +402,12 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
         isRequest: false,
         remarks: remarks && remarks.trim() ? remarks.trim() : undefined,
         imageUrls: imageUrls,
+        retailIdentifier: (item as any).retailIdentifier || (matchingRequest as any)?.retailIdentifier,
+        expiryDate: (item as any).expiryDate || (matchingRequest as any)?.expiryDate,
+        variantLabel: (item as any).variantLabel || (matchingRequest as any)?.variantLabel,
+        color: (item as any).color || (matchingRequest as any)?.color,
+        size: (item as any).size || (matchingRequest as any)?.size,
+        productEntryMode: (item as any).productEntryMode || (matchingRequest as any)?.productEntryMode,
       };
     });
 
@@ -343,8 +418,16 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
   // Filtered and sorted inventory data (newest first)
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
+      const query = searchTerm.toLowerCase();
       const productName = (item.productName || "").toLowerCase();
-      const matchesSearch = productName.includes(searchTerm.toLowerCase());
+      const sku = (((item as any).sku as string) || "").toLowerCase();
+      const variantLabel = (((item as any).variantLabel as string) || "").toLowerCase();
+      const retailIdentifier = (((item as any).retailIdentifier as string) || "").toLowerCase();
+      const matchesSearch =
+        productName.includes(query) ||
+        sku.includes(query) ||
+        variantLabel.includes(query) ||
+        retailIdentifier.includes(query);
       const row = item as { status: string; isRequest?: boolean; quantity?: number };
       const matchesStatus =
         statusFilter === "all" ||
@@ -395,7 +478,10 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                 </Badge>
               )}
             </div>
-            <AddInventoryRequestForm />
+            <AddInventoryRequestForm
+              targetUserId={effectiveUserId}
+              targetUserName={effectiveUserName}
+            />
           </div>
         </div>
       </CardHeader>
@@ -406,7 +492,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search products..."
+                placeholder="Search product, SKU, variant, or identifier..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -484,6 +570,21 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                       )}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">SKU: {(item as any).sku || "N/A"}</div>
+                    {(item as any).variantLabel && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Variant: {(item as any).variantLabel}
+                      </div>
+                    )}
+                    {(item as any).retailIdentifier && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Identifier: {(item as any).retailIdentifier}
+                      </div>
+                    )}
+                    {(item as any).expiryDate && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Expiry: {formatOptionalDate((item as any).expiryDate)}
+                      </div>
+                    )}
                     <div className="text-xs text-muted-foreground mt-1">Added: {formatDate(item.dateAdded)}</div>
                     {item.receivingDate && (
                       <div className="text-xs text-muted-foreground mt-0.5">Receiving: {formatReceivingDate(item.receivingDate)}</div>
@@ -538,12 +639,14 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
         </div>
 
         {/* Desktop/Table View */}
-        <div className="hidden sm:block overflow-x-auto">
+        <div className="hidden sm:block overflow-x-auto mouse-h-scroll">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="text-xs sm:text-sm">Product</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">SKU</TableHead>
+                <TableHead className="text-xs sm:text-sm hidden lg:table-cell">Identifier</TableHead>
+                <TableHead className="text-xs sm:text-sm hidden xl:table-cell">Expiry</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Quantity</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Date Added</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">Receiving Date</TableHead>
@@ -592,6 +695,11 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                             </Button>
                           )}
                         </div>
+                        {(item as any).variantLabel && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {(item as any).variantLabel}
+                          </p>
+                        )}
                         <div className="sm:hidden mt-1 space-y-0.5">
                           <span
                             className={cn(
@@ -613,6 +721,12 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                       </div>
                     </TableCell>
                     <TableCell className="hidden md:table-cell whitespace-nowrap">{(item as any).sku || "N/A"}</TableCell>
+                    <TableCell className="hidden lg:table-cell whitespace-nowrap">
+                      {(item as any).retailIdentifier || "N/A"}
+                    </TableCell>
+                    <TableCell className="hidden xl:table-cell whitespace-nowrap">
+                      {(item as any).expiryDate ? formatOptionalDate((item as any).expiryDate) : "N/A"}
+                    </TableCell>
                     <TableCell
                       className={cn(
                         "hidden sm:table-cell whitespace-nowrap",
@@ -660,7 +774,7 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8">
+                  <TableCell colSpan={9} className="text-center py-8">
                     <div className="text-xs sm:text-sm text-gray-500">
                       {combinedData.length === 0 ? "No inventory items or requests found." : "No items match your search criteria."}
                     </div>
@@ -777,6 +891,28 @@ export function InventoryTable({ data }: { data: InventoryItem[] }) {
                 value={editQuantity}
                 onChange={(e) => setEditQuantity(parseInt(e.target.value) || 0)}
                 placeholder="Enter quantity"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label htmlFor="edit-retail-identifier" className="text-sm font-medium">
+                UPC / EAN / FNSKU / ASIN (optional)
+              </label>
+              <Input
+                id="edit-retail-identifier"
+                value={editRetailIdentifier}
+                onChange={(e) => setEditRetailIdentifier(e.target.value)}
+                placeholder="Identifier for this product"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label htmlFor="edit-expiry" className="text-sm font-medium">Expiry date (optional)</label>
+              <Input
+                id="edit-expiry"
+                type="date"
+                value={editExpiryDate}
+                onChange={(e) => setEditExpiryDate(e.target.value)}
                 className="mt-1"
               />
             </div>
