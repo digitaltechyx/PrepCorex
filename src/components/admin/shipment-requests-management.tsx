@@ -44,8 +44,10 @@ import { format } from "date-fns";
 import { Check, X, Eye, Loader2, FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DatePicker } from "@/components/ui/date-picker";
+import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
 
 type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & { id: string; updatedAt?: any; createdAt?: any };
+type LocationDoc = { id: string; name?: string; active?: boolean };
 
 function formatDate(date: ShipmentRequest["date"] | ShipmentRequest["requestedAt"]) {
   if (typeof date === 'string') {
@@ -113,6 +115,14 @@ export function ShipmentRequestsManagement({
   const { data: requests, loading } = useCollection<ShipmentRequest>(
     isValidUserId ? `users/${userId}/shipmentRequests` : ""
   );
+  const { data: locationDocs = [] } = useCollection<LocationDoc>("locations");
+  const warehouseNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    locationDocs.forEach((loc) => {
+      map[loc.id] = formatWarehouseDisplayName(loc.name || loc.id);
+    });
+    return map;
+  }, [locationDocs]);
 
   // Auto-open a request when coming from Notifications
   const [didAutoOpen, setDidAutoOpen] = useState(false);
@@ -295,10 +305,35 @@ export function ShipmentRequestsManagement({
                 ? additionalServices.customProductPricing[index].packOf
                 : shipment.packOf;
             const totalUnitsShipped = shipment.quantity * effectivePackOf;
+            const selectedSourceLocationId = String((shipment as any).sourceLocationId || "").trim();
 
             if (currentInventory.quantity < totalUnitsShipped) {
               throw new Error(
                 `Not enough stock for ${currentInventory.productName}. Available: ${currentInventory.quantity}, Requested: ${totalUnitsShipped}.`
+              );
+            }
+
+            const incoming = (currentInventory as any).locationQuantities;
+            const locationQuantities: Record<string, number> = {};
+            if (incoming && typeof incoming === "object") {
+              for (const [key, value] of Object.entries(incoming as Record<string, unknown>)) {
+                const id = String(key || "").trim();
+                const qtyValue = Number(value);
+                if (!id || !Number.isFinite(qtyValue) || qtyValue <= 0) continue;
+                locationQuantities[id] = qtyValue;
+              }
+            }
+            const fallbackLocationId = String((currentInventory as any).locationId || "").trim();
+            if (Object.keys(locationQuantities).length === 0 && fallbackLocationId) {
+              locationQuantities[fallbackLocationId] = Number(currentInventory.quantity) || 0;
+            }
+            if (!selectedSourceLocationId) {
+              throw new Error(`Please select ship-from location for ${currentInventory.productName}.`);
+            }
+            const sourceAvailable = Number(locationQuantities[selectedSourceLocationId] || 0);
+            if (sourceAvailable < totalUnitsShipped) {
+              throw new Error(
+                `Not enough stock in selected location for ${currentInventory.productName}. Available: ${sourceAvailable}, Requested: ${totalUnitsShipped}.`
               );
             }
 
@@ -308,6 +343,8 @@ export function ShipmentRequestsManagement({
               inventoryDocRef,
               currentInventory,
               totalUnitsShipped,
+              selectedSourceLocationId,
+              locationQuantities,
             };
           })
         );
@@ -345,14 +382,35 @@ export function ShipmentRequestsManagement({
 
         // Process each shipment item - update inventory and collect data
         for (let i = 0; i < inventoryData.length; i++) {
-          const { shipment, effectivePackOf, inventoryDocRef, currentInventory, totalUnitsShipped } = inventoryData[i];
+          const {
+            shipment,
+            effectivePackOf,
+            inventoryDocRef,
+            currentInventory,
+            totalUnitsShipped,
+            selectedSourceLocationId,
+            locationQuantities,
+          } = inventoryData[i] as any;
           const newQuantity = currentInventory.quantity - totalUnitsShipped;
           const newStatus = newQuantity > 0 ? "In Stock" : "Out of Stock";
+          const currentSourceQty = Number(locationQuantities[selectedSourceLocationId] || 0);
+          locationQuantities[selectedSourceLocationId] = Math.max(0, currentSourceQty - totalUnitsShipped);
+          if (locationQuantities[selectedSourceLocationId] <= 0) {
+            delete locationQuantities[selectedSourceLocationId];
+          }
+          const nextPrimaryLocationId =
+            ((currentInventory as any).locationId && locationQuantities[(currentInventory as any).locationId]
+              ? String((currentInventory as any).locationId)
+              : "") ||
+            Object.keys(locationQuantities)[0] ||
+            selectedSourceLocationId;
 
           // Update inventory
           transaction.update(inventoryDocRef, {
             quantity: newQuantity,
             status: newStatus,
+            locationId: nextPrimaryLocationId,
+            locationQuantities,
           });
 
           // Use admin-set pricing for custom products, otherwise use shipment pricing
@@ -378,6 +436,8 @@ export function ShipmentRequestsManagement({
             unitPrice: finalUnitPrice,
             packOfPrice: finalPackOfPrice,
             remainingQty: newQuantity,
+            shippedFromLocationId: selectedSourceLocationId,
+            shippedFromLocationName: warehouseNameById[selectedSourceLocationId] || selectedSourceLocationId,
           });
 
           // Accumulate totals
@@ -872,6 +932,7 @@ export function ShipmentRequestsManagement({
         <ReviewShipmentDialog
           request={selectedRequest}
           inventory={inventory}
+          warehouseNameById={warehouseNameById}
           onConfirm={handleConfirm}
           onReject={handleReject}
           onApproveForLabelUpload={handleApproveForLabelUpload}
@@ -906,6 +967,7 @@ export function ShipmentRequestsManagement({
 function ReviewShipmentDialog({
   request,
   inventory,
+  warehouseNameById,
   onConfirm,
   onReject,
   onApproveForLabelUpload,
@@ -919,6 +981,7 @@ function ReviewShipmentDialog({
 }: {
   request: ShipmentRequest;
   inventory: InventoryItem[];
+  warehouseNameById: Record<string, string>;
   onConfirm: (
     request: ShipmentRequest,
     adminRemarks?: string,
@@ -1037,6 +1100,37 @@ function ReviewShipmentDialog({
     String(request.shipmentType || "").toLowerCase() === "pallet" &&
     String(request.palletSubType || "").toLowerCase() === "existing_inventory";
 
+  const getLocationBreakdownForProduct = (product?: InventoryItem) => {
+    if (!product) return [] as Array<{ locationId: string; qty: number }>;
+    const locationQuantitiesRaw =
+      typeof (product as any).locationQuantities === "object"
+        ? ((product as any).locationQuantities as Record<string, unknown>)
+        : {};
+    const locationBreakdown = Object.entries(locationQuantitiesRaw)
+      .map(([locationId, qty]) => ({
+        locationId,
+        qty: Number(qty) || 0,
+      }))
+      .filter((entry) => entry.qty > 0);
+    if (locationBreakdown.length === 0 && (product as any).locationId) {
+      locationBreakdown.push({
+        locationId: String((product as any).locationId),
+        qty: Number(product.quantity) || 0,
+      });
+    }
+    return locationBreakdown;
+  };
+
+  const [shipFromLocationByIndex, setShipFromLocationByIndex] = useState<Record<number, string>>(() => {
+    const initial: Record<number, string> = {};
+    request.shipments.forEach((shipment: any, index: number) => {
+      const product = inventory.find((item) => item.id === shipment.productId);
+      const options = getLocationBreakdownForProduct(product);
+      initial[index] = options[0]?.locationId || "";
+    });
+    return initial;
+  });
+
   // Admin-set pricing + packOf + packOfPrice for custom products (per shipment)
   const [customProductPricing, setCustomProductPricing] = useState<Record<number, {
     unitPrice: number;
@@ -1153,9 +1247,46 @@ function ReviewShipmentDialog({
         return;
       }
     }
+
+    const missingSourceSelection = request.shipments.some((shipment: any, index: number) => {
+      const product = inventory.find((item) => item.id === shipment.productId);
+      if (!product) return true;
+      const options = getLocationBreakdownForProduct(product);
+      if (options.length === 0) return true;
+      return !shipFromLocationByIndex[index];
+    });
+    if (missingSourceSelection) {
+      toast({
+        variant: "destructive",
+        title: "Source Location Required",
+        description: "Please select ship-from location for each product before confirming.",
+      });
+      return;
+    }
+
+    const invalidSourceQty = request.shipments.find((shipment: any, index: number) => {
+      const product = inventory.find((item) => item.id === shipment.productId);
+      if (!product) return true;
+      const selectedLocationId = shipFromLocationByIndex[index];
+      const options = getLocationBreakdownForProduct(product);
+      const selectedEntry = options.find((entry) => entry.locationId === selectedLocationId);
+      const effectivePackOf = isCustomProduct
+        ? (customProductPricing[index]?.packOf || shipment.packOf || 1)
+        : shipment.packOf;
+      const totalUnits = (shipment.quantity || 0) * (effectivePackOf || 1);
+      return !selectedEntry || selectedEntry.qty < totalUnits;
+    });
+    if (invalidSourceQty) {
+      toast({
+        variant: "destructive",
+        title: "Insufficient Source Stock",
+        description: "Selected ship-from location does not have enough quantity for one or more products.",
+      });
+      return;
+    }
     
     // Apply manual pallet existing inventory unit prices (if applicable)
-    const requestForConfirm: ShipmentRequest = isPalletExistingInventory
+    const requestForConfirmBase: ShipmentRequest = isPalletExistingInventory
       ? ({
           ...request,
           shipments: request.shipments.map((s: any, idx: number) => ({
@@ -1164,6 +1295,13 @@ function ReviewShipmentDialog({
           })),
         } as any)
       : request;
+    const requestForConfirm: ShipmentRequest = {
+      ...(requestForConfirmBase as any),
+      shipments: (requestForConfirmBase.shipments || []).map((s: any, idx: number) => ({
+        ...s,
+        sourceLocationId: shipFromLocationByIndex[idx] || "",
+      })),
+    } as any;
 
     const extraAgg: Record<string, number> = {};
     if (hasPerShipmentServices) {
@@ -1366,6 +1504,7 @@ function ReviewShipmentDialog({
                   : shipment.packOf;
                 const totalUnits = shipment.quantity * effectivePackOf;
                 const hasEnoughStock = product ? product.quantity >= totalUnits : false;
+                const locationBreakdown = getLocationBreakdownForProduct(product);
                 
                 // Get selected services for this shipment (new format) or use request-level (old format)
                 const shipmentSelectedServices = hasPerShipmentServices
@@ -1638,6 +1777,40 @@ function ReviewShipmentDialog({
                               <Badge variant="default" className="mt-1">Available</Badge>
                             ) : (
                               <Badge variant="destructive" className="mt-1">Insufficient</Badge>
+                            )}
+                            {locationBreakdown.length > 0 && (
+                              <div className="mt-2 text-left">
+                                <p className="text-xs font-medium text-muted-foreground">Ship From Location</p>
+                                <Select
+                                  value={shipFromLocationByIndex[index] || ""}
+                                  onValueChange={(value) =>
+                                    setShipFromLocationByIndex((prev) => ({ ...prev, [index]: value }))
+                                  }
+                                >
+                                  <SelectTrigger className="mt-1 h-8 text-xs">
+                                    <SelectValue placeholder="Select source location" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {locationBreakdown.map((entry) => (
+                                      <SelectItem key={`ship-from-${index}-${entry.locationId}`} value={entry.locationId}>
+                                        {warehouseNameById[entry.locationId] || entry.locationId} ({entry.qty})
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+                            {locationBreakdown.length > 0 && (
+                              <div className="mt-2 text-left">
+                                <p className="text-xs font-medium text-muted-foreground">Stock by Location</p>
+                                <div className="mt-1 space-y-0.5">
+                                  {locationBreakdown.map((entry) => (
+                                    <p key={entry.locationId} className="text-xs text-muted-foreground">
+                                      {warehouseNameById[entry.locationId] || entry.locationId}: {entry.qty}
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
                             )}
                           </>
                         ) : (
