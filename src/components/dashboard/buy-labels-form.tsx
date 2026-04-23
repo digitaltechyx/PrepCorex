@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useAuth } from "@/hooks/use-auth";
+import { useCollection } from "@/hooks/use-collection";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import { Elements } from "@stripe/react-stripe-js";
 import { getStripePublishableKey } from "@/lib/stripe";
 import { PaymentDialog } from "./payment-dialog";
 import type { ShippingAddress, ParcelDetails, ShippingRate } from "@/types";
+import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 
 // US States list
 const US_STATES = [
@@ -138,6 +140,19 @@ type LabelCartItem = {
   shipmentId: string | null;
 };
 
+type LocationDoc = {
+  id: string;
+  name?: string;
+  street1?: string;
+  street2?: string;
+  city?: string;
+  state?: string;
+  stateOrProvince?: string;
+  zip?: string;
+  country?: string;
+  active?: boolean;
+};
+
 const DEFAULT_FORM_VALUES: FormValues = {
   fromAddress: {
     name: "Prep Services FBA LLC",
@@ -175,6 +190,7 @@ export function BuyLabelsForm() {
   const { userProfile, user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
+  const { data: locationDocs } = useCollection<LocationDoc>("locations");
   const [loading, setLoading] = useState(false);
   const [loadingRates, setLoadingRates] = useState(false);
   const [rates, setRates] = useState<ShippingRate[]>([]);
@@ -187,6 +203,14 @@ export function BuyLabelsForm() {
   const [paymentCurrency, setPaymentCurrency] = useState("usd");
   const [cartItems, setCartItems] = useState<LabelCartItem[]>([]);
   const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
+  const [selectedFromLocationId, setSelectedFromLocationId] = useState("");
+
+  const assignedLocationIds = userProfile?.locations ?? [];
+  const activeLocations = locationDocs.filter((loc) => loc.active !== false);
+  const assignedLocations = activeLocations.filter((loc) => assignedLocationIds.includes(loc.id));
+  const locationOptions = assignedLocations.length > 0 ? assignedLocations : activeLocations;
+  const selectedFromLocation =
+    locationOptions.find((loc) => loc.id === selectedFromLocationId) ?? null;
 
   useEffect(() => {
     const initStripe = async () => {
@@ -200,6 +224,32 @@ export function BuyLabelsForm() {
     resolver: zodResolver(formSchema),
     defaultValues: DEFAULT_FORM_VALUES,
   });
+
+  const applyFromAddressFromLocation = (location: LocationDoc) => {
+    const stateValue = (location.stateOrProvince || location.state || "").trim();
+    form.setValue("fromAddress.street1", (location.street1 || "").trim(), { shouldDirty: true });
+    form.setValue("fromAddress.street2", (location.street2 || "").trim(), { shouldDirty: true });
+    form.setValue("fromAddress.city", (location.city || "").trim(), { shouldDirty: true });
+    form.setValue("fromAddress.state", stateValue, { shouldDirty: true });
+    form.setValue("fromAddress.zip", (location.zip || "").trim(), { shouldDirty: true });
+    form.setValue("fromAddress.country", (location.country || "US").trim() || "US", { shouldDirty: true });
+  };
+
+  useEffect(() => {
+    if (locationOptions.length === 0) return;
+    if (selectedFromLocationId && locationOptions.some((loc) => loc.id === selectedFromLocationId)) return;
+
+    const preferred =
+      locationOptions.find((loc) => isDefaultNj2Warehouse(loc.name)) ||
+      locationOptions[0];
+    if (!preferred) return;
+    setSelectedFromLocationId(preferred.id);
+  }, [locationOptions, selectedFromLocationId]);
+
+  useEffect(() => {
+    if (!selectedFromLocation) return;
+    applyFromAddressFromLocation(selectedFromLocation);
+  }, [selectedFromLocation]);
 
   const handleGetRates = async (data: FormValues) => {
     if (!user) {
@@ -491,6 +541,28 @@ export function BuyLabelsForm() {
                   <MapPin className="h-5 w-5 text-blue-600" />
                   <h3 className="text-lg font-semibold">From Address</h3>
                 </div>
+                {locationOptions.length > 0 && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Warehouse Location</Label>
+                      <Select
+                        value={selectedFromLocationId}
+                        onValueChange={setSelectedFromLocationId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select warehouse location" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {locationOptions.map((loc) => (
+                            <SelectItem key={loc.id} value={loc.id}>
+                              {formatWarehouseDisplayName(loc.name)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
                 <div className="grid gap-4 md:grid-cols-2">
                   <FormField
                     control={form.control}

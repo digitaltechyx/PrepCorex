@@ -118,6 +118,24 @@ export interface InventoryItem {
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
   imageUrl?: string;
   imageUrls?: string[];
+  /** Internal warehouse location (admin-facing operations). */
+  locationId?: string;
+}
+
+/** Admin-only internal transfer between warehouse locations. */
+export interface InventoryTransfer {
+  id: string;
+  inventoryId: string;
+  productName: string;
+  sku?: string;
+  quantity: number;
+  fromLocationId: string;
+  toLocationId: string;
+  fromLocationName?: string;
+  toLocationName?: string;
+  reason?: string;
+  movedBy?: string;
+  movedAt?: { seconds: number; nanoseconds: number } | string | Date;
 }
 
 /** User request to add inventory (pending/approved/rejected). */

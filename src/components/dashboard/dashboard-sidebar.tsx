@@ -174,6 +174,27 @@ export function DashboardSidebar() {
     }
   }, [allActiveLocations, selectedWarehouseId]);
 
+  // Safety fallback: never leave warehouse unselected when options are available.
+  useEffect(() => {
+    if (!hasRole(userProfile, "user")) return;
+    if (selectedWarehouseId) return;
+    const preferredId =
+      firstAssignedLocation?.id ||
+      assignedLocations[0]?.id ||
+      nj2Location?.id ||
+      sortedLocations[0]?.id;
+    if (preferredId) {
+      setSelectedWarehouseId(preferredId);
+    }
+  }, [
+    userProfile,
+    selectedWarehouseId,
+    firstAssignedLocation,
+    assignedLocations,
+    nj2Location,
+    sortedLocations,
+  ]);
+
   // Check if user has "user" role - if yes, show full client dashboard
   // If only commission_agent, show only affiliate menu
   const hasUserRole = hasRole(userProfile, "user");

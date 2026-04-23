@@ -27,6 +27,12 @@ interface InventoryRequest {
   imageUrls?: string[];
   [key: string]: any;
 }
+interface InventoryItemLite {
+  id: string;
+  productName?: string;
+  sku?: string;
+  locationId?: string;
+}
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -153,6 +159,9 @@ export function InventoryRequestsManagement({
   const { data: requests, loading, error } = useCollection<InventoryRequest>(
     isValidUserId ? `users/${userId}/inventoryRequests` : ""
   );
+  const { data: currentInventory } = useCollection<InventoryItemLite>(
+    isValidUserId ? `users/${userId}/inventory` : ""
+  );
 
   // Auto-open a request when coming from Notifications
   const [didAutoOpen, setDidAutoOpen] = useState(false);
@@ -243,6 +252,18 @@ export function InventoryRequestsManagement({
   const pendingCount = requests.filter(req => req.status === "pending").length;
   const approvedCount = requests.filter(req => req.status === "approved").length;
   const rejectedCount = requests.filter(req => req.status === "rejected").length;
+
+  const getCurrentLocation = (request: InventoryRequest): string => {
+    const requestSku = String((request as any).sku || "").trim().toLowerCase();
+    if (requestSku) {
+      const bySku = currentInventory.find((inv) => String(inv.sku || "").trim().toLowerCase() === requestSku);
+      if (bySku?.locationId) return bySku.locationId;
+    }
+    const byName = currentInventory.find(
+      (inv) => String(inv.productName || "").trim().toLowerCase() === String(request.productName || "").trim().toLowerCase()
+    );
+    return byName?.locationId || "N/A";
+  };
 
   const handleApprove = async (request: InventoryRequest, receivingDate: Date, status: "In Stock" | "Out of Stock", remarks?: string, editedQuantity?: number, editedProductName?: string, editedSku?: string, imageUrls?: string[]) => {
     if (!selectedUser || !adminProfile) return;
@@ -644,6 +665,7 @@ export function InventoryRequestsManagement({
                     <TableHead>Quantity</TableHead>
                     <TableHead>Requested Date</TableHead>
                     <TableHead>Receiving Date</TableHead>
+                    <TableHead className="hidden lg:table-cell">Current Location</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -676,6 +698,9 @@ export function InventoryRequestsManagement({
                       <TableCell>{formatDate(request.requestedAt)}</TableCell>
                       <TableCell>
                         {request.receivingDate ? formatDate(request.receivingDate) : "N/A"}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {getCurrentLocation(request)}
                       </TableCell>
                       <TableCell>
                         <Badge

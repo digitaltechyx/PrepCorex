@@ -31,7 +31,7 @@ import { InventoryTable } from "@/components/dashboard/inventory-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
-import type { InventoryItem, ShippedItem, UserProfile, RestockHistory, RecycledShippedItem, RecycledRestockHistory, RecycledInventoryItem, DeleteLog, EditLog } from "@/types";
+import type { InventoryItem, ShippedItem, UserProfile, RestockHistory, RecycledShippedItem, RecycledRestockHistory, RecycledInventoryItem, DeleteLog, EditLog, Location, InventoryTransfer } from "@/types";
 import { arrayToCSV, downloadCSV, formatDateForCSV, type InventoryCSVRow, type ShippedCSVRow } from "@/lib/csv-utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
@@ -48,6 +48,8 @@ interface AdminInventoryManagementProps {
   /** Request/return ID to auto-open in the request management component. */
   initialRequestId?: string;
 }
+
+type InventoryLocationDoc = Pick<Location, "id" | "name" | "active">;
 
 const editProductSchema = z.object({
   productName: z.string().min(1, "Product name is required"),
@@ -240,6 +242,12 @@ export function AdminInventoryManagement({
   const [editingProductWithLog, setEditingProductWithLog] = useState<InventoryItem | null>(null);
   // Single state to track active section
   const [activeSection, setActiveSection] = useState<string>("current-inventory");
+  const [moveInventoryItemId, setMoveInventoryItemId] = useState("");
+  const [moveFromLocationId, setMoveFromLocationId] = useState("");
+  const [moveToLocationId, setMoveToLocationId] = useState("");
+  const [moveQuantity, setMoveQuantity] = useState(1);
+  const [moveReason, setMoveReason] = useState("");
+  const [isMovingInventory, setIsMovingInventory] = useState(false);
   const [addInventoryMode, setAddInventoryMode] = useState<"quick" | "request">("quick");
   const [shipInventoryMode, setShipInventoryMode] = useState<"quick" | "request">("quick");
   // User Requests tab (shipment | inventory | return | dispose)
@@ -313,6 +321,36 @@ export function AdminInventoryManagement({
   const { data: editLogs, loading: editLogsLoading } = useCollection<EditLog>(
     selectedUser ? `users/${selectedUser.uid}/editLogs` : ""
   );
+  const { data: locationDocs } = useCollection<InventoryLocationDoc>("locations");
+  const { data: inventoryTransfers } = useCollection<InventoryTransfer>(
+    selectedUser ? `users/${selectedUser.uid}/inventoryTransfers` : ""
+  );
+
+  const activeLocations = useMemo(
+    () => locationDocs.filter((loc) => loc.active !== false),
+    [locationDocs]
+  );
+  const movableInventory = useMemo(
+    () =>
+      inventory
+        .filter((item) => Number(item.quantity) > 0)
+        .sort((a, b) => (a.productName || "").localeCompare(b.productName || "")),
+    [inventory]
+  );
+  const selectedMoveItem = useMemo(
+    () => movableInventory.find((item) => item.id === moveInventoryItemId) || null,
+    [movableInventory, moveInventoryItemId]
+  );
+  const sortedTransferLogs = useMemo(() => {
+    const toMs = (value: any) => {
+      if (!value) return 0;
+      if (typeof value === "string") return new Date(value).getTime();
+      if (typeof value === "object" && "seconds" in value) return Number(value.seconds) * 1000;
+      if (value instanceof Date) return value.getTime();
+      return 0;
+    };
+    return [...inventoryTransfers].sort((a, b) => toMs((b as any).movedAt) - toMs((a as any).movedAt));
+  }, [inventoryTransfers]);
   
   // Search and filter states
   const [inventorySearch, setInventorySearch] = useState("");
@@ -331,6 +369,18 @@ export function AdminInventoryManagement({
   const [deleteLogsToDate, setDeleteLogsToDate] = useState<Date | undefined>(undefined);
   const [editLogsFromDate, setEditLogsFromDate] = useState<Date | undefined>(undefined);
   const [editLogsToDate, setEditLogsToDate] = useState<Date | undefined>(undefined);
+
+  useEffect(() => {
+    if (!selectedMoveItem) {
+      setMoveFromLocationId("");
+      setMoveToLocationId("");
+      setMoveQuantity(1);
+      return;
+    }
+    setMoveFromLocationId((selectedMoveItem as any).locationId || "");
+    setMoveToLocationId("");
+    setMoveQuantity(1);
+  }, [selectedMoveItem]);
 
   const editForm = useForm<z.infer<typeof editProductSchema>>({
     resolver: zodResolver(editProductSchema),
@@ -407,6 +457,107 @@ export function AdminInventoryManagement({
     setDetailsTitle(title);
     setDetailsLines(lines);
     setIsDetailsDialogOpen(true);
+  };
+
+  const handleMoveInventory = async () => {
+    if (!selectedUser || !adminUser || !moveInventoryItemId) return;
+    if (!moveFromLocationId || !moveToLocationId) {
+      toast({
+        variant: "destructive",
+        title: "Select locations",
+        description: "Please select both From and To locations.",
+      });
+      return;
+    }
+    if (moveFromLocationId === moveToLocationId) {
+      toast({
+        variant: "destructive",
+        title: "Invalid destination",
+        description: "From and To locations must be different.",
+      });
+      return;
+    }
+    const qty = Math.max(1, Number(moveQuantity) || 0);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast({
+        variant: "destructive",
+        title: "Invalid quantity",
+        description: "Please enter a valid quantity to move.",
+      });
+      return;
+    }
+
+    setIsMovingInventory(true);
+    try {
+      const sourceRef = doc(db, `users/${selectedUser.uid}/inventory`, moveInventoryItemId);
+      const sourceSnap = await getDoc(sourceRef);
+      if (!sourceSnap.exists()) {
+        throw new Error("Selected inventory item no longer exists.");
+      }
+      const sourceData = sourceSnap.data() as any;
+      const availableQty = Number(sourceData.quantity) || 0;
+      if (qty > availableQty) {
+        throw new Error(`Only ${availableQty} units are available at source.`);
+      }
+
+      const fromLocationName =
+        activeLocations.find((loc) => loc.id === moveFromLocationId)?.name || moveFromLocationId;
+      const toLocationName =
+        activeLocations.find((loc) => loc.id === moveToLocationId)?.name || moveToLocationId;
+
+      if (qty === availableQty) {
+        await updateDoc(sourceRef, {
+          locationId: moveToLocationId,
+          updatedAt: new Date(),
+        });
+      } else {
+        await updateDoc(sourceRef, {
+          quantity: availableQty - qty,
+          status: availableQty - qty > 0 ? "In Stock" : "Out of Stock",
+          updatedAt: new Date(),
+        });
+
+        const cloned = {
+          ...sourceData,
+          quantity: qty,
+          status: "In Stock" as const,
+          locationId: moveToLocationId,
+          dateAdded: new Date(),
+          movedFromInventoryId: moveInventoryItemId,
+        };
+        await addDoc(collection(db, `users/${selectedUser.uid}/inventory`), cloned);
+      }
+
+      await addDoc(collection(db, `users/${selectedUser.uid}/inventoryTransfers`), {
+        inventoryId: moveInventoryItemId,
+        productName: sourceData.productName || selectedMoveItem?.productName || "Unknown Product",
+        sku: sourceData.sku || "",
+        quantity: qty,
+        fromLocationId: moveFromLocationId,
+        toLocationId: moveToLocationId,
+        fromLocationName,
+        toLocationName,
+        reason: moveReason.trim(),
+        movedBy: adminUser.name || adminUser.email || "Admin",
+        movedAt: new Date(),
+      });
+
+      toast({
+        title: "Inventory moved",
+        description: `${qty} units moved successfully.`,
+      });
+      setMoveReason("");
+      setMoveToLocationId("");
+      setMoveQuantity(1);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Move failed",
+        description: error?.message || "Failed to move inventory.",
+      });
+    } finally {
+      setIsMovingInventory(false);
+    }
   };
 
   const onEditSubmit = async (values: z.infer<typeof editProductSchema>) => {
@@ -1382,7 +1533,7 @@ export function AdminInventoryManagement({
             </div>
             
             {/* Section Navigation Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-10 gap-3 mt-2">
               {/* Add Inventory Card */}
               <div
                 onClick={() => setActiveSection("add-inventory")}
@@ -1434,6 +1585,34 @@ export function AdminInventoryManagement({
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
                       Record shipment
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Move Inventory Card */}
+              <div
+                onClick={() => setActiveSection("move-inventory")}
+                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                  activeSection === "move-inventory"
+                    ? "border-emerald-500 bg-gradient-to-br from-emerald-50 to-emerald-100 shadow-lg scale-105 ring-2 ring-emerald-200"
+                    : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-md"
+                }`}
+              >
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <div className={`p-3 rounded-lg ${
+                    activeSection === "move-inventory" ? "bg-emerald-500 text-white" : "bg-gray-100 text-gray-600"
+                  } transition-colors`}>
+                    <ArrowRight className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className={`font-semibold text-xs ${
+                      activeSection === "move-inventory" ? "text-emerald-900" : "text-gray-700"
+                    }`}>
+                      Move Inventory
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Internal transfer
                     </p>
                   </div>
                 </div>
@@ -1710,6 +1889,124 @@ export function AdminInventoryManagement({
           )}
         </CardContent>
       </Card>
+      )}
+
+      {activeSection === "move-inventory" && (
+        <Card className="border-2 border-emerald-200 shadow-lg">
+          <CardHeader className="bg-gradient-to-r from-emerald-50 to-emerald-100 border-b">
+            <CardTitle className="text-emerald-900 flex items-center gap-2">
+              <ArrowRight className="h-5 w-5" />
+              Move Inventory (Admin Internal)
+            </CardTitle>
+            <CardDescription className="text-emerald-700">
+              Move inventory between internal locations. Users will not see internal transfer details.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-6 space-y-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label>Inventory Item</Label>
+                <Select value={moveInventoryItemId} onValueChange={setMoveInventoryItemId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select item to move" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {movableInventory.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.productName} {(item as any).sku ? `| SKU: ${(item as any).sku}` : ""} | Qty: {item.quantity}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>From Location</Label>
+                <Select value={moveFromLocationId} onValueChange={setMoveFromLocationId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {activeLocations.map((loc) => (
+                      <SelectItem key={loc.id} value={loc.id}>
+                        {loc.name || loc.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>To Location</Label>
+                <Select value={moveToLocationId} onValueChange={setMoveToLocationId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select destination" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {activeLocations
+                      .filter((loc) => loc.id !== moveFromLocationId)
+                      .map((loc) => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.name || loc.id}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Quantity</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={selectedMoveItem?.quantity || 1}
+                  value={moveQuantity}
+                  onChange={(e) => setMoveQuantity(Math.max(1, Number.parseInt(e.target.value || "1", 10)))}
+                />
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label>Reason (optional)</Label>
+                <Input
+                  placeholder="Overflow, balancing, capacity adjustment..."
+                  value={moveReason}
+                  onChange={(e) => setMoveReason(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button onClick={handleMoveInventory} disabled={isMovingInventory || !moveInventoryItemId}>
+                {isMovingInventory && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Move Inventory
+              </Button>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
+              <h4 className="text-sm font-semibold">Recent Transfer Log</h4>
+              {sortedTransferLogs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No internal transfers recorded yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {sortedTransferLogs.slice(0, 15).map((log) => (
+                    <div key={log.id} className="rounded-md border p-3 text-sm">
+                      <p className="font-medium">
+                        {log.productName} {(log as any).sku ? `(${(log as any).sku})` : ""} - {log.quantity} units
+                      </p>
+                      <p className="text-muted-foreground">
+                        {(log as any).fromLocationName || log.fromLocationId} → {(log as any).toLocationName || log.toLocationId}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        By {(log as any).movedBy || "Admin"} on {formatDate((log as any).movedAt)}
+                        {(log as any).reason ? ` | Reason: ${(log as any).reason}` : ""}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Shipped Orders (Conditional) */}
