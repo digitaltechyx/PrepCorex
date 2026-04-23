@@ -134,11 +134,12 @@ export function DashboardSidebar() {
       return;
     }
 
+    const nj2Location = all.find((loc) => isDefaultNj2Warehouse(loc.name));
     const defaultId = findDefaultWarehouseLocationIdInList(all);
     const preferred =
+      nj2Location ||
       firstAssignedLocation ||
       (defaultId ? all.find((loc) => loc.id === defaultId) : undefined) ||
-      all.find((loc) => isDefaultNj2Warehouse(loc.name)) ||
       all[0];
     if (!preferred) return;
     setSelectedWarehouseId(preferred.id);
