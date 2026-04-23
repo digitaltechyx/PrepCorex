@@ -114,6 +114,8 @@ export interface InventoryItem {
   shopifyInventoryItemId?: string;
   shop?: string;
   sku?: string;
+  retailIdentifier?: string;
+  expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
   imageUrl?: string;
   imageUrls?: string[];
 }
@@ -126,6 +128,18 @@ export interface InventoryRequest {
   inventoryType: "product" | "box" | "pallet" | "container";
   productName: string;
   quantity: number;
+  sku?: string;
+  /** Single optional field for UPC / EAN / FNSKU / ASIN (whatever the client uses). */
+  retailIdentifier?: string;
+  /** Calendar expiry when applicable (stored as Firestore Timestamp on write). */
+  expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
+  productSubType?: "new" | "restock";
+  productId?: string;
+  productEntryMode?: "single" | "variants";
+  color?: string;
+  size?: string;
+  variantLabel?: string;
+  parentProductName?: string;
   addDate?: { seconds: number; nanoseconds: number } | string;
   requestedAt?: { seconds: number; nanoseconds: number } | string;
   receivingDate?: { seconds: number; nanoseconds: number } | string;
