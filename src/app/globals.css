@@ -735,11 +735,12 @@ body *::-webkit-scrollbar,
   overflow-x: scroll !important;
   overflow-y: hidden !important;
   scrollbar-gutter: stable;
-  scrollbar-width: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #e2e8f0;
 }
 
 .mouse-h-scroll::-webkit-scrollbar {
-  height: 12px;
+  height: 8px;
   display: block;
 }
 
@@ -749,7 +750,7 @@ body *::-webkit-scrollbar,
 }
 
 .mouse-h-scroll::-webkit-scrollbar-thumb {
-  background: #64748b;
+  background: #94a3b8;
   border-radius: 9999px;
 }
 
@@ -757,12 +758,13 @@ body *::-webkit-scrollbar,
 .mouse-both-scroll {
   overflow: scroll !important;
   scrollbar-gutter: stable both-edges;
-  scrollbar-width: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #e2e8f0;
 }
 
 .mouse-both-scroll::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   display: block;
 }
 
@@ -772,6 +774,6 @@ body *::-webkit-scrollbar,
 }
 
 .mouse-both-scroll::-webkit-scrollbar-thumb {
-  background: #64748b;
+  background: #94a3b8;
   border-radius: 9999px;
 }
