@@ -728,13 +728,20 @@ export default function DashboardPage() {
                       selectedWarehouse.state ||
                       ""
                     ).trim();
+                    const street2WithClientId = [
+                      selectedWarehouse.street2?.trim(),
+                      userProfile?.clientId?.trim(),
+                    ]
+                      .filter(Boolean)
+                      .join(", ");
+
                     const text = [
                       ...(selectedWarehouse.name?.trim()
                         ? [formatWarehouseDisplayName(selectedWarehouse.name)]
                         : []),
                       userProfile?.name || "",
                       selectedWarehouse.street1 || "",
-                      selectedWarehouse.street2 || "",
+                      street2WithClientId || "",
                       selectedWarehouse.city || "",
                       stateLine,
                       selectedWarehouse.zip || "",
@@ -765,7 +772,11 @@ export default function DashboardPage() {
                     <span className="text-muted-foreground">Street1:</span>
                     <span>{selectedWarehouse.street1 || "-"}</span>
                     <span className="text-muted-foreground">Street2:</span>
-                    <span>{selectedWarehouse.street2 || "-"}</span>
+                    <span>
+                      {[selectedWarehouse.street2?.trim(), userProfile?.clientId?.trim()]
+                        .filter(Boolean)
+                        .join(", ") || "-"}
+                    </span>
                     <span className="text-muted-foreground">City:</span>
                     <span>{selectedWarehouse.city || "-"}</span>
                     <span className="text-muted-foreground">Zip:</span>

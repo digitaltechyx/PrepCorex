@@ -1901,8 +1901,8 @@ export function AdminInventoryManagement({
             </div>
             
             {filteredShipped.length > 0 ? (
-              <div className="rounded-md border overflow-x-auto mouse-h-scroll">
-                <Table className="min-w-[900px]">
+              <div className="rounded-md border">
+                <Table className="min-w-[900px]" containerClassName="overflow-x-auto overflow-y-hidden mouse-h-scroll">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[140px]">Product</TableHead>

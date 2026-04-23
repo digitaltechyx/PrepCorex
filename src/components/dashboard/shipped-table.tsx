@@ -491,8 +491,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         </div>
 
         {/* Desktop/Table View */}
-        <div className="hidden sm:block overflow-x-auto mouse-h-scroll">
-        <Table>
+        <div className="hidden sm:block">
+        <Table containerClassName="overflow-x-auto overflow-y-hidden mouse-h-scroll">
           <TableHeader>
             <TableRow>
                   <TableHead className="text-xs sm:text-sm">Product</TableHead>
