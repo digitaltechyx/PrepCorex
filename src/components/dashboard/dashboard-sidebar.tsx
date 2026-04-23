@@ -49,7 +49,7 @@ import { brandLogoSrc } from "@/components/logo";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { findDefaultWarehouseLocationIdInList } from "@/lib/default-warehouse";
-import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
+import { formatWarehouseDisplayName, isDefaultNj2Warehouse, normalizeWarehouseKey } from "@/lib/warehouse-display";
 
 type LocationDoc = {
   id: string;
@@ -106,6 +106,20 @@ export function DashboardSidebar() {
       ),
     [allActiveLocations]
   );
+  const nj2Location = useMemo(
+    () =>
+      allActiveLocations.find((loc) => {
+        const display = formatWarehouseDisplayName(loc.name);
+        const normalized = normalizeWarehouseKey(loc.name ?? "");
+        return (
+          display === "NJ-02" ||
+          display.startsWith("NJ-02") ||
+          isDefaultNj2Warehouse(loc.name) ||
+          /^nj0*2/.test(normalized)
+        );
+      }),
+    [allActiveLocations]
+  );
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   useEffect(() => {
     if (!userProfile?.uid) return;
@@ -134,7 +148,6 @@ export function DashboardSidebar() {
       return;
     }
 
-    const nj2Location = all.find((loc) => isDefaultNj2Warehouse(loc.name));
     const defaultId = findDefaultWarehouseLocationIdInList(all);
     const preferred =
       nj2Location ||
@@ -143,7 +156,7 @@ export function DashboardSidebar() {
       all[0];
     if (!preferred) return;
     setSelectedWarehouseId(preferred.id);
-  }, [userProfile?.uid, allActiveLocations, selectedWarehouseId, firstAssignedLocation]);
+  }, [userProfile?.uid, allActiveLocations, selectedWarehouseId, firstAssignedLocation, nj2Location]);
 
   useEffect(() => {
     if (!userProfile?.uid) return;
