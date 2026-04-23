@@ -91,6 +91,14 @@ export function DashboardSidebar() {
     () => allActiveLocations.filter((loc) => assignedLocationIds.has(loc.id)),
     [allActiveLocations, assignedLocationIds]
   );
+  const firstAssignedLocation = useMemo(() => {
+    const orderedAssignedIds = userProfile?.locations ?? [];
+    for (const id of orderedAssignedIds) {
+      const loc = allActiveLocations.find((candidate) => candidate.id === id);
+      if (loc) return loc;
+    }
+    return undefined;
+  }, [userProfile?.locations, allActiveLocations]);
   const sortedLocations = useMemo(
     () =>
       [...allActiveLocations].sort((a, b) =>
@@ -106,16 +114,35 @@ export function DashboardSidebar() {
       setSelectedWarehouseId("");
       return;
     }
+    if (selectedWarehouseId && all.some((loc) => loc.id === selectedWarehouseId)) {
+      return;
+    }
+
+    const key = `warehouseSelection:${userProfile.uid}`;
+    let storedId = "";
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { locationId?: string };
+        storedId = parsed.locationId?.trim() || "";
+      }
+    } catch {
+      storedId = "";
+    }
+    if (storedId && all.some((loc) => loc.id === storedId)) {
+      setSelectedWarehouseId(storedId);
+      return;
+    }
+
     const defaultId = findDefaultWarehouseLocationIdInList(all);
     const preferred =
+      firstAssignedLocation ||
       (defaultId ? all.find((loc) => loc.id === defaultId) : undefined) ||
       all.find((loc) => isDefaultNj2Warehouse(loc.name)) ||
       all[0];
     if (!preferred) return;
-    if (selectedWarehouseId !== preferred.id) {
-      setSelectedWarehouseId(preferred.id);
-    }
-  }, [userProfile?.uid, allActiveLocations, selectedWarehouseId]);
+    setSelectedWarehouseId(preferred.id);
+  }, [userProfile?.uid, allActiveLocations, selectedWarehouseId, firstAssignedLocation]);
 
   useEffect(() => {
     if (!userProfile?.uid) return;
