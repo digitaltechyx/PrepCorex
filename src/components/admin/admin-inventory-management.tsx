@@ -9,7 +9,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useForm } from "react-hook-form";
@@ -18,7 +21,7 @@ import * as z from "zod";
 import { doc, updateDoc, deleteDoc, addDoc, collection, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff, ArrowRight } from "lucide-react";
+import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff, ArrowRight, ChevronsUpDown, Check } from "lucide-react";
 import { AddInventoryForm } from "@/components/admin/add-inventory-form";
 import { AddInventoryRequestForm } from "@/components/dashboard/add-inventory-request-form";
 import { ShipInventoryForm } from "@/components/admin/ship-inventory-form";
@@ -35,6 +38,7 @@ import type { InventoryItem, ShippedItem, UserProfile, RestockHistory, RecycledS
 import { arrayToCSV, downloadCSV, formatDateForCSV, type InventoryCSVRow, type ShippedCSVRow } from "@/lib/csv-utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
+import { cn } from "@/lib/utils";
 
 interface AdminInventoryManagementProps {
   selectedUser: UserProfile | null;
@@ -248,6 +252,7 @@ export function AdminInventoryManagement({
   const [moveQuantity, setMoveQuantity] = useState(1);
   const [moveReason, setMoveReason] = useState("");
   const [isMovingInventory, setIsMovingInventory] = useState(false);
+  const [moveItemPickerOpen, setMoveItemPickerOpen] = useState(false);
   const [addInventoryMode, setAddInventoryMode] = useState<"quick" | "request">("quick");
   const [shipInventoryMode, setShipInventoryMode] = useState<"quick" | "request">("quick");
   // User Requests tab (shipment | inventory | return | dispose)
@@ -1906,18 +1911,53 @@ export function AdminInventoryManagement({
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
                 <Label>Inventory Item</Label>
-                <Select value={moveInventoryItemId} onValueChange={setMoveInventoryItemId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select item to move" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {movableInventory.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.productName} {(item as any).sku ? `| SKU: ${(item as any).sku}` : ""} | Qty: {item.quantity}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={moveItemPickerOpen} onOpenChange={setMoveItemPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={moveItemPickerOpen}
+                      className="w-full justify-between"
+                    >
+                      {moveInventoryItemId
+                        ? (() => {
+                            const selected = movableInventory.find((item) => item.id === moveInventoryItemId);
+                            if (!selected) return "Select item to move";
+                            return `${selected.productName}${(selected as any).sku ? ` | SKU: ${(selected as any).sku}` : ""} | Qty: ${selected.quantity}`;
+                          })()
+                        : "Select item to move"}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                    <Command>
+                      <CommandInput placeholder="Search item by name or SKU..." />
+                      <CommandList>
+                        <CommandEmpty>No inventory item found.</CommandEmpty>
+                        <CommandGroup>
+                          {movableInventory.map((item) => (
+                            <CommandItem
+                              key={item.id}
+                              value={`${item.productName} ${(item as any).sku || ""} ${item.quantity}`}
+                              onSelect={() => {
+                                setMoveInventoryItemId(item.id);
+                                setMoveItemPickerOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  moveInventoryItemId === item.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              {item.productName} {(item as any).sku ? `| SKU: ${(item as any).sku}` : ""} | Qty: {item.quantity}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="space-y-2">
