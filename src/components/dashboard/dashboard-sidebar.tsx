@@ -87,9 +87,13 @@ export function DashboardSidebar() {
       ),
     [locationDocs]
   );
-  const assignedLocations = useMemo(
-    () => allActiveLocations.filter((loc) => assignedLocationIds.has(loc.id)),
-    [allActiveLocations, assignedLocationIds]
+  /** Warehouse dropdown lists all active locations (assigned + unassigned). */
+  const warehouseOptionsSorted = useMemo(
+    () =>
+      [...allActiveLocations].sort((a, b) =>
+        formatWarehouseDisplayName(a.name).localeCompare(formatWarehouseDisplayName(b.name))
+      ),
+    [allActiveLocations]
   );
   const firstAssignedLocation = useMemo(() => {
     const orderedAssignedIds = userProfile?.locations ?? [];
@@ -99,13 +103,6 @@ export function DashboardSidebar() {
     }
     return undefined;
   }, [userProfile?.locations, allActiveLocations]);
-  const sortedLocations = useMemo(
-    () =>
-      [...allActiveLocations].sort((a, b) =>
-        formatWarehouseDisplayName(a.name).localeCompare(formatWarehouseDisplayName(b.name))
-      ),
-    [allActiveLocations]
-  );
   const nj2Location = useMemo(
     () =>
       allActiveLocations.find((loc) => {
@@ -121,13 +118,66 @@ export function DashboardSidebar() {
     [allActiveLocations]
   );
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
+  const pickNj2FromPool = (pool: LocationDoc[]) =>
+    pool.find((loc) => {
+      const display = formatWarehouseDisplayName(loc.name);
+      const normalized = normalizeWarehouseKey(loc.name ?? "");
+      return (
+        display === "NJ-02" ||
+        display.startsWith("NJ-02") ||
+        isDefaultNj2Warehouse(loc.name) ||
+        /^nj0*2/.test(normalized)
+      );
+    });
+
   useEffect(() => {
     if (!userProfile?.uid) return;
+
+    // Client users: warehouse dropdown should show all active locations.
+    if (hasRole(userProfile, "user")) {
+      const pool = warehouseOptionsSorted;
+      if (pool.length === 0) {
+        setSelectedWarehouseId("");
+        return;
+      }
+      if (selectedWarehouseId && pool.some((loc) => loc.id === selectedWarehouseId)) {
+        return;
+      }
+
+      const key = `warehouseSelection:${userProfile.uid}`;
+      let storedId = "";
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { locationId?: string };
+          storedId = parsed.locationId?.trim() || "";
+        }
+      } catch {
+        storedId = "";
+      }
+      if (storedId && pool.some((loc) => loc.id === storedId)) {
+        setSelectedWarehouseId(storedId);
+        return;
+      }
+
+      const defaultId = findDefaultWarehouseLocationIdInList(pool);
+      const preferred =
+        pickNj2FromPool(pool) ||
+        (firstAssignedLocation && pool.some((l) => l.id === firstAssignedLocation.id)
+          ? firstAssignedLocation
+          : undefined) ||
+        (defaultId ? pool.find((loc) => loc.id === defaultId) : undefined) ||
+        pool[0];
+      if (preferred) setSelectedWarehouseId(preferred.id);
+      return;
+    }
+
     const all = allActiveLocations;
     if (all.length === 0) {
       setSelectedWarehouseId("");
       return;
     }
+
     if (selectedWarehouseId && all.some((loc) => loc.id === selectedWarehouseId)) {
       return;
     }
@@ -156,7 +206,15 @@ export function DashboardSidebar() {
       all[0];
     if (!preferred) return;
     setSelectedWarehouseId(preferred.id);
-  }, [userProfile?.uid, allActiveLocations, selectedWarehouseId, firstAssignedLocation, nj2Location]);
+  }, [
+    userProfile,
+    userProfile?.uid,
+    allActiveLocations,
+    warehouseOptionsSorted,
+    selectedWarehouseId,
+    firstAssignedLocation,
+    nj2Location,
+  ]);
 
   useEffect(() => {
     if (!userProfile?.uid) return;
@@ -169,20 +227,32 @@ export function DashboardSidebar() {
   }, [userProfile?.uid, selectedWarehouseId]);
 
   useEffect(() => {
+    if (!selectedWarehouseId) return;
+    if (hasRole(userProfile, "user")) {
+      if (!warehouseOptionsSorted.some((loc) => loc.id === selectedWarehouseId)) {
+        setSelectedWarehouseId("");
+      }
+      return;
+    }
     if (!allActiveLocations.some((loc) => loc.id === selectedWarehouseId)) {
       setSelectedWarehouseId("");
     }
-  }, [allActiveLocations, selectedWarehouseId]);
+  }, [allActiveLocations, selectedWarehouseId, userProfile, warehouseOptionsSorted]);
 
   // Safety fallback: never leave warehouse unselected when options are available.
   useEffect(() => {
     if (!hasRole(userProfile, "user")) return;
     if (selectedWarehouseId) return;
+    const pool = warehouseOptionsSorted;
+    if (pool.length === 0) return;
+    const defaultId = findDefaultWarehouseLocationIdInList(pool);
     const preferredId =
-      firstAssignedLocation?.id ||
-      assignedLocations[0]?.id ||
-      nj2Location?.id ||
-      sortedLocations[0]?.id;
+      pickNj2FromPool(pool)?.id ||
+      (firstAssignedLocation && pool.some((l) => l.id === firstAssignedLocation.id)
+        ? firstAssignedLocation.id
+        : undefined) ||
+      (defaultId ? pool.find((l) => l.id === defaultId)?.id : undefined) ||
+      pool[0]?.id;
     if (preferredId) {
       setSelectedWarehouseId(preferredId);
     }
@@ -190,9 +260,7 @@ export function DashboardSidebar() {
     userProfile,
     selectedWarehouseId,
     firstAssignedLocation,
-    assignedLocations,
-    nj2Location,
-    sortedLocations,
+    warehouseOptionsSorted,
   ]);
 
   // Check if user has "user" role - if yes, show full client dashboard
@@ -525,7 +593,7 @@ export function DashboardSidebar() {
                 </SidebarGroupLabel>
                 <SidebarGroupContent>
                   <div className="space-y-2 rounded-lg border border-border/50 bg-muted/20 p-3">
-                    {allActiveLocations.length === 0 ? (
+                    {warehouseOptionsSorted.length === 0 ? (
                       <p className="text-xs text-muted-foreground">
                         No warehouse available yet.
                       </p>
@@ -536,16 +604,14 @@ export function DashboardSidebar() {
                       <Select
                         value={selectedWarehouseId}
                         onValueChange={setSelectedWarehouseId}
+                        disabled={warehouseOptionsSorted.length === 0}
                       >
                         <SelectTrigger className="h-9">
                           <SelectValue placeholder="Select warehouse" />
                         </SelectTrigger>
                         <SelectContent>
-                          {sortedLocations.map((loc) => (
-                            <SelectItem
-                              key={loc.id}
-                              value={loc.id}
-                            >
+                          {warehouseOptionsSorted.map((loc) => (
+                            <SelectItem key={loc.id} value={loc.id}>
                               {formatWarehouseDisplayName(loc.name)}
                               {assignedLocationIds.has(loc.id) ? "" : " (unassigned)"}
                             </SelectItem>
@@ -556,6 +622,12 @@ export function DashboardSidebar() {
                     {selectedWarehouseId && !assignedLocationIds.has(selectedWarehouseId) && (
                       <p className="text-[11px] text-amber-700">
                         Selected warehouse is not assigned to your account.
+                      </p>
+                    )}
+                    {warehouseOptionsSorted.length === 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        No warehouse assigned yet. If you just signed in, wait a moment—NJ-02 is added to your
+                        account automatically—or contact support.
                       </p>
                     )}
                       </>

@@ -8,6 +8,7 @@ import { useCollection } from "@/hooks/use-collection";
 import { createLocation, removeLocation } from "@/lib/locations";
 import { formatLocationPath } from "@/lib/region-display";
 import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
+import { normalizeUserLocationIds } from "@/lib/user-locations";
 import type { Location as LocationType, UserProfile } from "@/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,7 @@ export function AssignLocationTab() {
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
+  const [unassigning, setUnassigning] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [selectedLocationIds, setSelectedLocationIds] = useState<Set<string>>(new Set());
   const [userSearch, setUserSearch] = useState("");
@@ -255,7 +257,7 @@ export function AssignLocationTab() {
       const locationIds = Array.from(selectedLocationIds);
       for (const uid of selectedUserIds) {
         const user = users.find((u) => u.uid === uid);
-        const current = user?.locations ?? [];
+        const current = normalizeUserLocationIds(user?.locations);
         const merged = Array.from(new Set([...current, ...locationIds]));
         await updateDoc(doc(db, "users", uid), { locations: merged });
       }
@@ -266,6 +268,34 @@ export function AssignLocationTab() {
       toast({ variant: "destructive", title: "Error", description: (e as Error).message });
     } finally {
       setAssigning(false);
+    }
+  };
+
+  const handleRemoveLocationsFromUsers = async () => {
+    if (selectedUserIds.size === 0 || selectedLocationIds.size === 0) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Select at least one user and one location to remove.",
+      });
+      return;
+    }
+    setUnassigning(true);
+    try {
+      const locationIds = new Set(Array.from(selectedLocationIds));
+      for (const uid of selectedUserIds) {
+        const row = users.find((u) => u.uid === uid);
+        const current = normalizeUserLocationIds(row?.locations);
+        const next = current.filter((id) => !locationIds.has(id));
+        await updateDoc(doc(db, "users", uid), { locations: next });
+      }
+      setSelectedUserIds(new Set());
+      setSelectedLocationIds(new Set());
+      toast({ title: "Success", description: "Removed selected locations from the selected users." });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error", description: (e as Error).message });
+    } finally {
+      setUnassigning(false);
     }
   };
 
@@ -500,8 +530,8 @@ export function AssignLocationTab() {
             Assign locations to users
           </CardTitle>
           <CardDescription className="text-base">
-            Select users and locations, then click Assign. Selected locations will be added to each user&apos;s
-            location list.
+            Select users and locations. Use Assign to add warehouses to each user&apos;s list, or Remove from users
+            to take warehouses away.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6 pt-6">
@@ -539,9 +569,9 @@ export function AssignLocationTab() {
                                 className="cursor-pointer text-sm font-medium"
                               >
                                 {formatUserDisplayName(u, { showEmail: false })}
-                                {(u.locations?.length ?? 0) > 0 && (
+                                {normalizeUserLocationIds(u.locations).length > 0 && (
                                   <Badge variant="secondary" className="ml-2 font-medium">
-                                    {(u.locations?.length ?? 0)} loc
+                                    {normalizeUserLocationIds(u.locations).length} loc
                                   </Badge>
                                 )}
                               </label>
@@ -585,14 +615,26 @@ export function AssignLocationTab() {
                   </div>
                 </div>
               </div>
-              <Button
-                onClick={handleAssignLocationsToUsers}
-                disabled={assigning || selectedUserIds.size === 0 || selectedLocationIds.size === 0}
-                className="rounded-xl h-11 px-6 font-semibold"
-              >
-                {assigning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Assign locations to selected users
-              </Button>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  onClick={handleAssignLocationsToUsers}
+                  disabled={assigning || unassigning || selectedUserIds.size === 0 || selectedLocationIds.size === 0}
+                  className="rounded-xl h-11 px-6 font-semibold"
+                >
+                  {assigning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Assign locations to selected users
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleRemoveLocationsFromUsers}
+                  disabled={unassigning || assigning || selectedUserIds.size === 0 || selectedLocationIds.size === 0}
+                  className="rounded-xl h-11 px-6 font-semibold border-destructive/40 text-destructive hover:bg-destructive/10"
+                >
+                  {unassigning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Remove selected locations from users
+                </Button>
+              </div>
             </>
           )}
         </CardContent>

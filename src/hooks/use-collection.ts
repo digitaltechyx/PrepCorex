@@ -40,7 +40,17 @@ export function useCollection<T>(path: string, firestoreQuery?: Query) {
           setLoading(false);
           return;
         }
-        
+
+        // Permission-denied can be expected for some roles/paths (e.g. global admin collections).
+        // Treat as non-fatal: keep UI running with empty data and avoid noisy console errors.
+        if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+          console.warn('Firestore permission denied for path:', path);
+          setData([]);
+          setError(null);
+          setLoading(false);
+          return;
+        }
+
         console.error('Firestore error for path:', path, err);
         
         // Handle internal assertion failures - these indicate corrupted client state
@@ -67,14 +77,9 @@ export function useCollection<T>(path: string, firestoreQuery?: Query) {
           return;
         }
         
-        // Only set error if it's a permission error
-        if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
-          setError(err);
-        } else {
-          // For other errors, log but don't break the UI
-          console.warn('Firestore error (non-critical):', err);
-          setError(null);
-        }
+        // For other errors, log but don't break the UI
+        console.warn('Firestore error (non-critical):', err);
+        setError(null);
         setLoading(false);
       });
 

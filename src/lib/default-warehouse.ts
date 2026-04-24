@@ -41,7 +41,19 @@ export async function findDefaultWarehouseLocationId(): Promise<string | null> {
   if (cachedDefaultWarehouseId !== undefined && now - cachedAt < CACHE_TTL_MS) {
     return cachedDefaultWarehouseId ?? null;
   }
-  const snap = await getDocs(collection(db, "locations"));
+  let snap;
+  try {
+    snap = await getDocs(collection(db, "locations"));
+  } catch (err: any) {
+    // Some non-admin users may not have permission to read global `locations`.
+    // Gracefully fall back instead of throwing a runtime FirebaseError in the UI.
+    if (err?.code === "permission-denied" || String(err?.message || "").includes("permission")) {
+      cachedDefaultWarehouseId = null;
+      cachedAt = now;
+      return null;
+    }
+    throw err;
+  }
   const matches: { id: string; stateOrProvince?: string }[] = [];
   snap.forEach((d) => {
     const data = d.data();

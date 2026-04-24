@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import type { ShipmentRequest, UserProfile, InventoryItem, UserAdditionalServicesPricing, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing } from "@/types";
+import type { ShipmentRequest, UserProfile, InventoryItem, UserAdditionalServicesPricing, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, InventoryTransfer } from "@/types";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import { calculatePrepUnitPrice, type FbaPackAddOnConfig } from "@/lib/pricing-utils";
@@ -116,13 +116,28 @@ export function ShipmentRequestsManagement({
     isValidUserId ? `users/${userId}/shipmentRequests` : ""
   );
   const { data: locationDocs = [] } = useCollection<LocationDoc>("locations");
+  const { data: inventoryTransfers = [] } = useCollection<InventoryTransfer>(
+    isValidUserId ? `users/${userId}/inventoryTransfers` : ""
+  );
   const warehouseNameById = useMemo(() => {
     const map: Record<string, string> = {};
     locationDocs.forEach((loc) => {
       map[loc.id] = formatWarehouseDisplayName(loc.name || loc.id);
     });
+    inventoryTransfers.forEach((row) => {
+      const fromId = String(row.fromLocationId || "").trim();
+      const toId = String(row.toLocationId || "").trim();
+      const fromName = String(row.fromLocationName || "").trim();
+      const toName = String(row.toLocationName || "").trim();
+      if (fromId && fromName && !map[fromId]) {
+        map[fromId] = formatWarehouseDisplayName(fromName);
+      }
+      if (toId && toName && !map[toId]) {
+        map[toId] = formatWarehouseDisplayName(toName);
+      }
+    });
     return map;
-  }, [locationDocs]);
+  }, [locationDocs, inventoryTransfers]);
 
   // Auto-open a request when coming from Notifications
   const [didAutoOpen, setDidAutoOpen] = useState(false);
@@ -1120,6 +1135,18 @@ function ReviewShipmentDialog({
     }
     return locationBreakdown;
   };
+  const prettyLocationLabel = (locationId: string) => {
+    const raw = String(locationId || "").trim();
+    const mapped = warehouseNameById[raw];
+    if (mapped) return mapped;
+    const normalized = raw.replace(/[^a-z0-9]/gi, "");
+    if (/^[a-z]{2}0*\d+$/i.test(normalized)) {
+      return formatWarehouseDisplayName(raw);
+    }
+    // Unknown legacy id: keep a readable generic label and avoid raw Firestore ids.
+    if (!raw) return "Unknown location";
+    return "Unknown location";
+  };
 
   const [shipFromLocationByIndex, setShipFromLocationByIndex] = useState<Record<number, string>>(() => {
     const initial: Record<number, string> = {};
@@ -1793,7 +1820,7 @@ function ReviewShipmentDialog({
                                   <SelectContent>
                                     {locationBreakdown.map((entry) => (
                                       <SelectItem key={`ship-from-${index}-${entry.locationId}`} value={entry.locationId}>
-                                        {warehouseNameById[entry.locationId] || entry.locationId} ({entry.qty})
+                                        {prettyLocationLabel(entry.locationId)} ({entry.qty})
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
@@ -1806,7 +1833,7 @@ function ReviewShipmentDialog({
                                 <div className="mt-1 space-y-0.5">
                                   {locationBreakdown.map((entry) => (
                                     <p key={entry.locationId} className="text-xs text-muted-foreground">
-                                      {warehouseNameById[entry.locationId] || entry.locationId}: {entry.qty}
+                                      {prettyLocationLabel(entry.locationId)}: {entry.qty}
                                     </p>
                                   ))}
                                 </div>

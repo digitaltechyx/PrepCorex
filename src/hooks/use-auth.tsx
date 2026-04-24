@@ -19,7 +19,11 @@ import {
 import { auth, db } from "@/lib/firebase";
 import type { UserProfile, AuthContextType } from "@/types";
 import { hasRole } from "@/lib/permissions";
-import { findDefaultWarehouseLocationId } from "@/lib/default-warehouse";
+import {
+  findDefaultWarehouseLocationId,
+  invalidateDefaultWarehouseLocationCache,
+} from "@/lib/default-warehouse";
+import { normalizeUserLocationIds } from "@/lib/user-locations";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -78,6 +82,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           status: data.status || "approved",
           roles: rolesNormalized.length ? rolesNormalized : ["user"],
           features: Array.isArray(data.features) ? data.features : [],
+          locations: normalizeUserLocationIds((data as Record<string, unknown>).locations),
         } as UserProfile;
       };
 
@@ -129,16 +134,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     if (!user?.uid || !userProfile) return;
     if (!hasRole(userProfile, "user")) return;
-    const locs = userProfile.locations ?? [];
+    const locs = normalizeUserLocationIds(userProfile.locations);
     let cancelled = false;
     (async () => {
+      // Fresh lookup so new/changed `locations` docs pick up the default NJ2 warehouse.
+      invalidateDefaultWarehouseLocationCache();
       const defaultId = await findDefaultWarehouseLocationId();
       if (cancelled || !defaultId) return;
       if (locs.includes(defaultId)) return;
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
         const fresh = snap.exists()
-          ? (((snap.data() as Record<string, unknown>).locations as string[] | undefined) ?? [])
+          ? normalizeUserLocationIds((snap.data() as Record<string, unknown>).locations)
           : [];
         if (fresh.includes(defaultId)) return;
         await updateDoc(doc(db, "users", user.uid), { locations: arrayUnion(defaultId) });

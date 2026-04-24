@@ -176,6 +176,14 @@ service cloud.firestore {
       allow read, write: if isAdminOrSubAdmin();
     }
 
+    // ---- LOCATIONS ----
+    // Clients need read access to render warehouse names + shipping address card.
+    // Writes remain admin/sub_admin only.
+    match /locations/{locationId} {
+      allow read: if signedIn();
+      allow write: if isAdminOrSubAdmin();
+    }
+
     // ---- CRM LEADS (PrepCorex CRM app — /crmLeads + timeline subcollection) ----
     match /crmLeads/{leadId} {
       allow read, write: if isAdminOrSubAdmin();

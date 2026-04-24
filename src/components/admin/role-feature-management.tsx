@@ -27,6 +27,12 @@ import type { UserProfile, UserRole, UserFeature } from "@/types";
 import { getUserRoles, getDefaultFeaturesForRole } from "@/lib/permissions";
 import { generateUniqueReferralCode } from "@/lib/commission-utils";
 import { formatUserDisplayName } from "@/lib/format-user-display";
+import { normalizeUserLocationIds } from "@/lib/user-locations";
+import {
+  findDefaultWarehouseLocationId,
+  invalidateDefaultWarehouseLocationCache,
+} from "@/lib/default-warehouse";
+import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
 
 interface RoleFeatureManagementProps {
   user: UserProfile;
@@ -156,6 +162,24 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
   const [managedLocationIds, setManagedLocationIds] = useState<string[]>(safeManagedLocationIds);
   const [assignedUserIds, setAssignedUserIds] = useState<string[]>(safeAssignedUserIds);
 
+  const [clientLocationIds, setClientLocationIds] = useState<string[]>(() =>
+    normalizeUserLocationIds(user.locations)
+  );
+  const [clientLocationSearch, setClientLocationSearch] = useState("");
+  const locationsKey = useMemo(
+    () => [...normalizeUserLocationIds(user.locations)].sort().join("\0"),
+    [user.uid, user.locations]
+  );
+  useEffect(() => {
+    setClientLocationIds(normalizeUserLocationIds(user.locations));
+  }, [user.uid, locationsKey]);
+
+  const filteredClientLocations = useMemo(() => {
+    const q = clientLocationSearch.trim().toLowerCase();
+    if (!q) return activeLocations;
+    return activeLocations.filter((loc) => (loc.name ?? "").toLowerCase().includes(q));
+  }, [activeLocations, clientLocationSearch]);
+
   // Commission agent: users who are assigned as this agent's affiliates (referredByAgentId === user.uid)
   const currentAffiliateIds = useMemo(
     () =>
@@ -250,6 +274,16 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
         updateData.assignedUserIds = [];
       }
 
+      if (selectedRoles.includes("user")) {
+        invalidateDefaultWarehouseLocationCache();
+        const defaultWarehouseId = await findDefaultWarehouseLocationId();
+        const merged = new Set(clientLocationIds.map((id) => String(id).trim()).filter(Boolean));
+        if (defaultWarehouseId) {
+          merged.add(defaultWarehouseId);
+        }
+        updateData.locations = Array.from(merged);
+      }
+
       await updateDoc(doc(db, "users", user.uid), updateData);
 
       // Commission agent: update referredByAgentId on assigned/unassigned users
@@ -290,14 +324,26 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
     setIsLoading(true);
     try {
       const defaultFeatures = getDefaultFeaturesForRole("user");
-      const updateData = {
+      invalidateDefaultWarehouseLocationCache();
+      const defaultWarehouseId = await findDefaultWarehouseLocationId();
+      const locationSet = new Set(normalizeUserLocationIds(user.locations));
+      if (defaultWarehouseId) {
+        locationSet.add(defaultWarehouseId);
+      }
+      const updateData: Record<string, unknown> = {
         roles: ["user"] as UserRole[],
         role: "user",
         features: defaultFeatures,
+        managedLocationIds: [],
+        assignedUserIds: [],
+        locations: Array.from(locationSet),
       };
       await updateDoc(doc(db, "users", user.uid), updateData);
       setSelectedRoles(["user"]);
       setSelectedFeatures(defaultFeatures);
+      setManagedLocationIds([]);
+      setAssignedUserIds([]);
+      setClientLocationIds(Array.from(locationSet));
       toast({
         title: "Reset complete",
         description: "User is now client only with the default 8 features. They may need to log out and back in to see changes.",
@@ -324,7 +370,15 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
   const hasCommissionAgentScopeChanges =
     selectedRoles.includes("commission_agent") &&
     (JSON.stringify([...assignedAffiliateIds].sort()) !== JSON.stringify([...currentAffiliateIds].sort()));
-  const hasChanges = hasRoleOrFeatureChanges || hasSubAdminScopeChanges || hasCommissionAgentScopeChanges;
+  const hasClientWarehouseChanges =
+    selectedRoles.includes("user") &&
+    JSON.stringify([...normalizeUserLocationIds(user.locations)].sort()) !==
+      JSON.stringify([...clientLocationIds].sort());
+  const hasChanges =
+    hasRoleOrFeatureChanges ||
+    hasSubAdminScopeChanges ||
+    hasCommissionAgentScopeChanges ||
+    hasClientWarehouseChanges;
 
   return (
     <div className="space-y-6">
@@ -384,11 +438,71 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
           })}
           {selectedRoles.length === 0 && (
             <p className="text-sm text-muted-foreground italic">
-              âš ï¸ User must have at least one role. Select a role to continue.
+              User must have at least one role. Select a role to continue.
             </p>
           )}
         </CardContent>
       </Card>
+
+      {/* Client: warehouse locations (assign / unassign) */}
+      {selectedRoles.includes("user") && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <MapPin className="h-5 w-5 text-primary" />
+              <CardTitle>Client warehouse locations</CardTitle>
+            </div>
+            <CardDescription>
+              Choose which warehouses this client may use in the app. Uncheck to remove access to a location. The
+              default inbound warehouse (NJ-02) is always kept when you save if it exists in your system.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {activeLocations.length > 6 && (
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search warehouses..."
+                  value={clientLocationSearch}
+                  onChange={(e) => setClientLocationSearch(e.target.value)}
+                  className="pl-8 h-9"
+                />
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {filteredClientLocations.map((loc) => {
+                const isSelected = clientLocationIds.includes(loc.id);
+                return (
+                  <div key={loc.id} className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+                    <Checkbox
+                      id={`client-loc-${loc.id}`}
+                      checked={isSelected}
+                      onCheckedChange={(checked) => {
+                        setClientLocationIds((prev) =>
+                          checked === true
+                            ? prev.includes(loc.id)
+                              ? prev
+                              : [...prev, loc.id]
+                            : prev.filter((id) => id !== loc.id)
+                        );
+                      }}
+                    />
+                    <label htmlFor={`client-loc-${loc.id}`} className="text-sm cursor-pointer">
+                      {formatWarehouseDisplayName(loc.name)}
+                    </label>
+                  </div>
+                );
+              })}
+              {activeLocations.length === 0 && (
+                <p className="text-sm text-muted-foreground">No locations. Add them in the Assign Location tab.</p>
+              )}
+              {activeLocations.length > 0 && filteredClientLocations.length === 0 && (
+                <p className="text-sm text-muted-foreground">No locations match your search.</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Sub Admin: Locations & Assigned Users */}
       {selectedRoles.includes("sub_admin") && (
@@ -427,7 +541,11 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                         checked={isSelected}
                         onCheckedChange={(checked) => {
                           setManagedLocationIds((prev) =>
-                            checked ? [...prev, loc.id] : prev.filter((id) => id !== loc.id)
+                            checked === true
+                              ? prev.includes(loc.id)
+                                ? prev
+                                : [...prev, loc.id]
+                              : prev.filter((id) => id !== loc.id)
                           );
                         }}
                       />
@@ -457,7 +575,7 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                     onClick={() => {
                       const ids = new Set(assignedUserIds);
                       assignableUsersList.forEach((u) => {
-                        const userLocs = u.locations ?? [];
+                        const userLocs = normalizeUserLocationIds(u.locations);
                         if (userLocs.some((lid) => managedLocationIds.includes(lid))) ids.add(u.uid!);
                       });
                       setAssignedUserIds(Array.from(ids));
@@ -490,7 +608,11 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                               checked={isSelected}
                               onCheckedChange={(checked) => {
                                 setAssignedUserIds((prev) =>
-                                  checked ? [...prev, u.uid!] : prev.filter((id) => id !== u.uid)
+                                  checked === true
+                                    ? prev.includes(u.uid!)
+                                      ? prev
+                                      : [...prev, u.uid!]
+                                    : prev.filter((id) => id !== u.uid)
                                 );
                               }}
                             />
@@ -554,7 +676,11 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                               checked={isSelected}
                               onCheckedChange={(checked) => {
                                 setAssignedAffiliateIds((prev) =>
-                                  checked ? [...prev, u.uid!] : prev.filter((id) => id !== u.uid)
+                                  checked === true
+                                    ? prev.includes(u.uid!)
+                                      ? prev
+                                      : [...prev, u.uid!]
+                                    : prev.filter((id) => id !== u.uid)
                                 );
                               }}
                             />
@@ -666,7 +792,7 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                !selectedFeatures.some(f => ADMIN_FEATURES.some(af => af.value === f)) && (
                 <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
                   <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-1">
-                    âš ï¸ No Admin Features Selected
+                    No admin features selected
                   </p>
                   <p className="text-xs text-amber-700 dark:text-amber-300">
                     This sub admin will not have access to any admin pages. Please select at least one admin feature above.
