@@ -9,6 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { History, TrendingUp, Calendar, Search, X } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
@@ -191,22 +199,38 @@ export default function RestockHistoryPage() {
               ))}
             </div>
           ) : filteredRestockHistory.length > 0 ? (
-            <div className="space-y-2">
-              {paginatedRestockHistory.map((item) => (
-                <div 
-                  key={item.id}
-                  className="rounded-lg border border-green-200 bg-green-50/40 px-3 py-3 sm:px-4"
-                >
-                  <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
-                    <span className="font-semibold text-slate-900">{item.productName}</span>
-                    <Badge className="bg-green-500 text-white text-[10px]">+{item.restockedQuantity}</Badge>
-                    <span className="text-slate-600 ml-2">Previous: <span className="text-slate-800">{item.previousQuantity}</span></span>
-                    <span className="text-slate-600">New Total: <span className="font-semibold text-green-700">{item.newQuantity}</span></span>
-                    <span className="text-slate-600">By: <span className="text-slate-800">{item.restockedBy}</span></span>
-                    <span className="inline-flex items-center gap-1 text-slate-600"><Calendar className="h-3 w-3" /> {formatDate(item.restockedAt)}</span>
-                  </div>
-                </div>
-              ))}
+            <div className="rounded-lg border border-green-200 bg-green-50/30 overflow-hidden">
+              <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                <TableHeader className="bg-green-100/70">
+                  <TableRow>
+                    <TableHead className="min-w-[260px]">Product</TableHead>
+                    <TableHead className="min-w-[120px]">Restocked Qty</TableHead>
+                    <TableHead className="min-w-[110px]">Previous</TableHead>
+                    <TableHead className="min-w-[120px]">New Total</TableHead>
+                    <TableHead className="min-w-[180px]">Restocked By</TableHead>
+                    <TableHead className="min-w-[150px]">Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedRestockHistory.map((item) => (
+                    <TableRow key={item.id} className="bg-white/70">
+                      <TableCell className="font-semibold text-slate-900">{item.productName}</TableCell>
+                      <TableCell>
+                        <Badge className="bg-green-500 text-white text-[10px]">+{item.restockedQuantity}</Badge>
+                      </TableCell>
+                      <TableCell className="text-slate-700">{item.previousQuantity}</TableCell>
+                      <TableCell className="font-semibold text-green-700">{item.newQuantity}</TableCell>
+                      <TableCell className="text-slate-700">{item.restockedBy}</TableCell>
+                      <TableCell className="text-slate-700">
+                        <span className="inline-flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {formatDate(item.restockedAt)}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           ) : (
             <div className="text-center py-16">

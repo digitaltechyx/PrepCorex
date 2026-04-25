@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useForm } from "react-hook-form";
@@ -21,7 +20,7 @@ import * as z from "zod";
 import { doc, updateDoc, deleteDoc, addDoc, collection, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff, ArrowRight, ChevronsUpDown, Check } from "lucide-react";
+import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff, ArrowRight, ChevronsUpDown, Loader2 } from "lucide-react";
 import { AddInventoryForm } from "@/components/admin/add-inventory-form";
 import { AddInventoryRequestForm } from "@/components/dashboard/add-inventory-request-form";
 import { ShipInventoryForm } from "@/components/admin/ship-inventory-form";
@@ -38,7 +37,6 @@ import type { InventoryItem, ShippedItem, UserProfile, RestockHistory, RecycledS
 import { arrayToCSV, downloadCSV, formatDateForCSV, type InventoryCSVRow, type ShippedCSVRow } from "@/lib/csv-utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
-import { cn } from "@/lib/utils";
 
 interface AdminInventoryManagementProps {
   selectedUser: UserProfile | null;
@@ -253,6 +251,7 @@ export function AdminInventoryManagement({
   const [moveReason, setMoveReason] = useState("");
   const [isMovingInventory, setIsMovingInventory] = useState(false);
   const [moveItemPickerOpen, setMoveItemPickerOpen] = useState(false);
+  const [moveItemSearchTerm, setMoveItemSearchTerm] = useState("");
   const [addInventoryMode, setAddInventoryMode] = useState<"quick" | "request">("quick");
   const [shipInventoryMode, setShipInventoryMode] = useState<"quick" | "request">("quick");
   // User Requests tab (shipment | inventory | return | dispose)
@@ -501,8 +500,36 @@ export function AdminInventoryManagement({
       }
       const sourceData = sourceSnap.data() as any;
       const availableQty = Number(sourceData.quantity) || 0;
-      if (qty > availableQty) {
-        throw new Error(`Only ${availableQty} units are available at source.`);
+      const buildLocationQuantities = () => {
+        const fallbackSource = String(sourceData.locationId || moveFromLocationId || "").trim();
+        const incoming = sourceData.locationQuantities;
+        const normalized: Record<string, number> = {};
+        if (incoming && typeof incoming === "object") {
+          for (const [key, value] of Object.entries(incoming as Record<string, unknown>)) {
+            const id = String(key || "").trim();
+            const qtyValue = Number(value);
+            if (!id || !Number.isFinite(qtyValue) || qtyValue <= 0) continue;
+            normalized[id] = qtyValue;
+          }
+        }
+        const sum = Object.values(normalized).reduce((acc, n) => acc + n, 0);
+        if (sum <= 0 && fallbackSource) {
+          normalized[fallbackSource] = availableQty;
+          return normalized;
+        }
+        if (sum < availableQty && fallbackSource) {
+          normalized[fallbackSource] = (normalized[fallbackSource] || 0) + (availableQty - sum);
+        }
+        return normalized;
+      };
+
+      const locationQuantities = buildLocationQuantities();
+      const fromAvailable = Number(locationQuantities[moveFromLocationId] || 0);
+      if (fromAvailable <= 0) {
+        throw new Error("Selected source location has no available quantity for this item.");
+      }
+      if (qty > fromAvailable) {
+        throw new Error(`Only ${fromAvailable} units are available in selected source location.`);
       }
 
       const fromLocationName =
@@ -510,28 +537,23 @@ export function AdminInventoryManagement({
       const toLocationName =
         activeLocations.find((loc) => loc.id === moveToLocationId)?.name || moveToLocationId;
 
-      if (qty === availableQty) {
-        await updateDoc(sourceRef, {
-          locationId: moveToLocationId,
-          updatedAt: new Date(),
-        });
-      } else {
-        await updateDoc(sourceRef, {
-          quantity: availableQty - qty,
-          status: availableQty - qty > 0 ? "In Stock" : "Out of Stock",
-          updatedAt: new Date(),
-        });
-
-        const cloned = {
-          ...sourceData,
-          quantity: qty,
-          status: "In Stock" as const,
-          locationId: moveToLocationId,
-          dateAdded: new Date(),
-          movedFromInventoryId: moveInventoryItemId,
-        };
-        await addDoc(collection(db, `users/${selectedUser.uid}/inventory`), cloned);
+      locationQuantities[moveFromLocationId] = Math.max(0, fromAvailable - qty);
+      if (locationQuantities[moveFromLocationId] <= 0) {
+        delete locationQuantities[moveFromLocationId];
       }
+      locationQuantities[moveToLocationId] = Number(locationQuantities[moveToLocationId] || 0) + qty;
+
+      const nextPrimaryLocationId =
+        (sourceData.locationId && locationQuantities[sourceData.locationId] ? sourceData.locationId : "") ||
+        Object.keys(locationQuantities)[0] ||
+        moveToLocationId;
+
+      // Keep one inventory row for the user; only internal location allocation changes.
+      await updateDoc(sourceRef, {
+        locationId: nextPrimaryLocationId,
+        locationQuantities,
+        updatedAt: new Date(),
+      });
 
       await addDoc(collection(db, `users/${selectedUser.uid}/inventoryTransfers`), {
         inventoryId: moveInventoryItemId,
@@ -1930,32 +1952,39 @@ export function AdminInventoryManagement({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                    <Command>
-                      <CommandInput placeholder="Search item by name or SKU..." />
-                      <CommandList>
-                        <CommandEmpty>No inventory item found.</CommandEmpty>
-                        <CommandGroup>
-                          {movableInventory.map((item) => (
-                            <CommandItem
-                              key={item.id}
-                              value={`${item.productName} ${(item as any).sku || ""} ${item.quantity}`}
-                              onSelect={() => {
-                                setMoveInventoryItemId(item.id);
-                                setMoveItemPickerOpen(false);
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  moveInventoryItemId === item.id ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              {item.productName} {(item as any).sku ? `| SKU: ${(item as any).sku}` : ""} | Qty: {item.quantity}
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
+                    <div className="border-b p-2">
+                      <Input
+                        placeholder="Search item by name or SKU..."
+                        value={moveItemSearchTerm}
+                        onChange={(e) => setMoveItemSearchTerm(e.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+                    <div className="max-h-72 overflow-y-auto p-1">
+                      {movableInventory
+                        .filter((item) => {
+                          const q = moveItemSearchTerm.trim().toLowerCase();
+                          if (!q) return true;
+                          const name = String(item.productName || "").toLowerCase();
+                          const sku = String((item as any).sku || "").toLowerCase();
+                          return name.includes(q) || sku.includes(q);
+                        })
+                        .map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setMoveInventoryItemId(item.id);
+                              setMoveItemPickerOpen(false);
+                            }}
+                            className={`w-full rounded-sm px-2 py-2 text-left text-sm hover:bg-accent ${
+                              moveInventoryItemId === item.id ? "bg-accent" : ""
+                            }`}
+                          >
+                            {item.productName} {(item as any).sku ? `| SKU: ${(item as any).sku}` : ""} | Qty: {item.quantity}
+                          </button>
+                        ))}
+                    </div>
                   </PopoverContent>
                 </Popover>
               </div>
@@ -2462,50 +2491,65 @@ export function AdminInventoryManagement({
                 ))}
               </div>
             ) : filteredRestockHistory.length > 0 ? (
-              <div className="space-y-2">
-                {paginatedRestockHistory.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-green-200 bg-green-50/40 px-3 py-2 sm:px-4">
-                    <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
-                      <span className="font-semibold text-slate-900 truncate shrink-0 max-w-[180px] sm:max-w-[230px] lg:max-w-[280px]">
-                        {item.productName}
-                      </span>
-                      <Badge className="bg-green-500 text-white text-[10px] shrink-0">+{item.restockedQuantity}</Badge>
-                      <span className="text-slate-600 shrink-0">Previous: <span className="text-slate-800">{item.previousQuantity}</span></span>
-                      <span className="text-slate-600 shrink-0">New Total: <span className="font-semibold text-green-700">{item.newQuantity}</span></span>
-                      <span className="text-slate-600 shrink-0">By: <span className="text-slate-800">{item.restockedBy}</span></span>
-                      <span className="inline-flex items-center gap-1 text-slate-600 shrink-0">
-                        <Calendar className="h-3 w-3" />
-                        {formatDate(item.restockedAt)}
-                      </span>
-                      <div className="ml-auto shrink-0">
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="destructive" size="sm" className="h-7 w-7 p-0">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete Restock Entry</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to delete this restock record for "{item.productName}"?
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleDeleteRestockHistory(item)}
-                                className="bg-red-600 hover:bg-red-700"
-                              >
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              <div className="rounded-lg border border-green-200 bg-green-50/30 overflow-hidden">
+                <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                  <TableHeader className="bg-green-100/70">
+                    <TableRow>
+                      <TableHead className="min-w-[260px]">Product</TableHead>
+                      <TableHead className="min-w-[120px]">Restocked Qty</TableHead>
+                      <TableHead className="min-w-[110px]">Previous</TableHead>
+                      <TableHead className="min-w-[120px]">New Total</TableHead>
+                      <TableHead className="min-w-[180px]">Restocked By</TableHead>
+                      <TableHead className="min-w-[150px]">Date</TableHead>
+                      <TableHead className="w-14 text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedRestockHistory.map((item) => (
+                      <TableRow key={item.id} className="bg-white/70">
+                        <TableCell className="font-semibold text-slate-900">{item.productName}</TableCell>
+                        <TableCell>
+                          <Badge className="bg-green-500 text-white text-[10px]">+{item.restockedQuantity}</Badge>
+                        </TableCell>
+                        <TableCell className="text-slate-700">{item.previousQuantity}</TableCell>
+                        <TableCell className="font-semibold text-green-700">{item.newQuantity}</TableCell>
+                        <TableCell className="text-slate-700">{item.restockedBy}</TableCell>
+                        <TableCell className="text-slate-700">
+                          <span className="inline-flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {formatDate(item.restockedAt)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm" className="h-7 w-7 p-0">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Restock Entry</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete this restock record for "{item.productName}"?
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDeleteRestockHistory(item)}
+                                  className="bg-red-600 hover:bg-red-700"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             ) : (
               <div className="text-center py-8">
@@ -2765,24 +2809,39 @@ export function AdminInventoryManagement({
               ))}
             </div>
           ) : filteredDeleteLogs.length > 0 ? (
-            <div className="space-y-2">
-              {paginatedDeleteLogs.map((item) => (
-                <div key={item.id} className="rounded-lg border border-red-200 bg-red-50/40 px-3 py-2 sm:px-4">
-                  <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
-                    <span className="font-semibold text-slate-900 truncate shrink-0 max-w-[180px] sm:max-w-[230px] lg:max-w-[280px]">
-                      {item.productName}
-                    </span>
-                    <Badge className="bg-red-500 text-white text-[10px] shrink-0">-{item.quantity}</Badge>
-                    <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px] shrink-0">
-                      {item.status}
-                    </Badge>
-                    <span className="text-slate-600 shrink-0">Added: {formatDate(item.dateAdded)}</span>
-                    <span className="text-red-700 font-semibold shrink-0">Deleted: {formatDate(item.deletedAt)}</span>
-                    <span className="text-slate-600 shrink-0">By: {item.deletedBy}</span>
-                    <span className="text-red-800 truncate min-w-0 flex-1">Reason: {item.reason}</span>
-                  </div>
-                </div>
-                ))}
+            <div className="rounded-lg border border-red-200 bg-red-50/30 overflow-hidden">
+              <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                <TableHeader className="bg-red-100/70">
+                  <TableRow>
+                    <TableHead className="min-w-[240px]">Product</TableHead>
+                    <TableHead className="min-w-[110px]">Quantity</TableHead>
+                    <TableHead className="min-w-[120px]">Status</TableHead>
+                    <TableHead className="min-w-[150px]">Added</TableHead>
+                    <TableHead className="min-w-[150px]">Deleted</TableHead>
+                    <TableHead className="min-w-[170px]">Deleted By</TableHead>
+                    <TableHead className="min-w-[260px]">Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedDeleteLogs.map((item) => (
+                    <TableRow key={item.id} className="bg-white/70">
+                      <TableCell className="font-semibold text-slate-900">{item.productName}</TableCell>
+                      <TableCell>
+                        <Badge className="bg-red-500 text-white text-[10px]">-{item.quantity}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px]">
+                          {item.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-slate-700">{formatDate(item.dateAdded)}</TableCell>
+                      <TableCell className="font-semibold text-red-700">{formatDate(item.deletedAt)}</TableCell>
+                      <TableCell className="text-slate-700">{item.deletedBy}</TableCell>
+                      <TableCell className="text-red-800">{item.reason}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           ) : (
             <div className="text-center py-8">
@@ -2904,34 +2963,55 @@ export function AdminInventoryManagement({
               ))}
             </div>
           ) : filteredEditLogs.length > 0 ? (
-            <div className="space-y-2">
-              {paginatedEditLogs.map((item) => (
-                <div key={item.id} className="rounded-lg border border-blue-200 bg-blue-50/40 px-3 py-2 sm:px-4">
-                  <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
-                    <span className="font-semibold text-slate-900 truncate shrink-0 max-w-[180px] sm:max-w-[230px] lg:max-w-[280px]">
-                      {item.productName}
-                    </span>
-                    {item.previousProductName && item.previousProductName !== item.productName && (
-                      <Badge variant="outline" className="text-[10px] shrink-0">Renamed</Badge>
-                    )}
-                    <span className="text-slate-600 shrink-0">Qty:</span>
-                    <span className="shrink-0">{item.previousQuantity}</span>
-                    <ArrowRight className="h-3 w-3 text-blue-500 shrink-0" />
-                    <span className="font-semibold text-blue-700 shrink-0">{item.newQuantity}</span>
-                    <span className="text-slate-600 ml-1 shrink-0">Status:</span>
-                    <Badge variant="outline" className="text-[10px] shrink-0">{item.previousStatus}</Badge>
-                    <ArrowRight className="h-3 w-3 text-blue-500 shrink-0" />
-                    <Badge className="bg-blue-500 text-white text-[10px] shrink-0">{item.newStatus}</Badge>
-                    <span className="text-slate-600 truncate min-w-0 flex-1">
-                      Reason: {item.reason} | By: {item.editedBy}
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-slate-600 shrink-0">
-                      <Calendar className="h-3 w-3" />
-                      {formatDate(item.editedAt)}
-                    </span>
-                  </div>
-                </div>
-                ))}
+            <div className="rounded-lg border border-blue-200 bg-blue-50/30 overflow-hidden">
+              <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                <TableHeader className="bg-blue-100/70">
+                  <TableRow>
+                    <TableHead className="min-w-[240px]">Product</TableHead>
+                    <TableHead className="min-w-[150px]">Quantity</TableHead>
+                    <TableHead className="min-w-[170px]">Status</TableHead>
+                    <TableHead className="min-w-[260px]">Reason</TableHead>
+                    <TableHead className="min-w-[180px]">Edited By</TableHead>
+                    <TableHead className="min-w-[150px]">Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedEditLogs.map((item) => (
+                    <TableRow key={item.id} className="bg-white/70">
+                      <TableCell className="font-semibold text-slate-900">
+                        <div className="flex items-center gap-2">
+                          <span>{item.productName}</span>
+                          {item.previousProductName && item.previousProductName !== item.productName && (
+                            <Badge variant="outline" className="text-[10px]">Renamed</Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-slate-700">
+                        <div className="inline-flex items-center gap-2">
+                          <span>{item.previousQuantity}</span>
+                          <ArrowRight className="h-3 w-3 text-blue-500" />
+                          <span className="font-semibold text-blue-700">{item.newQuantity}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="inline-flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px]">{item.previousStatus}</Badge>
+                          <ArrowRight className="h-3 w-3 text-blue-500" />
+                          <Badge className="bg-blue-500 text-white text-[10px]">{item.newStatus}</Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-slate-700">{item.reason}</TableCell>
+                      <TableCell className="text-slate-700">{item.editedBy}</TableCell>
+                      <TableCell className="text-slate-700">
+                        <span className="inline-flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {formatDate(item.editedAt)}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           ) : (
             <div className="text-center py-8">

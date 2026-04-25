@@ -12,6 +12,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { type Invoice, type UserProfile, type Commission } from "@/types";
 import { db } from "@/lib/firebase";
 import { collection, query, getDocs, orderBy, doc, updateDoc, where } from "firebase/firestore";
@@ -1028,35 +1036,39 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
               ))}
             </div>
           ) : filteredUsers.length > 0 ? (
-            <div className="space-y-2">
-              {paginatedUsers.map(({ user, pendingCount, paidCount, totalAmount }, idx) => (
-                <div
-                  key={`${user.uid || user.email || 'user'}-${idx}`}
-                  className="cursor-pointer rounded-lg border px-3 py-2 sm:px-4 bg-background transition-all hover:shadow-sm hover:border-indigo-400"
-                  onClick={() => handleViewUserInvoices(user)}
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-[minmax(180px,1.5fr)_minmax(220px,2fr)_120px_100px_180px] items-center gap-1.5 md:gap-3 text-xs sm:text-sm min-w-0">
-                    <span className="font-semibold text-slate-900 truncate">
-                      {formatUserDisplayName(user, { showEmail: false })}
-                    </span>
-                    <span className="text-muted-foreground truncate min-w-0">
-                      {user.email}
-                    </span>
-                    <div className="flex items-center md:justify-end gap-2">
-                      <span className="text-muted-foreground">Pending:</span>
-                      <Badge variant={pendingCount > 0 ? "secondary" : "outline"}>{pendingCount}</Badge>
-                    </div>
-                    <div className="flex items-center md:justify-end gap-2">
-                      <span className="text-muted-foreground">Paid:</span>
-                      <Badge variant="default" className="bg-green-100 text-green-800">{paidCount}</Badge>
-                    </div>
-                    <div className="flex items-center md:justify-end gap-2">
-                      <span className="font-semibold">Pending Amount:</span>
-                      <span className="font-bold text-yellow-600">${totalAmount.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+              <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                <TableHeader className="bg-slate-50">
+                  <TableRow>
+                    <TableHead className="min-w-[260px]">User</TableHead>
+                    <TableHead className="min-w-[260px]">Email</TableHead>
+                    <TableHead className="min-w-[120px] text-right">Pending</TableHead>
+                    <TableHead className="min-w-[100px] text-right">Paid</TableHead>
+                    <TableHead className="min-w-[180px] text-right">Pending Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedUsers.map(({ user, pendingCount, paidCount, totalAmount }, idx) => (
+                    <TableRow
+                      key={`${user.uid || user.email || 'user'}-${idx}`}
+                      className="cursor-pointer hover:bg-indigo-50/40 transition-colors"
+                      onClick={() => handleViewUserInvoices(user)}
+                    >
+                      <TableCell className="font-semibold text-slate-900">
+                        {formatUserDisplayName(user, { showEmail: false })}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant={pendingCount > 0 ? "secondary" : "outline"}>{pendingCount}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant="default" className="bg-green-100 text-green-800">{paidCount}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-yellow-600">${totalAmount.toFixed(2)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           ) : (
             <div className="text-center py-12">

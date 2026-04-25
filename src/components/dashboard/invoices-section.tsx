@@ -14,6 +14,14 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useAuth } from "@/hooks/use-auth";
 import type { Invoice } from "@/types";
 import { createCommissionForInvoice } from "@/lib/commission-utils";
@@ -390,42 +398,59 @@ export function InvoicesSection({
                 </div>
               ) : currentTabInvoices.length > 0 ? (
                 <>
-                  <div className="space-y-2">
-                    {paginatedInvoices.map((invoice) => (
-                      <div key={invoice.id} className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 border rounded-lg bg-yellow-50 text-xs sm:text-sm min-w-0">
-                        <h3 className="font-semibold text-slate-900 truncate shrink-0 max-w-[170px] sm:max-w-[220px] lg:max-w-[280px]">
-                          {invoice.invoiceNumber}
-                        </h3>
-                        <Badge variant="secondary" className="text-[10px] sm:text-xs shrink-0">Pending</Badge>
-                        {Number((invoice as any).lateFeeAmount || 0) > 0.009 && (
-                          <Badge variant="outline" className="text-[10px] sm:text-xs shrink-0 border-amber-300 bg-amber-100 text-amber-800">
-                            Late Fee Applied
-                          </Badge>
-                        )}
-                        <span className="text-muted-foreground shrink-0">Date: {invoice.date}</span>
-                        <span className="font-semibold text-slate-900 shrink-0">Total: ${invoice.grandTotal.toFixed(2)}</span>
-                        <div className="ml-auto flex items-center gap-2 shrink-0">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 px-3"
-                            onClick={() => handleViewInvoice(invoice)}
-                          >
-                            <Eye className="h-3.5 w-3.5 mr-1.5" />
-                            <span>View</span>
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 px-3"
-                            onClick={() => handleDownloadInvoice(invoice)}
-                          >
-                            <Download className="h-3.5 w-3.5 mr-1.5" />
-                            <span>Download</span>
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/30 overflow-hidden">
+                    <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                      <TableHeader className="bg-amber-100/70">
+                        <TableRow>
+                          <TableHead className="min-w-[220px]">Invoice #</TableHead>
+                          <TableHead className="min-w-[120px]">Status</TableHead>
+                          <TableHead className="min-w-[140px]">Date</TableHead>
+                          <TableHead className="min-w-[140px]">Total</TableHead>
+                          <TableHead className="min-w-[220px] text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paginatedInvoices.map((invoice) => (
+                          <TableRow key={invoice.id} className="bg-white/80">
+                            <TableCell className="font-semibold text-slate-900">{invoice.invoiceNumber}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <Badge variant="secondary" className="text-[10px] sm:text-xs">Pending</Badge>
+                                {Number((invoice as any).lateFeeAmount || 0) > 0.009 && (
+                                  <Badge variant="outline" className="text-[10px] sm:text-xs border-amber-300 bg-amber-100 text-amber-800">
+                                    Late Fee Applied
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">{invoice.date}</TableCell>
+                            <TableCell className="font-semibold text-slate-900">${invoice.grandTotal.toFixed(2)}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="inline-flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 px-3"
+                                  onClick={() => handleViewInvoice(invoice)}
+                                >
+                                  <Eye className="h-3.5 w-3.5 mr-1.5" />
+                                  <span>View</span>
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 px-3"
+                                  onClick={() => handleDownloadInvoice(invoice)}
+                                >
+                                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                                  <span>Download</span>
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                   
                   {/* Pagination */}
@@ -478,42 +503,59 @@ export function InvoicesSection({
                 </div>
               ) : currentTabInvoices.length > 0 ? (
                 <>
-                  <div className="space-y-2">
-                    {paginatedInvoices.map((invoice) => (
-                      <div key={invoice.id} className="flex items-center gap-2 sm:gap-3 p-2.5 sm:p-3 border rounded-lg bg-green-50 text-xs sm:text-sm min-w-0">
-                        <h3 className="font-semibold text-slate-900 truncate shrink-0 max-w-[170px] sm:max-w-[220px] lg:max-w-[280px]">
-                          {invoice.invoiceNumber}
-                        </h3>
-                        <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 text-[10px] sm:text-xs shrink-0">Paid</Badge>
-                        {Number((invoice as any).lateFeeAmount || 0) > 0.009 && (
-                          <Badge variant="outline" className="text-[10px] sm:text-xs shrink-0 border-amber-300 bg-amber-100 text-amber-800">
-                            Late Fee Applied
-                          </Badge>
-                        )}
-                        <span className="text-muted-foreground shrink-0">Date: {invoice.date}</span>
-                        <span className="font-semibold text-slate-900 shrink-0">Total: ${invoice.grandTotal.toFixed(2)}</span>
-                        <div className="ml-auto flex items-center gap-2 shrink-0">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 px-3"
-                            onClick={() => handleViewInvoice(invoice)}
-                          >
-                            <Eye className="h-3.5 w-3.5 mr-1.5" />
-                            <span>View</span>
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 px-3"
-                            onClick={() => handleDownloadInvoice(invoice)}
-                          >
-                            <Download className="h-3.5 w-3.5 mr-1.5" />
-                            <span>Download</span>
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/30 overflow-hidden">
+                    <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                      <TableHeader className="bg-emerald-100/70">
+                        <TableRow>
+                          <TableHead className="min-w-[220px]">Invoice #</TableHead>
+                          <TableHead className="min-w-[120px]">Status</TableHead>
+                          <TableHead className="min-w-[140px]">Date</TableHead>
+                          <TableHead className="min-w-[140px]">Total</TableHead>
+                          <TableHead className="min-w-[220px] text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paginatedInvoices.map((invoice) => (
+                          <TableRow key={invoice.id} className="bg-white/80">
+                            <TableCell className="font-semibold text-slate-900">{invoice.invoiceNumber}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 text-[10px] sm:text-xs">Paid</Badge>
+                                {Number((invoice as any).lateFeeAmount || 0) > 0.009 && (
+                                  <Badge variant="outline" className="text-[10px] sm:text-xs border-amber-300 bg-amber-100 text-amber-800">
+                                    Late Fee Applied
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">{invoice.date}</TableCell>
+                            <TableCell className="font-semibold text-slate-900">${invoice.grandTotal.toFixed(2)}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="inline-flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 px-3"
+                                  onClick={() => handleViewInvoice(invoice)}
+                                >
+                                  <Eye className="h-3.5 w-3.5 mr-1.5" />
+                                  <span>View</span>
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 px-3"
+                                  onClick={() => handleDownloadInvoice(invoice)}
+                                >
+                                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                                  <span>Download</span>
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                   
                   {/* Pagination */}

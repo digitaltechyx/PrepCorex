@@ -9,6 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Trash2, Search, X, Calendar, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
@@ -186,29 +194,39 @@ export default function DeleteLogsPage() {
               ))}
             </div>
           ) : filteredDeleteLogs.length > 0 ? (
-            <div className="space-y-2">
-              {paginatedDeleteLogs.map((item) => (
-                <div 
-                  key={item.id}
-                  className="rounded-lg border border-red-200 bg-red-50/40 px-3 py-2 sm:px-4"
-                >
-                  <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
-                    <span className="font-semibold text-slate-900 truncate shrink-0 max-w-[180px] sm:max-w-[230px] lg:max-w-[280px]">
-                      {item.productName}
-                    </span>
-                    <Badge className="bg-red-500 text-white text-[10px] shrink-0">-{item.quantity}</Badge>
-                    <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px] shrink-0">
-                      {item.status}
-                    </Badge>
-                    <span className="text-slate-600 shrink-0">Added: {formatDate(item.dateAdded)}</span>
-                    <span className="text-red-700 font-semibold shrink-0">Deleted: {formatDate(item.deletedAt)}</span>
-                    <span className="text-slate-600 shrink-0">By: {item.deletedBy}</span>
-                    <span className="text-red-800 truncate min-w-0 flex-1">
-                      Reason: {item.reason}
-                    </span>
-                  </div>
-                </div>
-              ))}
+            <div className="rounded-lg border border-red-200 bg-red-50/30 overflow-hidden">
+              <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                <TableHeader className="bg-red-100/70">
+                  <TableRow>
+                    <TableHead className="min-w-[240px]">Product</TableHead>
+                    <TableHead className="min-w-[110px]">Quantity</TableHead>
+                    <TableHead className="min-w-[120px]">Status</TableHead>
+                    <TableHead className="min-w-[150px]">Added</TableHead>
+                    <TableHead className="min-w-[150px]">Deleted</TableHead>
+                    <TableHead className="min-w-[170px]">Deleted By</TableHead>
+                    <TableHead className="min-w-[260px]">Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedDeleteLogs.map((item) => (
+                    <TableRow key={item.id} className="bg-white/70">
+                      <TableCell className="font-semibold text-slate-900">{item.productName}</TableCell>
+                      <TableCell>
+                        <Badge className="bg-red-500 text-white text-[10px]">-{item.quantity}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px]">
+                          {item.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-slate-700">{formatDate(item.dateAdded)}</TableCell>
+                      <TableCell className="font-semibold text-red-700">{formatDate(item.deletedAt)}</TableCell>
+                      <TableCell className="text-slate-700">{item.deletedBy}</TableCell>
+                      <TableCell className="text-red-800">{item.reason}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           ) : (
             <div className="text-center py-16">

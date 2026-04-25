@@ -9,6 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Edit, Search, X, Calendar, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
@@ -187,37 +195,55 @@ export default function EditLogsPage() {
               ))}
             </div>
           ) : filteredEditLogs.length > 0 ? (
-            <div className="space-y-2">
-              {paginatedEditLogs.map((item) => (
-                <div 
-                  key={item.id}
-                  className="rounded-lg border border-blue-200 bg-blue-50/40 px-3 py-2 sm:px-4"
-                >
-                  <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
-                    <span className="font-semibold text-slate-900 truncate shrink-0 max-w-[180px] sm:max-w-[230px] lg:max-w-[280px]">
-                      {item.productName}
-                    </span>
-                    {item.previousProductName && item.previousProductName !== item.productName && (
-                      <Badge variant="outline" className="text-[10px] shrink-0">Renamed</Badge>
-                    )}
-                    <span className="text-slate-600 shrink-0">Qty:</span>
-                    <span className="shrink-0">{item.previousQuantity}</span>
-                    <ArrowRight className="h-3 w-3 text-blue-500 shrink-0" />
-                    <span className="font-semibold text-blue-700 shrink-0">{item.newQuantity}</span>
-                    <span className="text-slate-600 ml-1 shrink-0">Status:</span>
-                    <Badge variant="outline" className="text-[10px] shrink-0">{item.previousStatus}</Badge>
-                    <ArrowRight className="h-3 w-3 text-blue-500 shrink-0" />
-                    <Badge className="bg-blue-500 text-white text-[10px] shrink-0">{item.newStatus}</Badge>
-                    <span className="text-slate-600 truncate min-w-0 flex-1">
-                      Reason: {item.reason} | By: {item.editedBy}
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-slate-600 shrink-0">
-                      <Calendar className="h-3 w-3" />
-                      {formatDate(item.editedAt)}
-                    </span>
-                  </div>
-                </div>
-              ))}
+            <div className="rounded-xl border border-blue-200/80 bg-white overflow-hidden shadow-sm">
+              <Table containerClassName="overflow-x-auto mouse-h-scroll max-h-[560px]">
+                <TableHeader className="bg-blue-50/90 sticky top-0 z-10 backdrop-blur">
+                  <TableRow>
+                    <TableHead className="min-w-[240px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Product</TableHead>
+                    <TableHead className="min-w-[150px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Quantity</TableHead>
+                    <TableHead className="min-w-[170px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Status</TableHead>
+                    <TableHead className="min-w-[280px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Reason</TableHead>
+                    <TableHead className="min-w-[180px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Edited By</TableHead>
+                    <TableHead className="min-w-[160px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedEditLogs.map((item) => (
+                    <TableRow key={item.id} className="bg-white hover:bg-blue-50/40 transition-colors">
+                      <TableCell className="font-semibold text-slate-900">
+                        <div className="flex items-center gap-2">
+                          <span className="line-clamp-2">{item.productName}</span>
+                          {item.previousProductName && item.previousProductName !== item.productName && (
+                            <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700 bg-blue-50">Renamed</Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-slate-700">
+                        <div className="inline-flex items-center gap-2">
+                          <span>{item.previousQuantity}</span>
+                          <ArrowRight className="h-3 w-3 text-blue-500" />
+                          <span className="font-semibold text-blue-700">{item.newQuantity}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="inline-flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px] border-slate-300 text-slate-700">{item.previousStatus}</Badge>
+                          <ArrowRight className="h-3 w-3 text-blue-500" />
+                          <Badge className="bg-blue-600 text-white text-[10px]">{item.newStatus}</Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-slate-700 max-w-[320px] truncate" title={item.reason}>{item.reason}</TableCell>
+                      <TableCell className="text-slate-700">{item.editedBy}</TableCell>
+                      <TableCell className="text-slate-700">
+                        <span className="inline-flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {formatDate(item.editedAt)}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           ) : (
             <div className="text-center py-16">
