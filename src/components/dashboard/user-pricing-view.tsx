@@ -97,6 +97,12 @@ type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
   createdAt?: any;
 };
 
+type ShippedOrderDoc = {
+  id: string;
+  date?: any;
+  createdAt?: any;
+};
+
  function toMs(v: any): number {
    if (!v) return 0;
    if (typeof v === "string") {
@@ -155,6 +161,13 @@ function pickLatestWithFallback<T extends { updatedAt?: any; createdAt?: any }>(
    return compact || "unknown";
  }
 
+function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-49" | "50+" {
+  if (avgDailyOrders >= 50) return "50+";
+  if (avgDailyOrders >= 25) return "25-49";
+  if (avgDailyOrders >= 11) return "11-24";
+  return "1-10";
+}
+
  function productTypeLabel(t: string) {
    if (t === "Standard") return "Standard (6x6x6) - <3lbs";
    if (t === "Large") return "Large (10x10x10) - <6lbs";
@@ -194,6 +207,9 @@ function pickLatestWithFallback<T extends { updatedAt?: any; createdAt?: any }>(
     uid ? `users/${uid}/fbaPackAddOnPricing` : ""
   );
   const { data: defaultFbaPackAddOnPricingList } = useCollection<FbaPackAddOnPricingDoc>("defaultFbaPackAddOnPricing");
+  const { data: shippedOrders } = useCollection<ShippedOrderDoc>(
+    uid ? `users/${uid}/shipped` : ""
+  );
 
    const pricingByKey = useMemo(() => {
      const map = new Map<string, PricingRuleDoc>();
@@ -405,6 +421,22 @@ function pickLatestWithFallback<T extends { updatedAt?: any; createdAt?: any }>(
       "24-48 hr guaranteed turnaround",
     ];
 
+    const weeklyOrderStats = (() => {
+      const now = Date.now();
+      const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+      const weeklyOrders = (shippedOrders || []).filter((order) => {
+        const timestamp = order.date ?? order.createdAt;
+        const ms = toMs(timestamp);
+        return ms >= sevenDaysAgo && ms <= now;
+      }).length;
+      const avgDailyOrders = weeklyOrders / 7;
+      return { weeklyOrders, avgDailyOrders };
+    })();
+
+    const currentRange = fbmRangeForDailyOrders(weeklyOrderStats.avgDailyOrders);
+    const currentRangeIndex = rows.findIndex((r) => r.range === currentRange);
+    const nextRange = currentRangeIndex >= 0 && currentRangeIndex < rows.length - 1 ? rows[currentRangeIndex + 1] : null;
+
     return (
       <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
         <CardHeader className="border-b bg-gradient-to-r from-violet-50 to-indigo-50 pb-3 dark:from-slate-900 dark:to-slate-900">
@@ -417,14 +449,21 @@ function pickLatestWithFallback<T extends { updatedAt?: any; createdAt?: any }>(
               <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 animate-pulse dark:text-amber-300" />
               <div className="space-y-0.5">
                 <div className="font-medium">
-                  You are currently in: <span className="font-semibold">25-49 orders/day</span>{" "}
+                  You are currently in: <span className="font-semibold">{currentRange} orders/day</span>{" "}
                   {"->"}{" "}
-                  <span className="font-semibold">{money(getFbmPrice("25-49", "Standard"))}</span> (Standard)
+                  <span className="font-semibold">{money(getFbmPrice(currentRange, "Standard"))}</span> (Standard)
                 </div>
-                <div>
-                  Reach <span className="font-semibold">50+ orders/day</span> to unlock:{" "}
-                  <span className="font-semibold">{money(getFbmPrice("50+", "Standard"))}</span> pricing.
-                </div>
+                {nextRange ? (
+                  <div>
+                    Weekly avg: <span className="font-semibold">{weeklyOrderStats.avgDailyOrders.toFixed(1)} orders/day</span>. Reach{" "}
+                    <span className="font-semibold">{nextRange.range} orders/day</span> to unlock:{" "}
+                    <span className="font-semibold">{money(getFbmPrice(nextRange.range, "Standard"))}</span> pricing.
+                  </div>
+                ) : (
+                  <div>
+                    Weekly avg: <span className="font-semibold">{weeklyOrderStats.avgDailyOrders.toFixed(1)} orders/day</span>. You are already at the highest FBM tier.
+                  </div>
+                )}
               </div>
             </div>
           </div>
