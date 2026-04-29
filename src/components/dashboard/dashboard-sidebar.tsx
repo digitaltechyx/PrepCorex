@@ -38,6 +38,7 @@ import {
   Plug,
   ChevronLeft,
   Shield,
+  XCircle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
@@ -550,36 +551,44 @@ export function DashboardSidebar() {
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu className="space-y-1">
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === "/dashboard/agent"}
-                      tooltip="Overview"
-                      className={cn(
-                        "group relative h-11 rounded-lg transition-all duration-200",
-                        pathname === "/dashboard/agent"
-                          ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
-                          : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <Link href="/dashboard/agent" className="flex items-center gap-3">
-                        <UserCheck
+                  {[
+                    { title: "Overview", href: "/dashboard/agent", icon: UserCheck, color: "text-purple-600" },
+                    { title: "Active Clients", href: "/dashboard/agent/active-clients", icon: UserCheck, color: "text-emerald-600" },
+                    { title: "Pending Clients", href: "/dashboard/agent/pending-clients", icon: Users, color: "text-amber-600" },
+                    { title: "Rejected Clients", href: "/dashboard/agent/rejected-clients", icon: XCircle, color: "text-rose-600" },
+                    { title: "Paid Invoices", href: "/dashboard/agent/paid-invoices", icon: FileText, color: "text-blue-600" },
+                    { title: "Policies & Rules", href: "/dashboard/agent/policies", icon: Shield, color: "text-indigo-600" },
+                  ].map((item) => {
+                    const isActive = pathname === item.href;
+                    const Icon = item.icon;
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive}
+                          tooltip={item.title}
                           className={cn(
-                            "h-5 w-5 transition-transform group-hover:scale-110",
-                            pathname === "/dashboard/agent" ? "text-purple-600" : "text-muted-foreground"
-                          )}
-                        />
-                        <span
-                          className={cn(
-                            "font-medium transition-colors",
-                            pathname === "/dashboard/agent" && "font-semibold"
+                            "group relative h-11 rounded-lg transition-all duration-200",
+                            isActive
+                              ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
+                              : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                           )}
                         >
-                          Overview
-                        </span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                          <Link href={item.href} className="flex items-center gap-3">
+                            <Icon
+                              className={cn(
+                                "h-5 w-5 transition-transform group-hover:scale-110",
+                                isActive ? item.color : "text-muted-foreground"
+                              )}
+                            />
+                            <span className={cn("font-medium transition-colors", isActive && "font-semibold")}>
+                              {item.title}
+                            </span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

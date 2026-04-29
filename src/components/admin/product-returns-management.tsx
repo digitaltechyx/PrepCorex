@@ -612,6 +612,34 @@ export function ProductReturnsManagement({
         const shippedQty = latestReturn?.shippedQuantity || 0;
         const currentShippingLog = latestReturn?.shippingLog || selectedReturn.shippingLog || [];
         const remainingQuantity = Math.max(0, selectedReturn.receivedQuantity - shippedQty);
+        const closedAtLabel = format(today, "dd/MM/yyyy HH:mm");
+        const closedByLabel =
+          adminProfile.name ||
+          adminProfile.email ||
+          adminProfile.uid ||
+          "Admin";
+        const requestedByLabel =
+          selectedUser.name ||
+          selectedUser.email ||
+          selectedUser.uid ||
+          "User";
+        const returnReason = (latestReturn?.userRemarks || selectedReturn.userRemarks || "").trim();
+        const returnTypeLabel = selectedReturn.type === "existing" ? "Existing Product Return" : "New Product Return";
+        const returnSummaryParts = [
+          `[Return Completed] ID: ${selectedReturn.id}`,
+          `Type: ${returnTypeLabel}`,
+          `Product: ${productName}`,
+          `SKU: ${sku || "N/A"}`,
+          `Requested Qty: ${selectedReturn.requestedQuantity || 0}`,
+          `Received Qty: ${selectedReturn.receivedQuantity || 0}`,
+          `Already Shipped: ${shippedQty || 0}`,
+          `Added To Inventory: ${remainingQuantity}`,
+          `Requested By: ${requestedByLabel}`,
+          `Closed By: ${closedByLabel}`,
+          `Closed At: ${closedAtLabel}`,
+          `Return Reason: ${returnReason || "N/A"}`,
+        ];
+        const returnSummary = returnSummaryParts.join(" | ");
         const shipToAddress = (() => {
           const shippingAddress = selectedReturn.additionalServices?.shippingAddress;
           if (!shippingAddress) return "";
@@ -665,9 +693,14 @@ export function ProductReturnsManagement({
             if (inventoryDoc.exists()) {
               const currentData = inventoryDoc.data();
               const currentQuantity = currentData.quantity || 0;
+              const existingRemarks = (currentData.remarks || "").trim();
+              const mergedRemarks = existingRemarks
+                ? `${existingRemarks}\n\n${returnSummary}`
+                : returnSummary;
               transaction.update(inventoryRef, {
                 quantity: currentQuantity + remainingQuantity,
                 status: "In Stock",
+                remarks: mergedRemarks,
                 updatedAt: now,
               });
             } else {
@@ -681,6 +714,7 @@ export function ProductReturnsManagement({
                 status: "In Stock",
                 inventoryType: "product",
                 sku: sku,
+                remarks: returnSummary,
                 createdAt: now,
                 updatedAt: now,
               });
@@ -696,6 +730,7 @@ export function ProductReturnsManagement({
               status: "In Stock",
               inventoryType: "product",
               sku: sku,
+              remarks: returnSummary,
               createdAt: now,
               updatedAt: now,
             });

@@ -120,6 +120,8 @@ export interface InventoryItem {
   imageUrls?: string[];
   /** Internal warehouse location (admin-facing operations). */
   locationId?: string;
+  /** Internal per-location quantity allocation (admin-facing, hidden from user UI). */
+  locationQuantities?: Record<string, number>;
 }
 
 /** Admin-only internal transfer between warehouse locations. */

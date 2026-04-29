@@ -1,436 +1,566 @@
 "use client";
 
-import { useAuth } from "@/hooks/use-auth";
-import { useCollection } from "@/hooks/use-collection";
-import type { UserProfile, Invoice, Commission } from "@/types";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Users, UserCheck, XCircle, DollarSign, FileText, Copy, Check } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useAffiliateData } from "@/components/dashboard/agent/use-affiliate-data";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import { Progress } from "@/components/ui/progress";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis, Legend } from "recharts";
 import { format } from "date-fns";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { collection, query, where } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import {
+  ArrowRight,
+  Award,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  CircleDollarSign,
+  ChevronRight,
+  Coins,
+  Copy,
+  Info,
+  Landmark,
+  Percent,
+  Shield,
+  ShieldCheck,
+  TrendingUp,
+  TrendingDown,
+  Users,
+} from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 export default function AgentDashboardPage() {
-  const { userProfile } = useAuth();
+  const {
+    userProfile,
+    loading,
+    activeClients,
+    paidInvoices,
+    pendingCommissionTotal,
+    paidCommissionTotal,
+  } = useAffiliateData();
+
   const [copiedCode, setCopiedCode] = useState(false);
-
-  // Fetch all users to find referred clients
-  const { data: allUsers, loading: usersLoading } = useCollection<UserProfile>("users");
-  
-  // Fetch commissions - only for this agent
-  const commissionsQuery = useMemo(() => {
-    if (!userProfile?.uid) return undefined;
-    return query(
-      collection(db, "commissions"),
-      where("agentId", "==", userProfile.uid)
-    );
-  }, [userProfile?.uid]);
-
-  const { data: commissions, loading: commissionsLoading } = useCollection<Commission>(
-    userProfile ? "commissions" : "",
-    commissionsQuery
-  );
-
-  // Get referred clients (users who used this agent's referral code)
-  const referredClients = useMemo(() => {
-    if (!userProfile?.uid) return [];
-    return allUsers.filter(
-      (user) => user.referredByAgentId === userProfile.uid && user.role === "user"
-    );
-  }, [allUsers, userProfile?.uid]);
-
-  // Categorize clients
-  const activeClients = useMemo(() => {
-    return referredClients.filter((client) => client.status === "approved" || !client.status);
-  }, [referredClients]);
-
-  const pendingClients = useMemo(() => {
-    return referredClients.filter((client) => client.status === "pending");
-  }, [referredClients]);
-
-  const rejectedClients = useMemo(() => {
-    return referredClients.filter((client) => client.status === "deleted");
-  }, [referredClients]);
-
-  // Get invoices from referred clients (from commissions)
-  // Note: Commissions are only created when invoices are paid, so all commissions represent paid invoices
-  const paidInvoices = useMemo(() => {
-    if (!userProfile?.uid) return [];
-    // Get all commissions for this agent (all represent paid invoices)
-    return commissions
-      .filter((c) => c.agentId === userProfile.uid)
-      .map((c) => ({
-        id: c.invoiceId,
-        invoiceNumber: c.invoiceNumber,
-        grandTotal: c.invoiceAmount,
-        status: "paid" as const,
-        date: c.createdAt,
-        userId: c.clientId,
-        commissionStatus: c.status, // Track commission payment status separately
-      })) as (Invoice & { commissionStatus?: string })[];
-  }, [commissions, userProfile?.uid]);
-
-  // Calculate total commission (pending commissions)
-  const totalCommission = useMemo(() => {
-    const pendingCommissions = commissions.filter((c) => c.status === "pending");
-    return pendingCommissions.reduce((sum, c) => sum + (c.commissionAmount || 0), 0);
-  }, [commissions]);
-
   const copyReferralCode = () => {
-    if (userProfile?.referralCode) {
-      navigator.clipboard.writeText(userProfile.referralCode);
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
-    }
+    if (!userProfile?.referralCode) return;
+    navigator.clipboard.writeText(userProfile.referralCode);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 1800);
   };
 
-  const formatDate = (date: any) => {
-    if (!date) return "N/A";
-    try {
-      let dateObj: Date;
-      if (date && typeof date === 'object' && date.seconds) {
-        dateObj = new Date(date.seconds * 1000);
-      } else if (date instanceof Date) {
-        dateObj = date;
-      } else {
-        dateObj = new Date(date);
+  const monthlyRevenueMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const invoice of paidInvoices) {
+      const rawDate = (invoice as any).date;
+      let d: Date | null = null;
+      if (rawDate?.seconds) d = new Date(rawDate.seconds * 1000);
+      else if (rawDate) {
+        const parsed = new Date(rawDate);
+        d = Number.isNaN(parsed.getTime()) ? null : parsed;
       }
-      if (isNaN(dateObj.getTime())) return "N/A";
-      return format(dateObj, "MMM dd, yyyy");
-    } catch {
-      return "N/A";
+      if (!d) continue;
+      const key = format(d, "yyyy-MM");
+      map.set(key, (map.get(key) || 0) + (invoice.grandTotal || 0));
     }
-  };
+    return map;
+  }, [paidInvoices]);
 
-  if (usersLoading || commissionsLoading) {
+  const monthSeries = useMemo(() => {
+    const list: { key: string; month: string; revenue: number; commission: number }[] = [];
+    const today = new Date();
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const key = format(d, "yyyy-MM");
+      const revenue = monthlyRevenueMap.get(key) || 0;
+      list.push({
+        key,
+        month: format(d, "MMM"),
+        revenue,
+        commission: revenue * 0.05,
+      });
+    }
+    return list;
+  }, [monthlyRevenueMap]);
+
+  // Determine starting tier based on Silver-level streak (Bronze is default)
+  const silverStreak = useMemo(() => {
+    let streak = 0;
+    for (let i = monthSeries.length - 1; i >= 0; i--) {
+      if ((monthSeries[i]?.revenue || 0) >= 25000) streak += 1;
+      else break;
+    }
+    return streak;
+  }, [monthSeries]);
+
+  const goldStreak = useMemo(() => {
+    let streak = 0;
+    for (let i = monthSeries.length - 1; i >= 0; i--) {
+      if ((monthSeries[i]?.revenue || 0) >= 50000) streak += 1;
+      else break;
+    }
+    return streak;
+  }, [monthSeries]);
+
+  const tier: "Bronze" | "Silver" | "Gold" =
+    goldStreak >= 6 ? "Gold" : silverStreak >= 3 ? "Silver" : "Bronze";
+  const tierRate = tier === "Gold" ? 8 : tier === "Silver" ? 7 : 5;
+  const currentMonthRevenue = monthSeries[monthSeries.length - 1]?.revenue || 0;
+  const currentMonthCommission = currentMonthRevenue * (tierRate / 100);
+
+  const nextTier = tier === "Bronze" ? "Silver" : tier === "Silver" ? "Gold" : "Gold";
+  const nextTierRate = tier === "Bronze" ? 7 : tier === "Silver" ? 8 : 8;
+  const nextTierMonthlyRevenue = tier === "Bronze" ? 25000 : 50000;
+  const nextTierStreakTarget = tier === "Bronze" ? 3 : 6;
+  const qualifyingStreak = tier === "Gold" ? goldStreak : tier === "Silver" ? goldStreak : silverStreak;
+  const monthlyTarget = nextTierMonthlyRevenue;
+  const targetProgress = Math.min(100, (currentMonthRevenue / monthlyTarget) * 100);
+
+  const eligibleClientRows = useMemo(() => {
+    const now = new Date();
+    return activeClients
+      .map((client) => {
+        const clientInvoices = paidInvoices
+          .filter((inv) => inv.userId === client.uid)
+          .map((inv) => {
+            const d: any = (inv as any).date;
+            if (d?.seconds) return new Date(d.seconds * 1000);
+            const parsed = new Date(d);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+          })
+          .filter(Boolean) as Date[];
+
+        if (clientInvoices.length === 0) return null;
+        clientInvoices.sort((a, b) => a.getTime() - b.getTime());
+        const firstPaid = clientInvoices[0];
+        const expiresOn = new Date(firstPaid);
+        expiresOn.setFullYear(expiresOn.getFullYear() + 1);
+        const monthsLeft = Math.max(
+          0,
+          Math.ceil((expiresOn.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30))
+        );
+
+        return {
+          id: client.uid,
+          name: client.name || client.email || "Unknown",
+          firstPaid,
+          expiresOn,
+          monthsLeft,
+          active: expiresOn > now,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (a as any).monthsLeft - (b as any).monthsLeft) as Array<{
+      id: string;
+      name: string;
+      firstPaid: Date;
+      expiresOn: Date;
+      monthsLeft: number;
+      active: boolean;
+    }>;
+  }, [activeClients, paidInvoices]);
+
+  const trendChartConfig = {
+    revenue: { label: "Qualified Revenue (USD)", color: "#2563eb" },
+    commission: { label: "Commission Earned (USD)", color: "#22c55e" },
+  } satisfies ChartConfig;
+
+  if (loading) {
     return (
       <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-3">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-32" />
+        <div className="grid gap-4 md:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-28 w-full" />
           ))}
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-64" />
+            <Skeleton key={i} className="h-24 w-full" />
           ))}
+        </div>
+        <div className="grid gap-4 lg:grid-cols-12">
+          <Skeleton className="h-[360px] w-full lg:col-span-5" />
+          <Skeleton className="h-[360px] w-full lg:col-span-7" />
         </div>
       </div>
     );
   }
 
+  // ===== Top tier strip =====
+  const TierStrip = (
+    <div className="grid gap-4 lg:grid-cols-4">
+      {/* Current Tier */}
+      <Card className="overflow-hidden border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 shadow-sm">
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-start justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Current Tier</span>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow">
+              <Award className="h-6 w-6" />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-2xl font-bold text-slate-900">{tier} Partner</h3>
+            <p className="text-xs text-slate-500">Current Rate</p>
+            <p className="text-3xl font-bold text-amber-700">{tierRate}%</p>
+          </div>
+          <Link
+            href="/dashboard/agent/policies"
+            className="inline-flex items-center rounded-full bg-amber-100/80 px-3 py-1 text-xs font-medium text-amber-800 transition hover:bg-amber-200"
+          >
+            Learn more about tiers <ChevronRight className="ml-1 h-3 w-3" />
+          </Link>
+        </CardContent>
+      </Card>
+
+      {/* Qualified revenue this month */}
+      <Card className="border-slate-200 shadow-sm">
+        <CardContent className="space-y-3 p-5">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Qualified Revenue This Month</span>
+          <div className="flex items-baseline gap-2">
+            <p className="text-3xl font-bold text-slate-900">${currentMonthRevenue.toFixed(0)}</p>
+            <p className="text-sm text-slate-500">/ ${monthlyTarget.toLocaleString()}</p>
+          </div>
+          <Progress value={targetProgress} className="h-2.5" />
+          <p className="text-xs text-slate-500">{targetProgress.toFixed(0)}% of {nextTier} monthly target</p>
+          <div className="flex items-center gap-1 border-t pt-2 text-[11px] text-slate-500">
+            <Info className="h-3 w-3" /> {nextTier} target: ${monthlyTarget.toLocaleString()} / month
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Consecutive months */}
+      <Card className="border-slate-200 shadow-sm">
+        <CardContent className="space-y-3 p-5">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Consecutive Qualifying Months</span>
+          <div className="flex items-baseline gap-1">
+            <p className="text-3xl font-bold text-blue-700">{qualifyingStreak}</p>
+            <p className="text-base text-slate-400">/ {nextTierStreakTarget}</p>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            {qualifyingStreak >= nextTierStreakTarget
+              ? `Eligible for ${nextTier}!`
+              : `${nextTierStreakTarget - qualifyingStreak} more month${
+                  nextTierStreakTarget - qualifyingStreak === 1 ? "" : "s"
+                } to reach ${nextTier}`}
+          </p>
+          <div className="flex gap-2 pt-1">
+            {Array.from({ length: nextTierStreakTarget }).map((_, idx) => {
+              const filled = idx < qualifyingStreak;
+              return (
+                <div
+                  key={idx}
+                  className={`flex h-7 w-7 items-center justify-center rounded-full border-2 ${
+                    filled
+                      ? "border-blue-500 bg-blue-500 text-white"
+                      : "border-slate-300 bg-slate-100 text-slate-400"
+                  }`}
+                >
+                  {filled ? <CheckCircle2 className="h-4 w-4" /> : null}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-1 border-t pt-2 text-[11px] text-slate-500">
+            <Info className="h-3 w-3" /> Need {nextTierStreakTarget} consecutive months
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Next tier target */}
+      <Card className="border-slate-200 shadow-sm">
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-start justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next Tier Target</span>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-slate-300 to-slate-500 text-white shadow">
+              <Shield className="h-6 w-6" />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-2xl font-bold text-slate-900">{nextTier} Partner</h3>
+            <p className="text-3xl font-bold text-slate-700">{nextTierRate}%</p>
+          </div>
+          <p className="text-xs text-slate-500">
+            Target: <span className="font-semibold text-slate-700">${nextTierMonthlyRevenue.toLocaleString()} / month</span>
+          </p>
+          <p className="text-[11px] text-slate-500">Maintain for {nextTierStreakTarget} consecutive months</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  // ===== KPI strip =====
+  const KpiStrip = (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <KpiCard
+        icon={<Users className="h-5 w-5" />}
+        iconBg="bg-blue-100 text-blue-600"
+        label="Active Eligible Clients"
+        value={eligibleClientRows.filter((r) => r.active).length.toString()}
+        link="/dashboard/agent/active-clients"
+        linkLabel="View clients"
+        helper="Clients with 12-month window"
+      />
+      <KpiCard
+        icon={<Coins className="h-5 w-5" />}
+        iconBg="bg-emerald-100 text-emerald-600"
+        label="Pending Commission"
+        value={`$${pendingCommissionTotal.toFixed(2)}`}
+        link="/dashboard/agent/paid-invoices"
+        linkLabel="View breakdown"
+        helper="Not yet paid"
+      />
+      <KpiCard
+        icon={<Landmark className="h-5 w-5" />}
+        iconBg="bg-violet-100 text-violet-600"
+        label="Total Paid Commission"
+        value={`$${paidCommissionTotal.toFixed(2)}`}
+        link="/dashboard/agent/paid-invoices"
+        linkLabel="View history"
+        helper="All time paid"
+      />
+      <KpiCard
+        icon={<Percent className="h-5 w-5" />}
+        iconBg="bg-amber-100 text-amber-600"
+        label="Avg. Commission Rate"
+        value={`${tierRate}%`}
+        link="/dashboard/agent/policies"
+        linkLabel="Your current rate"
+        helper={`${tier} Partner`}
+      />
+    </div>
+  );
+
+  // ===== Mid section =====
+  const MidSection = (
+    <div className="grid gap-4 lg:grid-cols-12">
+      {/* Client commission windows */}
+      <Card className="border-slate-200 shadow-sm lg:col-span-5">
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-900">Client Commission Windows</h3>
+            <Link
+              href="/dashboard/agent/active-clients"
+              className="inline-flex items-center text-xs font-medium text-blue-600 hover:underline"
+            >
+              View all clients <ChevronRight className="h-3 w-3" />
+            </Link>
+          </div>
+
+          {eligibleClientRows.length > 0 ? (
+            <Table containerClassName="overflow-x-auto mouse-h-scroll">
+              <TableHeader>
+                <TableRow className="border-slate-200">
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Client Name</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">First Paid Invoice</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Expires On</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Months Left</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {eligibleClientRows.slice(0, 6).map((row) => (
+                  <TableRow key={row.id} className="border-slate-100">
+                    <TableCell className="font-medium text-slate-900">{row.name}</TableCell>
+                    <TableCell className="text-slate-700">{format(row.firstPaid, "MMM dd, yyyy")}</TableCell>
+                    <TableCell className="text-slate-700">{format(row.expiresOn, "MMM dd, yyyy")}</TableCell>
+                    <TableCell className="text-slate-700">
+                      <div className="flex items-center gap-2">
+                        <span className="w-4">{row.monthsLeft}</span>
+                        <Progress value={(row.monthsLeft / 12) * 100} className="h-2 w-20" />
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {row.active ? (
+                        <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Active</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-slate-500">Expired</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="py-8 text-center text-sm text-muted-foreground">No eligible client windows yet.</p>
+          )}
+
+          <div className="flex items-center gap-1 border-t pt-2 text-[11px] text-slate-500">
+            <Info className="h-3 w-3" /> Commission is payable for 12 months from the client&apos;s first paid invoice date.
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Commission overview */}
+      <Card className="border-slate-200 shadow-sm lg:col-span-7">
+        <CardContent className="space-y-4 p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-900">Commission Overview</h3>
+            <span className="rounded-md border bg-white px-3 py-1 text-xs text-slate-600">This Month</span>
+          </div>
+
+          <div className="grid gap-3 rounded-lg border bg-slate-50/60 p-3 sm:grid-cols-3">
+            <OverviewStat label="Qualified Revenue" value={`$${currentMonthRevenue.toFixed(2)}`} />
+            <OverviewStat label="Commission Rate" value={`${tierRate}%`} />
+            <OverviewStat label="Earned Commission" value={`$${currentMonthCommission.toFixed(2)}`} accent="text-emerald-700" />
+          </div>
+
+          <ChartContainer config={trendChartConfig} className="h-[260px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthSeries} margin={{ left: 8, right: 12, top: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="month" stroke="#64748b" />
+                <YAxis stroke="#64748b" />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Legend
+                  wrapperStyle={{ fontSize: 12 }}
+                  formatter={(value) =>
+                    value === "revenue" ? "Qualified Revenue (USD)" : "Commission Earned (USD)"
+                  }
+                />
+                <Bar dataKey="revenue" fill="#2563eb" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="commission" fill="#22c55e" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartContainer>
+
+          <div className="flex items-center gap-1 border-t pt-2 text-[11px] text-slate-500">
+            <Info className="h-3 w-3" /> Only paid invoices from eligible clients within 12-month window are counted.
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  // ===== Program rules row =====
+  const RulesRow = (
+    <Card className="border-slate-200 shadow-sm">
+      <CardContent className="p-5">
+        <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-700">Program Rules at a Glance</h3>
+        <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+          <RuleTile icon={<CalendarDays className="h-5 w-5" />} color="bg-blue-50 text-blue-600" text="12-Month Window Per Client" />
+          <RuleTile icon={<CircleDollarSign className="h-5 w-5" />} color="bg-emerald-50 text-emerald-600" text="Only Paid Invoices Count" />
+          <RuleTile icon={<TrendingUp className="h-5 w-5" />} color="bg-indigo-50 text-indigo-600" text="Upgrades Not Retroactive" />
+          <RuleTile icon={<TrendingDown className="h-5 w-5" />} color="bg-amber-50 text-amber-600" text="Downgrade After 2 Consecutive Underperforming Months" />
+          <RuleTile icon={<ShieldCheck className="h-5 w-5" />} color="bg-cyan-50 text-cyan-600" text="No Lifetime Commission" />
+          <RuleTile icon={<Users className="h-5 w-5" />} color="bg-purple-50 text-purple-600" text="Only Active, Approved, Referred Clients Are Included" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   return (
-    <TooltipProvider>
-      <div className="space-y-6">
-        {/* Referral Code Banner - Enhanced */}
-        {userProfile?.referralCode && (
-          <Card className="relative overflow-hidden border-0 shadow-xl bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700 text-white">
-            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0YzAtMTEuMDQ2LTguOTU0LTIwLTIwLTIwUy00IDIyLjk1NC00IDM0czguOTU0IDIwIDIwIDIwIDIwLTguOTU0IDIwLTIweiIvPjwvZz48L2c+PC9zdmc+')] opacity-20"></div>
-            <CardContent className="relative p-8">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="h-10 w-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                      <Copy className="h-5 w-5 text-white" />
-                    </div>
-                    <h3 className="text-2xl font-bold">Your Referral Code</h3>
-                  </div>
-                  <p className="text-blue-100 mb-4 text-sm sm:text-base">
-                    Share this code with potential clients to earn commissions
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg px-6 py-3">
-                      <span className="text-3xl sm:text-4xl font-mono font-bold tracking-wider">
-                        {userProfile.referralCode}
-                      </span>
-                    </div>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="secondary"
-                          size="lg"
-                          className="h-12 w-12 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 shadow-lg transition-all hover:scale-110"
-                          onClick={copyReferralCode}
-                        >
-                          {copiedCode ? (
-                            <Check className="h-5 w-5 text-green-300" />
-                          ) : (
-                            <Copy className="h-5 w-5 text-white" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Copy referral code</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Stats Cards - Enhanced with gradients */}
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card className="border-2 border-green-200/50 bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <CardTitle className="text-sm font-semibold text-green-900">Total Active Clients</CardTitle>
-              <div className="h-12 w-12 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-md">
-                <UserCheck className="h-6 w-6 text-white" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-4xl font-bold text-green-900 mb-1">{activeClients.length}</div>
-              <p className="text-xs font-medium text-green-700">
-                Clients with approved status
+    <div className="space-y-5">
+      <Card className="overflow-hidden border-0 bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-700 text-white shadow-xl">
+        <CardContent className="p-6 sm:p-8">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-2">
+              <Badge className="bg-white/15 text-white hover:bg-white/20">Affiliate Workspace</Badge>
+              <h1 className="text-2xl font-bold sm:text-4xl sm:leading-tight">Commission Agent Dashboard</h1>
+              <p className="max-w-2xl text-sm text-violet-100 sm:text-base">
+                Track referred clients, paid invoices, and commission performance in one place.
               </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-2 border-amber-200/50 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <CardTitle className="text-sm font-semibold text-amber-900">Total Pending Clients</CardTitle>
-              <div className="h-12 w-12 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-md">
-                <Users className="h-6 w-6 text-white" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-4xl font-bold text-amber-900 mb-1">{pendingClients.length}</div>
-              <p className="text-xs font-medium text-amber-700">
-                Clients awaiting approval
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-2 border-purple-200/50 bg-gradient-to-br from-purple-50 via-violet-50 to-indigo-50 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-              <CardTitle className="text-sm font-semibold text-purple-900">Total Commission</CardTitle>
-              <div className="h-12 w-12 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-md">
-                <DollarSign className="h-6 w-6 text-white" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-4xl font-bold text-purple-900 mb-1">${totalCommission.toFixed(2)}</div>
-              <p className="text-xs font-medium text-purple-700">
-                Pending commission amount
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Four Sections Grid - Enhanced */}
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* Active Clients */}
-          <Card className="border-2 border-green-200/50 shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-300">
-            <CardHeader className="bg-gradient-to-r from-green-500 to-emerald-600 text-white pb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-xl font-bold">
-                    <div className="h-10 w-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                <UserCheck className="h-5 w-5" />
-                    </div>
-                Active Clients
-              </CardTitle>
-                  <CardDescription className="text-green-100 mt-1">
-                Clients you referred with approved status ({activeClients.length})
-              </CardDescription>
+            </div>
+            {userProfile?.referralCode && (
+              <div className="rounded-xl border border-white/30 bg-white/10 p-4 backdrop-blur-sm">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-100">Referral Code</p>
+                <div className="flex items-center gap-2">
+                  <code className="text-xl font-bold tracking-wider">{userProfile.referralCode}</code>
+                  <Button size="icon" variant="secondary" className="h-8 w-8" onClick={copyReferralCode}>
+                    {copiedCode ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                  </Button>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {activeClients.length > 0 ? (
-                <div className="space-y-2 max-h-[400px] overflow-y-auto p-4">
-                  {activeClients.map((client) => (
-                    <div
-                      key={client.uid}
-                      className="flex items-center justify-between p-4 border-2 border-green-100 rounded-xl bg-gradient-to-r from-green-50 to-emerald-50 hover:from-green-100 hover:to-emerald-100 transition-all duration-200 hover:shadow-md"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-green-900 truncate">{client.name}</p>
-                        <p className="text-sm text-green-700 truncate">{client.email}</p>
-                        {client.companyName && (
-                          <p className="text-xs text-green-600 truncate mt-1">{client.companyName}</p>
-                        )}
-                      </div>
-                      <Badge className="ml-3 bg-green-600 hover:bg-green-700 text-white shadow-sm">Active</Badge>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-green-100 flex items-center justify-center">
-                    <UserCheck className="h-8 w-8 text-green-400" />
-                  </div>
-                  <p className="font-semibold text-green-900">No active clients yet</p>
-                  <p className="text-sm text-green-600 mt-1">Start sharing your referral code!</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
-          {/* Pending Clients */}
-          <Card className="border-2 border-amber-200/50 shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-300">
-            <CardHeader className="bg-gradient-to-r from-amber-500 to-orange-600 text-white pb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-xl font-bold">
-                    <div className="h-10 w-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                <Users className="h-5 w-5" />
-                    </div>
-                Pending Clients
-              </CardTitle>
-                  <CardDescription className="text-amber-100 mt-1">
-                Clients awaiting approval ({pendingClients.length})
-              </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {pendingClients.length > 0 ? (
-                <div className="space-y-2 max-h-[400px] overflow-y-auto p-4">
-                  {pendingClients.map((client) => (
-                    <div
-                      key={client.uid}
-                      className="flex items-center justify-between p-4 border-2 border-amber-100 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 transition-all duration-200 hover:shadow-md"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-amber-900 truncate">{client.name}</p>
-                        <p className="text-sm text-amber-700 truncate">{client.email}</p>
-                        {client.companyName && (
-                          <p className="text-xs text-amber-600 truncate mt-1">{client.companyName}</p>
-                        )}
-                      </div>
-                      <Badge className="ml-3 bg-amber-500 hover:bg-amber-600 text-white shadow-sm">Pending</Badge>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-amber-100 flex items-center justify-center">
-                    <Users className="h-8 w-8 text-amber-400" />
-                  </div>
-                  <p className="font-semibold text-amber-900">No pending clients</p>
-                  <p className="text-sm text-amber-600 mt-1">All clients have been processed</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+      {TierStrip}
+      {KpiStrip}
+      {MidSection}
+      {RulesRow}
 
-          {/* Rejected Clients */}
-          <Card className="border-2 border-red-200/50 shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-300">
-            <CardHeader className="bg-gradient-to-r from-red-500 to-rose-600 text-white pb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-xl font-bold">
-                    <div className="h-10 w-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                <XCircle className="h-5 w-5" />
-                    </div>
-                Rejected Clients
-              </CardTitle>
-                  <CardDescription className="text-red-100 mt-1">
-                Clients that were rejected ({rejectedClients.length})
-              </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {rejectedClients.length > 0 ? (
-                <div className="space-y-2 max-h-[400px] overflow-y-auto p-4">
-                  {rejectedClients.map((client) => (
-                    <div
-                      key={client.uid}
-                      className="flex items-center justify-between p-4 border-2 border-red-100 rounded-xl bg-gradient-to-r from-red-50 to-rose-50 hover:from-red-100 hover:to-rose-100 transition-all duration-200 hover:shadow-md"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-red-900 truncate">{client.name}</p>
-                        <p className="text-sm text-red-700 truncate">{client.email}</p>
-                        {client.companyName && (
-                          <p className="text-xs text-red-600 truncate mt-1">{client.companyName}</p>
-                        )}
-                      </div>
-                      <Badge variant="destructive" className="ml-3 shadow-sm">Rejected</Badge>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
-                    <XCircle className="h-8 w-8 text-red-400" />
-                  </div>
-                  <p className="font-semibold text-red-900">No rejected clients</p>
-                  <p className="text-sm text-red-600 mt-1">Great job! All clients are active</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Paid Invoices */}
-          <Card className="border-2 border-blue-200/50 shadow-xl overflow-hidden hover:shadow-2xl transition-all duration-300">
-            <CardHeader className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white pb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-xl font-bold">
-                    <div className="h-10 w-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                <FileText className="h-5 w-5" />
-                    </div>
-                Paid Invoices
-              </CardTitle>
-                  <CardDescription className="text-blue-100 mt-1">
-                Invoices paid by your onboarded clients ({paidInvoices.length})
-              </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {paidInvoices.length > 0 ? (
-                <div className="max-h-[400px] overflow-y-auto">
-                  <Table>
-                    <TableHeader className="bg-blue-50/50">
-                      <TableRow className="hover:bg-blue-50/50">
-                        <TableHead className="font-semibold text-blue-900">Invoice #</TableHead>
-                        <TableHead className="font-semibold text-blue-900">Client</TableHead>
-                        <TableHead className="font-semibold text-blue-900">Amount</TableHead>
-                        <TableHead className="font-semibold text-blue-900">Date</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {paidInvoices.map((invoice) => {
-                        const client = referredClients.find((c) => c.uid === invoice.userId);
-                        return (
-                          <TableRow key={invoice.id} className="hover:bg-blue-50/30 transition-colors">
-                            <TableCell className="font-mono text-sm font-medium">
-                              {invoice.invoiceNumber}
-                            </TableCell>
-                            <TableCell className="font-medium">{client?.name || "Unknown"}</TableCell>
-                            <TableCell className="font-semibold text-green-600">
-                              ${invoice.grandTotal.toFixed(2)}
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">{formatDate(invoice.date)}</TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-blue-100 flex items-center justify-center">
-                    <FileText className="h-8 w-8 text-blue-400" />
-                  </div>
-                  <p className="font-semibold text-blue-900">No paid invoices yet</p>
-                  <p className="text-sm text-blue-600 mt-1">Invoices will appear here once clients pay</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+      <div className="flex flex-col gap-2 border-t pt-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+        <p>
+          Questions? Contact{" "}
+          <a href="mailto:support@prepcorex.com" className="font-medium text-rose-500 hover:underline">
+            support@prepcorex.com
+          </a>
+        </p>
+        <p className="font-medium text-slate-600">PrepCorex Affiliate Program</p>
       </div>
-    </TooltipProvider>
+    </div>
   );
 }
 
+function KpiCard({
+  icon,
+  iconBg,
+  label,
+  value,
+  link,
+  linkLabel,
+  helper,
+}: {
+  icon: React.ReactNode;
+  iconBg: string;
+  label: string;
+  value: string;
+  link: string;
+  linkLabel: string;
+  helper: string;
+}) {
+  return (
+    <Card className="border-slate-200 shadow-sm">
+      <CardContent className="p-5">
+        <div className="flex items-start gap-3">
+          <div className={`flex h-11 w-11 items-center justify-center rounded-full ${iconBg}`}>
+            {icon}
+          </div>
+          <div className="flex-1 space-y-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+            <p className="text-2xl font-bold text-slate-900">{value}</p>
+            <Link href={link} className="inline-flex items-center text-xs font-medium text-blue-600 hover:underline">
+              {linkLabel} <ArrowRight className="ml-1 h-3 w-3" />
+            </Link>
+          </div>
+        </div>
+        <p className="mt-3 border-t pt-2 text-[11px] text-slate-500">{helper}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OverviewStat({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="text-center">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`text-2xl font-bold ${accent ?? "text-slate-900"}`}>{value}</p>
+    </div>
+  );
+}
+
+function RuleTile({
+  icon,
+  color,
+  text,
+}: {
+  icon: React.ReactNode;
+  color: string;
+  text: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border bg-white p-3 transition hover:shadow-sm">
+      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${color}`}>{icon}</div>
+      <p className="text-xs font-medium leading-snug text-slate-700">{text}</p>
+    </div>
+  );
+}

@@ -196,15 +196,15 @@ export default function EditLogsPage() {
             </div>
           ) : filteredEditLogs.length > 0 ? (
             <div className="rounded-xl border border-blue-200/80 bg-white overflow-hidden shadow-sm">
-              <Table containerClassName="overflow-x-auto mouse-h-scroll max-h-[560px]">
+              <Table className="table-fixed" containerClassName="overflow-x-auto mouse-h-scroll max-h-[560px]">
                 <TableHeader className="bg-blue-50/90 sticky top-0 z-10 backdrop-blur">
                   <TableRow>
-                    <TableHead className="min-w-[240px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Product</TableHead>
-                    <TableHead className="min-w-[150px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Quantity</TableHead>
-                    <TableHead className="min-w-[170px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Status</TableHead>
-                    <TableHead className="min-w-[280px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Reason</TableHead>
-                    <TableHead className="min-w-[180px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Edited By</TableHead>
-                    <TableHead className="min-w-[160px] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Date</TableHead>
+                    <TableHead className="w-[20%] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Product</TableHead>
+                    <TableHead className="w-[16%] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Quantity</TableHead>
+                    <TableHead className="w-[16%] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Status</TableHead>
+                    <TableHead className="w-[20%] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Reason</TableHead>
+                    <TableHead className="w-[14%] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Edited By</TableHead>
+                    <TableHead className="w-[14%] text-[11px] font-semibold uppercase tracking-wide text-slate-600">Date</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -232,8 +232,8 @@ export default function EditLogsPage() {
                           <Badge className="bg-blue-600 text-white text-[10px]">{item.newStatus}</Badge>
                         </div>
                       </TableCell>
-                      <TableCell className="text-slate-700 max-w-[320px] truncate" title={item.reason}>{item.reason}</TableCell>
-                      <TableCell className="text-slate-700">{item.editedBy}</TableCell>
+                      <TableCell className="text-slate-700 truncate" title={item.reason}>{item.reason}</TableCell>
+                      <TableCell className="text-slate-700 truncate">{item.editedBy}</TableCell>
                       <TableCell className="text-slate-700">
                         <span className="inline-flex items-center gap-1">
                           <Calendar className="h-3 w-3" />

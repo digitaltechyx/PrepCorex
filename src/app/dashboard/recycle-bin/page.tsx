@@ -13,6 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { RotateCcw, Search, X, Calendar, Plus, Loader2, Clock, CheckCircle, XCircle, FileStack } from "lucide-react";
 import { format } from "date-fns";
@@ -391,41 +399,49 @@ export default function RecycleBinPage() {
               ))}
             </div>
           ) : totalRecords > 0 ? (
-            <div className="space-y-2">
-              {paginatedList.map((item) => (
-                <div
-                  key={`request-${item.id}`}
-                  className="rounded-lg border border-amber-200 bg-amber-50/40 px-3 py-2 sm:px-4"
-                >
-                  <div className="flex items-center gap-2 sm:gap-3 min-w-0 text-xs sm:text-sm">
-                    <h3 className="font-semibold text-gray-900 truncate min-w-0 max-w-[180px] sm:max-w-[240px] lg:max-w-[300px] shrink-0">
-                      {item.productName}
-                    </h3>
-                    <p className="text-amber-800 truncate min-w-0 flex-1">
-                      <span className="font-semibold text-amber-700">Reason:</span> {item.reason || "—"}
-                      {item.adminFeedback ? ` | Admin: ${item.adminFeedback}` : ""}
-                    </p>
-                    <Badge className="bg-amber-500 text-white text-[10px] sm:text-xs shrink-0">
-                      Qty: {item.quantity}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] sm:text-xs shrink-0 ${
-                        item.status === "pending"
-                          ? "bg-amber-100 text-amber-800 border-amber-300"
-                          : item.status === "approved"
-                            ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                            : "bg-red-100 text-red-800 border-red-300"
-                      }`}
-                    >
-                      {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-                    </Badge>
-                    <span className="text-xs text-gray-600 shrink-0">
-                      {formatDate(item.requestedAt)}
-                    </span>
-                  </div>
-                </div>
-              ))}
+            <div className="rounded-lg border border-amber-200 bg-amber-50/30 overflow-hidden">
+              <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                <TableHeader className="bg-amber-100/70">
+                  <TableRow>
+                    <TableHead className="min-w-[220px]">Product</TableHead>
+                    <TableHead className="min-w-[120px]">Quantity</TableHead>
+                    <TableHead className="min-w-[320px]">Reason / Admin Feedback</TableHead>
+                    <TableHead className="min-w-[120px]">Status</TableHead>
+                    <TableHead className="min-w-[150px]">Requested At</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedList.map((item) => (
+                    <TableRow key={`request-${item.id}`} className="bg-white/80">
+                      <TableCell className="font-semibold text-gray-900">{item.productName}</TableCell>
+                      <TableCell>
+                        <Badge className="bg-amber-500 text-white text-[10px] sm:text-xs">
+                          Qty: {item.quantity}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-amber-900">
+                        <span className="font-semibold text-amber-700">Reason:</span> {item.reason || "—"}
+                        {item.adminFeedback ? ` | Admin: ${item.adminFeedback}` : ""}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] sm:text-xs ${
+                            item.status === "pending"
+                              ? "bg-amber-100 text-amber-800 border-amber-300"
+                              : item.status === "approved"
+                                ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                                : "bg-red-100 text-red-800 border-red-300"
+                          }`}
+                        >
+                          {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-gray-600">{formatDate(item.requestedAt)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           ) : (
             <div className="text-center py-16">

@@ -2661,31 +2661,39 @@ export function AdminInventoryManagement({
                     ))}
                   </div>
                 ) : filteredRecycledInventory.length > 0 ? (
-                  <div className="space-y-3">
-                    {paginatedRecycledInventory.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between p-4 border rounded-lg bg-orange-50">
-                          <div className="flex-1">
-                            <h4 className="font-semibold">{item.productName}</h4>
-                            <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                              <span>Qty: {item.quantity}</span>
-                              <span>Added: {formatDate(item.dateAdded)}</span>
-                              <span className="text-orange-600">Recycled: {formatDate(item.recycledAt)}</span>
-                              <span>By: {item.recycledBy}</span>
-                            </div>
-                            {item.remarks && (
-                              <div className="mt-2 text-sm">
-                                <span className="text-muted-foreground">Reason: </span>
-                                <span className="text-orange-700 font-medium">{item.remarks}</span>
-                              </div>
-                            )}
-                            <div className="mt-2">
-                              <Badge variant={item.status === "In Stock" ? "default" : "destructive"}>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/30 overflow-hidden">
+                    <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                      <TableHeader className="bg-amber-100/70">
+                        <TableRow>
+                          <TableHead className="min-w-[220px]">Product</TableHead>
+                          <TableHead className="min-w-[120px]">Quantity</TableHead>
+                          <TableHead className="min-w-[120px]">Status</TableHead>
+                          <TableHead className="min-w-[300px]">Reason</TableHead>
+                          <TableHead className="min-w-[170px]">Disposed By</TableHead>
+                          <TableHead className="min-w-[150px]">Added</TableHead>
+                          <TableHead className="min-w-[150px]">Disposed</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paginatedRecycledInventory.map((item) => (
+                          <TableRow key={item.id} className="bg-white/80">
+                            <TableCell className="font-semibold text-gray-900">{item.productName}</TableCell>
+                            <TableCell>
+                              <Badge className="bg-amber-500 text-white text-[10px]">Qty: {item.quantity}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px]">
                                 {item.status}
                               </Badge>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                            </TableCell>
+                            <TableCell className="text-amber-900">{item.remarks || "—"}</TableCell>
+                            <TableCell className="text-gray-700">{item.recycledBy}</TableCell>
+                            <TableCell className="text-gray-600">{formatDate(item.dateAdded)}</TableCell>
+                            <TableCell className="text-orange-700 font-medium">{formatDate(item.recycledAt)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                 ) : (
                   <div className="text-center py-8">
@@ -2964,15 +2972,15 @@ export function AdminInventoryManagement({
             </div>
           ) : filteredEditLogs.length > 0 ? (
             <div className="rounded-lg border border-blue-200 bg-blue-50/30 overflow-hidden">
-              <Table containerClassName="overflow-x-auto mouse-h-scroll">
+              <Table className="table-fixed" containerClassName="overflow-x-auto mouse-h-scroll">
                 <TableHeader className="bg-blue-100/70">
                   <TableRow>
-                    <TableHead className="min-w-[240px]">Product</TableHead>
-                    <TableHead className="min-w-[150px]">Quantity</TableHead>
-                    <TableHead className="min-w-[170px]">Status</TableHead>
-                    <TableHead className="min-w-[260px]">Reason</TableHead>
-                    <TableHead className="min-w-[180px]">Edited By</TableHead>
-                    <TableHead className="min-w-[150px]">Date</TableHead>
+                    <TableHead className="w-[20%]">Product</TableHead>
+                    <TableHead className="w-[16%]">Quantity</TableHead>
+                    <TableHead className="w-[16%]">Status</TableHead>
+                    <TableHead className="w-[20%]">Reason</TableHead>
+                    <TableHead className="w-[14%]">Edited By</TableHead>
+                    <TableHead className="w-[14%]">Date</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -3000,8 +3008,8 @@ export function AdminInventoryManagement({
                           <Badge className="bg-blue-500 text-white text-[10px]">{item.newStatus}</Badge>
                         </div>
                       </TableCell>
-                      <TableCell className="text-slate-700">{item.reason}</TableCell>
-                      <TableCell className="text-slate-700">{item.editedBy}</TableCell>
+                      <TableCell className="text-slate-700 truncate" title={item.reason}>{item.reason}</TableCell>
+                      <TableCell className="text-slate-700 truncate">{item.editedBy}</TableCell>
                       <TableCell className="text-slate-700">
                         <span className="inline-flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
