@@ -136,6 +136,15 @@ type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
    return [...docs].sort((a, b) => toMs(b.updatedAt || b.createdAt) - toMs(a.updatedAt || a.createdAt))[0] ?? null;
  }
 
+function pickLatestWithFallback<T extends { updatedAt?: any; createdAt?: any }>(
+  userDocs: T[] | undefined,
+  defaultDocs: T[] | undefined
+): T | null {
+  const userLatest = pickLatest(userDocs || []);
+  if (userLatest) return userLatest;
+  return pickLatest(defaultDocs || []);
+}
+
  function normalizeSize(input: unknown): string {
    const raw = (typeof input === "string" ? input : "").toLowerCase();
    const compact = raw.replace(/\s+/g, "");
@@ -160,57 +169,69 @@ type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
    const { data: pricingList, loading: pricingLoading, error: pricingError } = useCollection<PricingRuleDoc>(
      uid ? `users/${uid}/pricing` : ""
    );
+  const { data: defaultPricingList } = useCollection<PricingRuleDoc>("defaultPricing");
    const { data: storagePricingList, loading: storageLoading } = useCollection<StoragePricingDoc>(
      uid ? `users/${uid}/storagePricing` : ""
    );
+  const { data: defaultStoragePricingList } = useCollection<StoragePricingDoc>("defaultStoragePricing");
    const { data: boxForwardingPricingList, loading: boxLoading } = useCollection<SimplePriceDoc>(
      uid ? `users/${uid}/boxForwardingPricing` : ""
    );
+  const { data: defaultBoxForwardingPricingList } = useCollection<SimplePriceDoc>("defaultBoxForwardingPricing");
    const { data: palletForwardingPricingList, loading: palletLoading } = useCollection<SimplePriceDoc>(
      uid ? `users/${uid}/palletForwardingPricing` : ""
    );
+  const { data: defaultPalletForwardingPricingList } = useCollection<SimplePriceDoc>("defaultPalletForwardingPricing");
    const { data: containerHandlingPricingList, loading: containerLoading } = useCollection<ContainerHandlingDoc>(
      uid ? `users/${uid}/containerHandlingPricing` : ""
    );
+  const { data: defaultContainerHandlingPricingList } = useCollection<ContainerHandlingDoc>("defaultContainerHandlingPricing");
    const { data: additionalServicesPricingList, loading: additionalLoading } = useCollection<AdditionalServicesDoc>(
      uid ? `users/${uid}/additionalServicesPricing` : ""
    );
+  const { data: defaultAdditionalServicesPricingList } = useCollection<AdditionalServicesDoc>("defaultAdditionalServicesPricing");
   const { data: fbaPackAddOnPricingList, loading: fbaPackLoading } = useCollection<FbaPackAddOnPricingDoc>(
     uid ? `users/${uid}/fbaPackAddOnPricing` : ""
   );
+  const { data: defaultFbaPackAddOnPricingList } = useCollection<FbaPackAddOnPricingDoc>("defaultFbaPackAddOnPricing");
 
    const pricingByKey = useMemo(() => {
      const map = new Map<string, PricingRuleDoc>();
-     for (const d of pricingList || []) {
+    for (const d of defaultPricingList || []) {
+      if (!d.service || !d.package || !d.quantityRange || !d.productType) continue;
+      const key = `${d.service}|${d.package}|${d.quantityRange}|${d.productType}`;
+      map.set(key, d);
+    }
+    for (const d of pricingList || []) {
        if (!d.service || !d.package || !d.quantityRange || !d.productType) continue;
        const key = `${d.service}|${d.package}|${d.quantityRange}|${d.productType}`;
-       const prev = map.get(key);
-       if (!prev || toMs(d.updatedAt || d.createdAt) > toMs(prev.updatedAt || prev.createdAt)) {
-         map.set(key, d);
-       }
+      map.set(key, d);
      }
      return map;
-   }, [pricingList]);
+  }, [pricingList, defaultPricingList]);
 
-   const latestStorage = useMemo(() => pickLatest(storagePricingList || []), [storagePricingList]);
-   const latestBox = useMemo(() => pickLatest(boxForwardingPricingList || []), [boxForwardingPricingList]);
-   const latestPallet = useMemo(() => pickLatest(palletForwardingPricingList || []), [palletForwardingPricingList]);
-   const latestAdditional = useMemo(() => pickLatest(additionalServicesPricingList || []), [additionalServicesPricingList]);
+  const latestStorage = useMemo(() => pickLatestWithFallback(storagePricingList, defaultStoragePricingList), [storagePricingList, defaultStoragePricingList]);
+  const latestBox = useMemo(() => pickLatestWithFallback(boxForwardingPricingList, defaultBoxForwardingPricingList), [boxForwardingPricingList, defaultBoxForwardingPricingList]);
+  const latestPallet = useMemo(() => pickLatestWithFallback(palletForwardingPricingList, defaultPalletForwardingPricingList), [palletForwardingPricingList, defaultPalletForwardingPricingList]);
+  const latestAdditional = useMemo(() => pickLatestWithFallback(additionalServicesPricingList, defaultAdditionalServicesPricingList), [additionalServicesPricingList, defaultAdditionalServicesPricingList]);
   const additionalServicesCatalogRows = useMemo(
     () => catalogFromPricingDoc(latestAdditional as AdditionalServicesDoc | null),
     [latestAdditional]
   );
-  const latestFbaPack = useMemo(() => pickLatest(fbaPackAddOnPricingList || []), [fbaPackAddOnPricingList]);
+  const latestFbaPack = useMemo(() => pickLatestWithFallback(fbaPackAddOnPricingList, defaultFbaPackAddOnPricingList), [fbaPackAddOnPricingList, defaultFbaPackAddOnPricingList]);
 
    const containerBySize = useMemo(() => {
      const m = new Map<string, ContainerHandlingDoc>();
-     for (const d of containerHandlingPricingList || []) {
+    for (const d of defaultContainerHandlingPricingList || []) {
+      const size = normalizeSize(d.containerSize);
+      m.set(size, d);
+    }
+    for (const d of containerHandlingPricingList || []) {
        const size = normalizeSize(d.containerSize);
-       const prev = m.get(size);
-       if (!prev || toMs(d.updatedAt || d.createdAt) > toMs(prev.updatedAt || prev.createdAt)) m.set(size, d);
+      m.set(size, d);
      }
      return m;
-   }, [containerHandlingPricingList]);
+  }, [containerHandlingPricingList, defaultContainerHandlingPricingList]);
 
   const isLoading = pricingLoading || storageLoading || boxLoading || palletLoading || containerLoading || additionalLoading || fbaPackLoading;
 

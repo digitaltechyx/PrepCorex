@@ -155,25 +155,50 @@ export function ShipmentRequestsManagement({
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
     isValidUserId ? `users/${userId}/additionalServicesPricing` : ""
   );
+  const { data: defaultAdditionalServicesPricing } = useCollection<UserAdditionalServicesPricing>("defaultAdditionalServicesPricing");
 
   const { data: pricingRules } = useCollection<UserPricing>(
     isValidUserId ? `users/${userId}/pricing` : ""
   );
+  const { data: defaultPricingRules } = useCollection<UserPricing>("defaultPricing");
   
   // Get box and pallet forwarding pricing
   const { data: boxForwardingPricing } = useCollection<UserBoxForwardingPricing>(
     isValidUserId ? `users/${userId}/boxForwardingPricing` : ""
   );
+  const { data: defaultBoxForwardingPricing } = useCollection<UserBoxForwardingPricing>("defaultBoxForwardingPricing");
   
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
     isValidUserId ? `users/${userId}/palletForwardingPricing` : ""
   );
+  const { data: defaultPalletForwardingPricing } = useCollection<UserPalletForwardingPricing>("defaultPalletForwardingPricing");
   const { data: fbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
     isValidUserId ? `users/${userId}/fbaPackAddOnPricing` : ""
   );
+  const { data: defaultFbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>("defaultFbaPackAddOnPricing");
+  const effectivePricingRules = useMemo(
+    () => (pricingRules && pricingRules.length > 0 ? pricingRules : (defaultPricingRules || [])),
+    [pricingRules, defaultPricingRules]
+  );
+  const effectiveAdditionalServicesPricing = useMemo(
+    () => (additionalServicesPricing && additionalServicesPricing.length > 0 ? additionalServicesPricing : (defaultAdditionalServicesPricing || [])),
+    [additionalServicesPricing, defaultAdditionalServicesPricing]
+  );
+  const effectiveBoxForwardingPricing = useMemo(
+    () => (boxForwardingPricing && boxForwardingPricing.length > 0 ? boxForwardingPricing : (defaultBoxForwardingPricing || [])),
+    [boxForwardingPricing, defaultBoxForwardingPricing]
+  );
+  const effectivePalletForwardingPricing = useMemo(
+    () => (palletForwardingPricing && palletForwardingPricing.length > 0 ? palletForwardingPricing : (defaultPalletForwardingPricing || [])),
+    [palletForwardingPricing, defaultPalletForwardingPricing]
+  );
+  const effectiveFbaPackAddOnPricing = useMemo(
+    () => (fbaPackAddOnPricing && fbaPackAddOnPricing.length > 0 ? fbaPackAddOnPricing : (defaultFbaPackAddOnPricing || [])),
+    [fbaPackAddOnPricing, defaultFbaPackAddOnPricing]
+  );
   const latestFbaPackAddOnConfig = useMemo<FbaPackAddOnConfig | undefined>(() => {
-    if (!fbaPackAddOnPricing || fbaPackAddOnPricing.length === 0) return undefined;
-    const latest = [...fbaPackAddOnPricing].sort((a, b) => {
+    if (!effectiveFbaPackAddOnPricing || effectiveFbaPackAddOnPricing.length === 0) return undefined;
+    const latest = [...effectiveFbaPackAddOnPricing].sort((a, b) => {
       const aUpdated = typeof a.updatedAt === "string" ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
       const bUpdated = typeof b.updatedAt === "string" ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
       return bUpdated - aUpdated;
@@ -184,7 +209,7 @@ export function ShipmentRequestsManagement({
           pack4to12: typeof latest.pack4to12 === "number" ? latest.pack4to12 : undefined,
         }
       : undefined;
-  }, [fbaPackAddOnPricing]);
+  }, [effectiveFbaPackAddOnPricing]);
   
   const filteredRequests = useMemo(() => {
     let filtered =
@@ -953,10 +978,10 @@ export function ShipmentRequestsManagement({
           onApproveForLabelUpload={handleApproveForLabelUpload}
           onClose={() => setSelectedRequest(null)}
           isProcessing={isProcessing}
-          additionalServicesPricing={additionalServicesPricing || []}
-          pricingRules={pricingRules || []}
-          boxForwardingPricing={boxForwardingPricing}
-          palletForwardingPricing={palletForwardingPricing}
+          additionalServicesPricing={effectiveAdditionalServicesPricing || []}
+          pricingRules={effectivePricingRules || []}
+          boxForwardingPricing={effectiveBoxForwardingPricing}
+          palletForwardingPricing={effectivePalletForwardingPricing}
           fbaPackAddOnConfig={latestFbaPackAddOnConfig}
         />
       )}

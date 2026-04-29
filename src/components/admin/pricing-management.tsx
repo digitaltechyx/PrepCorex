@@ -95,6 +95,7 @@ interface PricingRow {
 
 export function PricingManagement({ users }: PricingManagementProps) {
   const { toast } = useToast();
+  const [editingGlobalDefaults, setEditingGlobalDefaults] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState("");
@@ -142,38 +143,46 @@ export function PricingManagement({ users }: PricingManagementProps) {
   }, [users]);
 
   const selectedUser = selectableUsers.find((u) => u.uid === selectedUserId) || selectableUsers[0];
+  const targetOwnerId = selectedUser?.uid || "";
+  const targetPricingPath = editingGlobalDefaults ? "defaultPricing" : targetOwnerId ? `users/${targetOwnerId}/pricing` : "";
+  const targetStoragePricingPath = editingGlobalDefaults ? "defaultStoragePricing" : targetOwnerId ? `users/${targetOwnerId}/storagePricing` : "";
+  const targetBoxPricingPath = editingGlobalDefaults ? "defaultBoxForwardingPricing" : targetOwnerId ? `users/${targetOwnerId}/boxForwardingPricing` : "";
+  const targetPalletPricingPath = editingGlobalDefaults ? "defaultPalletForwardingPricing" : targetOwnerId ? `users/${targetOwnerId}/palletForwardingPricing` : "";
+  const targetContainerPricingPath = editingGlobalDefaults ? "defaultContainerHandlingPricing" : targetOwnerId ? `users/${targetOwnerId}/containerHandlingPricing` : "";
+  const targetAdditionalPricingPath = editingGlobalDefaults ? "defaultAdditionalServicesPricing" : targetOwnerId ? `users/${targetOwnerId}/additionalServicesPricing` : "";
+  const targetFbaPackPath = editingGlobalDefaults ? "defaultFbaPackAddOnPricing" : targetOwnerId ? `users/${targetOwnerId}/fbaPackAddOnPricing` : "";
 
   // Fetch pricing for selected user
   const { data: pricingList, loading: pricingLoading } = useCollection<UserPricing>(
-    selectedUser ? `users/${selectedUser.uid}/pricing` : ""
+    targetPricingPath
   );
 
   // Fetch storage pricing for selected user
   const { data: storagePricingList, loading: storagePricingLoading } = useCollection<UserStoragePricing>(
-    selectedUser ? `users/${selectedUser.uid}/storagePricing` : ""
+    targetStoragePricingPath
   );
   
   // Fetch box forwarding pricing
   const { data: boxForwardingPricingList, loading: boxForwardingPricingLoading } = useCollection<UserBoxForwardingPricing>(
-    selectedUser ? `users/${selectedUser.uid}/boxForwardingPricing` : ""
+    targetBoxPricingPath
   );
   
   // Fetch pallet forwarding pricing
   const { data: palletForwardingPricingList, loading: palletForwardingPricingLoading } = useCollection<UserPalletForwardingPricing>(
-    selectedUser ? `users/${selectedUser.uid}/palletForwardingPricing` : ""
+    targetPalletPricingPath
   );
   
   // Fetch container handling pricing
   const { data: containerHandlingPricingList, loading: containerHandlingPricingLoading } = useCollection<UserContainerHandlingPricing>(
-    selectedUser ? `users/${selectedUser.uid}/containerHandlingPricing` : ""
+    targetContainerPricingPath
   );
   
   // Fetch additional services pricing
   const { data: additionalServicesPricingList, loading: additionalServicesPricingLoading } = useCollection<UserAdditionalServicesPricing>(
-    selectedUser ? `users/${selectedUser.uid}/additionalServicesPricing` : ""
+    targetAdditionalPricingPath
   );
   const { data: fbaPackAddOnPricingList } = useCollection<FbaPackAddOnPricingDoc>(
-    selectedUser ? `users/${selectedUser.uid}/fbaPackAddOnPricing` : ""
+    targetFbaPackPath
   );
   
   // Get the most recent storage pricing document
@@ -194,7 +203,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   // Initialize pricing rows with all combinations
   useEffect(() => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
 
     // Generate all combinations
     const allCombinations: PricingRow[] = [];
@@ -254,10 +263,10 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   // Initialize storage pricing when user changes
   useEffect(() => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
     
     // Set admin selected storage type from user profile
-    const userStorageType = (selectedUser as any).storageType as StorageType | undefined;
+    const userStorageType = editingGlobalDefaults ? undefined : ((selectedUser as any)?.storageType as StorageType | undefined);
     setAdminSelectedStorageType(userStorageType || "");
     
     if (latestStoragePricing) {
@@ -303,7 +312,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   // Initialize box forwarding pricing when user changes or data loads
   useEffect(() => {
-    if (!selectedUser) {
+    if (!editingGlobalDefaults && !selectedUser) {
       setBoxForwardingPrice("");
       setBoxForwardingPricingId(null);
       return;
@@ -333,7 +342,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   // Initialize pallet forwarding pricing when user changes or data loads
   useEffect(() => {
-    if (!selectedUser) {
+    if (!editingGlobalDefaults && !selectedUser) {
       setPalletForwardingPrice("");
       setPalletForwardingPricingId(null);
       return;
@@ -364,7 +373,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   // Initialize container handling pricing when user changes
   useEffect(() => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
     
     if (container20ftPricing) {
       setContainer20ftPrice(container20ftPricing.price.toString());
@@ -413,7 +422,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   // Initialize additional services pricing when user changes
   useEffect(() => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
     
     if (latestAdditionalServicesPricing) {
       setAdditionalServicesPricingId(latestAdditionalServicesPricing.id);
@@ -425,7 +434,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
   }, [selectedUser, latestAdditionalServicesPricing]);
 
   useEffect(() => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
     if (latestFbaPackPricing) {
       setFbaPack2to3(
         typeof latestFbaPackPricing.pack2to3 === "number"
@@ -458,7 +467,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSave = async () => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
+    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
 
     setIsSaving(true);
     try {
@@ -476,7 +486,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
         if (isNaN(rate) || rate < 0) continue;
 
         const pricingData: any = {
-          userId: selectedUser.uid,
+          userId: ownerId,
           service: row.service,
           package: row.package,
           quantityRange: row.quantityRange,
@@ -495,11 +505,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
         if (row.pricingId) {
           // Update existing
-          const pricingRef = doc(db, `users/${selectedUser.uid}/pricing`, row.pricingId);
+          const pricingRef = doc(db, targetPricingPath, row.pricingId);
           batch.update(pricingRef, pricingData);
         } else {
           // Create new
-          const pricingRef = doc(collection(db, `users/${selectedUser.uid}/pricing`));
+          const pricingRef = doc(collection(db, targetPricingPath));
           batch.set(pricingRef, {
             ...pricingData,
             createdAt: now,
@@ -513,15 +523,15 @@ export function PricingManagement({ users }: PricingManagementProps) {
       const pack4to12 = parseFloat(fbaPack4to12);
       if (!isNaN(pack2to3) && !isNaN(pack4to12) && pack2to3 >= 0 && pack4to12 >= 0) {
         const packPayload = {
-          userId: selectedUser.uid,
+          userId: ownerId,
           pack2to3,
           pack4to12,
           updatedAt: now,
         };
         if (fbaPackPricingId) {
-          await updateDoc(doc(db, `users/${selectedUser.uid}/fbaPackAddOnPricing`, fbaPackPricingId), packPayload);
+          await updateDoc(doc(db, targetFbaPackPath, fbaPackPricingId), packPayload);
         } else {
-          const created = await addDoc(collection(db, `users/${selectedUser.uid}/fbaPackAddOnPricing`), {
+          const created = await addDoc(collection(db, targetFbaPackPath), {
             ...packPayload,
             createdAt: now,
           });
@@ -545,6 +555,14 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSaveStorageType = async () => {
+    if (editingGlobalDefaults) {
+      toast({
+        variant: "destructive",
+        title: "Not supported",
+        description: "Storage type is user-specific and cannot be set globally.",
+      });
+      return;
+    }
     if (!selectedUser || !adminSelectedStorageType) {
       toast({
         variant: "destructive",
@@ -580,7 +598,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSaveBoxForwarding = async () => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
+    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
 
     if (!boxForwardingPrice || boxForwardingPrice.trim() === "") {
       toast({
@@ -605,18 +624,18 @@ export function PricingManagement({ users }: PricingManagementProps) {
     try {
       const now = Timestamp.now();
       const pricingData = {
-        userId: selectedUser.uid,
+        userId: ownerId,
         price,
         updatedAt: now,
       };
 
       if (boxForwardingPricingId) {
-        const pricingRef = doc(db, `users/${selectedUser.uid}/boxForwardingPricing`, boxForwardingPricingId);
+        const pricingRef = doc(db, targetBoxPricingPath, boxForwardingPricingId);
         await updateDoc(pricingRef, pricingData);
         // Ensure state reflects the saved value (format with 2 decimal places)
         setBoxForwardingPrice(price.toFixed(2));
       } else {
-        const docRef = await addDoc(collection(db, `users/${selectedUser.uid}/boxForwardingPricing`), {
+        const docRef = await addDoc(collection(db, targetBoxPricingPath), {
           ...pricingData,
           createdAt: now,
         });
@@ -642,7 +661,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSavePalletForwarding = async () => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
+    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
 
     if (!palletForwardingPrice || palletForwardingPrice.trim() === "") {
       toast({
@@ -667,16 +687,16 @@ export function PricingManagement({ users }: PricingManagementProps) {
     try {
       const now = Timestamp.now();
       const pricingData = {
-        userId: selectedUser.uid,
+        userId: ownerId,
         price,
         updatedAt: now,
       };
 
       if (palletForwardingPricingId) {
-        const pricingRef = doc(db, `users/${selectedUser.uid}/palletForwardingPricing`, palletForwardingPricingId);
+        const pricingRef = doc(db, targetPalletPricingPath, palletForwardingPricingId);
         await updateDoc(pricingRef, pricingData);
       } else {
-        const docRef = await addDoc(collection(db, `users/${selectedUser.uid}/palletForwardingPricing`), {
+        const docRef = await addDoc(collection(db, targetPalletPricingPath), {
           ...pricingData,
           createdAt: now,
         });
@@ -700,7 +720,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSaveContainerHandling = async (containerSize: ContainerSize, priceStr: string, pricingId: string | null) => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
+    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
 
     if (!priceStr || priceStr.trim() === "") {
       toast({
@@ -725,17 +746,17 @@ export function PricingManagement({ users }: PricingManagementProps) {
     try {
       const now = Timestamp.now();
       const pricingData = {
-        userId: selectedUser.uid,
+        userId: ownerId,
         containerSize,
         price,
         updatedAt: now,
       };
 
       if (pricingId) {
-        const pricingRef = doc(db, `users/${selectedUser.uid}/containerHandlingPricing`, pricingId);
+        const pricingRef = doc(db, targetContainerPricingPath, pricingId);
         await updateDoc(pricingRef, pricingData);
       } else {
-        await addDoc(collection(db, `users/${selectedUser.uid}/containerHandlingPricing`), {
+        await addDoc(collection(db, targetContainerPricingPath), {
           ...pricingData,
           createdAt: now,
         });
@@ -757,7 +778,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSaveAdditionalServices = async () => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
+    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
 
     const invalidRow = additionalServiceItems.some(
       (svc) =>
@@ -797,7 +819,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
           isDefault: !!svc.isDefault,
         }));
       const pricingData = {
-        userId: selectedUser.uid,
+        userId: ownerId,
         bubbleWrapPrice: bubbleWrap,
         stickerRemovalPrice: stickerRemoval,
         warningLabelPrice: warningLabel,
@@ -806,10 +828,10 @@ export function PricingManagement({ users }: PricingManagementProps) {
       };
 
       if (additionalServicesPricingId) {
-        const pricingRef = doc(db, `users/${selectedUser.uid}/additionalServicesPricing`, additionalServicesPricingId);
+        const pricingRef = doc(db, targetAdditionalPricingPath, additionalServicesPricingId);
         await updateDoc(pricingRef, pricingData);
       } else {
-        await addDoc(collection(db, `users/${selectedUser.uid}/additionalServicesPricing`), {
+        await addDoc(collection(db, targetAdditionalPricingPath), {
           ...pricingData,
           createdAt: now,
         });
@@ -831,10 +853,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSaveStorage = async () => {
-    if (!selectedUser) return;
+    if (!editingGlobalDefaults && !selectedUser) return;
+    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
 
     // Use admin selected storage type if user doesn't have one, otherwise use user's
-    const userStorageType = (selectedUser as any).storageType as StorageType | undefined;
+    const userStorageType = editingGlobalDefaults ? undefined : ((selectedUser as any)?.storageType as StorageType | undefined);
     const storageTypeToUse = userStorageType || (adminSelectedStorageType as StorageType);
     
     if (!storageTypeToUse) {
@@ -882,7 +905,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
     try {
       const now = Timestamp.now();
       const storagePricingData: any = {
-        userId: selectedUser.uid,
+        userId: ownerId,
         storageType: storageTypeToUse,
         price,
         updatedAt: now,
@@ -896,11 +919,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
       if (storagePricingId) {
         // Update existing
-        const storagePricingRef = doc(db, `users/${selectedUser.uid}/storagePricing`, storagePricingId);
+        const storagePricingRef = doc(db, targetStoragePricingPath, storagePricingId);
         await updateDoc(storagePricingRef, storagePricingData);
       } else {
         // Create new
-        await addDoc(collection(db, `users/${selectedUser.uid}/storagePricing`), {
+        await addDoc(collection(db, targetStoragePricingPath), {
           ...storagePricingData,
           createdAt: now,
         });
@@ -950,10 +973,27 @@ export function PricingManagement({ users }: PricingManagementProps) {
             User Pricing Management
           </CardTitle>
           <CardDescription>
-            Enter pricing rates for users. Leave empty to skip a combination.
+            Set global default pricing or override pricing for a specific user.
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant={!editingGlobalDefaults ? "default" : "outline"}
+              onClick={() => setEditingGlobalDefaults(false)}
+            >
+              Per User Override
+            </Button>
+            <Button
+              type="button"
+              variant={editingGlobalDefaults ? "default" : "outline"}
+              onClick={() => setEditingGlobalDefaults(true)}
+            >
+              Global Default Pricing
+            </Button>
+          </div>
+          {!editingGlobalDefaults && (
           <div className="flex items-center gap-4">
             <div className="flex-1">
               <Label className="text-sm font-medium mb-2 block">Select User</Label>
@@ -1015,18 +1055,28 @@ export function PricingManagement({ users }: PricingManagementProps) {
               </Button>
             </div>
           </div>
+          )}
+          {editingGlobalDefaults && (
+            <p className="text-sm text-muted-foreground">
+              You are editing global defaults used for all users who do not have custom overrides.
+            </p>
+          )}
         </CardContent>
       </Card>
 
       {/* Pricing Form */}
-      {selectedUser && (
+      {(editingGlobalDefaults || selectedUser) && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Pricing Rates for {selectedUser.name}</CardTitle>
+                <CardTitle>
+                  Pricing Rates for {editingGlobalDefaults ? "Global Defaults" : selectedUser?.name}
+                </CardTitle>
                 <CardDescription>
-                  Enter rates for each combination. Only filled rates will be saved.
+                  {editingGlobalDefaults
+                    ? "Set default rates used across all users unless overridden."
+                    : "Enter rates for each combination. Only filled rates will be saved."}
                 </CardDescription>
               </div>
               <Button onClick={handleSave} disabled={isSaving || pricingLoading}>

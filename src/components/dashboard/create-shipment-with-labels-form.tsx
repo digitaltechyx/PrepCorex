@@ -174,25 +174,51 @@ export function CreateShipmentWithLabelsForm({
   const { data: pricingRules } = useCollection<UserPricing>(
     ownerId ? `users/${ownerId}/pricing` : ""
   );
+  const { data: defaultPricingRules } = useCollection<UserPricing>("defaultPricing");
 
   const { data: boxForwardingPricing } = useCollection<UserBoxForwardingPricing>(
     ownerId ? `users/${ownerId}/boxForwardingPricing` : ""
   );
+  const { data: defaultBoxForwardingPricing } = useCollection<UserBoxForwardingPricing>("defaultBoxForwardingPricing");
 
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
     ownerId ? `users/${ownerId}/palletForwardingPricing` : ""
   );
+  const { data: defaultPalletForwardingPricing } = useCollection<UserPalletForwardingPricing>("defaultPalletForwardingPricing");
 
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
     ownerId ? `users/${ownerId}/additionalServicesPricing` : ""
   );
+  const { data: defaultAdditionalServicesPricing } = useCollection<UserAdditionalServicesPricing>("defaultAdditionalServicesPricing");
   const { data: fbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
     ownerId ? `users/${ownerId}/fbaPackAddOnPricing` : ""
   );
+  const { data: defaultFbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>("defaultFbaPackAddOnPricing");
+
+  const effectivePricingRules = useMemo(
+    () => (pricingRules && pricingRules.length > 0 ? pricingRules : (defaultPricingRules || [])),
+    [pricingRules, defaultPricingRules]
+  );
+  const effectiveBoxForwardingPricing = useMemo(
+    () => (boxForwardingPricing && boxForwardingPricing.length > 0 ? boxForwardingPricing : (defaultBoxForwardingPricing || [])),
+    [boxForwardingPricing, defaultBoxForwardingPricing]
+  );
+  const effectivePalletForwardingPricing = useMemo(
+    () => (palletForwardingPricing && palletForwardingPricing.length > 0 ? palletForwardingPricing : (defaultPalletForwardingPricing || [])),
+    [palletForwardingPricing, defaultPalletForwardingPricing]
+  );
+  const effectiveAdditionalServicesPricing = useMemo(
+    () => (additionalServicesPricing && additionalServicesPricing.length > 0 ? additionalServicesPricing : (defaultAdditionalServicesPricing || [])),
+    [additionalServicesPricing, defaultAdditionalServicesPricing]
+  );
+  const effectiveFbaPackAddOnPricing = useMemo(
+    () => (fbaPackAddOnPricing && fbaPackAddOnPricing.length > 0 ? fbaPackAddOnPricing : (defaultFbaPackAddOnPricing || [])),
+    [fbaPackAddOnPricing, defaultFbaPackAddOnPricing]
+  );
 
   const latestFbaPackAddOnConfig = useMemo<FbaPackAddOnConfig | undefined>(() => {
-    if (!fbaPackAddOnPricing || fbaPackAddOnPricing.length === 0) return undefined;
-    const latest = [...fbaPackAddOnPricing].sort((a, b) => {
+    if (!effectiveFbaPackAddOnPricing || effectiveFbaPackAddOnPricing.length === 0) return undefined;
+    const latest = [...effectiveFbaPackAddOnPricing].sort((a, b) => {
       const aUpdated = typeof a.updatedAt === "string" ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
       const bUpdated = typeof b.updatedAt === "string" ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
       return bUpdated - aUpdated;
@@ -203,11 +229,11 @@ export function CreateShipmentWithLabelsForm({
           pack4to12: typeof latest.pack4to12 === "number" ? latest.pack4to12 : undefined,
         }
       : undefined;
-  }, [fbaPackAddOnPricing]);
+  }, [effectiveFbaPackAddOnPricing]);
 
   const latestAdditionalServicesPricingDoc = useMemo(() => {
-    if (!additionalServicesPricing || additionalServicesPricing.length === 0) return null;
-    const sorted = [...additionalServicesPricing].sort((a, b) => {
+    if (!effectiveAdditionalServicesPricing || effectiveAdditionalServicesPricing.length === 0) return null;
+    const sorted = [...effectiveAdditionalServicesPricing].sort((a, b) => {
       const aUpdated =
         typeof a.updatedAt === "string"
           ? new Date(a.updatedAt).getTime()
@@ -223,7 +249,7 @@ export function CreateShipmentWithLabelsForm({
       return bUpdated - aUpdated;
     });
     return sorted[0] ?? null;
-  }, [additionalServicesPricing]);
+  }, [effectiveAdditionalServicesPricing]);
 
   const additionalServicesCatalog = useMemo(
     () => catalogFromPricingDoc(latestAdditionalServicesPricingDoc as UserAdditionalServicesPricing | null),
@@ -264,11 +290,11 @@ export function CreateShipmentWithLabelsForm({
         // Custom product pricing is a placeholder ($1). Admin will set final pricing during approval.
         if (shipmentType === "product" && lineProductType === "Custom") {
           finalUnitPrice = 1;
-        } else if (shipmentType === "product" && service && lineProductType && pricingRules && pricingRules.length > 0) {
+        } else if (shipmentType === "product" && service && lineProductType && effectivePricingRules && effectivePricingRules.length > 0) {
           // Use quantity (not totalUnits) to determine unit price
           // This ensures unit price stays consistent regardless of packOf value
           const calculatedPrice = calculatePrepUnitPrice(
-            pricingRules,
+            effectivePricingRules,
             service,
             lineProductType,
             quantity, // Use quantity, not totalUnits, to get consistent unit price
@@ -279,8 +305,8 @@ export function CreateShipmentWithLabelsForm({
             finalUnitPrice = calculatedPrice.rate;
           }
         } else if (shipmentType === "box") {
-          if (boxForwardingPricing && boxForwardingPricing.length > 0) {
-            const latestBoxPricing = [...boxForwardingPricing].sort((a, b) => {
+          if (effectiveBoxForwardingPricing && effectiveBoxForwardingPricing.length > 0) {
+            const latestBoxPricing = [...effectiveBoxForwardingPricing].sort((a, b) => {
               const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
               const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
               return bUpdated - aUpdated;
@@ -298,8 +324,8 @@ export function CreateShipmentWithLabelsForm({
           // If no pricing found, keep finalUnitPrice at 0 to clear incorrect values
         } else if (shipmentType === "pallet") {
           if (palletSubType === "forwarding") {
-            if (palletForwardingPricing && palletForwardingPricing.length > 0) {
-              const latestPalletForwarding = [...palletForwardingPricing].sort((a, b) => {
+            if (effectivePalletForwardingPricing && effectivePalletForwardingPricing.length > 0) {
+              const latestPalletForwarding = [...effectivePalletForwardingPricing].sort((a, b) => {
                 const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
                 const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
                 return bUpdated - aUpdated;
@@ -337,11 +363,11 @@ export function CreateShipmentWithLabelsForm({
         } else if (shipmentType === "product" && finalUnitPrice > 0 && quantity > 0) {
           const baseTotal = finalUnitPrice * quantity; // Unit price Ã— quantity (not multiplied by packOf)
           let packOfPrice = 0;
-          if (service && lineProductType && pricingRules && pricingRules.length > 0) {
+          if (service && lineProductType && effectivePricingRules && effectivePricingRules.length > 0) {
             // Look up packOfPrice based on quantity only, not totalUnits
             // This ensures packOfPrice doesn't change when packOf changes
             const calculatedPriceForPackOf = calculatePrepUnitPrice(
-              pricingRules,
+              effectivePricingRules,
               service,
               lineProductType,
               quantity, // Use quantity, not totalUnits, to get the correct packOfPrice
@@ -384,7 +410,7 @@ export function CreateShipmentWithLabelsForm({
     } catch (error) {
       console.error("Error calculating pricing:", error);
     }
-  }, [watchedGroups, pricingRules, boxForwardingPricing, palletForwardingPricing, form]);
+  }, [watchedGroups, effectivePricingRules, effectiveBoxForwardingPricing, effectivePalletForwardingPricing, form]);
 
   // Initialize label state when a new group is added
   const handleAddShipmentGroup = () => {
@@ -1209,8 +1235,8 @@ export function CreateShipmentWithLabelsForm({
                                               const shipmentType = group?.shipmentType;
                                               const palletSubType = group?.palletSubType;
                                               
-                                              if (shipmentType === "box" && boxForwardingPricing && boxForwardingPricing.length > 0) {
-                                                const latestBoxPricing = [...boxForwardingPricing].sort((a, b) => {
+                                              if (shipmentType === "box" && effectiveBoxForwardingPricing && effectiveBoxForwardingPricing.length > 0) {
+                                                const latestBoxPricing = [...effectiveBoxForwardingPricing].sort((a, b) => {
                                                   const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
                                                   const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
                                                   return bUpdated - aUpdated;
@@ -1225,8 +1251,8 @@ export function CreateShipmentWithLabelsForm({
                                                   }
                                                 }
                                               } else if (shipmentType === "pallet") {
-                                                if (palletSubType === "forwarding" && palletForwardingPricing && palletForwardingPricing.length > 0) {
-                                                  const latestPalletForwarding = [...palletForwardingPricing].sort((a, b) => {
+                                                if (palletSubType === "forwarding" && effectivePalletForwardingPricing && effectivePalletForwardingPricing.length > 0) {
+                                                  const latestPalletForwarding = [...effectivePalletForwardingPricing].sort((a, b) => {
                                                     const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
                                                     const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
                                                     return bUpdated - aUpdated;
@@ -1248,8 +1274,8 @@ export function CreateShipmentWithLabelsForm({
                                                 }
                                               }
                                               // Product lines default to Standard; pricing follows per-line type via useEffect
-                                              if (shipmentType === "product" && group?.service && pricingRules && pricingRules.length > 0) {
-                                                const calculated = calculatePrepUnitPrice(pricingRules, group.service, "Standard", 1);
+                                              if (shipmentType === "product" && group?.service && effectivePricingRules && effectivePricingRules.length > 0) {
+                                                const calculated = calculatePrepUnitPrice(effectivePricingRules, group.service, "Standard", 1);
                                                 if (calculated?.rate != null && !Number.isNaN(calculated.rate) && calculated.rate > 0) {
                                                   initialUnitPrice = calculated.rate;
                                                   initialTotalPrice = calculated.rate;
@@ -1998,12 +2024,12 @@ export function CreateShipmentWithLabelsForm({
                                       groupShipmentType === "product" &&
                                       groupService &&
                                       lineProductType &&
-                                      pricingRules &&
-                                      pricingRules.length > 0 &&
+                                      effectivePricingRules &&
+                                      effectivePricingRules.length > 0 &&
                                       lineQuantity > 0
                                     ) {
                                       const calculatedPrice = calculatePrepUnitPrice(
-                                        pricingRules,
+                                        effectivePricingRules,
                                         groupService,
                                         lineProductType,
                                         lineQuantity,
@@ -2025,9 +2051,9 @@ export function CreateShipmentWithLabelsForm({
                                       const baseTotal = unitPrice * lineQuantity;
                                       let packOfPrice = 0;
 
-                                      if (groupService && lineProductType && pricingRules && pricingRules.length > 0) {
+                                      if (groupService && lineProductType && effectivePricingRules && effectivePricingRules.length > 0) {
                                         const calculatedPriceForPackOf = calculatePrepUnitPrice(
-                                          pricingRules,
+                                          effectivePricingRules,
                                           groupService,
                                           lineProductType,
                                           lineQuantity,

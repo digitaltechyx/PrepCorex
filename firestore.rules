@@ -138,6 +138,36 @@ service cloud.firestore {
       allow read, write: if isSelfOrAdmin(userId);
     }
 
+    // ---- GLOBAL DEFAULT PRICING (fallback for all users) ----
+    match /defaultPricing/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdminOrSubAdmin();
+    }
+    match /defaultStoragePricing/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdminOrSubAdmin();
+    }
+    match /defaultBoxForwardingPricing/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdminOrSubAdmin();
+    }
+    match /defaultPalletForwardingPricing/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdminOrSubAdmin();
+    }
+    match /defaultContainerHandlingPricing/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdminOrSubAdmin();
+    }
+    match /defaultAdditionalServicesPricing/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdminOrSubAdmin();
+    }
+    match /defaultFbaPackAddOnPricing/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdminOrSubAdmin();
+    }
+
     // ---- UPLOADED PDFs ----
     match /uploadedPDFs/{pdfId} {
       allow read: if signedIn() && (resource.data.uploadedBy == request.auth.uid || isAdminOrSubAdmin());
