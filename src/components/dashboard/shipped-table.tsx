@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import type { InventoryItem, ShippedItem, ShipmentRequest, RestockHistory } from "@/types";
 import { getShipmentSummary } from "@/lib/shipment-utils";
+import { doc, updateDoc, Timestamp } from "firebase/firestore";
 import {
   Card,
   CardContent,
@@ -29,6 +30,8 @@ import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { db } from "@/lib/firebase";
+import { useToast } from "@/hooks/use-toast";
 
 function formatDate(date: ShippedItem["date"]) {
     if (typeof date === 'string') {
@@ -72,10 +75,14 @@ function rowMatchesStatusFilter(
 export function ShippedTable({ data, inventory }: { data: ShippedItem[], inventory: InventoryItem[] }) {
   const searchParams = useSearchParams();
   const { userProfile } = useAuth();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedUploadRequest, setSelectedUploadRequest] = useState<ShipmentRequest | null>(null);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [isUploadingLabel, setIsUploadingLabel] = useState(false);
 
   useEffect(() => {
     const raw = searchParams.get("status")?.toLowerCase();
@@ -163,6 +170,85 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     setIsAdditionalServicesDialogOpen(true);
   };
 
+  const uploadOneLabelForRequest = async (file: File): Promise<string> => {
+    if (!userProfile?.uid) throw new Error("User profile is missing.");
+    const currentDate = new Date();
+    const clientName =
+      String(userProfile.name || userProfile.email || userProfile.uid || "client")
+        .replace(/[\\/:*?"<>|]/g, "_")
+        .trim() || "client";
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("clientName", clientName);
+    if (file.name) {
+      formData.append("fileName", file.name);
+    }
+    const year = currentDate.getFullYear().toString();
+    const month = currentDate.toLocaleString("en-US", { month: "long" });
+    const dateStr = currentDate.toISOString().split("T")[0];
+    formData.append("folderPath", `${year}/${month}/${clientName}/${dateStr}`);
+
+    const response = await fetch("/api/onedrive/upload", { method: "POST", body: formData });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || "Label upload failed.");
+    }
+    const result = await response.json();
+    const urlToStore = result.webUrl || result.downloadURL;
+    if (!urlToStore) throw new Error("Label upload failed.");
+    return urlToStore;
+  };
+
+  const handleDirectLabelUpload = async () => {
+    if (!selectedUploadRequest?.id || !userProfile?.uid) return;
+    if (uploadFiles.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "No files selected",
+        description: "Please choose one or more label files.",
+      });
+      return;
+    }
+    setIsUploadingLabel(true);
+    try {
+      const uploadedUrls: string[] = [];
+      for (const file of uploadFiles) {
+        const uploadedUrl = await uploadOneLabelForRequest(file);
+        uploadedUrls.push(uploadedUrl);
+      }
+      const existingUrls = String(selectedUploadRequest.labelUrl || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const allUrls = Array.from(new Set([...existingUrls, ...uploadedUrls]));
+
+      await updateDoc(
+        doc(db, `users/${userProfile.uid}/shipmentRequests`, selectedUploadRequest.id),
+        {
+          labelUrl: allUrls.join(","),
+          labelUploadedAt: Timestamp.now(),
+        }
+      );
+
+      toast({
+        title: "Label uploaded",
+        description: uploadedUrls.length === 1
+          ? "Label uploaded successfully."
+          : `${uploadedUrls.length} labels uploaded successfully.`,
+      });
+      setSelectedUploadRequest(null);
+      setUploadFiles([]);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Upload failed",
+        description: error?.message || "Failed to upload label.",
+      });
+    } finally {
+      setIsUploadingLabel(false);
+    }
+  };
+
   // Combine shipped items, pending, and rejected shipment requests into one list
   const combinedData = useMemo(() => {
     // Helper function to convert a single shipment from request to display format
@@ -185,6 +271,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         status: status as "Pending" | "Shipped" | "Rejected",
         isRequest: true,
         requestId: req.id,
+        requestStatus: req.status || "pending",
+        rawRequest: req,
         createdAt: req.requestedAt,
         additionalServices: shipment.selectedAdditionalServices || (req as any).additionalServices,
       };
@@ -242,8 +330,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
 
     // Combine and sort (most recent first)
     const allItems = [...pendingItems, ...rejectedItems, ...shippedItems];
-    
-    return allItems.sort((a, b) => {
+
+    const sortedItems = allItems.sort((a, b) => {
       const aCreated = a.createdAt
         ? (typeof a.createdAt === 'string' ? new Date(a.createdAt) : new Date(a.createdAt.seconds * 1000))
         : (typeof a.date === 'string' ? new Date(a.date) : new Date(a.date.seconds * 1000));
@@ -251,6 +339,17 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         ? (typeof b.createdAt === 'string' ? new Date(b.createdAt) : new Date(b.createdAt.seconds * 1000))
         : (typeof b.date === 'string' ? new Date(b.date) : new Date(b.date.seconds * 1000));
       return bCreated.getTime() - aCreated.getTime();
+    });
+
+    // Show "Last restocked" only once per product (on the first/latest row)
+    const seenProducts = new Set<string>();
+    return sortedItems.map((item) => {
+      const productKey = String(item.productName || "").trim().toLowerCase();
+      const showLastRestock = productKey ? !seenProducts.has(productKey) : false;
+      if (productKey && showLastRestock) {
+        seenProducts.add(productKey);
+      }
+      return { ...item, showLastRestock };
     });
   }, [data, pendingShipmentRequests, inventory]);
 
@@ -446,6 +545,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                   </div>
                 )}
                 {(() => {
+                  if (!(item as any).showLastRestock) return null;
                   const latest = latestRestockByProduct.get(item.productName);
                   if (!latest) return null;
                   const text = `${formatRestockDate(latest.restockedAt)} (+${latest.restockedQuantity})`;
@@ -479,6 +579,18 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                     </Badge>
                   ) : (
                     <Badge variant="default" className="w-fit mt-1">Shipped</Badge>
+                  )}
+                  {(item as any).isRequest && (item as any).requestStatus === "awaiting_label_upload" && (
+                    <Button
+                      size="sm"
+                      className="mt-2 h-7 text-xs"
+                      onClick={() => {
+                        setSelectedUploadRequest((item as any).rawRequest as ShipmentRequest);
+                        setUploadFiles([]);
+                      }}
+                    >
+                      Upload Label
+                    </Button>
                   )}
                 </div>
               </div>
@@ -667,6 +779,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-muted-foreground">
                         {(() => {
+                          if (!(item as any).showLastRestock) return <span>—</span>;
                           const latest = latestRestockByProduct.get(item.productName);
                           if (!latest) return <span>—</span>;
                           const text = `${formatRestockDate(latest.restockedAt)} (+${latest.restockedQuantity})`;
@@ -684,10 +797,24 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                       </TableCell>
                       <TableCell>
                         {(item as any).status === "Pending" ? (
-                          <Badge variant="outline" className="flex items-center gap-1 w-fit">
-                            <Clock className="h-3 w-3" />
-                            Pending
-                          </Badge>
+                          <div className="space-y-2">
+                            <Badge variant="outline" className="flex items-center gap-1 w-fit">
+                              <Clock className="h-3 w-3" />
+                              Pending
+                            </Badge>
+                            {(item as any).isRequest && (item as any).requestStatus === "awaiting_label_upload" && (
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => {
+                                  setSelectedUploadRequest((item as any).rawRequest as ShipmentRequest);
+                                  setUploadFiles([]);
+                                }}
+                              >
+                                Upload Label
+                              </Button>
+                            )}
+                          </div>
                         ) : (item as any).status === "Rejected" ? (
                           <Badge variant="destructive" className="flex items-center gap-1 w-fit">
                             <XCircle className="h-3 w-3" />
@@ -874,6 +1001,57 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
               ) : (
                 <p className="text-sm text-muted-foreground">No additional services available</p>
               )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Direct Upload Label Dialog */}
+      <Dialog
+        open={!!selectedUploadRequest}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedUploadRequest(null);
+            setUploadFiles([]);
+          }
+        }}
+      >
+        <DialogContent className="max-w-full sm:max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Upload Shipping Label</DialogTitle>
+            <DialogDescription>
+              Upload label directly for this approved request. No need to submit a new request.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 mt-2">
+            <Input
+              type="file"
+              accept="image/*,application/pdf"
+              multiple
+              onChange={(e) => setUploadFiles(Array.from(e.target.files || []))}
+              disabled={isUploadingLabel}
+            />
+            <p className="text-xs text-muted-foreground">
+              {uploadFiles.length > 0 ? `${uploadFiles.length} file(s) selected` : "No files selected"}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleDirectLabelUpload}
+                disabled={isUploadingLabel || uploadFiles.length === 0}
+                className="flex-1"
+              >
+                {isUploadingLabel ? "Uploading..." : "Upload Label"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedUploadRequest(null);
+                  setUploadFiles([]);
+                }}
+                disabled={isUploadingLabel}
+              >
+                Cancel
+              </Button>
             </div>
           </div>
         </DialogContent>

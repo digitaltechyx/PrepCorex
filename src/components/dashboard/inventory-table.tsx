@@ -191,10 +191,16 @@ export function InventoryTable({
   const effectiveUserName = ownerUserName || userProfile?.name || "Unknown User";
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [openAddInventorySignal, setOpenAddInventorySignal] = useState(0);
 
   useEffect(() => {
     if (searchParams.get("status") === LOW_STOCK_STATUS_VALUE) {
       setStatusFilter(LOW_STOCK_STATUS_VALUE);
+    }
+  }, [searchParams]);
+  useEffect(() => {
+    if (searchParams.get("action") === "add-inventory") {
+      setOpenAddInventorySignal((prev) => prev + 1);
     }
   }, [searchParams]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -481,6 +487,7 @@ export function InventoryTable({
             <AddInventoryRequestForm
               targetUserId={effectiveUserId}
               targetUserName={effectiveUserName}
+              openSignal={openAddInventorySignal}
             />
           </div>
         </div>

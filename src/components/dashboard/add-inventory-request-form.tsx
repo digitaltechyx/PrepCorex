@@ -23,7 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { db, storage } from "@/lib/firebase";
-import { Archive, Boxes, ImagePlus, Loader2, Package, Plus, Truck } from "lucide-react";
+import { Archive, Boxes, CircleHelp, ImagePlus, Loader2, Package, Plus, Truck } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { InventoryType, ContainerSize, UserContainerHandlingPricing } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
@@ -31,6 +31,7 @@ import { useCollection } from "@/hooks/use-collection";
 import type { InventoryItem } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type VariantRowState = {
   id: string;
@@ -110,6 +111,7 @@ export function AddInventoryRequestForm({
   targetUserId,
   targetUserName,
   mode = "dialog",
+  openSignal = 0,
 }: {
   /**
    * When provided, creates the inventory request under this user
@@ -122,11 +124,20 @@ export function AddInventoryRequestForm({
    * - `inline`: renders the request form directly (no button/dialog)
    */
   mode?: "dialog" | "inline";
+  /** Increase this number to programmatically open the dialog mode. */
+  openSignal?: number;
 } = {}) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [open, setOpen] = useState(mode === "inline");
+  useEffect(() => {
+    if (mode !== "dialog") return;
+    if (openSignal > 0) {
+      setOpen(true);
+    }
+  }, [mode, openSignal]);
+
   const [generatedId, setGeneratedId] = useState<string>("");
   const [selectedProductImageFile, setSelectedProductImageFile] = useState<File | null>(null);
   const [selectedProductImagePreview, setSelectedProductImagePreview] = useState<string>("");
@@ -1182,7 +1193,21 @@ export function AddInventoryRequestForm({
                 <p className="text-sm font-medium">Variant Builder</p>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-1">
-                    <Label>Colors (comma separated)</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label>Colors (comma separated)</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button type="button" variant="ghost" size="icon" className="h-5 w-5">
+                              <CircleHelp className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            Add color names separated by commas. Example: Black, White, Red
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                     <Input
                       placeholder="Black, White, Red"
                       value={variantColorInput}
@@ -1191,7 +1216,21 @@ export function AddInventoryRequestForm({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Sizes (comma separated)</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label>Sizes (comma separated)</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button type="button" variant="ghost" size="icon" className="h-5 w-5">
+                              <CircleHelp className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            Add sizes separated by commas. Example: S, M, L, XL
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                     <Input
                       placeholder="S, M, L, XL"
                       value={variantSizeInput}

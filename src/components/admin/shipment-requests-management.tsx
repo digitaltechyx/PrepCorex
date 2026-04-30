@@ -367,11 +367,19 @@ export function ShipmentRequestsManagement({
             if (Object.keys(locationQuantities).length === 0 && fallbackLocationId) {
               locationQuantities[fallbackLocationId] = Number(currentInventory.quantity) || 0;
             }
-            if (!selectedSourceLocationId) {
+            const locationIds = Object.keys(locationQuantities);
+            const requiresSourceSelection = locationIds.length > 1;
+            const effectiveSourceLocationId =
+              selectedSourceLocationId || locationIds[0] || fallbackLocationId;
+
+            if (requiresSourceSelection && !selectedSourceLocationId) {
               throw new Error(`Please select ship-from location for ${currentInventory.productName}.`);
             }
-            const sourceAvailable = Number(locationQuantities[selectedSourceLocationId] || 0);
-            if (sourceAvailable < totalUnitsShipped) {
+            const hasTrackedLocations = locationIds.length > 0;
+            const sourceAvailable = hasTrackedLocations
+              ? Number(locationQuantities[effectiveSourceLocationId] || 0)
+              : Number(currentInventory.quantity || 0);
+            if (hasTrackedLocations && sourceAvailable < totalUnitsShipped) {
               throw new Error(
                 `Not enough stock in selected location for ${currentInventory.productName}. Available: ${sourceAvailable}, Requested: ${totalUnitsShipped}.`
               );
@@ -383,8 +391,9 @@ export function ShipmentRequestsManagement({
               inventoryDocRef,
               currentInventory,
               totalUnitsShipped,
-              selectedSourceLocationId,
+              selectedSourceLocationId: effectiveSourceLocationId,
               locationQuantities,
+              hasTrackedLocations,
             };
           })
         );
@@ -396,6 +405,9 @@ export function ShipmentRequestsManagement({
           confirmedBy: adminProfile.uid,
           confirmedAt,
           adminRemarks: adminRemarks || "",
+          ...(typeof (request as any).customDimensions === "string"
+            ? { customDimensions: (request as any).customDimensions.trim() }
+            : {}),
           adminAdditionalServices: {
             bubbleWrapFeet,
             stickerRemovalItems,
@@ -430,20 +442,23 @@ export function ShipmentRequestsManagement({
             totalUnitsShipped,
             selectedSourceLocationId,
             locationQuantities,
+            hasTrackedLocations,
           } = inventoryData[i] as any;
           const newQuantity = currentInventory.quantity - totalUnitsShipped;
           const newStatus = newQuantity > 0 ? "In Stock" : "Out of Stock";
-          const currentSourceQty = Number(locationQuantities[selectedSourceLocationId] || 0);
-          locationQuantities[selectedSourceLocationId] = Math.max(0, currentSourceQty - totalUnitsShipped);
-          if (locationQuantities[selectedSourceLocationId] <= 0) {
-            delete locationQuantities[selectedSourceLocationId];
+          if (hasTrackedLocations && selectedSourceLocationId) {
+            const currentSourceQty = Number(locationQuantities[selectedSourceLocationId] || 0);
+            locationQuantities[selectedSourceLocationId] = Math.max(0, currentSourceQty - totalUnitsShipped);
+            if (locationQuantities[selectedSourceLocationId] <= 0) {
+              delete locationQuantities[selectedSourceLocationId];
+            }
           }
           const nextPrimaryLocationId =
             ((currentInventory as any).locationId && locationQuantities[(currentInventory as any).locationId]
               ? String((currentInventory as any).locationId)
               : "") ||
             Object.keys(locationQuantities)[0] ||
-            selectedSourceLocationId;
+            String((currentInventory as any).locationId || "").trim();
 
           // Update inventory
           transaction.update(inventoryDocRef, {
@@ -476,8 +491,10 @@ export function ShipmentRequestsManagement({
             unitPrice: finalUnitPrice,
             packOfPrice: finalPackOfPrice,
             remainingQty: newQuantity,
-            shippedFromLocationId: selectedSourceLocationId,
-            shippedFromLocationName: warehouseNameById[selectedSourceLocationId] || selectedSourceLocationId,
+            shippedFromLocationId: selectedSourceLocationId || "",
+            shippedFromLocationName: selectedSourceLocationId
+              ? (warehouseNameById[selectedSourceLocationId] || selectedSourceLocationId)
+              : "Unspecified location",
           });
 
           // Accumulate totals
@@ -788,12 +805,16 @@ export function ShipmentRequestsManagement({
 
     setIsProcessing(true);
     try {
-      await updateDoc(doc(db, `users/${targetUserId}/shipmentRequests`, request.id), {
+      const approvePayload: any = {
         status: "awaiting_label_upload",
         approvedForLabelBy: adminProfile.uid,
         approvedForLabelAt: Timestamp.now(),
         adminRemarks: adminRemarks.trim(),
-      });
+      };
+      if (typeof (request as any).customDimensions === "string") {
+        approvePayload.customDimensions = (request as any).customDimensions.trim();
+      }
+      await updateDoc(doc(db, `users/${targetUserId}/shipmentRequests`, request.id), approvePayload);
 
       await addDoc(collection(db, `users/${targetUserId}/notifications`), {
         type: "shipment_request",
@@ -1051,6 +1072,9 @@ function ReviewShipmentDialog({
 }) {
   const { toast } = useToast();
   const [adminRemarks, setAdminRemarks] = useState("");
+  const [adminCustomDimensions, setAdminCustomDimensions] = useState(
+    String((request as any).customDimensions || "")
+  );
   const [rejectionReason, setRejectionReason] = useState("");
   const [action, setAction] = useState<"confirm" | "reject" | "approve_for_label" | null>(null);
   const [shippingDate, setShippingDate] = useState<Date | undefined>(() => {
@@ -1160,6 +1184,8 @@ function ReviewShipmentDialog({
     }
     return locationBreakdown;
   };
+  const requiresSourceLocationSelection = (product?: InventoryItem) =>
+    getLocationBreakdownForProduct(product).length > 1;
   const prettyLocationLabel = (locationId: string) => {
     const raw = String(locationId || "").trim();
     const mapped = warehouseNameById[raw];
@@ -1302,9 +1328,7 @@ function ReviewShipmentDialog({
 
     const missingSourceSelection = request.shipments.some((shipment: any, index: number) => {
       const product = inventory.find((item) => item.id === shipment.productId);
-      if (!product) return true;
-      const options = getLocationBreakdownForProduct(product);
-      if (options.length === 0) return true;
+      if (!requiresSourceLocationSelection(product)) return false;
       return !shipFromLocationByIndex[index];
     });
     if (missingSourceSelection) {
@@ -1318,7 +1342,7 @@ function ReviewShipmentDialog({
 
     const invalidSourceQty = request.shipments.find((shipment: any, index: number) => {
       const product = inventory.find((item) => item.id === shipment.productId);
-      if (!product) return true;
+      if (!requiresSourceLocationSelection(product)) return false;
       const selectedLocationId = shipFromLocationByIndex[index];
       const options = getLocationBreakdownForProduct(product);
       const selectedEntry = options.find((entry) => entry.locationId === selectedLocationId);
@@ -1349,6 +1373,9 @@ function ReviewShipmentDialog({
       : request;
     const requestForConfirm: ShipmentRequest = {
       ...(requestForConfirmBase as any),
+      customDimensions: isCustomProduct
+        ? (adminCustomDimensions.trim() || undefined)
+        : (request as any).customDimensions,
       shipments: (requestForConfirmBase.shipments || []).map((s: any, idx: number) => ({
         ...s,
         sourceLocationId: shipFromLocationByIndex[idx] || "",
@@ -1830,7 +1857,7 @@ function ReviewShipmentDialog({
                             ) : (
                               <Badge variant="destructive" className="mt-1">Insufficient</Badge>
                             )}
-                            {locationBreakdown.length > 0 && (
+                            {locationBreakdown.length > 1 && (
                               <div className="mt-2 text-left">
                                 <p className="text-xs font-medium text-muted-foreground">Ship From Location</p>
                                 <Select
@@ -2148,7 +2175,7 @@ function ReviewShipmentDialog({
               {(!request.labelUrl || request.labelUrl.trim() === "") && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                   <p className="text-sm text-yellow-800">
-                    âš ï¸ Warning: No shipping label uploaded for this shipment request.
+                     Warning: No shipping label uploaded for this shipment request.
                   </p>
                 </div>
               )}
@@ -2179,6 +2206,20 @@ function ReviewShipmentDialog({
                     : "Optional remarks about this shipment."}
                 </p>
               </div>
+              {isCustomProduct && (
+                <div>
+                  <label className="text-sm font-medium">Custom Dimensions (Optional)</label>
+                  <Textarea
+                    placeholder="Admin can add or correct dimensions here."
+                    value={adminCustomDimensions}
+                    onChange={(e) => setAdminCustomDimensions(e.target.value)}
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    If user did not provide dimensions, add them here before approval/completion.
+                  </p>
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button
                   onClick={handleConfirmClick}
@@ -2214,9 +2255,26 @@ function ReviewShipmentDialog({
                   className="mt-1"
                 />
               </div>
+              <div>
+                <label className="text-sm font-medium">Custom Dimensions (Optional)</label>
+                <Textarea
+                  placeholder="Admin can add or correct dimensions here."
+                  value={adminCustomDimensions}
+                  onChange={(e) => setAdminCustomDimensions(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
               <div className="flex gap-2">
                 <Button
-                  onClick={() => onApproveForLabelUpload(request, adminRemarks)}
+                  onClick={() =>
+                    onApproveForLabelUpload(
+                      {
+                        ...(request as any),
+                        customDimensions: adminCustomDimensions.trim() || undefined,
+                      } as ShipmentRequest,
+                      adminRemarks
+                    )
+                  }
                   disabled={isProcessing || !adminRemarks.trim()}
                   className="flex-1"
                 >

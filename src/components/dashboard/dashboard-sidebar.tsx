@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Sidebar,
@@ -37,6 +37,7 @@ import {
   FolderOpen,
   Plug,
   ChevronLeft,
+  ChevronDown,
   Shield,
   XCircle,
 } from "lucide-react";
@@ -62,6 +63,7 @@ type LocationDoc = {
 
 export function DashboardSidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { userProfile, user } = useAuth();
   const { setOpenMobile, isMobile } = useSidebar();
 
@@ -119,6 +121,19 @@ export function DashboardSidebar() {
     [allActiveLocations]
   );
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
+  const [inventoryMenuOpen, setInventoryMenuOpen] = useState(() =>
+    pathname === "/dashboard/inventory" || pathname?.startsWith("/dashboard/create-shipment-with-labels")
+  );
+  useEffect(() => {
+    if (
+      pathname === "/dashboard/inventory" ||
+      pathname?.startsWith("/dashboard/inventory/") ||
+      pathname === "/dashboard/create-shipment-with-labels" ||
+      pathname?.startsWith("/dashboard/create-shipment-with-labels/")
+    ) {
+      setInventoryMenuOpen(true);
+    }
+  }, [pathname]);
   const pickNj2FromPool = (pool: LocationDoc[]) =>
     pool.find((loc) => {
       const display = formatWarehouseDisplayName(loc.name);
@@ -498,6 +513,14 @@ export function DashboardSidebar() {
         },
       ]
     : mainClientNavItems;
+  const isInventoryPath =
+    pathname === "/dashboard/inventory" || pathname?.startsWith("/dashboard/inventory/");
+  const isOutboundPath =
+    pathname === "/dashboard/create-shipment-with-labels" ||
+    pathname?.startsWith("/dashboard/create-shipment-with-labels/");
+  const isAddInventoryPath =
+    pathname === "/dashboard/inventory" && searchParams?.get?.("action") === "add-inventory";
+  const navMenuItems = menuItems.filter((item) => item.url !== "/dashboard/create-shipment-with-labels");
 
   return (
     <Sidebar className="border-r border-border/40 bg-gradient-to-b from-background to-muted/20">
@@ -652,47 +675,119 @@ export function DashboardSidebar() {
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu className="space-y-1">
-                  {menuItems.map((item) => {
+                  {navMenuItems.map((item) => {
                     const Icon = item.icon;
-                    const isActive = pathname === item.url;
+                    const isInventoryRoot = item.url === "/dashboard/inventory";
+                    const isActive = isInventoryRoot ? isInventoryPath || isOutboundPath : pathname === item.url;
 
                     return (
                       <SidebarMenuItem key={item.url}>
-                        <SidebarMenuButton
-                          asChild
-                          isActive={isActive}
-                          tooltip={item.title}
-                          className={cn(
-                            "group relative h-11 rounded-lg transition-all duration-200",
-                            isActive
-                              ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
-                              : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          <Link href={item.url} className="flex items-center gap-3">
-                            <Icon
+                        {isInventoryRoot ? (
+                          <div className="space-y-1">
+                            <SidebarMenuButton
+                              isActive={isActive}
+                              tooltip={item.title}
+                              onClick={() => {
+                                if (pathname === "/dashboard/inventory" || pathname?.startsWith("/dashboard/inventory/")) {
+                                  setInventoryMenuOpen((prev) => !prev);
+                                }
+                              }}
                               className={cn(
-                                "h-5 w-5 transition-transform group-hover:scale-110",
-                                isActive ? item.color : "text-muted-foreground"
+                                "group relative h-11 rounded-lg transition-all duration-200",
+                                isActive
+                                  ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
+                                  : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                               )}
-                            />
-                            <span
-                              className={cn("font-medium transition-colors", isActive && "font-semibold")}
                             >
-                              {item.title}
-                            </span>
-                            {item.badge !== null && item.badge !== undefined && (
-                              <SidebarMenuBadge
-                                className={cn(
-                                  "ml-auto bg-primary text-primary-foreground shadow-sm",
-                                  isActive && "bg-primary/90"
-                                )}
-                              >
-                                {item.badge}
-                              </SidebarMenuBadge>
+                              <Link href="/dashboard/inventory" className="flex w-full items-center gap-3">
+                                <Icon
+                                  className={cn(
+                                    "h-5 w-5 transition-transform group-hover:scale-110",
+                                    isActive ? item.color : "text-muted-foreground"
+                                  )}
+                                />
+                                <span className={cn("font-medium transition-colors", isActive && "font-semibold")}>
+                                  {item.title}
+                                </span>
+                                <ChevronDown
+                                  className={cn(
+                                    "ml-auto h-4 w-4 transition-transform",
+                                    inventoryMenuOpen && "rotate-180"
+                                  )}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setInventoryMenuOpen((prev) => !prev);
+                                  }}
+                                />
+                              </Link>
+                            </SidebarMenuButton>
+                            {inventoryMenuOpen && (
+                              <div className="ml-6 space-y-1 border-l border-border/50 pl-3">
+                                <SidebarMenuButton
+                                  asChild
+                                  isActive={isAddInventoryPath}
+                                  className={cn(
+                                    "h-9 rounded-md text-sm",
+                                    isAddInventoryPath
+                                      ? "bg-primary/10 text-primary"
+                                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                                  )}
+                                >
+                                  <Link href="/dashboard/inventory?action=add-inventory">Inbound Shipment</Link>
+                                </SidebarMenuButton>
+                                <SidebarMenuButton
+                                  asChild
+                                  isActive={isOutboundPath}
+                                  className={cn(
+                                    "h-9 rounded-md text-sm",
+                                    isOutboundPath
+                                      ? "bg-primary/10 text-primary"
+                                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                                  )}
+                                >
+                                  <Link href="/dashboard/create-shipment-with-labels">Outbound Shipment</Link>
+                                </SidebarMenuButton>
+                              </div>
                             )}
-                          </Link>
-                        </SidebarMenuButton>
+                          </div>
+                        ) : (
+                          <SidebarMenuButton
+                            asChild
+                            isActive={isActive}
+                            tooltip={item.title}
+                            className={cn(
+                              "group relative h-11 rounded-lg transition-all duration-200",
+                              isActive
+                                ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
+                                : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                            )}
+                          >
+                            <Link href={item.url} className="flex items-center gap-3">
+                              <Icon
+                                className={cn(
+                                  "h-5 w-5 transition-transform group-hover:scale-110",
+                                  isActive ? item.color : "text-muted-foreground"
+                                )}
+                              />
+                              <span
+                                className={cn("font-medium transition-colors", isActive && "font-semibold")}
+                              >
+                                {item.title}
+                              </span>
+                              {item.badge !== null && item.badge !== undefined && (
+                                <SidebarMenuBadge
+                                  className={cn(
+                                    "ml-auto bg-primary text-primary-foreground shadow-sm",
+                                    isActive && "bg-primary/90"
+                                  )}
+                                >
+                                  {item.badge}
+                                </SidebarMenuBadge>
+                              )}
+                            </Link>
+                          </SidebarMenuButton>
+                        )}
                       </SidebarMenuItem>
                     );
                   })}

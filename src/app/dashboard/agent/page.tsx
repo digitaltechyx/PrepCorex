@@ -120,6 +120,18 @@ export default function AgentDashboardPage() {
   const nextTierRate = tier === "Bronze" ? 7 : tier === "Silver" ? 8 : 8;
   const nextTierMonthlyRevenue = tier === "Bronze" ? 25000 : 50000;
   const nextTierStreakTarget = tier === "Bronze" ? 3 : 6;
+
+  /** Border + badge gradient follow the *next* tier (Silver vs Gold). */
+  const nextTierCardTheme =
+    nextTier === "Gold"
+      ? {
+          cardClass: "border-2 border-amber-500 shadow-sm",
+          badgeClass: "bg-gradient-to-br from-amber-400 via-amber-500 to-yellow-600",
+        }
+      : {
+          cardClass: "border-2 border-slate-400 shadow-sm",
+          badgeClass: "bg-gradient-to-br from-slate-300 to-slate-600",
+        };
   const qualifyingStreak = tier === "Gold" ? goldStreak : tier === "Silver" ? goldStreak : silverStreak;
   const monthlyTarget = nextTierMonthlyRevenue;
   const targetProgress = Math.min(100, (currentMonthRevenue / monthlyTarget) * 100);
@@ -275,11 +287,13 @@ export default function AgentDashboardPage() {
       </Card>
 
       {/* Next tier target */}
-      <Card className="border-slate-200 shadow-sm">
+      <Card className={nextTierCardTheme.cardClass}>
         <CardContent className="space-y-3 p-5">
           <div className="flex items-start justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next Tier Target</span>
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-slate-300 to-slate-500 text-white shadow">
+            <div
+              className={`flex h-12 w-12 items-center justify-center rounded-xl text-white shadow ${nextTierCardTheme.badgeClass}`}
+            >
               <Shield className="h-6 w-6" />
             </div>
           </div>

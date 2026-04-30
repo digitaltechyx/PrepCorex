@@ -1,6 +1,6 @@
  "use client";
 
- import { useMemo, useState } from "react";
+ import { useMemo, useState, type ReactNode } from "react";
  import { useAuth } from "@/hooks/use-auth";
  import { useCollection } from "@/hooks/use-collection";
  import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -183,6 +183,16 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
    if (t === "Large") return "Large (10x10x10) - <6lbs";
    return t;
  }
+
+/** Two-column label/value so values align vertically (Storage, forwarding, etc.). */
+function PricingDefinitionRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[minmax(8.5rem,11rem)_1fr] items-baseline gap-x-3 gap-y-0.5 py-1 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-foreground">{children}</div>
+    </div>
+  );
+}
 
  export function UserPricingView() {
    const { userProfile } = useAuth();
@@ -572,22 +582,20 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
           <CardContent className="max-w-md space-y-1.5 pt-0 text-sm">
              {latestStorage ? (
                <>
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
-                  <span className="text-muted-foreground">Storage Type</span>
-                  <span className="text-muted-foreground">·</span>
-                  <span className="font-medium">{latestStorage.storageType || (userProfile as any)?.storageType || "-"}</span>
-                 </div>
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
-                  <span className="text-muted-foreground">Price</span>
-                  <span className="text-muted-foreground">·</span>
+                <PricingDefinitionRow label="Storage Type">
+                  <span className="font-medium">
+                    {latestStorage.storageType || (userProfile as any)?.storageType || "-"}
+                  </span>
+                </PricingDefinitionRow>
+                <PricingDefinitionRow label="Price">
                   <span className="font-semibold tabular-nums">{money(latestStorage.price)}</span>
-                 </div>
+                </PricingDefinitionRow>
                  {(latestStorage.storageType === "pallet_base" || (userProfile as any)?.storageType === "pallet_base") && (
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
-                    <span className="text-muted-foreground">Pallet Count</span>
-                    <span className="text-muted-foreground">·</span>
-                    <span className="font-medium tabular-nums">{activePalletCount || latestStorage.palletCount || 0}</span>
-                   </div>
+                  <PricingDefinitionRow label="Pallet Count">
+                    <span className="font-medium tabular-nums">
+                      {activePalletCount || latestStorage.palletCount || 0}
+                    </span>
+                  </PricingDefinitionRow>
                  )}
                  {(latestStorage.storageType === "pallet_base" || (userProfile as any)?.storageType === "pallet_base") &&
                    adminManualPalletCount > 0 && (
@@ -625,10 +633,10 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
                    Your admin will set this based on your assigned storage type.
                  </div>
                  {(userProfile as any)?.storageType && (
-                   <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
-                     <span className="text-muted-foreground">Assigned Type</span>
-                     <span className="text-muted-foreground">·</span>
-                     <span className="font-medium">{(userProfile as any).storageType}</span>
+                   <div className="text-xs">
+                     <PricingDefinitionRow label="Assigned Type">
+                       <span className="font-medium">{(userProfile as any).storageType}</span>
+                     </PricingDefinitionRow>
                    </div>
                  )}
                </div>
@@ -646,11 +654,9 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
              <div className="text-xs text-muted-foreground">
                Applies when you select shipment type <span className="font-medium">Box Forwarding</span>.
              </div>
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
-              <span className="text-muted-foreground">Forwarding Price</span>
-              <span className="text-muted-foreground">·</span>
+            <PricingDefinitionRow label="Forwarding Price">
               <span className="font-semibold tabular-nums">{latestBox ? money(latestBox.price) : "-"}</span>
-             </div>
+            </PricingDefinitionRow>
              {!latestBox && (
                <div className="text-xs text-muted-foreground">
                  Not configured by admin yet.
@@ -674,11 +680,9 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
              <div className="text-xs text-muted-foreground">
                Applies when you select shipment type <span className="font-medium">Pallet</span> and sub-type <span className="font-medium">Forwarding</span>.
              </div>
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
-              <span className="text-muted-foreground">Forwarding Price</span>
-              <span className="text-muted-foreground">·</span>
+            <PricingDefinitionRow label="Forwarding Price">
               <span className="font-semibold tabular-nums">{latestPallet ? money(latestPallet.price) : "-"}</span>
-             </div>
+            </PricingDefinitionRow>
              {!latestPallet && (
                <div className="text-xs text-muted-foreground">
                  Not configured by admin yet.
@@ -705,16 +709,12 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
              <div className="text-xs text-muted-foreground">
                Container handling rates are set by admin per container size.
              </div>
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
-              <span className="text-muted-foreground">20 ft</span>
-              <span className="text-muted-foreground">·</span>
+            <PricingDefinitionRow label="20 ft">
               <span className="font-semibold tabular-nums">{money(containerBySize.get("20feet")?.price)}</span>
-             </div>
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
-              <span className="text-muted-foreground">40 ft</span>
-              <span className="text-muted-foreground">·</span>
+            </PricingDefinitionRow>
+            <PricingDefinitionRow label="40 ft">
               <span className="font-semibold tabular-nums">{money(containerBySize.get("40feet")?.price)}</span>
-             </div>
+            </PricingDefinitionRow>
              {!containerBySize.get("20feet") && !containerBySize.get("40feet") && (
                <div className="text-xs text-muted-foreground">
                  Not configured by admin yet.
@@ -740,13 +740,12 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
                      key={row.key}
                     className="border-b border-border/50 py-2 last:border-0 last:pb-0"
                    >
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <span className="font-medium leading-tight">{row.name}</span>
-                      <span className="text-muted-foreground">·</span>
-                      <span className="font-semibold tabular-nums">{money(row.price)}</span>
+                    <div className="flex min-w-0 items-baseline justify-between gap-3">
+                      <span className="min-w-0 font-medium leading-tight">{row.name}</span>
+                      <span className="shrink-0 font-semibold tabular-nums">{money(row.price)}</span>
                     </div>
                     {row.description ? (
-                      <div className="text-[11px] text-muted-foreground">{row.description}</div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">{row.description}</div>
                     ) : null}
                    </div>
                  ))}
