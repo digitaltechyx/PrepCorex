@@ -274,6 +274,13 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
     () => (palletStorageCycles || []).filter((c) => c.status !== "closed").length,
     [palletStorageCycles]
   );
+  const adminManualPalletCount = useMemo(
+    () =>
+      (palletStorageCycles || []).filter(
+        (c) => c.status !== "closed" && String((c as { source?: string }).source || "") === "admin_manual"
+      ).length,
+    [palletStorageCycles]
+  );
 
    if (!uid) {
      return <div className="text-sm text-muted-foreground">Loading user…</div>;
@@ -582,12 +589,21 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
                     <span className="font-medium tabular-nums">{activePalletCount || latestStorage.palletCount || 0}</span>
                    </div>
                  )}
+                 {(latestStorage.storageType === "pallet_base" || (userProfile as any)?.storageType === "pallet_base") &&
+                   adminManualPalletCount > 0 && (
+                    <div className="text-[11px] text-muted-foreground">
+                      {adminManualPalletCount} admin-assigned pallet{adminManualPalletCount === 1 ? "" : "s"}; the rest follow inventory.
+                    </div>
+                  )}
                  {(latestStorage.storageType === "pallet_base" || (userProfile as any)?.storageType === "pallet_base") && sortedPalletCycles.length > 0 && (
                   <div className="pt-2 mt-1 border-t space-y-1.5">
                     <div className="text-xs font-medium text-muted-foreground">Recent Pallet Logs</div>
                     {sortedPalletCycles.slice(0, 5).map((cycle) => (
                       <div key={cycle.id} className="text-xs text-muted-foreground flex flex-wrap items-baseline gap-x-2">
                         <span className="font-medium text-foreground">{cycle.status === "closed" ? "Closed" : "Active"}</span>
+                        <span className="rounded bg-muted px-1.5 py-0 text-[10px] uppercase tracking-wide">
+                          {String((cycle as PalletStorageCycleDoc).source || "") === "admin_manual" ? "Admin" : "Inv"}
+                        </span>
                         <span>Added: {formatUpdated(cycle.assignedAt) || "-"}</span>
                         <span>Next invoice: {formatUpdated(cycle.nextInvoiceDate) || "-"}</span>
                       </div>

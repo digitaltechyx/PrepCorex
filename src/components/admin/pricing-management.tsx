@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { collection, addDoc, updateDoc, doc, Timestamp, writeBatch } from "firebase/firestore";
@@ -46,6 +47,27 @@ type FbaPackAddOnPricingDoc = {
   updatedAt?: any;
   createdAt?: any;
 };
+
+type PalletStorageCycleLite = {
+  id: string;
+  status?: string;
+  source?: string;
+  assignedAt?: any;
+  createdAt?: any;
+};
+
+const PALLET_CYCLE_THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+function cycleTimeMs(v: any): number {
+  if (!v) return 0;
+  if (typeof v === "string") {
+    const t = new Date(v).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  }
+  if (typeof v?.toDate === "function") return v.toDate().getTime();
+  if (typeof v?.seconds === "number") return v.seconds * 1000;
+  return 0;
+}
 
 // Pre-defined combinations for pricing
 // FBA/WFS/TFS: 6 rows (3 monthly-volume tiers x 2 product types)
@@ -95,6 +117,7 @@ interface PricingRow {
 
 export function PricingManagement({ users }: PricingManagementProps) {
   const { toast } = useToast();
+  const { userProfile: adminUserProfile } = useAuth();
   const [editingGlobalDefaults, setEditingGlobalDefaults] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [userDialogOpen, setUserDialogOpen] = useState(false);
@@ -106,6 +129,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const [storagePricingId, setStoragePricingId] = useState<string | null>(null);
   const [adminSelectedStorageType, setAdminSelectedStorageType] = useState<StorageType | "">("");
   const [isSavingStorageType, setIsSavingStorageType] = useState(false);
+  const [manualAssignQty, setManualAssignQty] = useState("1");
+  const [manualRemoveQty, setManualRemoveQty] = useState("1");
+  const [isMutatingPallets, setIsMutatingPallets] = useState(false);
   
   // Box Forwarding Pricing
   const [boxForwardingPrice, setBoxForwardingPrice] = useState<string>("");
@@ -150,6 +176,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const targetContainerPricingPath = editingGlobalDefaults ? "defaultContainerHandlingPricing" : targetOwnerId ? `users/${targetOwnerId}/containerHandlingPricing` : "";
   const targetAdditionalPricingPath = editingGlobalDefaults ? "defaultAdditionalServicesPricing" : targetOwnerId ? `users/${targetOwnerId}/additionalServicesPricing` : "";
   const targetFbaPackPath = editingGlobalDefaults ? "defaultFbaPackAddOnPricing" : targetOwnerId ? `users/${targetOwnerId}/fbaPackAddOnPricing` : "";
+  const palletStorageCyclesPath =
+    editingGlobalDefaults || !targetOwnerId ? "" : `users/${targetOwnerId}/palletStorageCycles`;
 
   // Fetch pricing for selected user
   const { data: pricingList, loading: pricingLoading } = useCollection<UserPricing>(
@@ -183,6 +211,18 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const { data: fbaPackAddOnPricingList } = useCollection<FbaPackAddOnPricingDoc>(
     targetFbaPackPath
   );
+  const { data: palletStorageCycles } = useCollection<PalletStorageCycleLite>(palletStorageCyclesPath);
+
+  const palletStats = useMemo(() => {
+    const list = palletStorageCycles || [];
+    const active = list.filter((c) => c.status !== "closed");
+    const manual = active.filter((c) => String(c.source || "") === "admin_manual").length;
+    return {
+      total: active.length,
+      manual,
+      fromInventory: active.length - manual,
+    };
+  }, [palletStorageCycles]);
   
   // Get the most recent storage pricing document
   const latestStoragePricing = useMemo(() => {
@@ -850,6 +890,140 @@ export function PricingManagement({ users }: PricingManagementProps) {
     }
   };
 
+  const handleAssignManualPallets = async () => {
+    if (editingGlobalDefaults || !selectedUser || !adminUserProfile?.uid) {
+      toast({
+        variant: "destructive",
+        title: "Not available",
+        description: "Select a user (not global defaults) to assign pallets.",
+      });
+      return;
+    }
+    const n = parseInt(manualAssignQty, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 500) {
+      toast({
+        variant: "destructive",
+        title: "Invalid quantity",
+        description: "Enter a whole number between 1 and 500.",
+      });
+      return;
+    }
+
+    setIsMutatingPallets(true);
+    try {
+      const uid = selectedUser.uid;
+      const now = Timestamp.now();
+      const nextInvoice = Timestamp.fromMillis(Date.now() + PALLET_CYCLE_THIRTY_DAYS_MS);
+      const col = collection(db, `users/${uid}/palletStorageCycles`);
+
+      for (let i = 0; i < n; i += 1) {
+        await addDoc(col, {
+          status: "active",
+          source: "admin_manual",
+          assignedAt: now,
+          nextInvoiceDate: nextInvoice,
+          createdAt: now,
+          updatedAt: now,
+          assignedBy: adminUserProfile.uid,
+          note: "Admin-assigned pallet (manual)",
+        });
+      }
+
+      const newTotal = palletStats.total + n;
+      if (storagePricingId && targetStoragePricingPath) {
+        await updateDoc(doc(db, targetStoragePricingPath, storagePricingId), {
+          palletCount: newTotal,
+          updatedAt: now,
+        });
+      }
+
+      toast({
+        title: "Pallets assigned",
+        description: `Added ${n} manual pallet cycle${n === 1 ? "" : "s"}. Next invoice date is 30 days from now for each.`,
+      });
+      setManualAssignQty("1");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error?.message || "Failed to assign pallets.",
+      });
+    } finally {
+      setIsMutatingPallets(false);
+    }
+  };
+
+  const handleRemoveManualPallets = async () => {
+    if (editingGlobalDefaults || !selectedUser) {
+      toast({
+        variant: "destructive",
+        title: "Not available",
+        description: "Select a user to remove manual pallets.",
+      });
+      return;
+    }
+    const n = parseInt(manualRemoveQty, 10);
+    if (!Number.isFinite(n) || n < 1) {
+      toast({
+        variant: "destructive",
+        title: "Invalid quantity",
+        description: "Enter a whole number of at least 1.",
+      });
+      return;
+    }
+
+    const activeManual = (palletStorageCycles || [])
+      .filter((c) => c.status !== "closed" && String(c.source || "") === "admin_manual")
+      .sort((a, b) => cycleTimeMs(b.assignedAt || b.createdAt) - cycleTimeMs(a.assignedAt || a.createdAt));
+
+    if (activeManual.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Nothing to remove",
+        description: "This user has no active admin-assigned pallets.",
+      });
+      return;
+    }
+
+    const removeCount = Math.min(n, activeManual.length);
+    setIsMutatingPallets(true);
+    try {
+      const uid = selectedUser.uid;
+      const now = Timestamp.now();
+      for (let i = 0; i < removeCount; i += 1) {
+        const c = activeManual[i];
+        await updateDoc(doc(db, `users/${uid}/palletStorageCycles`, c.id), {
+          status: "closed",
+          closedAt: now,
+          closeReason: "admin_manual_removed",
+          updatedAt: now,
+        });
+      }
+
+      const newTotal = Math.max(0, palletStats.total - removeCount);
+      if (storagePricingId && targetStoragePricingPath) {
+        await updateDoc(doc(db, targetStoragePricingPath, storagePricingId), {
+          palletCount: newTotal,
+          updatedAt: now,
+        });
+      }
+
+      toast({
+        title: "Manual pallets removed",
+        description: `Closed ${removeCount} admin-assigned pallet cycle${removeCount === 1 ? "" : "s"} (newest first).`,
+      });
+      setManualRemoveQty("1");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error?.message || "Failed to remove pallets.",
+      });
+    } finally {
+      setIsMutatingPallets(false);
+    }
+  };
+
   const handleSaveStorage = async () => {
     if (!editingGlobalDefaults && !selectedUser) return;
     const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
@@ -882,7 +1056,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
         userId: ownerId,
         storageType: storageTypeToUse,
         price,
-        palletCount: latestStoragePricing?.palletCount ?? 0,
+        palletCount: editingGlobalDefaults
+          ? (latestStoragePricing?.palletCount ?? 0)
+          : palletStats.total,
         updatedAt: now,
       };
 
@@ -1404,7 +1580,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                               </Button>
                             </div>
                             <p className="text-xs text-muted-foreground mt-1">
-                              Pallet-only storage is enabled. Pallet count is synced automatically from in-stock pallet inventory and billed every 30 days per pallet cycle.
+                              Pallet-only storage: inventory auto-creates cycles from in-stock pallets; you can also assign extra pallets manually below. Each active cycle bills every 30 days from its start date.
                             </p>
                           </div>
                           
@@ -1435,9 +1611,82 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                   Price per individual pallet per 30-day cycle.
                                 </p>
                               </div>
-                              <div className="text-xs text-muted-foreground">
-                                Active pallet count comes from approved in-stock pallet inventory and updates automatically with stock changes.
-                              </div>
+                              {!editingGlobalDefaults && selectedUser && (
+                                <div className="pt-2 border-t space-y-3">
+                                  <div className="text-sm">
+                                    <span className="font-medium">Active pallet cycles: </span>
+                                    <span className="tabular-nums">{palletStats.total}</span>
+                                    <span className="text-muted-foreground"> · </span>
+                                    <span className="text-muted-foreground">
+                                      {palletStats.fromInventory} from inventory
+                                    </span>
+                                    <span className="text-muted-foreground"> · </span>
+                                    <span className="text-muted-foreground">
+                                      {palletStats.manual} admin-assigned
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-wrap items-end gap-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-muted-foreground">Add manual pallets</Label>
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        max={500}
+                                        value={manualAssignQty}
+                                        onChange={(e) => setManualAssignQty(e.target.value)}
+                                        className="w-24 h-9"
+                                      />
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={handleAssignManualPallets}
+                                      disabled={isMutatingPallets || !adminUserProfile?.uid}
+                                    >
+                                      {isMutatingPallets ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        "Assign pallets"
+                                      )}
+                                    </Button>
+                                  </div>
+                                  <div className="flex flex-wrap items-end gap-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-muted-foreground">
+                                        Remove admin-assigned (newest first)
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        value={manualRemoveQty}
+                                        onChange={(e) => setManualRemoveQty(e.target.value)}
+                                        className="w-24 h-9"
+                                      />
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={handleRemoveManualPallets}
+                                      disabled={isMutatingPallets}
+                                    >
+                                      {isMutatingPallets ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        "Remove manual"
+                                      )}
+                                    </Button>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    Manual pallets stay until you remove them or mark cycles closed; inventory sync only adjusts non-manual cycles to match in-stock pallet quantity.
+                                  </p>
+                                </div>
+                              )}
+                              {editingGlobalDefaults && (
+                                <p className="text-xs text-muted-foreground">
+                                  Per-user pallet assignment is available when editing a specific user (not global defaults).
+                                </p>
+                              )}
                               
                               <Button 
                                 onClick={handleSaveStorage} 

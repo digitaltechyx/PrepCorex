@@ -8,33 +8,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { format } from "date-fns";
 import { generateInvoiceNumber } from "@/lib/invoice-utils";
+import { syncPalletCycles, getLatestStoragePrice, toDate, add30Days } from "@/lib/pallet-storage-sync";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-
-function toDate(value: any): Date | null {
-  if (!value) return null;
-  if (value instanceof Date) return value;
-  if (typeof value === "string") {
-    const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-  if (typeof value?.toDate === "function") {
-    const d = value.toDate();
-    return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
-  }
-  if (typeof value?.seconds === "number") {
-    const d = new Date(value.seconds * 1000);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-  return null;
-}
-
-function add30Days(date: Date): Date {
-  return new Date(date.getTime() + THIRTY_DAYS_MS);
-}
 
 function normalizeRole(v: any): string {
   return String(v || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
@@ -120,27 +97,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only pallet_base storage is supported now" }, { status: 400 });
     }
 
-    const storagePricingSnapshot = await db.collection(`users/${userId}/storagePricing`).get();
-    if (storagePricingSnapshot.empty) {
-      return NextResponse.json({ error: "No storage pricing configured" }, { status: 400 });
+    const price = await getLatestStoragePrice(db, userId);
+    if (!price) {
+      return NextResponse.json({ error: "No storage pricing configured or invalid price" }, { status: 400 });
     }
 
-    const latestPricingDoc = [...storagePricingSnapshot.docs].sort((a, b) => {
-      const ad: any = a.data();
-      const bd: any = b.data();
-      const at = Math.max(toDate(ad.updatedAt)?.getTime() || 0, toDate(ad.createdAt)?.getTime() || 0);
-      const bt = Math.max(toDate(bd.updatedAt)?.getTime() || 0, toDate(bd.createdAt)?.getTime() || 0);
-      return bt - at;
-    })[0];
-    const price = Number(latestPricingDoc.data()?.price || 0);
-    if (!Number.isFinite(price) || price <= 0) {
-      return NextResponse.json({ error: "Invalid storage price" }, { status: 400 });
-    }
-
-    const cyclesSnap = await db.collection(`users/${userId}/palletStorageCycles`).get();
-    const activeCycles = cyclesSnap.docs
-      .map((d) => ({ id: d.id, ...(d.data() as any) }))
-      .filter((c) => c.status !== "closed");
+    const activeCycles = await syncPalletCycles(db, userId, now);
     const dueCycles = activeCycles.filter((c) => {
       const dueDate = toDate(c.nextInvoiceDate) || toDate(c.assignedAt);
       return dueDate ? dueDate.getTime() <= now.getTime() : false;

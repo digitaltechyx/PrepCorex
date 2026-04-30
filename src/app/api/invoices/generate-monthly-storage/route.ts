@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { format } from "date-fns";
 import { generateInvoiceNumber } from "@/lib/invoice-utils";
+import { syncPalletCycles, getLatestStoragePrice, toDate, add30Days } from "@/lib/pallet-storage-sync";
 
 const CRON_SECRET = process.env.INVOICE_CRON_SECRET || process.env.CRON_SECRET;
 
@@ -67,128 +68,6 @@ async function isAuthorized(request: NextRequest): Promise<boolean> {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-
-type PalletCycle = {
-  id: string;
-  status?: "active" | "closed";
-  assignedAt?: any;
-  nextInvoiceDate?: any;
-  lastInvoicedAt?: any;
-};
-
-function toDate(value: any): Date | null {
-  if (!value) return null;
-  if (value instanceof Date) return value;
-  if (typeof value === "string") {
-    const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-  if (typeof value?.toDate === "function") {
-    const d = value.toDate();
-    return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
-  }
-  if (typeof value?.seconds === "number") {
-    const d = new Date(value.seconds * 1000);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-  return null;
-}
-
-function add30Days(date: Date): Date {
-  return new Date(date.getTime() + THIRTY_DAYS_MS);
-}
-
-async function getLatestStoragePrice(db: any, userId: string): Promise<number | null> {
-  const storagePricingSnapshot = await db.collection(`users/${userId}/storagePricing`).get();
-  if (storagePricingSnapshot.empty) return null;
-
-  const latestPricingDoc = [...storagePricingSnapshot.docs].sort((a, b) => {
-    const ad: any = a.data();
-    const bd: any = b.data();
-    const at = Math.max(toDate(ad.updatedAt)?.getTime() || 0, toDate(ad.createdAt)?.getTime() || 0);
-    const bt = Math.max(toDate(bd.updatedAt)?.getTime() || 0, toDate(bd.createdAt)?.getTime() || 0);
-    return bt - at;
-  })[0];
-
-  const price = Number(latestPricingDoc.data()?.price || 0);
-  return Number.isFinite(price) && price > 0 ? price : null;
-}
-
-async function getDesiredPalletCountFromInventory(db: any, userId: string): Promise<number> {
-  const inventorySnapshot = await db
-    .collection(`users/${userId}/inventory`)
-    .where("inventoryType", "==", "pallet")
-    .where("status", "==", "In Stock")
-    .get();
-
-  let total = 0;
-  for (const doc of inventorySnapshot.docs) {
-    const qty = Number(doc.data()?.quantity || 0);
-    total += Number.isFinite(qty) && qty > 0 ? qty : 0;
-  }
-  return total;
-}
-
-async function syncPalletCycles(db: any, userId: string, now: Date): Promise<PalletCycle[]> {
-  const desiredCount = await getDesiredPalletCountFromInventory(db, userId);
-  const cyclesSnap = await db.collection(`users/${userId}/palletStorageCycles`).get();
-  const activeCycles: PalletCycle[] = cyclesSnap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as any) }))
-    .filter((c) => c.status !== "closed")
-    .sort((a, b) => (toDate(a.assignedAt)?.getTime() || 0) - (toDate(b.assignedAt)?.getTime() || 0));
-
-  let updatedActive = [...activeCycles];
-  const diff = desiredCount - activeCycles.length;
-
-  if (diff > 0) {
-    const nowDate = now;
-    for (let i = 0; i < diff; i += 1) {
-      const payload = {
-        status: "active",
-        source: "inventory_sync",
-        assignedAt: nowDate,
-        nextInvoiceDate: add30Days(nowDate),
-        createdAt: nowDate,
-        updatedAt: nowDate,
-      };
-      const created = await db.collection(`users/${userId}/palletStorageCycles`).add(payload);
-      updatedActive.push({ id: created.id, ...payload });
-    }
-  } else if (diff < 0) {
-    const closeCount = Math.abs(diff);
-    const toClose = [...updatedActive].reverse().slice(0, closeCount);
-    const closeIds = new Set(toClose.map((c) => c.id));
-    for (const cycle of toClose) {
-      await db.collection(`users/${userId}/palletStorageCycles`).doc(cycle.id).update({
-        status: "closed",
-        closedAt: now,
-        closeReason: "inventory_sync_reduction",
-        updatedAt: now,
-      });
-    }
-    updatedActive = updatedActive.filter((c) => !closeIds.has(c.id));
-  }
-
-  // Keep storage pricing palletCount in sync for display/reporting.
-  const storagePricingSnapshot = await db.collection(`users/${userId}/storagePricing`).get();
-  if (!storagePricingSnapshot.empty) {
-    const latestPricingDoc = [...storagePricingSnapshot.docs].sort((a, b) => {
-      const ad: any = a.data();
-      const bd: any = b.data();
-      const at = Math.max(toDate(ad.updatedAt)?.getTime() || 0, toDate(ad.createdAt)?.getTime() || 0);
-      const bt = Math.max(toDate(bd.updatedAt)?.getTime() || 0, toDate(bd.createdAt)?.getTime() || 0);
-      return bt - at;
-    })[0];
-    await latestPricingDoc.ref.update({
-      palletCount: desiredCount,
-      updatedAt: now,
-    });
-  }
-
-  return updatedActive;
-}
 
 // Handle both GET (for testing) and POST (for cron)
 export async function GET(request: NextRequest) {
