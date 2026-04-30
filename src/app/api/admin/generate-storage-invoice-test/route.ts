@@ -12,6 +12,30 @@ import { generateInvoiceNumber } from "@/lib/invoice-utils";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+function toDate(value: any): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value?.toDate === "function") {
+    const d = value.toDate();
+    return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+  }
+  if (typeof value?.seconds === "number") {
+    const d = new Date(value.seconds * 1000);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+function add30Days(date: Date): Date {
+  return new Date(date.getTime() + THIRTY_DAYS_MS);
+}
+
 function normalizeRole(v: any): string {
   return String(v || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
@@ -87,122 +111,60 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User is not approved" }, { status: 400 });
     }
 
-    // Month parsing
     const now = new Date();
-    let invoiceMonthBase = format(now, "yyyy-MM");
-    let monthDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
-      const [y, m] = monthParam.split("-").map((v: string) => Number(v));
-      if (Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12) {
-        invoiceMonthBase = monthParam;
-        monthDate = new Date(y, m - 1, 1);
-      }
-    }
+    const invoiceMonthBase = monthParam && /^\d{4}-\d{2}$/.test(monthParam) ? monthParam : format(now, "yyyy-MM");
 
     const invoiceMonthForDoc = `${invoiceMonthBase}-test-${format(now, "yyyyMMdd-HHmmss")}`;
-    const firstDayOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-    const lastDayOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
-
-    const storageType = userData.storageType;
-    if (!storageType) {
-      return NextResponse.json({ error: "User has no storageType" }, { status: 400 });
+    const storageType = userData.storageType || "pallet_base";
+    if (storageType !== "pallet_base") {
+      return NextResponse.json({ error: "Only pallet_base storage is supported now" }, { status: 400 });
     }
 
-    const storagePricingSnapshot = await db
-      .collection(`users/${userId}/storagePricing`)
-      .get();
-
+    const storagePricingSnapshot = await db.collection(`users/${userId}/storagePricing`).get();
     if (storagePricingSnapshot.empty) {
       return NextResponse.json({ error: "No storage pricing configured" }, { status: 400 });
     }
 
-    const toMs = (v: any): number => {
-      if (!v) return 0;
-      if (typeof v === "string") {
-        const t = new Date(v).getTime();
-        return Number.isNaN(t) ? 0 : t;
-      }
-      if (typeof v === "object" && typeof v.toDate === "function") {
-        return v.toDate().getTime();
-      }
-      if (typeof v === "object" && typeof v.seconds === "number") return v.seconds * 1000;
-      if (v instanceof Date) return v.getTime();
-      return 0;
-    };
-
     const latestPricingDoc = [...storagePricingSnapshot.docs].sort((a, b) => {
       const ad: any = a.data();
       const bd: any = b.data();
-      const at = Math.max(toMs(ad.updatedAt), toMs(ad.createdAt));
-      const bt = Math.max(toMs(bd.updatedAt), toMs(bd.createdAt));
+      const at = Math.max(toDate(ad.updatedAt)?.getTime() || 0, toDate(ad.createdAt)?.getTime() || 0);
+      const bt = Math.max(toDate(bd.updatedAt)?.getTime() || 0, toDate(bd.createdAt)?.getTime() || 0);
       return bt - at;
     })[0];
-
-    const storagePricing = latestPricingDoc.data();
-    const price = storagePricing.price;
-    if (!price || price <= 0) {
+    const price = Number(latestPricingDoc.data()?.price || 0);
+    if (!Number.isFinite(price) || price <= 0) {
       return NextResponse.json({ error: "Invalid storage price" }, { status: 400 });
     }
 
-    let totalAmount = 0;
-    let itemCount = 0;
-    const invoiceItems: any[] = [];
+    const cyclesSnap = await db.collection(`users/${userId}/palletStorageCycles`).get();
+    const activeCycles = cyclesSnap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as any) }))
+      .filter((c) => c.status !== "closed");
+    const dueCycles = activeCycles.filter((c) => {
+      const dueDate = toDate(c.nextInvoiceDate) || toDate(c.assignedAt);
+      return dueDate ? dueDate.getTime() <= now.getTime() : false;
+    });
 
-    if (storageType === "product_base") {
-      // Count "In Stock" items excluding items added in target month (first month free)
-      const inventorySnapshot = await db
-        .collection(`users/${userId}/inventory`)
-        .where("status", "==", "In Stock")
-        .get();
-
-      for (const inventoryDoc of inventorySnapshot.docs) {
-        const inventoryData = inventoryDoc.data();
-        const dateAdded = inventoryData.dateAdded;
-        let itemDateAdded: Date;
-        if (dateAdded && typeof dateAdded === "object" && "seconds" in dateAdded) {
-          itemDateAdded = new Date(dateAdded.seconds * 1000);
-        } else if (typeof dateAdded === "string") {
-          itemDateAdded = new Date(dateAdded);
-        } else {
-          itemDateAdded = new Date();
-        }
-
-        if (itemDateAdded >= firstDayOfMonth && itemDateAdded <= lastDayOfMonth) {
-          continue;
-        }
-
-        const quantity = inventoryData.quantity || 0;
-        itemCount += quantity;
-      }
-
-      totalAmount = itemCount * price;
-
-      invoiceItems.push({
-        quantity: itemCount,
-        productName: `Storage - Product Base (${itemCount} items)`,
-        shipDate: invoiceMonthBase,
-        shipTo: "N/A",
-        packaging: "Storage",
-        unitPrice: price,
-        amount: totalAmount,
-      });
-    } else if (storageType === "pallet_base") {
-      const palletCount = storagePricing.palletCount || 1;
-      totalAmount = palletCount * price;
-      itemCount = palletCount;
-
-      invoiceItems.push({
-        quantity: palletCount,
-        productName: `Storage - Pallet Base (${palletCount} pallet${palletCount > 1 ? "s" : ""})`,
-        shipDate: invoiceMonthBase,
-        shipTo: "N/A",
-        packaging: "Storage",
-        unitPrice: price,
-        amount: totalAmount,
-      });
-    } else {
-      return NextResponse.json({ error: `Unsupported storageType: ${storageType}` }, { status: 400 });
+    if (dueCycles.length === 0) {
+      return NextResponse.json(
+        { error: "No due pallet cycles right now. Try after nextInvoiceDate or use cron force mode." },
+        { status: 400 }
+      );
     }
+    const itemCount = dueCycles.length;
+    const totalAmount = Number((itemCount * price).toFixed(2));
+    const invoiceItems: any[] = [
+      {
+        quantity: itemCount,
+        productName: `Storage - Pallet Base (${itemCount} pallet${itemCount > 1 ? "s" : ""})`,
+        shipDate: invoiceMonthBase,
+        shipTo: "N/A",
+        packaging: "Storage",
+        unitPrice: price,
+        amount: totalAmount,
+      },
+    ];
 
     if (totalAmount <= 0) {
       return NextResponse.json({ error: "No charge for this month (0 items/pallets)" }, { status: 400 });
@@ -234,14 +196,25 @@ export async function POST(request: NextRequest) {
       autoGeneratedAt: new Date(),
       storageType,
       itemCount,
-      ...(storageType === "pallet_base" && { palletCount: storagePricing.palletCount || 1 }),
+      palletCount: itemCount,
+      palletCycleIds: dueCycles.map((c) => c.id),
       isTest: true,
       testRunAt: new Date(),
       testOfInvoiceMonth: invoiceMonthBase,
       generatedByAdminUid: auth.uid,
     };
 
-    await db.collection(`users/${userId}/invoices`).add(invoiceDoc);
+    const created = await db.collection(`users/${userId}/invoices`).add(invoiceDoc);
+    for (const cycle of dueCycles) {
+      const dueDate = toDate(cycle.nextInvoiceDate) || now;
+      await db.collection(`users/${userId}/palletStorageCycles`).doc(cycle.id).update({
+        lastInvoicedAt: now,
+        lastInvoiceId: created.id,
+        lastInvoiceNumber: invoiceNumber,
+        nextInvoiceDate: add30Days(dueDate),
+        updatedAt: now,
+      });
+    }
 
     return NextResponse.json({
       success: true,

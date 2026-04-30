@@ -290,6 +290,7 @@ export function InventoryRequestsManagement({
       const requestImageUrls = getImageUrls(request as any);
       const finalImageUrls = imageUrls && imageUrls.length > 0 ? imageUrls : requestImageUrls;
       
+      let createdInventoryDocId: string | null = null;
       await runTransaction(db, async (transaction) => {
         // STEP 1: ALL READS FIRST (before any writes)
         const requestRef = doc(db, `users/${userId}/inventoryRequests`, request.id);
@@ -374,9 +375,34 @@ export function InventoryRequestsManagement({
             finalData.sku = finalSku;
           }
           
-          transaction.set(doc(inventoryRef), finalData);
+          const newInventoryDocRef = doc(inventoryRef);
+          createdInventoryDocId = newInventoryDocRef.id;
+          transaction.set(newInventoryDocRef, finalData);
         }
       });
+
+      // Track pallet storage lifecycle as individual 30-day billing cycles.
+      if (request.inventoryType === "pallet" && status === "In Stock" && finalQuantity > 0) {
+        const assignedAt = Timestamp.fromDate(receivingDate);
+        const nextInvoiceDate = Timestamp.fromDate(
+          new Date(receivingDate.getTime() + 30 * 24 * 60 * 60 * 1000)
+        );
+        for (let i = 0; i < finalQuantity; i += 1) {
+          await addDoc(collection(db, `users/${userId}/palletStorageCycles`), {
+            status: "active",
+            source: "inventory_request_approval",
+            sourceRequestId: request.id,
+            sourceInventoryId: createdInventoryDocId,
+            palletSequence: i + 1,
+            assignedAt,
+            nextInvoiceDate,
+            createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now(),
+            assignedBy: adminProfile.uid,
+            note: `Pallet approved from request ${request.id}`,
+          });
+        }
+      }
 
       // Generate invoice for container handling requests
       if (request.inventoryType === "container") {

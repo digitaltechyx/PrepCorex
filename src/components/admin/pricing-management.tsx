@@ -103,7 +103,6 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const [pricingRows, setPricingRows] = useState<PricingRow[]>([]);
   const [activeTab, setActiveTab] = useState<string>("FBA/WFS/TFS");
   const [storagePrice, setStoragePrice] = useState<string>("");
-  const [palletCount, setPalletCount] = useState<string>("");
   const [storagePricingId, setStoragePricingId] = useState<string | null>(null);
   const [adminSelectedStorageType, setAdminSelectedStorageType] = useState<StorageType | "">("");
   const [isSavingStorageType, setIsSavingStorageType] = useState(false);
@@ -266,16 +265,13 @@ export function PricingManagement({ users }: PricingManagementProps) {
     if (!editingGlobalDefaults && !selectedUser) return;
     
     // Set admin selected storage type from user profile
-    const userStorageType = editingGlobalDefaults ? undefined : ((selectedUser as any)?.storageType as StorageType | undefined);
-    setAdminSelectedStorageType(userStorageType || "");
+    setAdminSelectedStorageType("pallet_base" as StorageType);
     
     if (latestStoragePricing) {
       setStoragePrice(latestStoragePricing.price.toString());
-      setPalletCount(latestStoragePricing.palletCount?.toString() || "1");
       setStoragePricingId(latestStoragePricing.id);
     } else {
       setStoragePrice("");
-      setPalletCount("1");
       setStoragePricingId(null);
     }
   }, [selectedUser, latestStoragePricing]);
@@ -563,11 +559,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
       });
       return;
     }
-    if (!selectedUser || !adminSelectedStorageType) {
+    if (!selectedUser) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Please select a storage type.",
+        description: "Please select a user first.",
       });
       return;
     }
@@ -576,12 +572,14 @@ export function PricingManagement({ users }: PricingManagementProps) {
     try {
       const userRef = doc(db, "users", selectedUser.uid);
       await updateDoc(userRef, {
-        storageType: adminSelectedStorageType,
+        storageType: "pallet_base",
       });
+
+      setAdminSelectedStorageType("pallet_base" as StorageType);
 
       toast({
         title: "Success",
-        description: "Storage type updated successfully.",
+        description: "Pallet base storage assigned successfully.",
       });
 
       // Refresh selected user data by updating the state
@@ -856,18 +854,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
     if (!editingGlobalDefaults && !selectedUser) return;
     const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
 
-    // Use admin selected storage type if user doesn't have one, otherwise use user's
-    const userStorageType = editingGlobalDefaults ? undefined : ((selectedUser as any)?.storageType as StorageType | undefined);
-    const storageTypeToUse = userStorageType || (adminSelectedStorageType as StorageType);
-    
-    if (!storageTypeToUse) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please assign a storage type first.",
-      });
-      return;
-    }
+    const storageTypeToUse: StorageType = "pallet_base";
 
     if (!storagePrice || storagePrice.trim() === "") {
       toast({
@@ -888,19 +875,6 @@ export function PricingManagement({ users }: PricingManagementProps) {
       return;
     }
 
-    // Validate pallet count for pallet_base storage
-    if (storageTypeToUse === "pallet_base") {
-      const palletCountNum = parseFloat(palletCount || "1");
-      if (isNaN(palletCountNum) || palletCountNum < 1) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Please enter a valid number of pallets (minimum 1).",
-        });
-        return;
-      }
-    }
-
     setIsSaving(true);
     try {
       const now = Timestamp.now();
@@ -908,14 +882,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
         userId: ownerId,
         storageType: storageTypeToUse,
         price,
+        palletCount: latestStoragePricing?.palletCount ?? 0,
         updatedAt: now,
       };
-
-      // Add palletCount only for pallet_base storage
-      if (storageTypeToUse === "pallet_base") {
-        const palletCountNum = parseFloat(palletCount || "1");
-        storagePricingData.palletCount = palletCountNum;
-      }
 
       if (storagePricingId) {
         // Update existing
@@ -1410,24 +1379,17 @@ export function PricingManagement({ users }: PricingManagementProps) {
                         <div className="space-y-4">
                           <div>
                             <Label className="text-sm font-medium mb-2 block">
-                              Storage Type *
+                              Storage Type
                             </Label>
                             <div className="flex items-center gap-2">
-                              <Select
-                                value={adminSelectedStorageType}
-                                onValueChange={(value) => setAdminSelectedStorageType(value as StorageType)}
-                              >
-                                <SelectTrigger className="w-64">
-                                  <SelectValue placeholder="Select storage type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="product_base">Product Base Storage</SelectItem>
-                                  <SelectItem value="pallet_base">Pallet Base Storage</SelectItem>
-                                </SelectContent>
-                              </Select>
+                              <Input
+                                value="Pallet Base Storage"
+                                readOnly
+                                className="w-64 bg-muted"
+                              />
                               <Button
                                 onClick={handleSaveStorageType}
-                                disabled={isSavingStorageType || !adminSelectedStorageType}
+                                disabled={isSavingStorageType}
                                 size="sm"
                                 variant="outline"
                               >
@@ -1437,16 +1399,12 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                     Saving...
                                   </>
                                 ) : (
-                                  "Save Type"
+                                  "Assign To User"
                                 )}
                               </Button>
                             </div>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {adminSelectedStorageType === "product_base"
-                                ? "Product Base: Charged per item in inventory (first month free for new items)"
-                                : adminSelectedStorageType === "pallet_base"
-                                ? "Pallet Base: Monthly charge = Number of Pallets × Price per Pallet"
-                                : "Assign a storage type to this user"}
+                              Pallet-only storage is enabled. Pallet count is synced automatically from in-stock pallet inventory and billed every 30 days per pallet cycle.
                             </p>
                           </div>
                           
@@ -1457,16 +1415,12 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                   Storage Type
                                 </Label>
                                 <p className="text-sm text-muted-foreground">
-                                  {adminSelectedStorageType === "product_base" 
-                                    ? "Product Base Storage - Charged per item in inventory"
-                                    : "Pallet Base Storage - Monthly charge = Number of Pallets × Price per Pallet"}
+                                  Pallet Base Storage - Monthly charge = Number of due pallet cycles × Price per pallet
                                 </p>
                               </div>
                               <div>
                                 <Label className="text-sm font-medium mb-2 block">
-                                  {adminSelectedStorageType === "product_base" 
-                                    ? "Price per Product ($)"
-                                    : "Price per Pallet ($)"}
+                                  Price per Pallet ($)
                                 </Label>
                                 <Input
                                   type="number"
@@ -1478,35 +1432,16 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                   className="w-48"
                                 />
                                 <p className="text-xs text-muted-foreground mt-1">
-                                  {adminSelectedStorageType === "product_base"
-                                    ? "This amount will be charged per item in inventory each month (first month free for new items)."
-                                    : "Price per individual pallet."}
+                                  Price per individual pallet per 30-day cycle.
                                 </p>
                               </div>
-                              
-                              {adminSelectedStorageType === "pallet_base" && (
-                                <div>
-                                  <Label className="text-sm font-medium mb-2 block">
-                                    Number of Pallets *
-                                  </Label>
-                                  <Input
-                                    type="number"
-                                    step="1"
-                                    min="1"
-                                    placeholder="1"
-                                    value={palletCount}
-                                    onChange={(e) => setPalletCount(e.target.value)}
-                                    className="w-48"
-                                  />
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Number of pallets assigned to this user. Monthly invoice will be: (Number of Pallets × Price per Pallet).
-                                  </p>
-                                </div>
-                              )}
+                              <div className="text-xs text-muted-foreground">
+                                Active pallet count comes from approved in-stock pallet inventory and updates automatically with stock changes.
+                              </div>
                               
                               <Button 
                                 onClick={handleSaveStorage} 
-                                disabled={isSaving || storagePricingLoading || !adminSelectedStorageType}
+                                disabled={isSaving || storagePricingLoading}
                                 className="w-48"
                               >
                                 {isSaving ? (

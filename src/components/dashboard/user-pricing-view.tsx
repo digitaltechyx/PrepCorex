@@ -32,6 +32,16 @@ import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
    createdAt?: any;
  };
 
+type PalletStorageCycleDoc = {
+  id: string;
+  status?: "active" | "closed";
+  assignedAt?: any;
+  nextInvoiceDate?: any;
+  lastInvoicedAt?: any;
+  source?: string;
+  createdAt?: any;
+};
+
  type SimplePriceDoc = {
    id: string;
    price?: number;
@@ -210,6 +220,9 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
   const { data: shippedOrders } = useCollection<ShippedOrderDoc>(
     uid ? `users/${uid}/shipped` : ""
   );
+  const { data: palletStorageCycles } = useCollection<PalletStorageCycleDoc>(
+    uid ? `users/${uid}/palletStorageCycles` : ""
+  );
 
    const pricingByKey = useMemo(() => {
      const map = new Map<string, PricingRuleDoc>();
@@ -250,6 +263,17 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
   }, [containerHandlingPricingList, defaultContainerHandlingPricingList]);
 
   const isLoading = pricingLoading || storageLoading || boxLoading || palletLoading || containerLoading || additionalLoading || fbaPackLoading;
+  const sortedPalletCycles = useMemo(
+    () =>
+      [...(palletStorageCycles || [])].sort(
+        (a, b) => toMs(b.assignedAt || b.createdAt) - toMs(a.assignedAt || a.createdAt)
+      ),
+    [palletStorageCycles]
+  );
+  const activePalletCount = useMemo(
+    () => (palletStorageCycles || []).filter((c) => c.status !== "closed").length,
+    [palletStorageCycles]
+  );
 
    if (!uid) {
      return <div className="text-sm text-muted-foreground">Loading user…</div>;
@@ -534,29 +558,44 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
        </TabsContent>
 
        <TabsContent value="Storage" className="mt-4">
-         <Card>
-           <CardHeader>
-             <CardTitle className="text-base">Storage Pricing</CardTitle>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Storage Pricing</CardTitle>
            </CardHeader>
-           <CardContent className="space-y-2 text-sm">
+          <CardContent className="max-w-md space-y-1.5 pt-0 text-sm">
              {latestStorage ? (
                <>
-                 <div className="flex items-center justify-between">
-                   <span>Storage Type</span>
-                   <span className="font-medium">{latestStorage.storageType || (userProfile as any)?.storageType || "-"}</span>
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
+                  <span className="text-muted-foreground">Storage Type</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="font-medium">{latestStorage.storageType || (userProfile as any)?.storageType || "-"}</span>
                  </div>
-                 <div className="flex items-center justify-between">
-                   <span>Price</span>
-                   <span className="font-semibold">{money(latestStorage.price)}</span>
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
+                  <span className="text-muted-foreground">Price</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="font-semibold tabular-nums">{money(latestStorage.price)}</span>
                  </div>
                  {(latestStorage.storageType === "pallet_base" || (userProfile as any)?.storageType === "pallet_base") && (
-                   <div className="flex items-center justify-between">
-                     <span>Pallet Count</span>
-                     <span className="font-medium">{latestStorage.palletCount ?? "-"}</span>
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
+                    <span className="text-muted-foreground">Pallet Count</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="font-medium tabular-nums">{activePalletCount || latestStorage.palletCount || 0}</span>
                    </div>
                  )}
+                 {(latestStorage.storageType === "pallet_base" || (userProfile as any)?.storageType === "pallet_base") && sortedPalletCycles.length > 0 && (
+                  <div className="pt-2 mt-1 border-t space-y-1.5">
+                    <div className="text-xs font-medium text-muted-foreground">Recent Pallet Logs</div>
+                    {sortedPalletCycles.slice(0, 5).map((cycle) => (
+                      <div key={cycle.id} className="text-xs text-muted-foreground flex flex-wrap items-baseline gap-x-2">
+                        <span className="font-medium text-foreground">{cycle.status === "closed" ? "Closed" : "Active"}</span>
+                        <span>Added: {formatUpdated(cycle.assignedAt) || "-"}</span>
+                        <span>Next invoice: {formatUpdated(cycle.nextInvoiceDate) || "-"}</span>
+                      </div>
+                    ))}
+                  </div>
+                 )}
                  {formatUpdated(latestStorage.updatedAt || latestStorage.createdAt) && (
-                   <div className="text-xs text-muted-foreground pt-2 border-t">
+                  <div className="text-xs text-muted-foreground pt-2 mt-1 border-t">
                      Last updated: {formatUpdated(latestStorage.updatedAt || latestStorage.createdAt)}
                    </div>
                  )}
@@ -570,8 +609,9 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
                    Your admin will set this based on your assigned storage type.
                  </div>
                  {(userProfile as any)?.storageType && (
-                   <div className="flex items-center justify-between text-xs">
+                   <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
                      <span className="text-muted-foreground">Assigned Type</span>
+                     <span className="text-muted-foreground">·</span>
                      <span className="font-medium">{(userProfile as any).storageType}</span>
                    </div>
                  )}
@@ -582,25 +622,26 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
        </TabsContent>
 
        <TabsContent value="Box Forwarding" className="mt-4">
-         <Card>
-           <CardHeader>
-             <CardTitle className="text-base">Box Forwarding</CardTitle>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Box Forwarding</CardTitle>
            </CardHeader>
-           <CardContent className="space-y-2 text-sm">
+          <CardContent className="max-w-md space-y-1.5 pt-0 text-sm">
              <div className="text-xs text-muted-foreground">
                Applies when you select shipment type <span className="font-medium">Box Forwarding</span>.
              </div>
-             <div className="flex items-center justify-between">
-               <span>Forwarding Price</span>
-               <span className="font-semibold">{latestBox ? money(latestBox.price) : "-"}</span>
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
+              <span className="text-muted-foreground">Forwarding Price</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-semibold tabular-nums">{latestBox ? money(latestBox.price) : "-"}</span>
              </div>
              {!latestBox && (
                <div className="text-xs text-muted-foreground">
                  Not configured by admin yet.
                </div>
              )}
-             {latestBox && formatUpdated(latestBox.updatedAt || latestBox.createdAt) && (
-               <div className="text-xs text-muted-foreground pt-2 border-t">
+            {latestBox && formatUpdated(latestBox.updatedAt || latestBox.createdAt) && (
+              <div className="text-xs text-muted-foreground pt-2 mt-1 border-t">
                  Last updated: {formatUpdated(latestBox.updatedAt || latestBox.createdAt)}
                </div>
              )}
@@ -609,17 +650,18 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
        </TabsContent>
 
        <TabsContent value="Pallet Forwarding" className="mt-4">
-         <Card>
-           <CardHeader>
-             <CardTitle className="text-base">Pallet Forwarding</CardTitle>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Pallet Forwarding</CardTitle>
            </CardHeader>
-           <CardContent className="space-y-2 text-sm">
+          <CardContent className="max-w-md space-y-1.5 pt-0 text-sm">
              <div className="text-xs text-muted-foreground">
                Applies when you select shipment type <span className="font-medium">Pallet</span> and sub-type <span className="font-medium">Forwarding</span>.
              </div>
-             <div className="flex items-center justify-between">
-               <span>Forwarding Price</span>
-               <span className="font-semibold">{latestPallet ? money(latestPallet.price) : "-"}</span>
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
+              <span className="text-muted-foreground">Forwarding Price</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-semibold tabular-nums">{latestPallet ? money(latestPallet.price) : "-"}</span>
              </div>
              {!latestPallet && (
                <div className="text-xs text-muted-foreground">
@@ -629,8 +671,8 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
              <div className="text-xs text-muted-foreground">
                Pallet “Existing Inventory” pricing is handled manually at approval.
              </div>
-             {latestPallet && formatUpdated(latestPallet.updatedAt || latestPallet.createdAt) && (
-               <div className="text-xs text-muted-foreground pt-2 border-t">
+            {latestPallet && formatUpdated(latestPallet.updatedAt || latestPallet.createdAt) && (
+              <div className="text-xs text-muted-foreground pt-2 mt-1 border-t">
                  Last updated: {formatUpdated(latestPallet.updatedAt || latestPallet.createdAt)}
                </div>
              )}
@@ -639,21 +681,23 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
        </TabsContent>
 
        <TabsContent value="Container Handling" className="mt-4">
-         <Card>
-           <CardHeader>
-             <CardTitle className="text-base">Container Handling</CardTitle>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Container Handling</CardTitle>
            </CardHeader>
-           <CardContent className="space-y-2 text-sm">
+          <CardContent className="max-w-md space-y-1.5 pt-0 text-sm">
              <div className="text-xs text-muted-foreground">
                Container handling rates are set by admin per container size.
              </div>
-             <div className="flex items-center justify-between">
-               <span>20 ft</span>
-               <span className="font-semibold">{money(containerBySize.get("20feet")?.price)}</span>
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
+              <span className="text-muted-foreground">20 ft</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-semibold tabular-nums">{money(containerBySize.get("20feet")?.price)}</span>
              </div>
-             <div className="flex items-center justify-between">
-               <span>40 ft</span>
-               <span className="font-semibold">{money(containerBySize.get("40feet")?.price)}</span>
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-1">
+              <span className="text-muted-foreground">40 ft</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="font-semibold tabular-nums">{money(containerBySize.get("40feet")?.price)}</span>
              </div>
              {!containerBySize.get("20feet") && !containerBySize.get("40feet") && (
                <div className="text-xs text-muted-foreground">
@@ -665,36 +709,37 @@ function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-
        </TabsContent>
 
        <TabsContent value="Additional Services" className="mt-4">
-         <Card>
-           <CardHeader>
-             <CardTitle className="text-base">Additional Services</CardTitle>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Additional Services</CardTitle>
            </CardHeader>
-           <CardContent className="space-y-2 text-sm">
+          <CardContent className="max-w-md space-y-1.5 pt-0 text-sm">
              <div className="text-xs text-muted-foreground">
                These rates are used for invoicing when you request additional services.
              </div>
              {latestAdditional ? (
-               <div className="space-y-2">
+              <div className="space-y-1">
                  {additionalServicesCatalogRows.map((row) => (
                    <div
                      key={row.key}
-                     className="flex items-start justify-between gap-3 border-b border-border/50 pb-2 last:border-0 last:pb-0"
+                    className="border-b border-border/50 py-2 last:border-0 last:pb-0"
                    >
-                     <div>
-                       <div>{row.name}</div>
-                       {row.description ? (
-                         <div className="text-xs text-muted-foreground">{row.description}</div>
-                       ) : null}
-                     </div>
-                     <span className="shrink-0 font-semibold">{money(row.price)}</span>
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <span className="font-medium leading-tight">{row.name}</span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="font-semibold tabular-nums">{money(row.price)}</span>
+                    </div>
+                    {row.description ? (
+                      <div className="text-[11px] text-muted-foreground">{row.description}</div>
+                    ) : null}
                    </div>
                  ))}
                </div>
              ) : (
                <div className="text-xs text-muted-foreground">Not configured by admin yet.</div>
              )}
-             {latestAdditional && formatUpdated(latestAdditional.updatedAt || latestAdditional.createdAt) && (
-               <div className="text-xs text-muted-foreground pt-2 border-t">
+            {latestAdditional && formatUpdated(latestAdditional.updatedAt || latestAdditional.createdAt) && (
+              <div className="text-xs text-muted-foreground pt-2 mt-1 border-t">
                  Last updated: {formatUpdated(latestAdditional.updatedAt || latestAdditional.createdAt)}
                </div>
              )}

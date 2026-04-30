@@ -68,6 +68,128 @@ async function isAuthorized(request: NextRequest): Promise<boolean> {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+type PalletCycle = {
+  id: string;
+  status?: "active" | "closed";
+  assignedAt?: any;
+  nextInvoiceDate?: any;
+  lastInvoicedAt?: any;
+};
+
+function toDate(value: any): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value?.toDate === "function") {
+    const d = value.toDate();
+    return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+  }
+  if (typeof value?.seconds === "number") {
+    const d = new Date(value.seconds * 1000);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+function add30Days(date: Date): Date {
+  return new Date(date.getTime() + THIRTY_DAYS_MS);
+}
+
+async function getLatestStoragePrice(db: any, userId: string): Promise<number | null> {
+  const storagePricingSnapshot = await db.collection(`users/${userId}/storagePricing`).get();
+  if (storagePricingSnapshot.empty) return null;
+
+  const latestPricingDoc = [...storagePricingSnapshot.docs].sort((a, b) => {
+    const ad: any = a.data();
+    const bd: any = b.data();
+    const at = Math.max(toDate(ad.updatedAt)?.getTime() || 0, toDate(ad.createdAt)?.getTime() || 0);
+    const bt = Math.max(toDate(bd.updatedAt)?.getTime() || 0, toDate(bd.createdAt)?.getTime() || 0);
+    return bt - at;
+  })[0];
+
+  const price = Number(latestPricingDoc.data()?.price || 0);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+async function getDesiredPalletCountFromInventory(db: any, userId: string): Promise<number> {
+  const inventorySnapshot = await db
+    .collection(`users/${userId}/inventory`)
+    .where("inventoryType", "==", "pallet")
+    .where("status", "==", "In Stock")
+    .get();
+
+  let total = 0;
+  for (const doc of inventorySnapshot.docs) {
+    const qty = Number(doc.data()?.quantity || 0);
+    total += Number.isFinite(qty) && qty > 0 ? qty : 0;
+  }
+  return total;
+}
+
+async function syncPalletCycles(db: any, userId: string, now: Date): Promise<PalletCycle[]> {
+  const desiredCount = await getDesiredPalletCountFromInventory(db, userId);
+  const cyclesSnap = await db.collection(`users/${userId}/palletStorageCycles`).get();
+  const activeCycles: PalletCycle[] = cyclesSnap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as any) }))
+    .filter((c) => c.status !== "closed")
+    .sort((a, b) => (toDate(a.assignedAt)?.getTime() || 0) - (toDate(b.assignedAt)?.getTime() || 0));
+
+  let updatedActive = [...activeCycles];
+  const diff = desiredCount - activeCycles.length;
+
+  if (diff > 0) {
+    const nowDate = now;
+    for (let i = 0; i < diff; i += 1) {
+      const payload = {
+        status: "active",
+        source: "inventory_sync",
+        assignedAt: nowDate,
+        nextInvoiceDate: add30Days(nowDate),
+        createdAt: nowDate,
+        updatedAt: nowDate,
+      };
+      const created = await db.collection(`users/${userId}/palletStorageCycles`).add(payload);
+      updatedActive.push({ id: created.id, ...payload });
+    }
+  } else if (diff < 0) {
+    const closeCount = Math.abs(diff);
+    const toClose = [...updatedActive].reverse().slice(0, closeCount);
+    const closeIds = new Set(toClose.map((c) => c.id));
+    for (const cycle of toClose) {
+      await db.collection(`users/${userId}/palletStorageCycles`).doc(cycle.id).update({
+        status: "closed",
+        closedAt: now,
+        closeReason: "inventory_sync_reduction",
+        updatedAt: now,
+      });
+    }
+    updatedActive = updatedActive.filter((c) => !closeIds.has(c.id));
+  }
+
+  // Keep storage pricing palletCount in sync for display/reporting.
+  const storagePricingSnapshot = await db.collection(`users/${userId}/storagePricing`).get();
+  if (!storagePricingSnapshot.empty) {
+    const latestPricingDoc = [...storagePricingSnapshot.docs].sort((a, b) => {
+      const ad: any = a.data();
+      const bd: any = b.data();
+      const at = Math.max(toDate(ad.updatedAt)?.getTime() || 0, toDate(ad.createdAt)?.getTime() || 0);
+      const bt = Math.max(toDate(bd.updatedAt)?.getTime() || 0, toDate(bd.createdAt)?.getTime() || 0);
+      return bt - at;
+    })[0];
+    await latestPricingDoc.ref.update({
+      palletCount: desiredCount,
+      updatedAt: now,
+    });
+  }
+
+  return updatedActive;
+}
+
 // Handle both GET (for testing) and POST (for cron)
 export async function GET(request: NextRequest) {
   return handleRequest(request);
@@ -91,27 +213,14 @@ async function handleRequest(request: NextRequest) {
     const force = ["1", "true", "yes"].includes((url.searchParams.get("force") || "").toLowerCase());
 
     const now = new Date();
-    let monthDate = now;
-    let invoiceMonthBase = format(now, "yyyy-MM");
-    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
-      const [y, m] = monthParam.split("-").map((v) => Number(v));
-      if (Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12) {
-        monthDate = new Date(y, m - 1, 1);
-        invoiceMonthBase = monthParam;
-      }
-    }
-
-    const invoiceMonthForDoc = isTest
-      ? `${invoiceMonthBase}-test-${format(now, "yyyyMMdd-HHmmss")}`
-      : invoiceMonthBase;
+    const invoiceMonthBase = monthParam && /^\d{4}-\d{2}$/.test(monthParam) ? monthParam : format(now, "yyyy-MM");
+    const invoiceMonthForDoc = isTest ? `${invoiceMonthBase}-test-${format(now, "yyyyMMdd-HHmmss")}` : invoiceMonthBase;
 
     const usersSnapshot = userIdParam
       ? await db.collection("users").where("__name__", "==", userIdParam).get()
       : await db.collection("users").get();
     const results: Array<Record<string, unknown>> = [];
     const today = now;
-    const firstDayOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-    const lastDayOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
 
     for (const userDoc of usersSnapshot.docs) {
       const userId = userDoc.id;
@@ -123,143 +232,54 @@ async function handleRequest(request: NextRequest) {
         continue;
       }
 
-      // Get user's storage type
-      const storageType = userData.storageType;
-      if (!storageType) {
-        results.push({ userId, status: "skipped_no_storage_type" });
+      const storageType = userData.storageType || "pallet_base";
+      if (storageType !== "pallet_base") {
+        results.push({ userId, status: "skipped_non_pallet_storage", storageType });
         continue;
       }
 
-      // Get user's storage pricing
-      const storagePricingSnapshot = await db
-        .collection(`users/${userId}/storagePricing`)
-        .get();
-
-      if (storagePricingSnapshot.empty) {
-        results.push({ userId, status: "skipped_no_storage_pricing" });
-        continue;
-      }
-
-      const toMs = (v: any): number => {
-        if (!v) return 0;
-        if (typeof v === "string") {
-          const t = new Date(v).getTime();
-          return Number.isNaN(t) ? 0 : t;
-        }
-        if (typeof v === "object" && typeof v.toDate === "function") {
-          return v.toDate().getTime();
-        }
-        if (typeof v === "object" && typeof v.seconds === "number") return v.seconds * 1000;
-        if (v instanceof Date) return v.getTime();
-        return 0;
-      };
-
-      // Pick the latest pricing doc; .limit(1) is non-deterministic and can pick old prices.
-      const latestPricingDoc = [...storagePricingSnapshot.docs].sort((a, b) => {
-        const ad: any = a.data();
-        const bd: any = b.data();
-        const at = Math.max(toMs(ad.updatedAt), toMs(ad.createdAt));
-        const bt = Math.max(toMs(bd.updatedAt), toMs(bd.createdAt));
-        return bt - at;
-      })[0];
-
-      const storagePricing = latestPricingDoc.data();
-      const price = storagePricing.price;
-
-      if (!price || price <= 0) {
+      const price = await getLatestStoragePrice(db, userId);
+      if (!price) {
         results.push({ userId, status: "skipped_invalid_price" });
         continue;
       }
 
-      // Check if invoice already exists for this month
-      if (!force && !isTest) {
-        const existingInvoicesSnapshot = await db
-          .collection(`users/${userId}/invoices`)
-          .where("type", "==", "storage")
-          .where("invoiceMonth", "==", invoiceMonthForDoc)
-          .get();
+      const activeCycles = await syncPalletCycles(db, userId, now);
+      const dueCycles = activeCycles.filter((cycle) => {
+        const dueDate = toDate(cycle.nextInvoiceDate) || toDate(cycle.assignedAt);
+        if (!dueDate) return false;
+        return force || dueDate.getTime() <= now.getTime();
+      });
 
-        if (!existingInvoicesSnapshot.empty) {
-          results.push({ userId, status: "skipped_invoice_exists", invoiceMonth: invoiceMonthForDoc });
-          continue;
-        }
-      }
-
-      let totalAmount = 0;
-      let itemCount = 0;
-      const invoiceItems: any[] = [];
-
-      if (storageType === "product_base") {
-        // Product Base Storage: Count "In Stock" items, exclude items added this month (first month free)
-        const inventorySnapshot = await db
-          .collection(`users/${userId}/inventory`)
-          .where("status", "==", "In Stock")
-          .get();
-
-        for (const inventoryDoc of inventorySnapshot.docs) {
-          const inventoryData = inventoryDoc.data();
-          const dateAdded = inventoryData.dateAdded;
-
-          // Check if item was added this month (first month free)
-          let itemDateAdded: Date;
-          if (dateAdded && typeof dateAdded === "object" && "seconds" in dateAdded) {
-            itemDateAdded = new Date(dateAdded.seconds * 1000);
-          } else if (typeof dateAdded === "string") {
-            itemDateAdded = new Date(dateAdded);
-          } else {
-            itemDateAdded = new Date();
-          }
-
-          // Skip items added this month (first month free)
-          if (
-            itemDateAdded >= firstDayOfMonth &&
-            itemDateAdded <= lastDayOfMonth
-          ) {
-            continue;
-          }
-
-          // Count this item
-          const quantity = inventoryData.quantity || 0;
-          itemCount += quantity;
-        }
-
-        totalAmount = itemCount * price;
-
-        invoiceItems.push({
-          quantity: itemCount,
-          productName: `Storage - Product Base (${itemCount} items)`,
-          shipDate: currentMonth,
-          shipTo: "N/A",
-          packaging: "Storage",
-          unitPrice: price,
-          amount: totalAmount,
+      if (dueCycles.length === 0) {
+        results.push({
+          userId,
+          status: "skipped_no_due_cycles",
+          activePallets: activeCycles.length,
         });
-      } else if (storageType === "pallet_base") {
-        // Pallet Base Storage: Number of pallets × price per pallet
-        const palletCount = storagePricing.palletCount || 1;
-        totalAmount = palletCount * price;
-        itemCount = palletCount;
-
-        invoiceItems.push({
-          quantity: palletCount,
-          productName: `Storage - Pallet Base (${palletCount} pallet${palletCount > 1 ? "s" : ""})`,
-          shipDate: currentMonth,
-          shipTo: "N/A",
-          packaging: "Storage",
-          unitPrice: price,
-          amount: totalAmount,
-        });
-      }
-
-      // Only create invoice if there's an amount
-      if (totalAmount <= 0) {
-        results.push({ userId, status: "skipped_no_charge", itemCount });
         continue;
       }
 
-      // Generate invoice
+      const itemCount = dueCycles.length;
+      const totalAmount = Number((itemCount * price).toFixed(2));
+      if (totalAmount <= 0) {
+        results.push({ userId, status: "skipped_no_charge", dueCycles: itemCount });
+        continue;
+      }
+
       const invoiceNumber = generateInvoiceNumber(today);
       const orderNumber = `STOR-${format(today, "yyyyMMdd")}-${Date.now().toString().slice(-4)}`;
+      const invoiceItems = [
+        {
+          quantity: itemCount,
+          productName: `Storage - Pallet Base (${itemCount} pallet${itemCount > 1 ? "s" : ""})`,
+          shipDate: format(today, "yyyy-MM-dd"),
+          shipTo: "N/A",
+          packaging: "Storage",
+          unitPrice: price,
+          amount: totalAmount,
+        },
+      ];
 
       const invoiceDoc = {
         invoiceNumber,
@@ -284,11 +304,24 @@ async function handleRequest(request: NextRequest) {
         autoGeneratedAt: new Date(),
         storageType,
         itemCount,
-        ...(storageType === "pallet_base" && { palletCount: storagePricing.palletCount || 1 }),
+        palletCount: itemCount,
+        palletCycleIds: dueCycles.map((c) => c.id),
         ...(isTest && { isTest: true, testRunAt: new Date(), testOfInvoiceMonth: invoiceMonthBase }),
       };
 
-      await db.collection(`users/${userId}/invoices`).add(invoiceDoc);
+      const createdInvoice = await db.collection(`users/${userId}/invoices`).add(invoiceDoc);
+
+      for (const cycle of dueCycles) {
+        const currentDueDate = toDate(cycle.nextInvoiceDate) || now;
+        const nextDate = add30Days(currentDueDate);
+        await db.collection(`users/${userId}/palletStorageCycles`).doc(cycle.id).update({
+          lastInvoicedAt: now,
+          lastInvoiceId: createdInvoice.id,
+          lastInvoiceNumber: invoiceNumber,
+          nextInvoiceDate: nextDate,
+          updatedAt: now,
+        });
+      }
 
       results.push({
         userId,
@@ -298,6 +331,7 @@ async function handleRequest(request: NextRequest) {
         itemCount,
         total: totalAmount,
         invoiceMonth: invoiceMonthForDoc,
+        palletCyclesInvoiced: dueCycles.length,
         ...(isTest && { isTest: true }),
       });
     }
