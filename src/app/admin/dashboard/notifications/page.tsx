@@ -168,7 +168,7 @@ export default function AdminNotificationsPage() {
   const [activeTab, setActiveTab] = useState<"all" | Exclude<StatusFilter, "all">>(
     (tabFromUrl as "all" | Exclude<StatusFilter, "all">) && ["all", "pending", "paid", "approved", "confirmed", "rejected", "in_progress", "closed", "cancelled"].includes(tabFromUrl)
       ? (tabFromUrl as "all" | Exclude<StatusFilter, "all">)
-      : "all"
+      : "pending"
   );
 
   useEffect(() => {
@@ -689,31 +689,31 @@ export default function AdminNotificationsPage() {
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "all" | Exclude<StatusFilter, "all">)} className="w-full">
             <ScrollArea className="w-full rounded-lg border bg-muted/30 p-1 md:overflow-visible">
               <TabsList className="inline-flex h-auto w-max gap-1 bg-transparent p-0 md:flex-wrap md:min-w-0">
-                <TabsTrigger value="all" className="flex-shrink-0 rounded-md px-3 py-2 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                <TabsTrigger value="all" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-slate-300 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-slate-700 dark:data-[state=active]:bg-slate-900/40 dark:data-[state=active]:text-slate-100">
                   All <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.all}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="pending" className="flex-shrink-0 rounded-md px-3 py-2 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                <TabsTrigger value="pending" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-amber-300 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-amber-700 dark:data-[state=active]:bg-amber-900/30 dark:data-[state=active]:text-amber-200">
                   Pending <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.pending ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="approved" className="flex-shrink-0 rounded-md px-3 py-2 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                <TabsTrigger value="approved" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-emerald-300 data-[state=active]:bg-emerald-100 data-[state=active]:text-emerald-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-emerald-700 dark:data-[state=active]:bg-emerald-900/30 dark:data-[state=active]:text-emerald-200">
                   Approved <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.approved ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="in_progress" className="flex-shrink-0 rounded-md px-3 py-2 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                <TabsTrigger value="in_progress" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-blue-300 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-blue-700 dark:data-[state=active]:bg-blue-900/30 dark:data-[state=active]:text-blue-200">
                   In Progress <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.in_progress ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="confirmed" className="flex-shrink-0 rounded-md px-3 py-2 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                <TabsTrigger value="confirmed" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-green-300 data-[state=active]:bg-green-100 data-[state=active]:text-green-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-green-700 dark:data-[state=active]:bg-green-900/30 dark:data-[state=active]:text-green-200">
                   Confirmed <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.confirmed ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="rejected" className="flex-shrink-0 rounded-md px-3 py-2 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                <TabsTrigger value="rejected" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-red-300 data-[state=active]:bg-red-100 data-[state=active]:text-red-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-red-700 dark:data-[state=active]:bg-red-900/30 dark:data-[state=active]:text-red-200">
                   Rejected <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.rejected ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="closed" className="flex-shrink-0 rounded-md px-3 py-2 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                <TabsTrigger value="closed" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-zinc-300 data-[state=active]:bg-zinc-100 data-[state=active]:text-zinc-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-zinc-700 dark:data-[state=active]:bg-zinc-900/40 dark:data-[state=active]:text-zinc-200">
                   Closed <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.closed ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="cancelled" className="flex-shrink-0 rounded-md px-3 py-2 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                <TabsTrigger value="cancelled" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-rose-300 data-[state=active]:bg-rose-100 data-[state=active]:text-rose-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-rose-700 dark:data-[state=active]:bg-rose-900/30 dark:data-[state=active]:text-rose-200">
                   Cancelled <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.cancelled ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="paid" className="flex-shrink-0 rounded-md px-3 py-2 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                <TabsTrigger value="paid" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-violet-300 data-[state=active]:bg-violet-100 data-[state=active]:text-violet-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-violet-700 dark:data-[state=active]:bg-violet-900/30 dark:data-[state=active]:text-violet-200">
                   Paid <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.paid ?? 0}</Badge>
                 </TabsTrigger>
             </TabsList>
