@@ -986,6 +986,10 @@ export function CreateShipmentWithLabelsForm({
             const groupPalletSubType = form.watch(`shipmentGroups.${groupIndex}.palletSubType`);
             const groupService = form.watch(`shipmentGroups.${groupIndex}.service`);
             const groupShipments = form.watch(`shipmentGroups.${groupIndex}.shipments`);
+            const groupTotal = (groupShipments || []).reduce(
+              (sum: number, s: any) => sum + (Number(s?.totalPrice) || 0),
+              0
+            );
             
             // Calculate available inventory without useMemo (inside map)
             const normalizedQuery = query.trim().toLowerCase();
@@ -1017,7 +1021,7 @@ export function CreateShipmentWithLabelsForm({
               <AccordionItem key={group.id} value={`shipment-${groupIndex}`} className="border-2 rounded-lg px-4 mb-4">
                 <div className="relative">
                   <AccordionTrigger className="hover:no-underline pr-12 [&>svg]:hidden">
-                    <div className="flex items-center justify-between w-full">
+                    <div className="flex items-center justify-between w-full gap-3">
                       <div className="text-left">
                         <div className="text-sm font-semibold">
                           Shipment {groupIndex + 1}
@@ -1025,6 +1029,9 @@ export function CreateShipmentWithLabelsForm({
                             ({groupShipments.length} product{groupShipments.length === 1 ? "" : "s"})
                           </span>
                         </div>
+                      </div>
+                      <div className="mr-6 shrink-0 rounded-md bg-primary/10 px-3 py-1 text-sm font-semibold tabular-nums text-primary">
+                        ${groupTotal.toFixed(2)}
                       </div>
                     </div>
                   </AccordionTrigger>
@@ -2346,6 +2353,48 @@ export function CreateShipmentWithLabelsForm({
             );
           })}
           </Accordion>
+
+          {shipmentGroups.length > 0 && (() => {
+            const allGroups = form.watch("shipmentGroups") as any[] | undefined;
+            const groupTotals = (allGroups || []).map((g) =>
+              (g?.shipments || []).reduce(
+                (sum: number, s: any) => sum + (Number(s?.totalPrice) || 0),
+                0
+              )
+            );
+            const grandTotal = groupTotals.reduce((a: number, b: number) => a + b, 0);
+            return (
+              <Card className="border-2 border-primary/30 bg-primary/5">
+                <CardContent className="p-4 sm:p-5">
+                  <div className="space-y-2">
+                    {groupTotals.map((t, idx) => {
+                      const productsCount = (allGroups?.[idx]?.shipments || []).length as number;
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between text-sm"
+                        >
+                          <span className="text-muted-foreground">
+                            Shipment {idx + 1}
+                            <span className="ml-2 text-xs">
+                              ({productsCount} product{productsCount === 1 ? "" : "s"})
+                            </span>
+                          </span>
+                          <span className="font-medium tabular-nums">${t.toFixed(2)}</span>
+                        </div>
+                      );
+                    })}
+                    <div className="border-t border-primary/30 pt-2 flex items-center justify-between">
+                      <span className="text-base font-semibold">Grand Total</span>
+                      <span className="text-lg font-bold tabular-nums text-primary">
+                        ${grandTotal.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           <div className="flex justify-end gap-3">
             <Button
