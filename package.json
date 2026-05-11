@@ -10,7 +10,9 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "export:firestore-users": "node scripts/export-firestore-users.js"
+    "export:firestore-users": "node scripts/export-firestore-users.js",
+    "docs:bin-label-pdf": "node scripts/generate-bin-label-sheet-pdf.mjs",
+    "docs:barcode-label-pdf": "node scripts/generate-bin-label-sheet-pdf.mjs"
   },
   "dependencies": {
     "@genkit-ai/google-genai": "^1.20.0",
@@ -78,6 +80,7 @@
     "@types/react-dom": "^18",
     "genkit-cli": "^1.20.0",
     "postcss": "^8",
+    "qrcode": "^1.5.4",
     "tailwindcss": "^3.4.1",
     "typescript": "5.9.3"
   }

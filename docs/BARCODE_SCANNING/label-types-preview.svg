@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1180" viewBox="0 0 1600 1180">
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .card { fill: #ffffff; stroke: #dbe2ea; stroke-width: 2; }
+      .title { font: 700 28px Arial, sans-serif; fill: #0f172a; }
+      .subtitle { font: 600 18px Arial, sans-serif; fill: #334155; }
+      .meta { font: 500 16px Arial, sans-serif; fill: #475569; }
+      .small { font: 500 14px Arial, sans-serif; fill: #64748b; }
+      .legend { font: 700 22px Arial, sans-serif; fill: #0f172a; }
+      .qrbg { fill: #fff; stroke: #94a3b8; stroke-width: 2; }
+      .q { fill: #0f172a; }
+      .binAccent { fill: #eff6ff; stroke: #2563eb; stroke-width: 3; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="1180"/>
+  <text class="title" x="70" y="62">PrepCorex Barcode Label Types (QR)</text>
+  <text class="small" x="70" y="94">Bin labels use level colors (L1 floor … L5 top); PDF sample: barcode-label-sheets-sample.pdf</text>
+
+  <!-- Card 1: Bin label + level color legend -->
+  <rect class="binAccent" x="68" y="118" rx="18" ry="18" width="704" height="410"/>
+  <rect class="card" x="70" y="120" rx="16" ry="16" width="700" height="406"/>
+  <text class="subtitle" x="100" y="158">1) Bin Label (Required)</text>
+  <text class="small" x="100" y="182">One bay sheet: 5 levels × 3 bins/level (example); admin sets bins per level.</text>
+
+  <!-- Level strip legend (matches PDF theme) -->
+  <text class="small" x="100" y="208">Level colors (print/PDF):</text>
+  <rect x="248" y="192" width="56" height="22" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/><text class="small" x="252" y="208" font-size="12" font-weight="700" fill="#1e40af">L1</text>
+  <rect x="316" y="192" width="56" height="22" rx="4" fill="#d1fae5" stroke="#059669" stroke-width="2"/><text class="small" x="320" y="208" font-size="12" font-weight="700" fill="#065f46">L2</text>
+  <rect x="384" y="192" width="56" height="22" rx="4" fill="#fef3c7" stroke="#d97706" stroke-width="2"/><text class="small" x="388" y="208" font-size="12" font-weight="700" fill="#92400e">L3</text>
+  <rect x="452" y="192" width="56" height="22" rx="4" fill="#e9d5ff" stroke="#7c3aed" stroke-width="2"/><text class="small" x="456" y="208" font-size="12" font-weight="700" fill="#5b21b6">L4</text>
+  <rect x="520" y="192" width="56" height="22" rx="4" fill="#fecaca" stroke="#dc2626" stroke-width="2"/><text class="small" x="524" y="208" font-size="12" font-weight="700" fill="#991b1b">L5</text>
+
+  <rect class="qrbg" x="105" y="238" width="190" height="190"/>
+  <rect class="q" x="122" y="255" width="32" height="32"/><rect class="q" x="159" y="255" width="32" height="32"/><rect class="q" x="231" y="255" width="32" height="32"/>
+  <rect class="q" x="122" y="292" width="32" height="32"/><rect class="q" x="231" y="292" width="32" height="32"/>
+  <rect class="q" x="159" y="329" width="32" height="32"/><rect class="q" x="196" y="329" width="32" height="32"/><rect class="q" x="231" y="329" width="32" height="32"/>
+  <rect class="q" x="122" y="366" width="32" height="32"/><rect class="q" x="231" y="366" width="32" height="32"/>
+
+  <rect x="330" y="238" width="410" height="56" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text class="subtitle" x="348" y="274" font-size="17">Example cell: L3 · Bin A2</text>
+
+  <text class="meta" x="330" y="318">QR payload (binPath):</text>
+  <text class="title" x="330" y="356" style="font-size:28px;">NJ02-A-1-A-3-A2</text>
+  <text class="small" x="330" y="388">Warehouse-Area-Row-Bay-Level-Bin — scan identifies exact slot.</text>
+
+  <!-- Card 2 -->
+  <rect class="card" x="830" y="118" rx="16" ry="16" width="700" height="406" stroke="#14b8a6" stroke-width="2"/>
+  <text class="subtitle" x="860" y="158">2) Product Label</text>
+  <text class="small" x="860" y="182">Teal accent — identifies SKU / product.</text>
+  <rect class="qrbg" x="865" y="238" width="190" height="190"/>
+  <rect class="q" x="882" y="255" width="32" height="32"/><rect class="q" x="919" y="255" width="32" height="32"/><rect class="q" x="991" y="255" width="32" height="32"/>
+  <rect class="q" x="882" y="292" width="32" height="32"/><rect class="q" x="956" y="292" width="32" height="32"/><rect class="q" x="991" y="292" width="32" height="32"/>
+  <rect class="q" x="919" y="329" width="32" height="32"/><rect class="q" x="956" y="329" width="32" height="32"/>
+  <rect class="q" x="882" y="366" width="32" height="32"/><rect class="q" x="991" y="366" width="32" height="32"/>
+  <text class="meta" x="1080" y="278">QR payload:</text>
+  <text class="title" x="1080" y="318" style="font-size:28px;">SKU:ABC123-BLK-M</text>
+  <text class="small" x="1080" y="352">Premium Hoodie Black M</text>
+
+  <!-- Card 3 -->
+  <rect class="card" x="70" y="558" rx="16" ry="16" width="700" height="380" stroke="#ea580c" stroke-width="2"/>
+  <text class="subtitle" x="100" y="598">3) Carton / Receiving Label</text>
+  <text class="small" x="100" y="622">Orange accent — lot + expiry + qty for inbound.</text>
+  <rect class="qrbg" x="105" y="658" width="190" height="190"/>
+  <rect class="q" x="122" y="675" width="32" height="32"/><rect class="q" x="159" y="675" width="32" height="32"/><rect class="q" x="231" y="675" width="32" height="32"/>
+  <rect class="q" x="122" y="712" width="32" height="32"/><rect class="q" x="196" y="712" width="32" height="32"/><rect class="q" x="231" y="712" width="32" height="32"/>
+  <rect class="q" x="159" y="749" width="32" height="32"/><rect class="q" x="196" y="749" width="32" height="32"/><rect class="q" x="231" y="749" width="32" height="32"/>
+  <rect class="q" x="122" y="786" width="32" height="32"/><rect class="q" x="196" y="786" width="32" height="32"/>
+  <text class="meta" x="330" y="708">QR payload:</text>
+  <text class="small" x="330" y="738">SKU=ABC123 | LOT=L2405A</text>
+  <text class="small" x="330" y="762">EXP=2027-08-31 | QTY=24</text>
+
+  <!-- Card 4 -->
+  <rect class="card" x="830" y="558" rx="16" ry="16" width="700" height="380" stroke="#6366f1" stroke-width="2"/>
+  <text class="subtitle" x="860" y="598">4) Shipment / Handling Label (Optional)</text>
+  <text class="small" x="860" y="622">Indigo accent — staging / dispatch carton ID.</text>
+  <rect class="qrbg" x="865" y="658" width="190" height="190"/>
+  <rect class="q" x="882" y="675" width="32" height="32"/><rect class="q" x="919" y="675" width="32" height="32"/><rect class="q" x="991" y="675" width="32" height="32"/>
+  <rect class="q" x="882" y="712" width="32" height="32"/><rect class="q" x="956" y="712" width="32" height="32"/>
+  <rect class="q" x="919" y="749" width="32" height="32"/><rect class="q" x="956" y="749" width="32" height="32"/><rect class="q" x="991" y="749" width="32" height="32"/>
+  <rect class="q" x="882" y="786" width="32" height="32"/><rect class="q" x="991" y="786" width="32" height="32"/>
+  <text class="meta" x="1080" y="708">QR payload:</text>
+  <text class="small" x="1080" y="738">SHIP=SHP-2026-00421</text>
+  <text class="small" x="1080" y="762">CTN=3/8</text>
+
+  <rect x="70" y="972" width="1460" height="72" rx="12" ry="12" fill="#e2e8f0" stroke="#cbd5e1"/>
+  <text class="legend" x="96" y="1014">Worker rule: Scan WHAT (product/carton) + Scan WHERE (bin) + Confirm QTY</text>
+</svg>
