@@ -29,6 +29,21 @@ service firebase.storage {
       // Allow authenticated users to delete inventory images
       allow delete: if request.auth != null;
     }
+
+    // Restock images: Admins upload photos of the received stock during a restock action.
+    // Both the client (owner) and admins can read; admins (authenticated users) can write.
+    match /restock-images/{userId}/{fileName} {
+      // Allow authenticated users to read restock photos
+      allow read: if request.auth != null;
+      
+      // Allow authenticated users to upload images (admins upload for users)
+      allow write: if request.auth != null 
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 1024 * 1024; // 1MB limit per image (matches client-side compression)
+      
+      // Allow authenticated users to delete restock photos
+      allow delete: if request.auth != null;
+    }
     
     // Shipment labels: Users can upload labels for their shipment requests
     match /shipment-labels/{userId}/{fileName} {

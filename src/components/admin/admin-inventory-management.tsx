@@ -18,9 +18,12 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { doc, updateDoc, deleteDoc, addDoc, collection, getDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, storage } from "@/lib/firebase";
+import imageCompression from "browser-image-compression";
 import { useToast } from "@/hooks/use-toast";
-import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff, ArrowRight, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff, ArrowRight, ChevronsUpDown, Loader2, ImageIcon, Upload } from "lucide-react";
 import { AddInventoryForm } from "@/components/admin/add-inventory-form";
 import { AddInventoryRequestForm } from "@/components/dashboard/add-inventory-request-form";
 import { ShipInventoryForm } from "@/components/admin/ship-inventory-form";
@@ -61,6 +64,7 @@ const editProductSchema = z.object({
 const restockSchema = z.object({
   quantity: z.number().min(1, "Quantity must be at least 1"),
   restockDate: z.date({ required_error: "A restock date is required." }),
+  remarks: z.string().max(1000, "Remarks too long").optional(),
 });
 
 const recycleSchema = z.object({
@@ -273,6 +277,16 @@ export function AdminInventoryManagement({
 
   const [selectedRemarks, setSelectedRemarks] = useState<string>("");
   const [isRemarksDialogOpen, setIsRemarksDialogOpen] = useState(false);
+
+  // Restock image upload (admin) state
+  const [restockSelectedImages, setRestockSelectedImages] = useState<File[]>([]);
+  const [restockImagePreviews, setRestockImagePreviews] = useState<{ file: File; preview: string }[]>([]);
+  const [isUploadingRestockImages, setIsUploadingRestockImages] = useState(false);
+
+  // Restock image viewer (shared between dialog and table preview)
+  const [restockViewerUrls, setRestockViewerUrls] = useState<string[]>([]);
+  const [restockViewerTitle, setRestockViewerTitle] = useState<string>("");
+  const [isRestockViewerOpen, setIsRestockViewerOpen] = useState(false);
   const [detailsTitle, setDetailsTitle] = useState<string>("");
   const [detailsLines, setDetailsLines] = useState<string[]>([]);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
@@ -399,6 +413,7 @@ export function AdminInventoryManagement({
     defaultValues: {
       quantity: 1,
       restockDate: new Date(),
+      remarks: "",
     },
   });
 
@@ -432,8 +447,132 @@ export function AdminInventoryManagement({
 
   const handleRestockProduct = (product: InventoryItem) => {
     setRestockingProduct(product);
-    restockForm.setValue("quantity", 1);
-    restockForm.setValue("restockDate", new Date());
+    restockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "" });
+    setRestockSelectedImages([]);
+    setRestockImagePreviews([]);
+  };
+
+  const compressRestockImage = async (file: File): Promise<File> => {
+    const options = {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1920,
+      useWebWorker: true,
+      fileType: file.type,
+    };
+    try {
+      return await imageCompression(file, options);
+    } catch (error) {
+      console.error("Error compressing restock image:", error);
+      throw error;
+    }
+  };
+
+  const handleRestockImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const MAX_IMAGES = 10;
+    const currentCount = restockImagePreviews.length;
+    const remainingSlots = Math.max(0, MAX_IMAGES - currentCount);
+    if (remainingSlots <= 0) {
+      toast({
+        variant: "destructive",
+        title: "Limit Reached",
+        description: `You can attach up to ${MAX_IMAGES} pictures per restock.`,
+      });
+      event.target.value = "";
+      return;
+    }
+
+    const validFiles: File[] = [];
+    const newPreviews: { file: File; preview: string }[] = [];
+
+    for (let i = 0; i < files.length && validFiles.length < remainingSlots; i++) {
+      const file = files[i];
+      if (!file.type.startsWith("image/")) {
+        toast({
+          variant: "destructive",
+          title: "Invalid File",
+          description: `${file.name} is not an image. Skipping.`,
+        });
+        continue;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        toast({
+          variant: "destructive",
+          title: "File Too Large",
+          description: `${file.name} is over 10 MB. Skipping.`,
+        });
+        continue;
+      }
+      validFiles.push(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        newPreviews.push({ file, preview: reader.result as string });
+        if (newPreviews.length === validFiles.length) {
+          setRestockSelectedImages(prev => [...prev, ...validFiles]);
+          setRestockImagePreviews(prev => [...prev, ...newPreviews]);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+
+    if (files.length > remainingSlots) {
+      toast({
+        title: "Some Pictures Skipped",
+        description: `Only ${remainingSlots} more picture(s) could be added (max ${MAX_IMAGES}).`,
+      });
+    }
+
+    event.target.value = "";
+  };
+
+  const handleRestockImageRemove = (index: number) => {
+    setRestockSelectedImages(prev => prev.filter((_, i) => i !== index));
+    setRestockImagePreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadRestockImages = async (ownerUserId: string): Promise<string[]> => {
+    if (restockSelectedImages.length === 0) return [];
+    const uploadedUrls: string[] = [];
+    setIsUploadingRestockImages(true);
+    try {
+      for (const file of restockSelectedImages) {
+        try {
+          const compressed = await compressRestockImage(file);
+          if (compressed.size > 1024 * 1024) {
+            toast({
+              variant: "destructive",
+              title: "Compression Failed",
+              description: `${file.name} could not be compressed below 1 MB. Skipping.`,
+            });
+            continue;
+          }
+          const path = `restock-images/${ownerUserId}/${Date.now()}_${compressed.name}`;
+          const storageRef = ref(storage, path);
+          await uploadBytes(storageRef, compressed);
+          const url = await getDownloadURL(storageRef);
+          uploadedUrls.push(url);
+        } catch (err: any) {
+          console.error("Restock image upload failed:", err);
+          toast({
+            variant: "destructive",
+            title: "Upload Failed",
+            description: `Failed to upload ${file.name}: ${err?.message || "Unknown error"}`,
+          });
+        }
+      }
+    } finally {
+      setIsUploadingRestockImages(false);
+    }
+    return uploadedUrls;
+  };
+
+  const openRestockImageViewer = (urls: string[], title: string) => {
+    if (!urls || urls.length === 0) return;
+    setRestockViewerUrls(urls);
+    setRestockViewerTitle(title);
+    setIsRestockViewerOpen(true);
   };
 
   const handleRecycleProduct = (product: InventoryItem) => {
@@ -620,6 +759,8 @@ export function AdminInventoryManagement({
     if (!restockingProduct || !selectedUser || !adminUser) return;
 
     try {
+      const uploadedImageUrls = await uploadRestockImages(selectedUser.uid);
+
       const productRef = doc(db, `users/${selectedUser.uid}/inventory`, restockingProduct.id);
       const previousQuantity = restockingProduct.quantity;
       const newQuantity = previousQuantity + values.quantity;
@@ -634,14 +775,18 @@ export function AdminInventoryManagement({
 
       // Record restock history with selected date
       const restockHistoryRef = collection(db, `users/${selectedUser.uid}/restockHistory`);
-      await addDoc(restockHistoryRef, {
+      const remarksTrimmed = (values.remarks || "").trim();
+      const historyPayload: Record<string, unknown> = {
         productName: restockingProduct.productName,
         previousQuantity: previousQuantity,
         restockedQuantity: values.quantity,
         newQuantity: newQuantity,
         restockedBy: adminUser.name || "Admin",
         restockedAt: values.restockDate, // Use selected date instead of new Date()
-      });
+      };
+      if (remarksTrimmed.length > 0) historyPayload.remarks = remarksTrimmed;
+      if (uploadedImageUrls.length > 0) historyPayload.imageUrls = uploadedImageUrls;
+      await addDoc(restockHistoryRef, historyPayload);
 
       toast({
         title: "Success",
@@ -649,6 +794,8 @@ export function AdminInventoryManagement({
       });
       setRestockingProduct(null);
       restockForm.reset();
+      setRestockSelectedImages([]);
+      setRestockImagePreviews([]);
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -2507,6 +2654,8 @@ export function AdminInventoryManagement({
                       <TableHead className="min-w-[120px]">New Total</TableHead>
                       <TableHead className="min-w-[180px]">Restocked By</TableHead>
                       <TableHead className="min-w-[150px]">Date</TableHead>
+                      <TableHead className="min-w-[140px]">Pictures</TableHead>
+                      <TableHead className="min-w-[200px]">Remarks</TableHead>
                       <TableHead className="w-14 text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -2525,6 +2674,50 @@ export function AdminInventoryManagement({
                             <Calendar className="h-3 w-3" />
                             {formatDate(item.restockedAt)}
                           </span>
+                        </TableCell>
+                        <TableCell>
+                          {Array.isArray(item.imageUrls) && item.imageUrls.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => openRestockImageViewer(item.imageUrls || [], `${item.productName} - ${formatDate(item.restockedAt)}`)}
+                              className="inline-flex items-center gap-2 hover:opacity-90"
+                              title="View pictures"
+                            >
+                              <span className="relative inline-flex">
+                                <img
+                                  src={item.imageUrls[0]}
+                                  alt="restock-pic"
+                                  className="h-9 w-9 rounded-md border object-cover"
+                                />
+                                {item.imageUrls.length > 1 && (
+                                  <span className="absolute -bottom-1 -right-1 text-[10px] leading-none px-1 py-0.5 rounded-full bg-green-600 text-white border border-white">
+                                    +{item.imageUrls.length - 1}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="text-xs text-green-700 font-medium">View</span>
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <ImageIcon className="h-3 w-3" />
+                              None
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-slate-700">
+                          {item.remarks ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-auto p-1 text-xs text-left justify-start max-w-[220px] truncate"
+                              onClick={() => handleRemarksClick(item.remarks || "")}
+                              title={item.remarks}
+                            >
+                              {item.remarks}
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <AlertDialog>
@@ -3122,8 +3315,18 @@ export function AdminInventoryManagement({
       </Dialog>
 
       {/* Restock Product Dialog */}
-      <Dialog open={!!restockingProduct} onOpenChange={() => setRestockingProduct(null)}>
-        <DialogContent>
+      <Dialog
+        open={!!restockingProduct}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRestockingProduct(null);
+            setRestockSelectedImages([]);
+            setRestockImagePreviews([]);
+            restockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "" });
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Restock Product</DialogTitle>
             <DialogDescription>Add inventory to "{restockingProduct?.productName}"</DialogDescription>
@@ -3167,14 +3370,128 @@ export function AdminInventoryManagement({
                   </FormItem>
                 )}
               />
+              <FormField
+                control={restockForm.control}
+                name="remarks"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Remarks (optional)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={3}
+                        placeholder="Notes visible to the client (condition, carton count, dock observations, etc.)"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Pictures */}
+              <div className="space-y-2">
+                <Label>Pictures (optional)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Upload up to 10 photos of the received stock. Both you and the client will see these in the Restock Summary.
+                </p>
+                <div className="flex items-center gap-2">
+                  <label
+                    htmlFor="restock-image-input"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-background hover:bg-accent cursor-pointer text-sm"
+                  >
+                    <Upload className="h-4 w-4" />
+                    {restockImagePreviews.length === 0 ? "Add Pictures" : "Add More"}
+                  </label>
+                  <input
+                    id="restock-image-input"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleRestockImageSelect}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {restockImagePreviews.length}/10 selected
+                  </span>
+                </div>
+                {restockImagePreviews.length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-2">
+                    {restockImagePreviews.map((p, i) => (
+                      <div key={i} className="relative group border rounded-md overflow-hidden">
+                        <img
+                          src={p.preview}
+                          alt={`restock-${i}`}
+                          className="h-20 w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRestockImageRemove(i)}
+                          className="absolute top-1 right-1 bg-black/60 hover:bg-black/80 text-white rounded-full p-1"
+                          aria-label="Remove picture"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-2">
-                <Button type="submit" className="flex-1">Restock Product</Button>
-                <Button type="button" variant="outline" onClick={() => setRestockingProduct(null)}>
+                <Button type="submit" className="flex-1" disabled={isUploadingRestockImages}>
+                  {isUploadingRestockImages ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Uploading...
+                    </span>
+                  ) : (
+                    "Restock Product"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setRestockingProduct(null);
+                    setRestockSelectedImages([]);
+                    setRestockImagePreviews([]);
+                    restockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "" });
+                  }}
+                  disabled={isUploadingRestockImages}
+                >
                   Cancel
                 </Button>
               </div>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Restock Pictures Viewer */}
+      <Dialog open={isRestockViewerOpen} onOpenChange={setIsRestockViewerOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Restock Pictures</DialogTitle>
+            <DialogDescription>{restockViewerTitle}</DialogDescription>
+          </DialogHeader>
+          {restockViewerUrls.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No pictures attached.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {restockViewerUrls.map((url, i) => (
+                <a
+                  key={i}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block border rounded-md overflow-hidden hover:opacity-90"
+                  title="Open full size"
+                >
+                  <img src={url} alt={`restock-pic-${i + 1}`} className="h-40 w-full object-cover" />
+                </a>
+              ))}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

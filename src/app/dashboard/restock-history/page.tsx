@@ -17,7 +17,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { History, TrendingUp, Calendar, Search, X } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { History, TrendingUp, Calendar, Search, X, ImageIcon } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
 
@@ -29,6 +36,30 @@ export default function RestockHistoryPage() {
   const [restockSearch, setRestockSearch] = useState("");
   const [restockPage, setRestockPage] = useState(1);
   const itemsPerPage = 10;
+
+  // Image viewer
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerUrls, setViewerUrls] = useState<string[]>([]);
+  const [viewerTitle, setViewerTitle] = useState("");
+
+  // Remarks viewer
+  const [remarksOpen, setRemarksOpen] = useState(false);
+  const [remarksText, setRemarksText] = useState("");
+  const [remarksTitle, setRemarksTitle] = useState("");
+
+  const openImages = (urls: string[] | undefined, title: string) => {
+    if (!urls || urls.length === 0) return;
+    setViewerUrls(urls);
+    setViewerTitle(title);
+    setViewerOpen(true);
+  };
+
+  const openRemarks = (text: string | undefined, title: string) => {
+    if (!text) return;
+    setRemarksText(text);
+    setRemarksTitle(title);
+    setRemarksOpen(true);
+  };
 
   const { 
     data: restockHistory, 
@@ -209,6 +240,8 @@ export default function RestockHistoryPage() {
                     <TableHead className="min-w-[120px]">New Total</TableHead>
                     <TableHead className="min-w-[180px]">Restocked By</TableHead>
                     <TableHead className="min-w-[150px]">Date</TableHead>
+                    <TableHead className="min-w-[140px]">Pictures</TableHead>
+                    <TableHead className="min-w-[200px]">Remarks</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -226,6 +259,50 @@ export default function RestockHistoryPage() {
                           <Calendar className="h-3 w-3" />
                           {formatDate(item.restockedAt)}
                         </span>
+                      </TableCell>
+                      <TableCell>
+                        {Array.isArray(item.imageUrls) && item.imageUrls.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => openImages(item.imageUrls, `${item.productName} - ${formatDate(item.restockedAt)}`)}
+                            className="inline-flex items-center gap-2 hover:opacity-90"
+                            title="View pictures"
+                          >
+                            <span className="relative inline-flex">
+                              <img
+                                src={item.imageUrls[0]}
+                                alt="restock-pic"
+                                className="h-9 w-9 rounded-md border object-cover"
+                              />
+                              {item.imageUrls.length > 1 && (
+                                <span className="absolute -bottom-1 -right-1 text-[10px] leading-none px-1 py-0.5 rounded-full bg-green-600 text-white border border-white">
+                                  +{item.imageUrls.length - 1}
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-xs text-green-700 font-medium">View</span>
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                            <ImageIcon className="h-3 w-3" />
+                            None
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-slate-700">
+                        {item.remarks ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto p-1 text-xs text-left justify-start max-w-[220px] truncate"
+                            onClick={() => openRemarks(item.remarks, `${item.productName} - ${formatDate(item.restockedAt)}`)}
+                            title={item.remarks}
+                          >
+                            {item.remarks}
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -277,6 +354,45 @@ export default function RestockHistoryPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Pictures viewer */}
+      <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Restock Pictures</DialogTitle>
+            <DialogDescription>{viewerTitle}</DialogDescription>
+          </DialogHeader>
+          {viewerUrls.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No pictures attached.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {viewerUrls.map((url, i) => (
+                <a
+                  key={i}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block border rounded-md overflow-hidden hover:opacity-90"
+                  title="Open full size"
+                >
+                  <img src={url} alt={`restock-pic-${i + 1}`} className="h-40 w-full object-cover" />
+                </a>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Remarks viewer */}
+      <Dialog open={remarksOpen} onOpenChange={setRemarksOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Restock Remarks</DialogTitle>
+            <DialogDescription>{remarksTitle}</DialogDescription>
+          </DialogHeader>
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{remarksText}</p>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
