@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Search, Filter, X, Clock, Eye, Edit } from "lucide-react";
+import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { AddInventoryRequestForm } from "./add-inventory-request-form";
 import { useCollection } from "@/hooks/use-collection";
@@ -176,15 +176,27 @@ const lowStockRowCardClass =
 const lowStockTextClass = "text-red-700 dark:text-red-400";
 const lowStockQtyClass = "text-red-800 dark:text-red-300";
 
+export type AdminInventoryActions = {
+  onRestock?: (item: InventoryItem) => void;
+  onDispose?: (item: InventoryItem) => void;
+  onEdit?: (item: InventoryItem) => void;
+  onDelete?: (item: InventoryItem) => void;
+};
+
 export function InventoryTable({
   data,
   ownerUserId,
   ownerUserName,
+  adminActions,
 }: {
   data: InventoryItem[];
   ownerUserId?: string;
   ownerUserName?: string;
+  adminActions?: AdminInventoryActions;
 }) {
+  const hasAdminActions = Boolean(
+    adminActions && (adminActions.onRestock || adminActions.onDispose || adminActions.onEdit || adminActions.onDelete)
+  );
   const searchParams = useSearchParams();
   const { userProfile } = useAuth();
   const effectiveUserId = ownerUserId || userProfile?.uid;
@@ -622,7 +634,7 @@ export function InventoryTable({
                     </div>
                   </div>
                 </div>
-                <div className="mt-2">
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   <Badge 
                     variant={
                       item.status === "Pending" ? "outline" :
@@ -634,6 +646,50 @@ export function InventoryTable({
                     {item.status === "Pending" ? "Pending Approval" :
                      item.status === "Rejected" ? "Rejected" : item.status}
                   </Badge>
+                  {hasAdminActions && !(item as any).isRequest && (
+                    <div className="flex flex-wrap items-center gap-1 ml-auto">
+                      {adminActions?.onRestock && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => adminActions.onRestock?.(item as InventoryItem)}
+                        >
+                          <PlusCircle className="h-3 w-3 mr-1" /> Restock
+                        </Button>
+                      )}
+                      {adminActions?.onEdit && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] border-blue-300 text-blue-700 hover:bg-blue-50"
+                          onClick={() => adminActions.onEdit?.(item as InventoryItem)}
+                        >
+                          <Edit className="h-3 w-3 mr-1" /> Edit
+                        </Button>
+                      )}
+                      {adminActions?.onDispose && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] border-orange-300 text-orange-700 hover:bg-orange-50"
+                          onClick={() => adminActions.onDispose?.(item as InventoryItem)}
+                        >
+                          <Recycle className="h-3 w-3 mr-1" /> Dispose
+                        </Button>
+                      )}
+                      {adminActions?.onDelete && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] border-red-300 text-red-700 hover:bg-red-50"
+                          onClick={() => adminActions.onDelete?.(item as InventoryItem)}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" /> Delete
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -659,6 +715,9 @@ export function InventoryTable({
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">Receiving Date</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden lg:table-cell">Remarks</TableHead>
                 <TableHead className="text-xs sm:text-sm">Status</TableHead>
+                {hasAdminActions && (
+                  <TableHead className="text-xs sm:text-sm text-right">Actions</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -776,12 +835,66 @@ export function InventoryTable({
                          item.status === "Rejected" ? "Rejected" : item.status}
                       </Badge>
                     </TableCell>
+                    {hasAdminActions && (
+                      <TableCell className="whitespace-nowrap text-right">
+                        {!(item as any).isRequest ? (
+                          <div className="inline-flex items-center gap-1">
+                            {adminActions?.onRestock && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-emerald-700 hover:bg-emerald-50"
+                                title="Restock"
+                                onClick={() => adminActions.onRestock?.(item as InventoryItem)}
+                              >
+                                <PlusCircle className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {adminActions?.onEdit && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-blue-700 hover:bg-blue-50"
+                                title="Edit (logged)"
+                                onClick={() => adminActions.onEdit?.(item as InventoryItem)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {adminActions?.onDispose && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-orange-700 hover:bg-orange-50"
+                                title="Dispose"
+                                onClick={() => adminActions.onDispose?.(item as InventoryItem)}
+                              >
+                                <Recycle className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {adminActions?.onDelete && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-red-700 hover:bg-red-50"
+                                title="Delete (logged)"
+                                onClick={() => adminActions.onDelete?.(item as InventoryItem)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 );
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8">
+                  <TableCell colSpan={hasAdminActions ? 10 : 9} className="text-center py-8">
                     <div className="text-xs sm:text-sm text-gray-500">
                       {combinedData.length === 0 ? "No inventory items or requests found." : "No items match your search criteria."}
                     </div>

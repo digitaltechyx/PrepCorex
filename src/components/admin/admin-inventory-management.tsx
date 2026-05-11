@@ -1912,6 +1912,12 @@ export function AdminInventoryManagement({
               data={inventory}
               ownerUserId={selectedUser.uid}
               ownerUserName={selectedUser.name ?? selectedUser.email ?? "User"}
+              adminActions={{
+                onRestock: handleRestockProduct,
+                onEdit: handleEditProductWithLog,
+                onDispose: handleRecycleProduct,
+                onDelete: handleDeleteProduct,
+              }}
             />
           )}
         </CardContent>
