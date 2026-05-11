@@ -247,6 +247,10 @@ export interface RestockHistory {
     seconds: number;
     nanoseconds: number;
   } | string;
+  /** Optional admin remarks captured at restock time. Visible to user. */
+  remarks?: string;
+  /** Optional photos uploaded by admin during restock (e.g. carton/dock photos). Visible to user. */
+  imageUrls?: string[];
 }
 
 export interface RecycledShippedItem {
