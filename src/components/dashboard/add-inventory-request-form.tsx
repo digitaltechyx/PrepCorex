@@ -176,12 +176,13 @@ export function AddInventoryRequestForm({
     ownerId ? `users/${ownerId}/inventory` : ""
   );
 
-  // Filter only "In Stock" products for restock (show all products, exclude boxes/containers/pallets)
+  // Eligible for restock: real listed products in stock OR out of stock (exclude boxes/containers/pallets, exclude Pending/Rejected requests).
   const availableProductsForRestock = useMemo(() => {
     return existingInventory.filter(item => {
       const inventoryType = (item as any).inventoryType;
       const isExcludedType = inventoryType === "box" || inventoryType === "container" || inventoryType === "pallet";
-      return !isExcludedType && item.status === "In Stock";
+      if (isExcludedType) return false;
+      return item.status === "In Stock" || item.status === "Out of Stock";
     });
   }, [existingInventory]);
 
