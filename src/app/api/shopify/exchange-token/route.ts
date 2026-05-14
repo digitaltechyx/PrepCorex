@@ -1,9 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHmac, timingSafeEqual } from "crypto";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { ensureShopifyAppSubscriptionAfterConnect } from "@/lib/shopify-billing";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const SCOPES = "read_orders,read_products,write_fulfillments,read_inventory";
+
+/**
+ * Verify Shopify's HMAC over the OAuth callback query string.
+ * Per Shopify spec: sort all params except `hmac`/`signature`, build
+ * `k=v&k=v` (URL-decoded), HMAC-SHA256 with the app's client secret,
+ * compare hex digests in constant time.
+ */
+function verifyShopifyHmac(rawQuery: string, clientSecret: string): boolean {
+  if (!rawQuery) return false;
+  const params = new URLSearchParams(rawQuery);
+  const provided = params.get("hmac");
+  if (!provided) return false;
+  const entries: [string, string][] = [];
+  params.forEach((value, key) => {
+    if (key === "hmac" || key === "signature") return;
+    entries.push([key, value]);
+  });
+  entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const message = entries.map(([k, v]) => `${k}=${v}`).join("&");
+  const digest = createHmac("sha256", clientSecret).update(message).digest("hex");
+  const a = Buffer.from(digest, "utf8");
+  const b = Buffer.from(provided, "utf8");
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -28,6 +60,9 @@ export async function POST(request: NextRequest) {
   const code = body.code as string | undefined;
   const shop = (body.shop as string | undefined)?.trim().toLowerCase();
   const redirectUri = typeof body.redirect_uri === "string" ? body.redirect_uri.trim() : undefined;
+  const callbackState = typeof body.state === "string" ? body.state : "";
+  const callbackHmac = typeof body.hmac === "string" ? body.hmac : "";
+  const rawQuery = typeof body.raw_query === "string" ? body.raw_query : "";
   if (!code || !shop) {
     return NextResponse.json(
       { error: "Missing code or shop" },
@@ -48,6 +83,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Shopify app not configured" },
       { status: 500 }
+    );
+  }
+
+  /**
+   * App Store: if this OAuth callback originated from a Shopify-initiated
+   * install (cookie set by /api/shopify/install), bind the install attempt
+   * to this callback via state + HMAC. We only enforce the cookie check
+   * when an install cookie is present so the existing in-app "Connect
+   * another store" flow still works for already-installed merchants.
+   */
+  const installShopCookie = request.cookies.get("shopify_install_shop")?.value;
+  const stateCookie = request.cookies.get("shopify_oauth_state")?.value;
+  if (installShopCookie) {
+    if (installShopCookie !== normalizedShop) {
+      return NextResponse.json(
+        { error: "Install shop mismatch" },
+        { status: 400 }
+      );
+    }
+    if (!stateCookie || !callbackState || stateCookie !== callbackState) {
+      return NextResponse.json(
+        { error: "Invalid or expired OAuth state. Restart the install from Shopify." },
+        { status: 400 }
+      );
+    }
+  }
+  if (callbackHmac && rawQuery && !verifyShopifyHmac(rawQuery, clientSecret)) {
+    return NextResponse.json(
+      { error: "Invalid OAuth callback signature" },
+      { status: 401 }
     );
   }
 
@@ -162,7 +227,38 @@ export async function POST(request: NextRequest) {
       console.warn("[Shopify exchange-token] Webhook skipped: URL must be public (no localhost). Set NEXT_PUBLIC_APP_URL to your production URL.");
     }
 
-    return NextResponse.json({ success: true, shop: normalizedShop });
+    /** App Store: use Shopify Billing API ($0 recurring) unless SHOPIFY_BILLING_API=false. */
+    let billingConfirmationUrl: string | undefined;
+    let billingNotice: string | undefined;
+    if (baseUrl && !baseUrl.includes("localhost")) {
+      try {
+        const billing = await ensureShopifyAppSubscriptionAfterConnect({
+          shop: normalizedShop,
+          accessToken,
+          appBaseUrl: baseUrl,
+        });
+        if (billing.kind === "confirmation") {
+          billingConfirmationUrl = billing.confirmationUrl;
+        } else if (billing.kind === "error") {
+          billingNotice = billing.message;
+          console.warn("[Shopify exchange-token] Billing API:", billing.message);
+        }
+      } catch (e: unknown) {
+        billingNotice = e instanceof Error ? e.message : String(e);
+        console.warn("[Shopify exchange-token] Billing API exception:", billingNotice);
+      }
+    }
+
+    const response = NextResponse.json({
+      success: true,
+      shop: normalizedShop,
+      ...(billingConfirmationUrl ? { billingConfirmationUrl } : {}),
+      ...(billingNotice ? { billingNotice } : {}),
+    });
+    // One-shot install cookies — clear so they can't be replayed.
+    response.cookies.set("shopify_oauth_state", "", { maxAge: 0, path: "/" });
+    response.cookies.set("shopify_install_shop", "", { maxAge: 0, path: "/" });
+    return response;
   } catch (err: unknown) {
     console.error("[Shopify exchange-token]", err);
     return NextResponse.json(

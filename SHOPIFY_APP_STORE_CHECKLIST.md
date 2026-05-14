@@ -12,7 +12,8 @@ do the following.
 
 | Requirement | Status | Notes |
 |-------------|--------|--------|
-| **Authenticate immediately after install** | Met | OAuth in callback; code exchanged for token in `exchange-token`; user redirected to app UI. |
+| **Initiate installation from a Shopify-owned surface** | Met | `application_url` (in `shopify.app.toml`) points to `/api/shopify/install`. That route verifies Shopify's `hmac` over the install query string and redirects the merchant to `https://{shop}/admin/oauth/authorize`. The integrations UI now leads with an **Install from Shopify App Store** button; manual domain entry is hidden behind a disclosure as a re-link option for already-installed stores. |
+| **Authenticate immediately after install** | Met | OAuth in callback; code exchanged for token in `exchange-token`; user redirected to app UI. The callback now binds to install via a one-shot `shopify_oauth_state` cookie and verifies the callback HMAC. |
 | **Redirect to the app UI after installation** | Met | Callback redirects to `/dashboard/integrations` after success. |
 | **Use Shopify APIs** | Met | Orders, products, inventory, fulfillments, webhooks; compliance + HMAC in `webhooks/route.ts`. |
 | **Use a valid TLS/SSL certificate** | Verify | Ensure `https://dev.prepservicesfba.com` has valid cert in production. |
@@ -26,7 +27,7 @@ do the following.
 | **Connector: Must not connect to third party marketplace** | Met | Connects to PrepCorex backend only. |
 | **Connector: Indicate integrations and data transfers** | **Action** | In listing: what you connect to, what data is synced, where it goes. |
 | **App Store listing: Test credentials, demo screencast, pricing, icon, tags** | **Action** | Add in Dashboard: test credentials, demo video, pricing, icon, tags. |
-| **Use Shopify Managed Pricing or Billing API** | N/A | No in-app Shopify billing; N/A if free or you charge outside Shopify. |
+| **Use Shopify Managed Pricing or Billing API** | Met (code) | After OAuth, `exchange-token` calls GraphQL `appSubscriptionCreate` with a **$0 / 30-day** recurring plan (`src/lib/shopify-billing.ts`). Merchant may be redirected to Shopify to confirm. Set `SHOPIFY_BILLING_API=false` only if you use **Shopify App Pricing** exclusively in Partners (then configure plans there and avoid duplicate billing). Also add the billing return URL in Partners if it differs from `shopify.app.toml`. |
 
 ---
 

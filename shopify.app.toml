@@ -1,8 +1,8 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "73dceb248d9c50af181395367a12b4c2"
-name = "PSF Engine"
-application_url = "https://dev.prepservicesfba.com"
+name = "PrepCorex"
+application_url = "https://dev.prepservicesfba.com/api/shopify/install"
 embedded = false
 
 [webhooks]
@@ -20,5 +20,6 @@ use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [
-  "https://dev.prepservicesfba.com/dashboard/integrations/shopify/callback"
+  "https://dev.prepservicesfba.com/dashboard/integrations/shopify/callback",
+  "https://dev.prepservicesfba.com/dashboard/integrations/shopify/billing-complete"
 ]
