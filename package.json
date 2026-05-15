@@ -10,7 +10,10 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "export:firestore-users": "node scripts/export-firestore-users.js"
+    "export:firestore-users": "node scripts/export-firestore-users.js",
+    "shopify:login": "npx @shopify/cli@latest auth login",
+    "shopify:config:link": "npx @shopify/cli@latest app config link",
+    "shopify:deploy": "npx @shopify/cli@latest app deploy"
   },
   "dependencies": {
     "@genkit-ai/google-genai": "^1.20.0",

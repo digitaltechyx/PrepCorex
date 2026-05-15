@@ -1,20 +1,21 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+# PrepCorex ? deploy: npm run shopify:deploy
+# Webhook uri MUST be a full URL because application_url is /api/shopify/install
+# (relative uri would become ?/install/api/shopify/webhooks ? wrong).
 
-client_id = "73dceb248d9c50af181395367a12b4c2"
+client_id = "5a63d39e10be3002ced502b7a09eeedb"
 name = "PrepCorex"
 application_url = "https://dev.prepservicesfba.com/api/shopify/install"
 embedded = false
 
 [webhooks]
-api_version = "2025-04"
+api_version = "2026-04"
 
   [[webhooks.subscriptions]]
-  uri = "/api/shopify/webhooks"
+  uri = "https://dev.prepservicesfba.com/api/shopify/webhooks"
   compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_fulfillments,write_inventory,read_inventory,write_locations,read_locations,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_orders,read_products,write_products"
+scopes = "read_inventory,read_locations,read_merchant_managed_fulfillment_orders,read_orders,read_products,write_fulfillments,write_inventory,write_locations,write_merchant_managed_fulfillment_orders,write_products"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 

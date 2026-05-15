@@ -34,12 +34,9 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { PlatformBrandLogo } from "@/components/integrations/platform-brand-logo";
 
+/** Must match scopes in shopify.app.toml */
 const SHOPIFY_SCOPES =
-  "read_orders,read_products,write_products,write_fulfillments,read_inventory,read_locations,write_inventory";
-
-/** PrepCorex listing on the Shopify App Store (handle is usually lowercase). Override if Partners shows a different URL. */
-const SHOPIFY_APP_STORE_LISTING_URL =
-  process.env.NEXT_PUBLIC_SHOPIFY_APP_STORE_URL?.trim() || "https://apps.shopify.com/prepcorex";
+  "write_fulfillments,write_inventory,read_inventory,write_locations,read_locations,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_orders,read_products,write_products";
 
 type ShopifySelectedVariant = { variantId: string; productId: string; title: string; sku?: string };
 
@@ -744,54 +741,31 @@ export default function IntegrationsPage() {
           <DialogHeader>
             <DialogTitle>Connect Shopify store</DialogTitle>
             <DialogDescription>
-              Install PrepCorex from the Shopify App Store. Shopify will start the secure install on the store you choose.
+              Enter your Shopify store name to authorize PrepCorex. You&apos;ll sign in on Shopify, then return here when
+              the connection is complete.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
-            <div className="rounded-lg border bg-muted/20 p-4">
-              <p className="text-sm font-medium">Install from Shopify (recommended)</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Open the Shopify App Store listing and pick the store you want to connect. You&apos;ll be returned here
-                once the install completes.
+            <div className="space-y-2">
+              <Label>Store name</Label>
+              <Input
+                placeholder="e.g. mystore or my-store"
+                value={shopInput}
+                onChange={(e) => setShopInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleConnectShopify()}
+              />
+              <p className="text-xs text-muted-foreground">
+                From <span className="font-mono">mystore.myshopify.com</span> use <span className="font-mono">mystore</span>.
+                Letters, numbers, and hyphens only.
               </p>
-              <Button asChild className="mt-3 w-full">
-                <a
-                  href={SHOPIFY_APP_STORE_LISTING_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setConnectDialogOpen(false)}
-                >
-                  <ShoppingBag className="mr-2 h-4 w-4" />
-                  Open Shopify App Store
-                </a>
-              </Button>
             </div>
-
-            <details className="rounded-lg border bg-background p-3">
-              <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">
-                Already installed on a store? Link it by domain
-              </summary>
-              <div className="mt-3 space-y-2">
-                <Label className="text-xs">Store name</Label>
-                <Input
-                  placeholder="e.g. mystore or my-store"
-                  value={shopInput}
-                  onChange={(e) => setShopInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleConnectShopify()}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Use this only if you already installed PrepCorex on this store from the Shopify App Store and need to
-                  re-link it. From <span className="font-mono">mystore.myshopify.com</span> use <span className="font-mono">mystore</span>.
-                </p>
-                <Button variant="outline" size="sm" onClick={handleConnectShopify} className="w-full">
-                  Continue to Shopify OAuth
-                </Button>
-              </div>
-            </details>
-
-            <div className="flex justify-end">
-              <Button variant="ghost" size="sm" onClick={() => setConnectDialogOpen(false)}>
-                Close
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setConnectDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleConnectShopify}>
+                <ShoppingBag className="mr-2 h-4 w-4" />
+                Continue to Shopify
               </Button>
             </div>
           </div>
