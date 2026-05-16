@@ -8,6 +8,7 @@ import { collection, addDoc, Timestamp } from "firebase/firestore";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import { db } from "@/lib/firebase";
+import { stripUndefined } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -129,6 +130,12 @@ export function ProductReturnRequestForm({
     defaultValues: {
       type: "existing",
       returnType: undefined as any,
+      productId: "",
+      productName: "",
+      sku: "",
+      newProductName: "",
+      newProductSku: "",
+      userRemarks: "",
       packIntoBoxes: false,
       placeOnPallet: false,
       shipToAddress: false,
@@ -202,40 +209,50 @@ export function ProductReturnRequestForm({
       };
 
       if (values.shipToAddress) {
-        additionalServices.shippingAddress = {
-          name: values.shippingName || "",
-          address: values.shippingAddress || "",
-          city: values.shippingCity,
-          state: values.shippingState,
-          zipCode: values.shippingZipCode,
-          country: values.shippingCountry,
-        };
+        additionalServices.shippingAddress = stripUndefined({
+          name: values.shippingName?.trim() || "",
+          address: values.shippingAddress?.trim() || "",
+          city: values.shippingCity?.trim() || "",
+          state: values.shippingState?.trim() || "",
+          zipCode: values.shippingZipCode?.trim() || "",
+          country: values.shippingCountry?.trim() || "",
+        });
       }
 
-      const returnData: any = {
+      const returnData: Record<string, unknown> = {
         userId,
         type: values.type,
+        returnType: values.returnType,
         requestedQuantity: values.requestedQuantity,
         receivedQuantity: 0,
         status: "pending",
         createdAt: now,
         updatedAt: now,
-        userRemarks: values.userRemarks || "",
-        additionalServices: Object.keys(additionalServices).length > 0 ? additionalServices : undefined,
+        userRemarks: values.userRemarks?.trim() || "",
       };
+
+      const hasAdditionalServices =
+        values.packIntoBoxes || values.placeOnPallet || values.shipToAddress;
+      if (hasAdditionalServices) {
+        returnData.additionalServices = additionalServices;
+      }
 
       if (values.type === "existing") {
         returnData.productId = values.productId;
-        returnData.productName = values.productName;
-        returnData.sku = values.sku;
-        returnData.returnType = values.returnType;
+        returnData.productName = values.productName?.trim() || "";
+        const sku = values.sku?.trim();
+        if (sku) returnData.sku = sku;
       } else {
-        returnData.newProductName = values.newProductName;
-        returnData.newProductSku = values.newProductSku;
-        returnData.productName = values.newProductName;
+        returnData.newProductName = values.newProductName?.trim() || "";
+        returnData.productName = values.newProductName?.trim() || "";
+        const newSku = values.newProductSku?.trim();
+        if (newSku) returnData.newProductSku = newSku;
       }
 
-      await addDoc(collection(db, `users/${userId}/productReturns`), returnData);
+      await addDoc(
+        collection(db, `users/${userId}/productReturns`),
+        stripUndefined(returnData)
+      );
 
       toast({
         title: "Success",
