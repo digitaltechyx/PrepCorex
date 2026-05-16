@@ -18,7 +18,10 @@ export default function ShopifyCallbackPage() {
   useEffect(() => {
     const code = searchParams.get("code");
     const shop = searchParams.get("shop");
-    const state = searchParams.get("state");
+    const state = searchParams.get("state") ?? "";
+    const hmac = searchParams.get("hmac") ?? "";
+    // Reconstruct the original query string so the server can verify HMAC.
+    const rawQuery = typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "";
     if (!code || !shop) {
       setStatus("error");
       setMessage("Missing code or shop from Shopify. Please try connecting again.");
@@ -39,12 +42,7 @@ export default function ShopifyCallbackPage() {
         const res = await fetch("/api/shopify/exchange-token", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            code,
-            shop,
-            redirect_uri: redirectUri,
-            ...(state ? { state } : {}),
-          }),
+          body: JSON.stringify({ code, shop, redirect_uri: redirectUri, state, hmac, raw_query: rawQuery }),
         });
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;
@@ -53,6 +51,17 @@ export default function ShopifyCallbackPage() {
           const msg = data.error || "Failed to connect store.";
           setMessage(data.detail ? `${msg}: ${data.detail}` : msg);
           return;
+        }
+        const billingUrl =
+          typeof data.billingConfirmationUrl === "string" ? data.billingConfirmationUrl.trim() : "";
+        if (billingUrl) {
+          setStatus("success");
+          setMessage("Store connected. Opening Shopify to confirm the app subscription (required for billing)…");
+          window.location.assign(billingUrl);
+          return;
+        }
+        if (typeof data.billingNotice === "string" && data.billingNotice) {
+          console.warn("[Shopify callback] billingNotice:", data.billingNotice);
         }
         setStatus("success");
         setMessage(`Connected ${data.shop ?? shop}. Redirecting…`);

@@ -28,13 +28,13 @@ import {
   Store,
   Sparkles,
   Link2,
+  Info,
 } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { PlatformBrandLogo } from "@/components/integrations/platform-brand-logo";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Info } from "lucide-react";
 
 type ShopifySelectedVariant = { variantId: string; productId: string; title: string; sku?: string };
 
@@ -767,15 +767,18 @@ export default function IntegrationsPage() {
                 onKeyDown={(e) => e.key === "Enter" && handleConnectShopify()}
               />
               <p className="text-xs text-muted-foreground">
-                From mystore.myshopify.com use: mystore. Use a hyphen for multi-word stores (e.g. psf-testing). Spaces are
-                removed.
+                From <span className="font-mono">mystore.myshopify.com</span> use <span className="font-mono">mystore</span>.
+                Letters, numbers, and hyphens only.
               </p>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setConnectDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleConnectShopify}>Continue to Shopify</Button>
+              <Button onClick={handleConnectShopify}>
+                <ShoppingBag className="mr-2 h-4 w-4" />
+                Continue to Shopify
+              </Button>
             </div>
           </div>
         </DialogContent>

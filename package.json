@@ -12,7 +12,10 @@
     "typecheck": "tsc --noEmit",
     "export:firestore-users": "node scripts/export-firestore-users.js",
     "docs:bin-label-pdf": "node scripts/generate-bin-label-sheet-pdf.mjs",
-    "docs:barcode-label-pdf": "node scripts/generate-bin-label-sheet-pdf.mjs"
+    "docs:barcode-label-pdf": "node scripts/generate-bin-label-sheet-pdf.mjs",
+    "shopify:login": "npx @shopify/cli@latest auth login",
+    "shopify:config:link": "npx @shopify/cli@latest app config link",
+    "shopify:deploy": "npx @shopify/cli@latest app deploy"
   },
   "dependencies": {
     "@genkit-ai/google-genai": "^1.20.0",
