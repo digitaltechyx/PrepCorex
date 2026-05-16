@@ -25,7 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
-import type { InventoryItem, ProductReturnType } from "@/types";
+import type { InventoryItem } from "@/types";
 import {
   Select,
   SelectContent,
@@ -101,6 +101,25 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
+const FORM_DEFAULT_VALUES = {
+  type: "existing",
+  productId: "",
+  productName: "",
+  sku: "",
+  newProductName: "",
+  newProductSku: "",
+  userRemarks: "",
+  packIntoBoxes: false,
+  placeOnPallet: false,
+  shipToAddress: false,
+  shippingName: "",
+  shippingAddress: "",
+  shippingCity: "",
+  shippingState: "",
+  shippingZipCode: "",
+  shippingCountry: "",
+};
+
 export interface ProductReturnRequestFormProps {
   /** When set, form submits a return request on behalf of this user (admin flow). */
   targetUserId?: string;
@@ -127,19 +146,7 @@ export function ProductReturnRequestForm({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      type: "existing",
-      returnType: undefined as any,
-      productId: "",
-      productName: "",
-      sku: "",
-      newProductName: "",
-      newProductSku: "",
-      userRemarks: "",
-      packIntoBoxes: false,
-      placeOnPallet: false,
-      shipToAddress: false,
-    },
+    defaultValues: FORM_DEFAULT_VALUES,
   });
 
   const returnType = form.watch("type");
@@ -261,13 +268,7 @@ export function ProductReturnRequestForm({
           : "Product return request created successfully",
       });
 
-      form.reset({
-        type: "existing",
-        returnType: undefined,
-        packIntoBoxes: false,
-        placeOnPallet: false,
-        shipToAddress: false,
-      });
+      form.reset(FORM_DEFAULT_VALUES);
       onSuccess?.();
     } catch (error: any) {
       console.error("Error creating return request:", error);
@@ -345,7 +346,7 @@ export function ProductReturnRequestForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel className="text-base font-medium">How are products coming? *</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
+                <Select onValueChange={field.onChange} value={field.value ?? ""}>
                   <FormControl>
                     <SelectTrigger className="rounded-lg h-11">
                       <SelectValue placeholder="Select how products are coming" />
@@ -374,7 +375,7 @@ export function ProductReturnRequestForm({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-base font-medium">Select Product</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value ?? ""}>
                     <FormControl>
                       <SelectTrigger className="rounded-lg h-11">
                         <SelectValue placeholder="Select a product from inventory" />
@@ -409,7 +410,7 @@ export function ProductReturnRequestForm({
                 <FormItem>
                   <FormLabel className="text-base font-medium">Product Name</FormLabel>
                   <FormControl>
-                    <Input {...field} readOnly className="rounded-lg h-11 bg-muted/50" />
+                    <Input {...field} value={field.value ?? ""} readOnly className="rounded-lg h-11 bg-muted/50" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -423,7 +424,7 @@ export function ProductReturnRequestForm({
                 <FormItem>
                   <FormLabel className="text-base font-medium">SKU</FormLabel>
                   <FormControl>
-                    <Input {...field} readOnly value={field.value || ""} className="rounded-lg h-11 bg-muted/50" />
+                    <Input {...field} value={field.value ?? ""} readOnly className="rounded-lg h-11 bg-muted/50" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -441,7 +442,7 @@ export function ProductReturnRequestForm({
                 <FormItem>
                   <FormLabel className="text-base font-medium">Product Name</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="Enter product name" className="rounded-lg h-11" />
+                    <Input {...field} value={field.value ?? ""} placeholder="Enter product name" className="rounded-lg h-11" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -455,7 +456,7 @@ export function ProductReturnRequestForm({
                 <FormItem>
                   <FormLabel className="text-base font-medium">SKU (Optional)</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="Enter SKU" className="rounded-lg h-11" />
+                    <Input {...field} value={field.value ?? ""} placeholder="Enter SKU" className="rounded-lg h-11" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -471,7 +472,19 @@ export function ProductReturnRequestForm({
             <FormItem>
               <FormLabel className="text-base font-medium">Requested Quantity</FormLabel>
               <FormControl>
-                <Input type="number" {...field} placeholder="Enter quantity" className="rounded-lg h-11" />
+                <Input
+                  type="number"
+                  name={field.name}
+                  ref={field.ref}
+                  onBlur={field.onBlur}
+                  value={field.value ?? ""}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    field.onChange(next === "" ? undefined : Number(next));
+                  }}
+                  placeholder="Enter quantity"
+                  className="rounded-lg h-11"
+                />
               </FormControl>
               <FormDescription className="text-muted-foreground">
                 Total number of products you want to return
@@ -490,6 +503,7 @@ export function ProductReturnRequestForm({
               <FormControl>
                 <Textarea
                   {...field}
+                  value={field.value ?? ""}
                   placeholder="Add any additional notes or instructions"
                   rows={3}
                   className="rounded-lg resize-y"
@@ -579,7 +593,7 @@ export function ProductReturnRequestForm({
                   <FormItem>
                     <FormLabel>Recipient Name</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Enter recipient name" />
+                      <Input {...field} value={field.value ?? ""} placeholder="Enter recipient name" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -595,6 +609,7 @@ export function ProductReturnRequestForm({
                     <FormControl>
                       <Textarea
                         {...field}
+                        value={field.value ?? ""}
                         placeholder="Enter full address"
                         rows={2}
                       />
@@ -612,7 +627,7 @@ export function ProductReturnRequestForm({
                     <FormItem>
                       <FormLabel>City</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="Enter city" />
+                        <Input {...field} value={field.value ?? ""} placeholder="Enter city" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -626,7 +641,7 @@ export function ProductReturnRequestForm({
                     <FormItem>
                       <FormLabel>State</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="Enter state" />
+                        <Input {...field} value={field.value ?? ""} placeholder="Enter state" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -642,7 +657,7 @@ export function ProductReturnRequestForm({
                     <FormItem>
                       <FormLabel>Zip Code</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="Enter zip code" />
+                        <Input {...field} value={field.value ?? ""} placeholder="Enter zip code" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -656,7 +671,7 @@ export function ProductReturnRequestForm({
                     <FormItem>
                       <FormLabel>Country</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="Enter country" />
+                        <Input {...field} value={field.value ?? ""} placeholder="Enter country" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

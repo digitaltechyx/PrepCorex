@@ -2016,7 +2016,11 @@ export function AdminInventoryManagement({
                 <InventoryRequestsManagement selectedUser={selectedUser} initialRequestId={initialRequestId} />
               </TabsContent>
               <TabsContent value="return" className="mt-4">
-                <ProductReturnsManagement selectedUser={selectedUser} inventory={inventory} initialReturnId={initialRequestId} />
+                <ProductReturnsManagement
+                  managedUsers={selectedUser ? [selectedUser] : []}
+                  filterUserId={selectedUser?.uid}
+                  initialReturnId={initialRequestId}
+                />
               </TabsContent>
               <TabsContent value="dispose" className="mt-4">
                 <DisposeRequestsManagement selectedUser={selectedUser} inventory={inventory} initialRequestId={initialRequestId} />

@@ -64,6 +64,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { generateInvoicePDF } from "@/lib/invoice-generator";
 import { ProductReturnRequestForm } from "@/components/dashboard/product-return-request-form";
+import {
+  useAllProductReturns,
+  getReturnOwnerId,
+  type AdminProductReturn,
+} from "@/hooks/use-all-product-returns";
+import { formatUserDisplayName } from "@/lib/format-user-display";
+import { hasRole } from "@/lib/permissions";
+import { Search } from "lucide-react";
 
 function formatDate(date: ProductReturn["createdAt"]) {
   if (!date) return "N/A";
@@ -95,14 +103,14 @@ function getStatusBadge(status: ProductReturn["status"]) {
 }
 
 interface ProductReturnsManagementProps {
-  selectedUser: UserProfile | null;
-  inventory: InventoryItem[];
+  managedUsers: UserProfile[];
+  filterUserId?: string | null;
   initialReturnId?: string;
 }
 
 export function ProductReturnsManagement({
-  selectedUser,
-  inventory,
+  managedUsers,
+  filterUserId,
   initialReturnId,
 }: ProductReturnsManagementProps) {
   const { toast } = useToast();
@@ -118,6 +126,14 @@ export function ProductReturnsManagement({
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [isShipDialogOpen, setIsShipDialogOpen] = useState(false);
   const [addReturnDialogOpen, setAddReturnDialogOpen] = useState(false);
+  const [behalfUser, setBehalfUser] = useState<UserProfile | null>(null);
+  const [behalfUserSearch, setBehalfUserSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState<string>(filterUserId || "all");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    if (filterUserId) setClientFilter(filterUserId);
+  }, [filterUserId]);
   const [newQuantity, setNewQuantity] = useState<string>("");
   const [quantityNotes, setQuantityNotes] = useState<string>("");
   const [rejectReason, setRejectReason] = useState<string>("");
@@ -142,12 +158,52 @@ export function ProductReturnsManagement({
   // Used in "Close Return Request" dialog (admin enters per-unit shipping price; total uses remaining qty)
   const [closeShippingUnitPrice, setCloseShippingUnitPrice] = useState<string>("");
 
-  const userId = selectedUser?.uid || selectedUser?.id;
-  const isValidUserId = userId && typeof userId === 'string' && userId.trim() !== '';
+  const { data: allReturns, loading, error } = useAllProductReturns();
 
-  const { data: returns, loading, error } = useCollection<ProductReturn>(
-    isValidUserId ? `users/${userId}/productReturns` : ""
+  const managedUserIds = useMemo(
+    () => new Set(managedUsers.map((u) => u.uid).filter(Boolean)),
+    [managedUsers]
   );
+
+  const selectableClients = useMemo(
+    () =>
+      managedUsers
+        .filter((u) => {
+          if (hasRole(u, "admin")) return false;
+          const isApproved = u.status === "approved" || !u.status;
+          return isApproved && u.status !== "deleted";
+        })
+        .sort((a, b) => (a.name || "").localeCompare(b.name || "")),
+    [managedUsers]
+  );
+
+  const getClientProfile = (ownerId: string) =>
+    managedUsers.find((u) => u.uid === ownerId);
+
+  const { data: behalfInventory } = useCollection<InventoryItem>(
+    behalfUser?.uid ? `users/${behalfUser.uid}/inventory` : ""
+  );
+
+  const returns = useMemo(() => {
+    let list = allReturns.filter((r) => managedUserIds.has(r.ownerUserId));
+    if (clientFilter !== "all") {
+      list = list.filter((r) => r.ownerUserId === clientFilter);
+    }
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((r) => {
+        const client = getClientProfile(r.ownerUserId);
+        const product = (r.productName || r.newProductName || "").toLowerCase();
+        return (
+          product.includes(q) ||
+          client?.name?.toLowerCase().includes(q) ||
+          client?.email?.toLowerCase().includes(q) ||
+          client?.clientId?.toLowerCase().includes(q)
+        );
+      });
+    }
+    return list;
+  }, [allReturns, managedUserIds, clientFilter, searchQuery, managedUsers]);
 
   const [didAutoOpen, setDidAutoOpen] = useState(false);
   useEffect(() => {
@@ -196,19 +252,20 @@ export function ProductReturnsManagement({
   // Reset to page 1 when filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter]);
+  }, [statusFilter, clientFilter, searchQuery]);
 
   const pendingCount = returns.filter((r) => r.status === "pending").length;
   const inProgressCount = returns.filter((r) => r.status === "in_progress").length;
   const closedCount = returns.filter((r) => r.status === "closed").length;
   const totalCount = returns.length;
 
-  const handleApprove = async (returnItem: ProductReturn) => {
-    if (!selectedUser || !adminProfile) return;
+  const handleApprove = async (returnItem: AdminProductReturn) => {
+    const ownerId = getReturnOwnerId(returnItem);
+    if (!ownerId || !adminProfile) return;
 
     setIsProcessing(true);
     try {
-      const returnRef = doc(db, `users/${userId}/productReturns`, returnItem.id);
+      const returnRef = doc(db, `users/${ownerId}/productReturns`, returnItem.id);
       const now = Timestamp.now();
 
       await updateDoc(returnRef, {
@@ -242,7 +299,8 @@ export function ProductReturnsManagement({
   };
 
   const handleReject = async () => {
-    if (!selectedReturn || !selectedUser || !adminProfile) return;
+    const ownerId = getReturnOwnerId(selectedReturn);
+    if (!selectedReturn || !adminProfile || !ownerId) return;
 
     if (!rejectReason.trim()) {
       toast({
@@ -255,7 +313,7 @@ export function ProductReturnsManagement({
 
     setIsProcessing(true);
     try {
-      const returnRef = doc(db, `users/${userId}/productReturns`, selectedReturn.id);
+      const returnRef = doc(db, `users/${ownerId}/productReturns`, selectedReturn.id);
       const now = Timestamp.now();
 
       await updateDoc(returnRef, {
@@ -283,7 +341,8 @@ export function ProductReturnsManagement({
   };
 
   const handleUpdateQuantity = async () => {
-    if (!selectedReturn || !adminProfile) return;
+    const ownerId = getReturnOwnerId(selectedReturn);
+    if (!selectedReturn || !adminProfile || !ownerId) return;
 
     const quantity = parseInt(newQuantity);
     if (isNaN(quantity) || quantity <= 0) {
@@ -297,7 +356,7 @@ export function ProductReturnsManagement({
 
     setIsProcessing(true);
     try {
-      const returnRef = doc(db, `users/${userId}/productReturns`, selectedReturn.id);
+      const returnRef = doc(db, `users/${ownerId}/productReturns`, selectedReturn.id);
       const now = Timestamp.now();
       const currentReceived = selectedReturn.receivedQuantity || 0;
       const newReceived = currentReceived + quantity;
@@ -343,7 +402,9 @@ export function ProductReturnsManagement({
   };
 
   const handleShip = async () => {
-    if (!selectedReturn || !adminProfile || !selectedUser) return;
+    const ownerId = getReturnOwnerId(selectedReturn);
+    const client = ownerId ? getClientProfile(ownerId) : undefined;
+    if (!selectedReturn || !adminProfile || !ownerId) return;
 
     if (!shipTo || !shipTo.trim()) {
       toast({
@@ -398,7 +459,7 @@ export function ProductReturnsManagement({
 
       // Use transaction for atomicity
       await runTransaction(db, async (transaction) => {
-        const returnRef = doc(db, `users/${userId}/productReturns`, selectedReturn.id);
+        const returnRef = doc(db, `users/${ownerId}/productReturns`, selectedReturn.id);
 
         // Generate invoice if requested
         if (generateInvoiceOnShip) {
@@ -430,10 +491,10 @@ export function ProductReturnsManagement({
             date: format(today, 'dd/MM/yyyy'),
             orderNumber,
             soldTo: {
-              name: selectedUser.name ?? 'Unknown User',
-              email: selectedUser.email ?? '',
-              phone: selectedUser.phone ?? '',
-              address: selectedUser.address ?? '',
+              name: client?.name ?? 'Unknown User',
+              email: client?.email ?? '',
+              phone: client?.phone ?? '',
+              address: client?.address ?? '',
             },
             fbm: 'Product Return Shipment',
             items: invoiceItems,
@@ -441,12 +502,12 @@ export function ProductReturnsManagement({
             grandTotal: shippingCost,
             status: 'pending' as const,
             createdAt: new Date(),
-            userId: userId,
+            userId: ownerId,
             type: "product_return_shipment",
             returnRequestId: selectedReturn.id,
           };
 
-          const invoiceRef = doc(collection(db, `users/${userId}/invoices`));
+          const invoiceRef = doc(collection(db, `users/${ownerId}/invoices`));
           transaction.set(invoiceRef, invoiceData);
           invoiceId = invoiceRef.id;
 
@@ -491,10 +552,10 @@ export function ProductReturnsManagement({
           date: format(today, 'dd/MM/yyyy'),
           orderNumber,
           soldTo: {
-            name: selectedUser.name || 'Unknown User',
-            email: selectedUser.email || '',
-            phone: selectedUser.phone || '',
-            address: selectedUser.address || '',
+            name: client?.name || 'Unknown User',
+            email: client?.email || '',
+            phone: client?.phone || '',
+            address: client?.address || '',
           },
           fbm: 'Product Return Shipment',
           items: [{
@@ -540,7 +601,9 @@ export function ProductReturnsManagement({
   };
 
   const handleCloseRequest = async () => {
-    if (!selectedReturn || !adminProfile || !selectedUser) return;
+    const ownerId = getReturnOwnerId(selectedReturn);
+    const client = ownerId ? getClientProfile(ownerId) : undefined;
+    if (!selectedReturn || !adminProfile || !ownerId) return;
 
     // Validate pricing
     const returnFeeNum = parseFloat(returnFee);
@@ -602,7 +665,7 @@ export function ProductReturnsManagement({
       let invoiceNumber: string | undefined;
 
       await runTransaction(db, async (transaction) => {
-        const returnRef = doc(db, `users/${userId}/productReturns`, selectedReturn.id);
+        const returnRef = doc(db, `users/${ownerId}/productReturns`, selectedReturn.id);
         const returnSnap = await transaction.get(returnRef);
         const latestReturn: any = returnSnap.exists() ? returnSnap.data() : selectedReturn;
         
@@ -619,9 +682,9 @@ export function ProductReturnsManagement({
           adminProfile.uid ||
           "Admin";
         const requestedByLabel =
-          selectedUser.name ||
-          selectedUser.email ||
-          selectedUser.uid ||
+          client?.name ||
+          client?.email ||
+          client?.uid ||
           "User";
         const returnReason = (latestReturn?.userRemarks || selectedReturn.userRemarks || "").trim();
         const returnTypeLabel = selectedReturn.type === "existing" ? "Existing Product Return" : "New Product Return";
@@ -655,7 +718,7 @@ export function ProductReturnsManagement({
         
         if (!willShipRemainingOnClose && remainingQuantity > 0 && selectedReturn.type === "existing" && selectedReturn.productId) {
           // Read existing inventory if it exists
-          inventoryRef = doc(db, `users/${userId}/inventory`, selectedReturn.productId);
+          inventoryRef = doc(db, `users/${ownerId}/inventory`, selectedReturn.productId);
           inventoryDoc = await transaction.get(inventoryRef);
         }
 
@@ -705,7 +768,7 @@ export function ProductReturnsManagement({
               });
             } else {
               // Product not found, create new inventory item
-              const newInventoryRef = doc(collection(db, `users/${userId}/inventory`));
+              const newInventoryRef = doc(collection(db, `users/${ownerId}/inventory`));
               transaction.set(newInventoryRef, {
                 productName: productName,
                 quantity: remainingQuantity,
@@ -721,7 +784,7 @@ export function ProductReturnsManagement({
             }
           } else {
             // Create new inventory item for new product return
-            const newInventoryRef = doc(collection(db, `users/${userId}/inventory`));
+            const newInventoryRef = doc(collection(db, `users/${ownerId}/inventory`));
             transaction.set(newInventoryRef, {
               productName: productName,
               quantity: remainingQuantity,
@@ -800,10 +863,10 @@ export function ProductReturnsManagement({
             date: format(today, 'dd/MM/yyyy'),
             orderNumber,
             soldTo: {
-              name: selectedUser.name ?? 'Unknown User',
-              email: selectedUser.email ?? '',
-              phone: selectedUser.phone ?? '',
-              address: selectedUser.address ?? '',
+              name: client?.name ?? 'Unknown User',
+              email: client?.email ?? '',
+              phone: client?.phone ?? '',
+              address: client?.address ?? '',
             },
             fbm: 'Product Return',
             items: invoiceItems,
@@ -811,18 +874,18 @@ export function ProductReturnsManagement({
             grandTotal: grandTotal,
             status: 'pending' as const,
             createdAt: new Date(),
-            userId: userId,
+            userId: ownerId,
             type: "product_return",
             returnRequestId: selectedReturn.id,
           };
 
-          invoiceRef = doc(collection(db, `users/${userId}/invoices`));
+          invoiceRef = doc(collection(db, `users/${ownerId}/invoices`));
           transaction.set(invoiceRef, invoiceData);
         }
 
         // 4. Create shipped order for remaining quantity shipped on close (when ship-to-address is selected)
         if (willShipRemainingOnClose) {
-          const shippedRef = doc(collection(db, `users/${userId}/shipped`));
+          const shippedRef = doc(collection(db, `users/${ownerId}/shipped`));
           transaction.set(shippedRef, {
             productName: productName,
             date: Timestamp.fromDate(today),
@@ -927,10 +990,10 @@ export function ProductReturnsManagement({
           date: format(today, 'dd/MM/yyyy'),
           orderNumber,
           soldTo: {
-            name: selectedUser.name || 'Unknown User',
-            email: selectedUser.email || '',
-            phone: selectedUser.phone || '',
-            address: selectedUser.address || '',
+            name: client?.name || 'Unknown User',
+            email: client?.email || '',
+            phone: client?.phone || '',
+            address: client?.address || '',
           },
           fbm: 'Product Return',
           items: invoiceItems,
@@ -1002,18 +1065,6 @@ export function ProductReturnsManagement({
     setCloseShippingUnitPrice("");
     setIsCloseDialogOpen(true);
   };
-
-  if (!selectedUser) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <p className="text-muted-foreground text-center">
-            Select a user to manage their product returns.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <div className="space-y-5">
@@ -1119,26 +1170,60 @@ export function ProductReturnsManagement({
 
       {/* Filter + Submit */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Label className="text-sm text-muted-foreground">Status</Label>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px] rounded-lg h-10 border-border/80">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="closed">Closed</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap items-end gap-3 flex-1 min-w-0">
+          <div className="space-y-2">
+            <Label className="text-sm text-muted-foreground">Status</Label>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px] rounded-lg h-10 border-border/80">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="closed">Closed</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm text-muted-foreground">Client</Label>
+            <Select value={clientFilter} onValueChange={setClientFilter}>
+              <SelectTrigger className="w-[220px] rounded-lg h-10 border-border/80">
+                <SelectValue placeholder="All clients" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All clients</SelectItem>
+                {selectableClients.map((u) => (
+                  <SelectItem key={u.uid} value={u.uid}>
+                    {formatUserDisplayName(u, { showEmail: true })}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2 min-w-[200px] flex-1 max-w-sm">
+            <Label className="text-sm text-muted-foreground">Search</Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Product, client name, email…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 rounded-lg h-10"
+              />
+            </div>
+          </div>
         </div>
         <Button
           size="sm"
-          className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white shadow-sm font-medium"
-          onClick={() => setAddReturnDialogOpen(true)}
+          className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white shadow-sm font-medium shrink-0"
+          onClick={() => {
+            setBehalfUser(null);
+            setBehalfUserSearch("");
+            setAddReturnDialogOpen(true);
+          }}
         >
           <Plus className="h-4 w-4 mr-2" />
           Submit return for user
@@ -1150,9 +1235,11 @@ export function ProductReturnsManagement({
         <CardHeader className="bg-muted/30 border-b pb-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
-              <CardTitle className="text-lg font-semibold tracking-tight">Returns from {selectedUser.name}</CardTitle>
+              <CardTitle className="text-lg font-semibold tracking-tight">All product return requests</CardTitle>
               <CardDescription className="mt-1">
-                View and process product return requests
+                {clientFilter === "all"
+                  ? "Returns from all clients in your scope"
+                  : `Filtered to ${formatUserDisplayName(getClientProfile(clientFilter) ?? {}, { showEmail: true })}`}
               </CardDescription>
             </div>
           </div>
@@ -1176,7 +1263,9 @@ export function ProductReturnsManagement({
               <Package className="h-12 w-12 mx-auto text-muted-foreground/50 mb-3" />
               <p className="text-muted-foreground font-medium">No product return requests found</p>
               <p className="text-sm text-muted-foreground/80 mt-1">
-                {statusFilter !== "all" ? "Try changing the status filter." : "Submit a return for this user to get started."}
+                {statusFilter !== "all" || clientFilter !== "all" || searchQuery
+                  ? "Try changing your filters."
+                  : "No returns yet. Use Submit return for user to create one on behalf of a client."}
               </p>
             </div>
           ) : (
@@ -1185,6 +1274,7 @@ export function ProductReturnsManagement({
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent border-b bg-muted/40">
+                      <TableHead className="font-semibold">Client</TableHead>
                       <TableHead className="font-semibold">Product</TableHead>
                       <TableHead className="font-semibold">Type</TableHead>
                       <TableHead className="font-semibold">Quantity</TableHead>
@@ -1196,18 +1286,28 @@ export function ProductReturnsManagement({
                   </TableHeader>
                   <TableBody>
                     {paginatedReturns.map((returnItem) => {
-                      const progress = returnItem.requestedQuantity > 0
-                        ? Math.round((returnItem.receivedQuantity / returnItem.requestedQuantity) * 100)
+                      const row = returnItem as AdminProductReturn;
+                      const progress = row.requestedQuantity > 0
+                        ? Math.round((row.receivedQuantity / row.requestedQuantity) * 100)
                         : 0;
-                      const productName = returnItem.productName || returnItem.newProductName || "N/A";
-                      const canUpdate = returnItem.status === "approved" || returnItem.status === "in_progress";
-                      const canClose = canUpdate && returnItem.receivedQuantity > 0;
+                      const productName = row.productName || row.newProductName || "N/A";
+                      const canUpdate = row.status === "approved" || row.status === "in_progress";
+                      const canClose = canUpdate && row.receivedQuantity > 0;
+                      const rowClient = getClientProfile(row.ownerUserId);
 
                       return (
                         <TableRow
-                          key={returnItem.id}
+                          key={`${row.ownerUserId}-${row.id}`}
                           className="transition-colors hover:bg-muted/50"
                         >
+                          <TableCell className="text-sm">
+                            <p className="font-medium truncate max-w-[160px]">
+                              {formatUserDisplayName(rowClient, { showEmail: false }) || "Unknown"}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate max-w-[160px]">
+                              {rowClient?.email || row.ownerUserId}
+                            </p>
+                          </TableCell>
                           <TableCell className="font-medium">{productName}</TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
@@ -2035,22 +2135,84 @@ export function ProductReturnsManagement({
       )}
 
       {/* Submit return for user - always mounted so button can open it */}
-      <Dialog open={addReturnDialogOpen} onOpenChange={setAddReturnDialogOpen}>
+      <Dialog
+        open={addReturnDialogOpen}
+        onOpenChange={(open) => {
+          setAddReturnDialogOpen(open);
+          if (!open) {
+            setBehalfUser(null);
+            setBehalfUserSearch("");
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col overflow-hidden p-0">
           <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-2">
-            <DialogTitle>Submit return request for {selectedUser.name}</DialogTitle>
+            <DialogTitle>
+              {behalfUser
+                ? `Submit return for ${formatUserDisplayName(behalfUser, { showEmail: false })}`
+                : "Submit return for user"}
+            </DialogTitle>
             <DialogDescription>
-              Fill the form to create a product return request on behalf of this user. It will appear in Notifications for processing.
+              {behalfUser
+                ? "Create a product return request on behalf of this client."
+                : "Select a client, then complete the return request form."}
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
-            <div className="pr-4 pb-4">
-              <ProductReturnRequestForm
-                targetUserId={selectedUser.uid}
-                targetUserInventory={inventory}
-                onSuccess={() => setAddReturnDialogOpen(false)}
-              />
-            </div>
+            {!behalfUser ? (
+              <div className="space-y-4 pr-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name or email…"
+                    value={behalfUserSearch}
+                    onChange={(e) => setBehalfUserSearch(e.target.value)}
+                    className="pl-9 rounded-lg"
+                  />
+                </div>
+                <ScrollArea className="h-[280px] rounded-lg border p-2">
+                  <div className="space-y-1">
+                    {selectableClients
+                      .filter(
+                        (u) =>
+                          !behalfUserSearch.trim() ||
+                          u.name?.toLowerCase().includes(behalfUserSearch.toLowerCase()) ||
+                          u.email?.toLowerCase().includes(behalfUserSearch.toLowerCase()) ||
+                          u.clientId?.toLowerCase().includes(behalfUserSearch.toLowerCase())
+                      )
+                      .map((u) => (
+                        <Button
+                          key={u.uid}
+                          variant="ghost"
+                          className="w-full justify-start h-auto py-2.5"
+                          onClick={() => setBehalfUser(u)}
+                        >
+                          <div className="text-left">
+                            <p className="font-medium">{formatUserDisplayName(u, { showEmail: false })}</p>
+                            <p className="text-xs text-muted-foreground">{u.email}</p>
+                          </div>
+                        </Button>
+                      ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            ) : (
+              <div className="pr-4 pb-4 space-y-3">
+                <Button variant="outline" size="sm" onClick={() => setBehalfUser(null)}>
+                  Change client
+                </Button>
+                <ProductReturnRequestForm
+                  key={behalfUser.uid}
+                  targetUserId={behalfUser.uid}
+                  targetUserInventory={behalfInventory ?? []}
+                  onSuccess={() => {
+                    setAddReturnDialogOpen(false);
+                    setBehalfUser(null);
+                    setBehalfUserSearch("");
+                  }}
+                />
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

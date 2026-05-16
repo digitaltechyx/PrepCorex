@@ -344,6 +344,41 @@ export interface RecycledInventoryItem {
   remarks?: string; // Reason for recycling
 }
 
+/** Product return request (stored under users/{uid}/productReturns). */
+export interface ProductReturn {
+  id?: string;
+  userId?: string;
+  type: "existing" | "new";
+  returnType?: string;
+  productId?: string;
+  productName?: string;
+  sku?: string;
+  newProductName?: string;
+  newProductSku?: string;
+  requestedQuantity: number;
+  receivedQuantity: number;
+  status: "pending" | "approved" | "in_progress" | "closed" | "cancelled";
+  createdAt?: { seconds: number; nanoseconds: number } | string;
+  updatedAt?: { seconds: number; nanoseconds: number } | string;
+  userRemarks?: string;
+  adminRemarks?: string;
+  rejectReason?: string;
+  additionalServices?: Record<string, unknown>;
+  returnFee?: number;
+  packingFee?: number;
+  boxQuantity?: number;
+  boxPricePerUnit?: number;
+  palletFee?: number;
+  palletQuantity?: number;
+  palletPricePerUnit?: number;
+  shippingFee?: number;
+  approvedBy?: string;
+  approvedAt?: { seconds: number; nanoseconds: number } | string;
+  closedAt?: { seconds: number; nanoseconds: number } | string;
+  shipments?: Array<Record<string, unknown>>;
+  quantityUpdates?: Array<Record<string, unknown>>;
+}
+
 /** User-initiated dispose request (user selects product, quantity, reason; admin approves or rejects). */
 export interface DisposeRequest {
   id?: string;
