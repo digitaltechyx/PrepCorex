@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 export const dynamic = "force-dynamic";
 
-const SCOPES = "read_orders,read_products,write_fulfillments,read_inventory";
+const STATE_COOKIE = "shopify_oauth_state";
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -28,6 +29,7 @@ export async function POST(request: NextRequest) {
   const code = body.code as string | undefined;
   const shop = (body.shop as string | undefined)?.trim().toLowerCase();
   const redirectUri = typeof body.redirect_uri === "string" ? body.redirect_uri.trim() : undefined;
+  const state = typeof body.state === "string" ? body.state.trim() : undefined;
   if (!code || !shop) {
     return NextResponse.json(
       { error: "Missing code or shop" },
@@ -40,6 +42,16 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+
+  const cookieStore = await cookies();
+  const expectedState = cookieStore.get(STATE_COOKIE)?.value;
+  if (expectedState) {
+    if (!state || state !== expectedState) {
+      return NextResponse.json({ error: "Invalid OAuth state" }, { status: 400 });
+    }
+    cookieStore.delete(STATE_COOKIE);
+  }
+
   const normalizedShop = shop.includes(".myshopify.com") ? shop : `${shop}.myshopify.com`;
 
   const clientId = process.env.NEXT_PUBLIC_SHOPIFY_CLIENT_ID;

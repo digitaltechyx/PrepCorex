@@ -18,6 +18,7 @@ export default function ShopifyCallbackPage() {
   useEffect(() => {
     const code = searchParams.get("code");
     const shop = searchParams.get("shop");
+    const state = searchParams.get("state");
     if (!code || !shop) {
       setStatus("error");
       setMessage("Missing code or shop from Shopify. Please try connecting again.");
@@ -38,7 +39,12 @@ export default function ShopifyCallbackPage() {
         const res = await fetch("/api/shopify/exchange-token", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ code, shop, redirect_uri: redirectUri }),
+          body: JSON.stringify({
+            code,
+            shop,
+            redirect_uri: redirectUri,
+            ...(state ? { state } : {}),
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;

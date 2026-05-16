@@ -33,9 +33,8 @@ import { format } from "date-fns";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { PlatformBrandLogo } from "@/components/integrations/platform-brand-logo";
-
-const SHOPIFY_SCOPES =
-  "read_orders,read_products,write_products,write_fulfillments,read_inventory,read_locations,write_inventory";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Info } from "lucide-react";
 
 type ShopifySelectedVariant = { variantId: string; productId: string; title: string; sku?: string };
 
@@ -253,18 +252,10 @@ export default function IntegrationsPage() {
       });
       return;
     }
-    const clientId = process.env.NEXT_PUBLIC_SHOPIFY_CLIENT_ID;
-    if (!clientId) {
-      toast({ variant: "destructive", title: "Configuration error", description: "Shopify app not configured." });
-      return;
-    }
-    const redirectUri =
-      typeof window !== "undefined" ? `${window.location.origin}/dashboard/integrations/shopify/callback` : "";
     const shopDomain = shop.includes(".myshopify.com") ? shop : `${shop}.myshopify.com`;
-    const url = `https://${shopDomain}/admin/oauth/authorize?client_id=${encodeURIComponent(clientId)}&scope=${encodeURIComponent(SHOPIFY_SCOPES)}&redirect_uri=${encodeURIComponent(redirectUri)}`;
     setConnectDialogOpen(false);
     setShopInput("");
-    window.location.href = url;
+    window.location.href = `/api/shopify/install?shop=${encodeURIComponent(shopDomain)}`;
   };
 
   const handleDisconnect = async (id: string, removeInventory: boolean) => {
@@ -621,6 +612,18 @@ export default function IntegrationsPage() {
 
                   {p.id === "shopify" && isLive && (
                     <>
+                      <Alert className="border-sky-200 bg-sky-50/80 text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-50">
+                        <Info className="h-4 w-4 text-sky-700 dark:text-sky-300" />
+                        <AlertTitle className="text-sky-900 dark:text-sky-100">
+                          Free Shopify integration · App Store review in progress
+                        </AlertTitle>
+                        <AlertDescription className="text-sky-800/90 dark:text-sky-200/90">
+                          PrepCorex does not charge any Shopify app subscription fee. After Shopify approves our
+                          listing, install from the official Shopify App Store (Add app). Until then, you can connect a
+                          development or test store below using our secure OAuth route—this is for testing only, not the
+                          final public install path.
+                        </AlertDescription>
+                      </Alert>
                       {shopifyConnections.length === 0 ? (
                         <div className="rounded-xl border border-dashed bg-muted/15 px-4 py-6 text-center text-sm text-muted-foreground">
                           No stores linked yet. Use <strong className="text-foreground">Connect</strong> to add one.
@@ -738,9 +741,20 @@ export default function IntegrationsPage() {
       <Dialog open={connectDialogOpen} onOpenChange={setConnectDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Connect Shopify store</DialogTitle>
-            <DialogDescription>
-              Enter your store name (the part before .myshopify.com). Use letters, numbers, or hyphens—no spaces.
+            <DialogTitle>Connect Shopify store (testing)</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  <strong className="text-foreground">100% free</strong> — no app subscription or install charge from
+                  PrepCorex.
+                </p>
+                <p>
+                  PrepCorex is under Shopify App Store review. Entering your store name here is only for testing on a dev
+                  or test store. After approval, connect via{" "}
+                  <strong className="text-foreground">Shopify Admin → Apps → Add app</strong> (PrepCorex in the App Store).
+                </p>
+                <p>We use Shopify&apos;s secure OAuth flow; you approve permissions on Shopify&apos;s screen.</p>
+              </div>
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">

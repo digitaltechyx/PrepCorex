@@ -26,7 +26,8 @@ do the following.
 | **Connector: Must not connect to third party marketplace** | Met | Connects to PrepCorex backend only. |
 | **Connector: Indicate integrations and data transfers** | **Action** | In listing: what you connect to, what data is synced, where it goes. |
 | **App Store listing: Test credentials, demo screencast, pricing, icon, tags** | **Action** | Add in Dashboard: test credentials, demo video, pricing, icon, tags. |
-| **Use Shopify Managed Pricing or Billing API** | N/A | No in-app Shopify billing; N/A if free or you charge outside Shopify. |
+| **Use Shopify Managed Pricing or Billing API** | Met (free) | No app charges; listing pricing = Free. No Billing API / charge approval in install flow. State in testing instructions for reviewers. |
+| **Initiate install from Shopify surface** | Met | `application_url` → `/api/shopify/install` (HMAC). Dashboard manual connect is labeled testing-only during review. |
 
 ---
 
