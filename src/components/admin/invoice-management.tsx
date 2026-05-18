@@ -5,8 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Search, Download, CheckCircle, Clock, X, Eye, Receipt, User, Users } from "lucide-react";
+import { Search, Download, CheckCircle, Clock, X, Eye, Receipt, User, Users, Plus, Trash2 } from "lucide-react";
 import { generateInvoicePDF } from "@/lib/invoice-generator";
+import { computeInvoiceTotals, getAdminAdditionalCharges } from "@/lib/invoice-totals";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -20,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { type Invoice, type UserProfile, type Commission } from "@/types";
+import { type Invoice, type InvoiceAdditionalCharge, type UserProfile, type Commission } from "@/types";
 import { db } from "@/lib/firebase";
 import { collection, query, getDocs, orderBy, doc, updateDoc, where } from "firebase/firestore";
 import type { ShippedItem } from "@/types";
@@ -106,6 +107,13 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   const [lateFeeAmount, setLateFeeAmount] = useState<string>("");
   const [lateFeeReason, setLateFeeReason] = useState<string>("");
   const [isApplyingLateFee, setIsApplyingLateFee] = useState(false);
+
+  const [isAdditionalChargesDialogOpen, setIsAdditionalChargesDialogOpen] = useState(false);
+  const [additionalChargesInvoice, setAdditionalChargesInvoice] = useState<Invoice | null>(null);
+  const [chargesDraft, setChargesDraft] = useState<InvoiceAdditionalCharge[]>([]);
+  const [newChargeName, setNewChargeName] = useState("");
+  const [newChargeAmount, setNewChargeAmount] = useState("");
+  const [isSavingAdditionalCharges, setIsSavingAdditionalCharges] = useState(false);
 
   const ActionBadge = ({
     label,
@@ -503,34 +511,23 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
   const discountPreview = useMemo(() => {
     if (!discountInvoice) {
-      return {
-        grossTotal: 0,
-        discountAmount: 0,
-        grandTotal: 0,
-      };
+      return computeInvoiceTotals({ items: [], subtotal: 0, grandTotal: 0 });
     }
-
-    const grossTotalRaw =
-      typeof (discountInvoice as any).grossTotal === "number"
-        ? (discountInvoice as any).grossTotal
-        : (typeof discountInvoice.subtotal === "number"
-          ? discountInvoice.subtotal
-          : discountInvoice.grandTotal);
-
-    const grossTotal = Number.isFinite(grossTotalRaw) ? grossTotalRaw : 0;
     const valueNum = parseFloat(discountValue) || 0;
-
-    let discountAmount = 0;
-    if (discountType === "percent") {
-      discountAmount = grossTotal * (Math.max(0, Math.min(100, valueNum)) / 100);
-    } else {
-      discountAmount = Math.max(0, valueNum);
-    }
-    discountAmount = Math.min(grossTotal, discountAmount);
-
-    const grandTotal = Math.max(0, grossTotal - discountAmount);
-    return { grossTotal, discountAmount, grandTotal };
+    return computeInvoiceTotals(discountInvoice, {
+      discountType,
+      discountValue: valueNum,
+    });
   }, [discountInvoice, discountType, discountValue]);
+
+  const additionalChargesPreview = useMemo(() => {
+    if (!additionalChargesInvoice) {
+      return computeInvoiceTotals({ items: [], subtotal: 0, grandTotal: 0 });
+    }
+    return computeInvoiceTotals(additionalChargesInvoice, {
+      adminAdditionalCharges: chargesDraft,
+    });
+  }, [additionalChargesInvoice, chargesDraft]);
 
   const handleApplyDiscount = async () => {
     if (!discountInvoice) return;
@@ -545,9 +542,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
     setIsApplyingDiscount(true);
     try {
-      const grossTotal = discountPreview.grossTotal;
-      const discountAmount = discountPreview.discountAmount;
-      const grandTotal = discountPreview.grandTotal;
+      const { grossTotal, discountAmount, grandTotal } = discountPreview;
       const valueNum = parseFloat(discountValue) || 0;
 
       const normalizedValue =
@@ -561,6 +556,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
         discountValue: normalizedValue,
         discountAmount,
         grandTotal,
+        subtotal: discountPreview.itemsSubtotal,
         updatedAt: new Date(),
       } as any);
 
@@ -583,6 +579,86 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       });
     } finally {
       setIsApplyingDiscount(false);
+    }
+  };
+
+  const openAdditionalChargesEditor = (invoice: Invoice) => {
+    setAdditionalChargesInvoice(invoice);
+    setChargesDraft(getAdminAdditionalCharges(invoice));
+    setNewChargeName("");
+    setNewChargeAmount("");
+    setIsAdditionalChargesDialogOpen(true);
+  };
+
+  const handleAddChargeToDraft = () => {
+    const name = newChargeName.trim();
+    const amount = parseFloat(newChargeAmount);
+    if (!name) {
+      toast({
+        variant: "destructive",
+        title: "Name required",
+        description: "Enter a service name for this charge.",
+      });
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast({
+        variant: "destructive",
+        title: "Invalid price",
+        description: "Enter an amount greater than 0.",
+      });
+      return;
+    }
+    setChargesDraft((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), name, amount },
+    ]);
+    setNewChargeName("");
+    setNewChargeAmount("");
+  };
+
+  const handleRemoveChargeFromDraft = (id: string) => {
+    setChargesDraft((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const handleSaveAdditionalCharges = async () => {
+    if (!additionalChargesInvoice?.id) return;
+    setIsSavingAdditionalCharges(true);
+    try {
+      const totals = computeInvoiceTotals(additionalChargesInvoice, {
+        adminAdditionalCharges: chargesDraft,
+      });
+      await updateDoc(
+        doc(
+          db,
+          `users/${additionalChargesInvoice.userId}/invoices/${additionalChargesInvoice.id}`
+        ),
+        {
+          adminAdditionalCharges: chargesDraft,
+          grossTotal: totals.grossTotal,
+          discountAmount: totals.discountAmount,
+          grandTotal: totals.grandTotal,
+          subtotal: totals.itemsSubtotal,
+          updatedAt: new Date(),
+        }
+      );
+      await loadInvoices();
+      toast({
+        title: "Charges saved",
+        description: `Invoice updated. New total: $${totals.grandTotal.toFixed(2)}`,
+      });
+      setIsAdditionalChargesDialogOpen(false);
+      setAdditionalChargesInvoice(null);
+      setChargesDraft([]);
+    } catch (error: any) {
+      console.error("Error saving additional charges:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error?.message || "Failed to save additional charges.",
+      });
+    } finally {
+      setIsSavingAdditionalCharges(false);
     }
   };
 
@@ -609,13 +685,14 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
     try {
       const currentLateFee = Number((lateFeeInvoice as any).lateFeeAmount || 0);
       const nextLateFee = currentLateFee + fee;
-      const currentGrandTotal = Number(lateFeeInvoice.grandTotal || 0);
-      const nextGrandTotal = Math.max(0, currentGrandTotal + fee);
+      const totals = computeInvoiceTotals(lateFeeInvoice, { lateFeeAmount: nextLateFee });
 
       await updateDoc(doc(db, `users/${lateFeeInvoice.userId}/invoices/${lateFeeInvoice.id}`), {
         lateFeeAmount: nextLateFee,
         lateFeeReason: lateFeeReason.trim() || "Late payment fine",
-        grandTotal: nextGrandTotal,
+        grossTotal: totals.grossTotal,
+        discountAmount: totals.discountAmount,
+        grandTotal: totals.grandTotal,
         updatedAt: new Date(),
       } as any);
 
@@ -665,6 +742,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
         discountAmount: (invoice as any).discountAmount,
         lateFeeAmount: (invoice as any).lateFeeAmount,
         lateFeeReason: (invoice as any).lateFeeReason,
+        adminAdditionalCharges: (invoice as any).adminAdditionalCharges,
       });
       
       toast({
@@ -1209,6 +1287,11 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                                     Late Fee Applied
                                   </Badge>
                                 )}
+                                {getAdminAdditionalCharges(invoice).length > 0 && (
+                                  <Badge variant="outline" className="text-[9px] sm:text-xs border-indigo-300 bg-indigo-100 text-indigo-800">
+                                    Extra Charges
+                                  </Badge>
+                                )}
                                 <span className="text-muted-foreground whitespace-nowrap">Date: {invoice.date}</span>
                                 <span className="font-semibold whitespace-nowrap">Total: ${invoice.grandTotal.toFixed(2)}</span>
                                 <TooltipProvider delayDuration={150}>
@@ -1224,6 +1307,12 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                                       tooltip="Download invoice PDF"
                                       icon={<Download className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
                                       onClick={() => handleDownloadInvoice(invoice)}
+                                    />
+                                    <ActionBadge
+                                      label="Add Charges"
+                                      tooltip="Add or remove additional charges on this pending invoice"
+                                      icon={<Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />}
+                                      onClick={() => openAdditionalChargesEditor(invoice)}
                                     />
                                     <ActionBadge
                                       label="Discount"
@@ -1621,27 +1710,11 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
               <div className="flex justify-end">
                 <div className="w-full sm:w-64 space-y-2">
                   {(() => {
-                    const additionalTotal = Number((selectedInvoice as any)?.additionalServices?.total || 0);
-                    const itemsSubtotal = selectedInvoice.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-                    const grossTotal =
-                      typeof (selectedInvoice as any).grossTotal === "number"
-                        ? (selectedInvoice as any).grossTotal
-                        : itemsSubtotal + (Number.isFinite(additionalTotal) ? additionalTotal : 0);
+                    const totals = computeInvoiceTotals(selectedInvoice);
                     const discountType = (selectedInvoice as any).discountType as ("amount" | "percent" | undefined);
                     const discountValue = (selectedInvoice as any).discountValue as (number | undefined);
-                    const storedDiscountAmount = (selectedInvoice as any).discountAmount as (number | undefined);
-                    const lateFeeAmount = Number((selectedInvoice as any).lateFeeAmount || 0);
-
-                    let discountAmount = 0;
-                    if (typeof storedDiscountAmount === "number") {
-                      discountAmount = storedDiscountAmount;
-                    } else if (discountType === "percent" && typeof discountValue === "number") {
-                      discountAmount = grossTotal * (discountValue / 100);
-                    } else if (discountType === "amount" && typeof discountValue === "number") {
-                      discountAmount = discountValue;
-                    }
-                    discountAmount = Math.max(0, Math.min(grossTotal, discountAmount || 0));
-                    const hasDiscount = discountAmount > 0.009;
+                    const adminCharges = getAdminAdditionalCharges(selectedInvoice);
+                    const hasDiscount = totals.discountAmount > 0.009;
                     const discountLabel =
                       discountType === "percent" && typeof discountValue === "number"
                         ? `Discount (${discountValue.toFixed(2)}%)`
@@ -1649,32 +1722,41 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
                     return (
                       <>
-                        {additionalTotal > 0.0001 && (
-                          <>
-                            <div className="flex justify-between text-xs sm:text-sm">
-                              <span>Items Subtotal:</span>
-                              <span className="font-semibold">${itemsSubtotal.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between text-xs sm:text-sm">
-                              <span>Additional Services:</span>
-                              <span className="font-semibold">${additionalTotal.toFixed(2)}</span>
-                            </div>
-                          </>
+                        <div className="flex justify-between text-xs sm:text-sm">
+                          <span>Items Subtotal:</span>
+                          <span className="font-semibold">${totals.itemsSubtotal.toFixed(2)}</span>
+                        </div>
+                        {totals.shipmentAdditionalTotal > 0.0001 && (
+                          <div className="flex justify-between text-xs sm:text-sm">
+                            <span>Additional Services (shipments):</span>
+                            <span className="font-semibold">${totals.shipmentAdditionalTotal.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {adminCharges.length > 0 && (
+                          <div className="space-y-1 text-xs sm:text-sm">
+                            <span className="text-muted-foreground">Additional Charges:</span>
+                            {adminCharges.map((c) => (
+                              <div key={c.id} className="flex justify-between pl-2">
+                                <span>{c.name}</span>
+                                <span className="font-semibold">${c.amount.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
                         )}
                         <div className="flex justify-between text-xs sm:text-sm">
                           <span>Gross Total:</span>
-                          <span className="font-semibold">${grossTotal.toFixed(2)}</span>
+                          <span className="font-semibold">${totals.grossTotal.toFixed(2)}</span>
                         </div>
                         {hasDiscount && (
                           <div className="flex justify-between text-xs sm:text-sm">
                             <span>{discountLabel}:</span>
-                            <span className="font-semibold">-${discountAmount.toFixed(2)}</span>
+                            <span className="font-semibold">-${totals.discountAmount.toFixed(2)}</span>
                           </div>
                         )}
-                        {lateFeeAmount > 0.009 && (
+                        {totals.lateFeeAmount > 0.009 && (
                           <div className="flex justify-between text-xs sm:text-sm">
                             <span>Late Fee:</span>
-                            <span className="font-semibold text-amber-700">+${lateFeeAmount.toFixed(2)}</span>
+                            <span className="font-semibold text-amber-700">+${totals.lateFeeAmount.toFixed(2)}</span>
                           </div>
                         )}
                       </>
@@ -1692,7 +1774,21 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
               </div>
 
               {/* Action Buttons */}
-              <div className="flex justify-end gap-2 pt-3 sm:pt-4 border-t">
+              <div className="flex flex-wrap justify-end gap-2 pt-3 sm:pt-4 border-t">
+                {selectedInvoice.status === "pending" && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="text-xs sm:text-sm h-8 sm:h-9"
+                    onClick={() => {
+                      setIsViewDialogOpen(false);
+                      openAdditionalChargesEditor(selectedInvoice);
+                    }}
+                  >
+                    <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
+                    Additional Charges
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -1793,6 +1889,115 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                   variant="outline"
                   onClick={() => setIsDiscountDialogOpen(false)}
                   disabled={isApplyingDiscount}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Additional Charges Dialog (pending invoices only) */}
+      <Dialog
+        open={isAdditionalChargesDialogOpen}
+        onOpenChange={(open) => {
+          setIsAdditionalChargesDialogOpen(open);
+          if (!open) {
+            setAdditionalChargesInvoice(null);
+            setChargesDraft([]);
+            setNewChargeName("");
+            setNewChargeAmount("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Additional Charges</DialogTitle>
+            <DialogDescription>
+              Add custom service charges to this pending invoice. You can remove any charge before saving.
+            </DialogDescription>
+          </DialogHeader>
+
+          {additionalChargesInvoice && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-muted/40 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Invoice</span>
+                  <span className="font-medium">{additionalChargesInvoice.invoiceNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Preview Grand Total</span>
+                  <span className="font-semibold">
+                    ${additionalChargesPreview.grandTotal.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {chargesDraft.length > 0 ? (
+                <div className="space-y-2">
+                  <Label>Current charges</Label>
+                  <ul className="space-y-2">
+                    {chargesDraft.map((charge) => (
+                      <li
+                        key={charge.id}
+                        className="flex items-center justify-between gap-2 rounded-lg border p-2 text-sm"
+                      >
+                        <span className="font-medium truncate">{charge.name}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-semibold">${charge.amount.toFixed(2)}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive"
+                            onClick={() => handleRemoveChargeFromDraft(charge.id)}
+                            aria-label={`Remove ${charge.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No additional charges yet.</p>
+              )}
+
+              <div className="space-y-2 border-t pt-4">
+                <Label>Add charge</Label>
+                <Input
+                  placeholder="Service name (e.g. Rush handling)"
+                  value={newChargeName}
+                  onChange={(e) => setNewChargeName(e.target.value)}
+                />
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Price ($)"
+                  value={newChargeAmount}
+                  onChange={(e) => setNewChargeAmount(e.target.value)}
+                />
+                <Button type="button" variant="outline" size="sm" onClick={handleAddChargeToDraft}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add to list
+                </Button>
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  className="flex-1"
+                  onClick={handleSaveAdditionalCharges}
+                  disabled={isSavingAdditionalCharges}
+                >
+                  {isSavingAdditionalCharges ? "Saving..." : "Save charges"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsAdditionalChargesDialogOpen(false)}
+                  disabled={isSavingAdditionalCharges}
                 >
                   Cancel
                 </Button>

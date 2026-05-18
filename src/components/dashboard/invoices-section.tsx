@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Search, Download, CheckCircle, Clock, X, Eye, DollarSign, Receipt } from "lucide-react";
 import { format } from "date-fns";
 import { generateInvoicePDF } from "@/lib/invoice-generator";
+import { computeInvoiceTotals, getAdminAdditionalCharges } from "@/lib/invoice-totals";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
@@ -189,6 +190,7 @@ export function InvoicesSection({
         discountAmount: (invoice as any).discountAmount,
         lateFeeAmount: (invoice as any).lateFeeAmount,
         lateFeeReason: (invoice as any).lateFeeReason,
+        adminAdditionalCharges: (invoice as any).adminAdditionalCharges,
       });
       
       toast({
@@ -830,28 +832,12 @@ export function InvoicesSection({
               <div className="flex justify-end">
                 <div className="w-full sm:w-64 space-y-2">
                   {(() => {
-                    const additionalTotal = Number((selectedInvoice as any)?.additionalServices?.total || 0);
-                    const itemsSubtotal = selectedInvoice.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-                    const grossTotal =
-                      typeof (selectedInvoice as any).grossTotal === "number"
-                        ? (selectedInvoice as any).grossTotal
-                        : itemsSubtotal + (Number.isFinite(additionalTotal) ? additionalTotal : 0);
+                    const totals = computeInvoiceTotals(selectedInvoice);
+                    const adminCharges = getAdminAdditionalCharges(selectedInvoice);
                     const discountType = (selectedInvoice as any).discountType as ("amount" | "percent" | undefined);
                     const discountValue = (selectedInvoice as any).discountValue as (number | undefined);
-                    const storedDiscountAmount = (selectedInvoice as any).discountAmount as (number | undefined);
-                    const lateFeeAmount = Number((selectedInvoice as any).lateFeeAmount || 0);
                     const lateFeeReason = (selectedInvoice as any).lateFeeReason as string | undefined;
-
-                    let discountAmount = 0;
-                    if (typeof storedDiscountAmount === "number") {
-                      discountAmount = storedDiscountAmount;
-                    } else if (discountType === "percent" && typeof discountValue === "number") {
-                      discountAmount = grossTotal * (discountValue / 100);
-                    } else if (discountType === "amount" && typeof discountValue === "number") {
-                      discountAmount = discountValue;
-                    }
-                    discountAmount = Math.max(0, Math.min(grossTotal, discountAmount || 0));
-                    const hasDiscount = discountAmount > 0.009;
+                    const hasDiscount = totals.discountAmount > 0.009;
                     const discountLabel =
                       discountType === "percent" && typeof discountValue === "number"
                         ? `Discount (${discountValue.toFixed(2)}%)`
@@ -859,32 +845,41 @@ export function InvoicesSection({
 
                     return (
                       <>
-                        {additionalTotal > 0.0001 && (
-                          <>
-                            <div className="flex justify-between text-xs sm:text-sm">
-                              <span>Items Subtotal:</span>
-                              <span className="font-semibold">${itemsSubtotal.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between text-xs sm:text-sm">
-                              <span>Additional Services:</span>
-                              <span className="font-semibold">${additionalTotal.toFixed(2)}</span>
-                            </div>
-                          </>
+                        <div className="flex justify-between text-xs sm:text-sm">
+                          <span>Items Subtotal:</span>
+                          <span className="font-semibold">${totals.itemsSubtotal.toFixed(2)}</span>
+                        </div>
+                        {totals.shipmentAdditionalTotal > 0.0001 && (
+                          <div className="flex justify-between text-xs sm:text-sm">
+                            <span>Additional Services:</span>
+                            <span className="font-semibold">${totals.shipmentAdditionalTotal.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {adminCharges.length > 0 && (
+                          <div className="space-y-1 text-xs sm:text-sm">
+                            <span className="text-muted-foreground">Additional Charges:</span>
+                            {adminCharges.map((c) => (
+                              <div key={c.id} className="flex justify-between pl-2">
+                                <span>{c.name}</span>
+                                <span className="font-semibold">${c.amount.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
                         )}
                         <div className="flex justify-between text-xs sm:text-sm">
                           <span>Gross Total:</span>
-                          <span className="font-semibold">${grossTotal.toFixed(2)}</span>
+                          <span className="font-semibold">${totals.grossTotal.toFixed(2)}</span>
                         </div>
                         {hasDiscount && (
                           <div className="flex justify-between text-xs sm:text-sm">
                             <span>{discountLabel}:</span>
-                            <span className="font-semibold">-${discountAmount.toFixed(2)}</span>
+                            <span className="font-semibold">-${totals.discountAmount.toFixed(2)}</span>
                           </div>
                         )}
-                        {lateFeeAmount > 0.009 && (
+                        {totals.lateFeeAmount > 0.009 && (
                           <div className="flex justify-between text-xs sm:text-sm">
                             <span>Late Fee{lateFeeReason ? ` (${lateFeeReason})` : ""}:</span>
-                            <span className="font-semibold text-amber-700">+${lateFeeAmount.toFixed(2)}</span>
+                            <span className="font-semibold text-amber-700">+${totals.lateFeeAmount.toFixed(2)}</span>
                           </div>
                         )}
                       </>
@@ -921,3 +916,4 @@ export function InvoicesSection({
     </div>
   );
 }
+

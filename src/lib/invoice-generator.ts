@@ -42,6 +42,7 @@ interface InvoiceData {
   discountAmount?: number;
   lateFeeAmount?: number;
   lateFeeReason?: string;
+  adminAdditionalCharges?: Array<{ id: string; name: string; amount: number }>;
   type?: string;
   isContainerHandling?: boolean;
   storageType?: string;
@@ -346,7 +347,14 @@ async function buildInvoiceDoc(data: InvoiceData): Promise<jsPDF> {
   // Calculate totals
   const itemsSubtotal = data.items.reduce((sum, item: any) => sum + Number((item as any)?.amount || 0), 0);
   const additionalTotal = Number(data.additionalServices?.total || 0);
-  const computedGrossTotal = itemsSubtotal + (Number.isFinite(additionalTotal) ? additionalTotal : 0);
+  const adminChargesTotal = (data.adminAdditionalCharges ?? []).reduce(
+    (sum, c) => sum + (Number(c.amount) || 0),
+    0
+  );
+  const computedGrossTotal =
+    itemsSubtotal +
+    (Number.isFinite(additionalTotal) ? additionalTotal : 0) +
+    adminChargesTotal;
 
   const storedDiscountAmount = typeof data.discountAmount === "number" ? data.discountAmount : undefined;
   const discountType = data.discountType;
@@ -438,6 +446,26 @@ async function buildInvoiceDoc(data: InvoiceData): Promise<jsPDF> {
       summaryLineY += 5;
     }
   }
+
+  if (adminChargesTotal > 0.0001) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("Additional Charges:", margin, summaryLineY);
+    summaryLineY += 5;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    (data.adminAdditionalCharges ?? []).forEach((charge) => {
+      const name = String(charge.name || "Charge").substring(0, 40);
+      const amt = Number(charge.amount) || 0;
+      doc.text(`${name}: $${amt.toFixed(2)}`, margin + 5, summaryLineY);
+      summaryLineY += 4;
+    });
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text(`Total Additional Charges: $${adminChargesTotal.toFixed(2)}`, margin, summaryLineY);
+    summaryLineY += 5;
+  }
+
   if (discountAmount > 0.009) {
     doc.text(`Discount: -$${discountAmount.toFixed(2)}`, margin, summaryLineY);
     summaryLineY += 5;

@@ -223,6 +223,8 @@ export default function AdminUsersPage() {
                   initialStatus={statusFromUrl}
                   usersOverride={users}
                   viewOnly={isSubAdmin}
+                  searchQuery={searchTerm}
+                  onSearchQueryChange={setSearchTerm}
                 />
               )}
             </TabsContent>

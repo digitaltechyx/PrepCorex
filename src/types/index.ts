@@ -451,6 +451,12 @@ export interface EditLog {
   reason: string; // Reason for editing
 }
 
+export interface InvoiceAdditionalCharge {
+  id: string;
+  name: string;
+  amount: number;
+}
+
 export interface Invoice {
   id: string;
   invoiceNumber: string;
@@ -497,6 +503,8 @@ export interface Invoice {
       nanoseconds: number;
     } | string;
   };
+  /** Admin-added custom charges on pending invoices (service name + flat amount). */
+  adminAdditionalCharges?: InvoiceAdditionalCharge[];
   // Optional newer fields (auto-generated invoices, discounts, additional services, container handling, etc.)
   additionalServices?: {
     bubbleWrapFeet?: number;

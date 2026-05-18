@@ -32,14 +32,26 @@ interface MemberManagementProps {
   usersOverride?: UserProfile[];
   /** When true, hide approve/reject/edit/delete and role editing (sub admin view-only) */
   viewOnly?: boolean;
+  /** Optional controlled search (sync with parent page search bar) */
+  searchQuery?: string;
+  onSearchQueryChange?: (query: string) => void;
 }
 
-export function MemberManagement({ adminUser, initialStatus, usersOverride, viewOnly }: MemberManagementProps) {
+export function MemberManagement({
+  adminUser,
+  initialStatus,
+  usersOverride,
+  viewOnly,
+  searchQuery: controlledSearchQuery,
+  onSearchQueryChange,
+}: MemberManagementProps) {
   const { data: usersFromCollection, loading } = useCollection<UserProfile>("users");
   const users = usersOverride ?? usersFromCollection;
   const usersLoading = usersOverride !== undefined ? false : loading;
   const { toast } = useToast();
-  const [searchQuery, setSearchQuery] = useState("");
+  const [localSearchQuery, setLocalSearchQuery] = useState("");
+  const searchQuery = controlledSearchQuery ?? localSearchQuery;
+  const setSearchQuery = onSearchQueryChange ?? setLocalSearchQuery;
   const [currentPage, setCurrentPage] = useState(1);
   const [sortOrder, setSortOrder] = useState<"a-z" | "z-a">("a-z");
   const itemsPerPage = 12;
@@ -47,14 +59,18 @@ export function MemberManagement({ adminUser, initialStatus, usersOverride, view
   // Filter users and apply search
   // Requirement: show all users in User Management, regardless of role.
   const filteredUsers = useMemo(() => {
+    const term = searchQuery.trim().toLowerCase();
     return users.filter((user) => {
-      const matchesSearch = searchQuery === "" || 
-        user.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        user.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        user.phone?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        user.companyName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        user.ein?.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesSearch;
+      if (!term) return true;
+      const fields = [
+        user.name,
+        user.email,
+        user.phone,
+        user.companyName,
+        user.ein,
+        user.clientId,
+      ];
+      return fields.some((value) => String(value ?? "").toLowerCase().includes(term));
     });
   }, [users, searchQuery]);
 
@@ -627,7 +643,7 @@ export function MemberManagement({ adminUser, initialStatus, usersOverride, view
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search members by name, email, or phone..."
+              placeholder="Search by name, email, phone, or client ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
