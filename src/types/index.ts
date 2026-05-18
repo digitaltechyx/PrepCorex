@@ -216,7 +216,13 @@ export interface InventoryRequest {
   userName?: string;
   inventoryType: "product" | "box" | "pallet" | "container";
   productName: string;
+  /** Requested units (user submit). Kept after approve; use with receivedQuantity for display. */
   quantity: number;
+  requestedQuantity?: number;
+  /** Units actually received (set on admin approve). Stock uses this value. */
+  receivedQuantity?: number;
+  /** Links inventory row to the approved inbound request. */
+  sourceRequestId?: string;
   sku?: string;
   /** Single optional field for UPC / EAN / FNSKU / ASIN (whatever the client uses). */
   retailIdentifier?: string;

@@ -72,6 +72,7 @@ import { format } from "date-fns";
 import { Archive, Boxes, Check, Clock, Eye, Filter, Loader2, Package, Search, Truck, Upload, X, ImageOff } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import imageCompression from "browser-image-compression";
+import { formatInboundQuantityDisplay, getRequestedQuantity } from "@/lib/inventory-qty-display";
 
 function formatDate(date: InventoryRequest["addDate"] | InventoryRequest["requestedAt"] | InventoryRequest["receivingDate"]) {
   if (!date) return "N/A";
@@ -280,7 +281,8 @@ export function InventoryRequestsManagement({
       console.log("Remarks length:", remarksToSave.length);
       
       // Calculate final values outside transaction for use in invoice generation
-      const finalQuantity = editedQuantity !== undefined ? editedQuantity : request.quantity;
+      const requestedQty = getRequestedQuantity(request as any);
+      const finalQuantity = editedQuantity !== undefined ? editedQuantity : requestedQty;
       const finalProductName = editedProductName && editedProductName.trim() ? editedProductName.trim() : request.productName;
       const finalSku = request.inventoryType === "product" 
         ? (editedSku && editedSku.trim() ? editedSku.trim() : ((request as any).sku || ""))
@@ -319,10 +321,8 @@ export function InventoryRequestsManagement({
           imageUrls: finalImageUrls,
         };
         
-        // Add edited values to request update if they were changed
-        if (editedQuantity !== undefined) {
-          requestUpdateData.quantity = finalQuantity;
-        }
+        requestUpdateData.requestedQuantity = requestedQty;
+        requestUpdateData.receivedQuantity = finalQuantity;
         if (editedProductName && editedProductName.trim()) {
           requestUpdateData.productName = finalProductName;
         }
@@ -343,11 +343,14 @@ export function InventoryRequestsManagement({
           // Update existing product with new quantity
           transaction.update(existingProductRef!, {
             quantity: newQuantity,
+            requestedQuantity: requestedQty,
+            receivedQuantity: finalQuantity,
             receivingDate: receivingDateTimestamp,
             approvedBy: adminProfile.uid,
             approvedAt,
             remarks: remarksToSave,
             imageUrls: finalImageUrls,
+            sourceRequestId: request.id,
           });
         } else {
           // For new product/box/pallet OR restock with product not found: Create new inventory item
@@ -359,6 +362,9 @@ export function InventoryRequestsManagement({
           const finalData: any = {
             productName: finalProductName,
             quantity: finalQuantity,
+            requestedQuantity: requestedQty,
+            receivedQuantity: finalQuantity,
+            sourceRequestId: request.id,
             dateAdded: addDate,
             receivingDate: receivingDateTimestamp,
             status,
@@ -720,7 +726,14 @@ export function InventoryRequestsManagement({
                       <TableCell className="hidden lg:table-cell">
                         {(request as any).expiryDate ? formatOptionalDate((request as any).expiryDate) : "N/A"}
                       </TableCell>
-                      <TableCell>{request.quantity}</TableCell>
+                      <TableCell className="font-medium tabular-nums">
+                        {formatInboundQuantityDisplay({
+                          quantity: request.quantity,
+                          requestedQuantity: (request as any).requestedQuantity,
+                          receivedQuantity: (request as any).receivedQuantity,
+                          status: request.status,
+                        })}
+                      </TableCell>
                       <TableCell>{formatDate(request.requestedAt)}</TableCell>
                       <TableCell>
                         {request.receivingDate ? formatDate(request.receivingDate) : "N/A"}
@@ -837,7 +850,10 @@ function ReviewRequestDialog({
   const [remarks, setRemarks] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
   const [action, setAction] = useState<"approve" | "reject" | null>(null);
-  const [editedQuantity, setEditedQuantity] = useState<number>(request.quantity);
+  const requestedQty = getRequestedQuantity(request as any);
+  const [editedQuantity, setEditedQuantity] = useState<number>(
+    (request as any).receivedQuantity ?? requestedQty
+  );
   const [editedProductName, setEditedProductName] = useState<string>(request.productName);
   const [editedSku, setEditedSku] = useState<string>((request as any).sku || "");
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
@@ -1032,7 +1048,7 @@ function ReviewRequestDialog({
               </div>
               <div>
                 <Label>Requested Quantity</Label>
-                <p className="text-sm font-medium">{request.quantity}</p>
+                <p className="text-sm font-medium tabular-nums">{requestedQty}</p>
               </div>
             </div>
             <div>
@@ -1165,7 +1181,7 @@ function ReviewRequestDialog({
                   placeholder="Enter received quantity"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Requested: {request.quantity} | Difference: {editedQuantity - request.quantity}
+                  Requested: {requestedQty} | Difference: {editedQuantity - requestedQty}
                 </p>
               </div>
 
