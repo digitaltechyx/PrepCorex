@@ -49,16 +49,34 @@ import { Loader2, MapPin, Pencil, Plus, Printer, Trash2, Warehouse } from "lucid
 import type { Location, WarehouseAreaDoc, WarehouseBinDoc, WarehouseDoc } from "@/types";
 import {
   addWarehouseCustomPurpose,
+  clearWarehouseAreaBins,
   createWarehouseArea,
   createWarehouseFromExistingLocation,
   createWarehouseWithLocation,
+  deleteWarehouseAreaCascade,
+  deleteWarehouseBin,
+  deleteWarehouseBinsByAreaRow,
   deleteWarehouseCascade,
   generateWarehouseBinsFromDetailedRack,
+  replaceWarehouseAreaRow,
   setWarehouseBinActive,
   updateWarehouse,
-  updateWarehouseArea,
+  updateWarehouseAreaWithBinSync,
+  updateWarehouseBin,
   updateWarehouseWithLocation,
 } from "@/lib/warehouse-firestore";
+import { WarehouseBinEditDialog } from "@/components/admin/warehouse-bin-edit-dialog";
+import { WarehouseShelvingDialog } from "@/components/admin/warehouse-shelving-dialog";
+import {
+  WarehouseRowEditDialog,
+  type RowRackSavePayload,
+} from "@/components/admin/warehouse-row-edit-dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  buildRowCodesWithAssignment,
+  listGapRowCodes,
+  type RowAssignMode,
+} from "@/lib/warehouse-row-rack";
 import {
   emptyWarehouseLocationForm,
   locationToFormValues,
@@ -75,7 +93,6 @@ import {
   buildBaysPerRowFromCounts,
   buildLevelCodes,
   buildRowCodes,
-  buildRowCodesAfterExisting,
   countBinSlotsInDetailedRack,
 } from "@/lib/warehouse-storage-layout";
 import { formatPurposesList, getAreaPurposes } from "@/lib/warehouse-area-purposes";
@@ -111,12 +128,87 @@ export function WarehouseManagement() {
   const { data: areas, loading: areasLoading } = useCollection<WarehouseAreaDoc>(areasPath);
 
   const [binSearch, setBinSearch] = useState("");
+  const [binFilterArea, setBinFilterArea] = useState("__all__");
+  const [binFilterRow, setBinFilterRow] = useState("__all__");
+  const [binFilterBay, setBinFilterBay] = useState("__all__");
+  const [binFilterLevel, setBinFilterLevel] = useState("__all__");
+  const [binFilterActive, setBinFilterActive] = useState<"all" | "active" | "inactive">("all");
+
+  useEffect(() => {
+    setBinSearch("");
+    setBinFilterArea("__all__");
+    setBinFilterRow("__all__");
+    setBinFilterBay("__all__");
+    setBinFilterLevel("__all__");
+    setBinFilterActive("all");
+    setPdfAreaFilter("__all__");
+    setPdfRowFilter("__all__");
+    setPdfBayFilter("__all__");
+    setPdfLevelFilter("__all__");
+    setPdfBinFilter("__all__");
+    setPdfCreatedSince("");
+  }, [selectedId]);
+
+  const binFilterRowOptions = useMemo(() => {
+    const rows = new Set<string>();
+    for (const b of bins) {
+      if (binFilterArea !== "__all__" && b.area !== binFilterArea) continue;
+      if (b.row) rows.add(b.row);
+    }
+    return [...rows].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [bins, binFilterArea]);
+
+  const binFilterBayOptions = useMemo(() => {
+    const bays = new Set<string>();
+    for (const b of bins) {
+      if (binFilterArea !== "__all__" && b.area !== binFilterArea) continue;
+      if (binFilterRow !== "__all__" && b.row !== binFilterRow) continue;
+      if (b.bay) bays.add(b.bay);
+    }
+    return [...bays].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [bins, binFilterArea, binFilterRow]);
+
+  const binFilterLevelOptions = useMemo(() => {
+    const levels = new Set<string>();
+    for (const b of bins) {
+      if (binFilterArea !== "__all__" && b.area !== binFilterArea) continue;
+      if (binFilterRow !== "__all__" && b.row !== binFilterRow) continue;
+      if (binFilterBay !== "__all__" && b.bay !== binFilterBay) continue;
+      if (b.level) levels.add(b.level);
+    }
+    return [...levels].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [bins, binFilterArea, binFilterRow, binFilterBay]);
+
   const filteredBins = useMemo(() => {
     const q = binSearch.trim().toLowerCase();
-    const subset = !q.length ? bins.slice() : bins.filter((b) => (b.path || "").toLowerCase().includes(q));
+    let subset = bins.slice();
+    if (q.length) subset = subset.filter((b) => (b.path || "").toLowerCase().includes(q));
+    if (binFilterArea !== "__all__") subset = subset.filter((b) => b.area === binFilterArea);
+    if (binFilterRow !== "__all__") subset = subset.filter((b) => b.row === binFilterRow);
+    if (binFilterBay !== "__all__") subset = subset.filter((b) => b.bay === binFilterBay);
+    if (binFilterLevel !== "__all__") subset = subset.filter((b) => b.level === binFilterLevel);
+    if (binFilterActive === "active") subset = subset.filter((b) => b.active !== false);
+    else if (binFilterActive === "inactive") subset = subset.filter((b) => b.active === false);
     subset.sort((a, b) => compareBinPaths(a.path, b.path));
     return subset;
-  }, [bins, binSearch]);
+  }, [bins, binSearch, binFilterArea, binFilterRow, binFilterBay, binFilterLevel, binFilterActive]);
+
+  const binFiltersActive =
+    binSearch.trim().length > 0 ||
+    binFilterArea !== "__all__" ||
+    binFilterRow !== "__all__" ||
+    binFilterBay !== "__all__" ||
+    binFilterLevel !== "__all__" ||
+    binFilterActive !== "all";
+
+  const clearBinFilters = () => {
+    setBinSearch("");
+    setBinFilterArea("__all__");
+    setBinFilterRow("__all__");
+    setBinFilterBay("__all__");
+    setBinFilterLevel("__all__");
+    setBinFilterActive("all");
+  };
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -138,6 +230,7 @@ export function WarehouseManagement() {
   const [wizAddShelving, setWizAddShelving] = useState(true);
   const [wizTemporaryShelf, setWizTemporaryShelf] = useState(false);
   const [wizRowCountStr, setWizRowCountStr] = useState("1");
+  const [wizRowAssignMode, setWizRowAssignMode] = useState<RowAssignMode>("fill-gaps");
   const [wizBayCounts, setWizBayCounts] = useState<number[]>([]);
   const [wizLevelsPerBay, setWizLevelsPerBay] = useState<number[][]>([]);
   const [wizBinsPerLevel, setWizBinsPerLevel] = useState<number[][][]>([]);
@@ -149,10 +242,20 @@ export function WarehouseManagement() {
   const [editAreaName, setEditAreaName] = useState("");
   const [editAreaPurposes, setEditAreaPurposes] = useState<string[]>([]);
 
+  const [editBinOpen, setEditBinOpen] = useState(false);
+  const [editBinId, setEditBinId] = useState<string | null>(null);
+  const editBin = useMemo(
+    () => (editBinId ? bins.find((b) => b.id === editBinId) || null : null),
+    [bins, editBinId]
+  );
+
   const [pdfAreaFilter, setPdfAreaFilter] = useState("__all__");
   const [pdfRowFilter, setPdfRowFilter] = useState("__all__");
-  const [pdfBlockFilter, setPdfBlockFilter] = useState("__all__");
+  const [pdfBayFilter, setPdfBayFilter] = useState("__all__");
+  const [pdfLevelFilter, setPdfLevelFilter] = useState("__all__");
+  const [pdfBinFilter, setPdfBinFilter] = useState("__all__");
   const [pdfCreatedSince, setPdfCreatedSince] = useState("");
+  const [pdfActiveOnly, setPdfActiveOnly] = useState(true);
 
   const resetAreaWizard = () => {
     setRackWizardMode("new-area");
@@ -164,6 +267,7 @@ export function WarehouseManagement() {
     setWizAddShelving(true);
     setWizTemporaryShelf(false);
     setWizRowCountStr("1");
+    setWizRowAssignMode("fill-gaps");
     setWizBayCounts([]);
     setWizLevelsPerBay([]);
     setWizBinsPerLevel([]);
@@ -180,24 +284,112 @@ export function WarehouseManagement() {
     return [...codes].sort((a, b) => a.localeCompare(b));
   }, [areas, bins, rackTargetAreaId]);
 
-  const layoutBlockOptions = useMemo(() => {
-    const ids = new Set<string>();
-    for (const b of bins) {
-      if (b.layoutBlockId) ids.add(b.layoutBlockId);
-    }
-    return [...ids].sort();
-  }, [bins]);
+  const pdfAreaCode = useMemo(
+    () => (pdfAreaFilter === "__all__" ? null : areas.find((a) => a.id === pdfAreaFilter)?.code ?? null),
+    [pdfAreaFilter, areas]
+  );
 
   const pdfRowOptions = useMemo(() => {
     const rows = new Set<string>();
-    const areaCode =
-      pdfAreaFilter === "__all__" ? null : areas.find((a) => a.id === pdfAreaFilter)?.code;
     for (const b of bins) {
-      if (areaCode && b.area !== areaCode) continue;
+      if (pdfAreaCode && b.area !== pdfAreaCode) continue;
       if (b.row) rows.add(b.row);
     }
-    return [...rows].sort((a, b) => a.localeCompare(b));
-  }, [bins, areas, pdfAreaFilter]);
+    return [...rows].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [bins, pdfAreaCode]);
+
+  const pdfBayOptions = useMemo(() => {
+    const bays = new Set<string>();
+    for (const b of bins) {
+      if (pdfAreaCode && b.area !== pdfAreaCode) continue;
+      if (pdfRowFilter !== "__all__" && b.row !== pdfRowFilter) continue;
+      if (b.bay) bays.add(b.bay);
+    }
+    return [...bays].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [bins, pdfAreaCode, pdfRowFilter]);
+
+  const pdfLevelOptions = useMemo(() => {
+    const levels = new Set<string>();
+    for (const b of bins) {
+      if (pdfAreaCode && b.area !== pdfAreaCode) continue;
+      if (pdfRowFilter !== "__all__" && b.row !== pdfRowFilter) continue;
+      if (pdfBayFilter !== "__all__" && b.bay !== pdfBayFilter) continue;
+      if (b.level) levels.add(b.level);
+    }
+    return [...levels].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [bins, pdfAreaCode, pdfRowFilter, pdfBayFilter]);
+
+  const pdfBinOptions = useMemo(() => {
+    const list: WarehouseBinDoc[] = [];
+    for (const b of bins) {
+      if (pdfAreaCode && b.area !== pdfAreaCode) continue;
+      if (pdfRowFilter !== "__all__" && b.row !== pdfRowFilter) continue;
+      if (pdfBayFilter !== "__all__" && b.bay !== pdfBayFilter) continue;
+      if (pdfLevelFilter !== "__all__" && b.level !== pdfLevelFilter) continue;
+      list.push(b);
+    }
+    list.sort((a, b) => compareBinPaths(a.path, b.path));
+    return list;
+  }, [bins, pdfAreaCode, pdfRowFilter, pdfBayFilter, pdfLevelFilter]);
+
+  const pdfBinsForLabels = useMemo(() => {
+    let source = pdfActiveOnly ? bins.filter((b) => b.active !== false) : bins.slice();
+    if (pdfAreaCode) source = source.filter((b) => b.area === pdfAreaCode);
+    if (pdfRowFilter !== "__all__") source = source.filter((b) => b.row === pdfRowFilter);
+    if (pdfBayFilter !== "__all__") source = source.filter((b) => b.bay === pdfBayFilter);
+    if (pdfLevelFilter !== "__all__") source = source.filter((b) => b.level === pdfLevelFilter);
+    if (pdfBinFilter !== "__all__") source = source.filter((b) => b.id === pdfBinFilter);
+    if (pdfCreatedSince.trim()) {
+      const sinceMs = Date.parse(pdfCreatedSince);
+      if (Number.isFinite(sinceMs)) {
+        source = source.filter((b) => {
+          const c = b.createdAt;
+          if (!c) return false;
+          const ms =
+            c instanceof Date
+              ? c.getTime()
+              : typeof (c as { seconds?: number }).seconds === "number"
+                ? (c as { seconds: number }).seconds * 1000
+                : NaN;
+          return Number.isFinite(ms) && ms >= sinceMs;
+        });
+      }
+    }
+    source.sort((a, b) => compareBinPaths(a.path, b.path));
+    return source;
+  }, [
+    bins,
+    pdfActiveOnly,
+    pdfAreaCode,
+    pdfRowFilter,
+    pdfBayFilter,
+    pdfLevelFilter,
+    pdfBinFilter,
+    pdfCreatedSince,
+  ]);
+
+  const pdfFiltersActive =
+    pdfAreaFilter !== "__all__" ||
+    pdfRowFilter !== "__all__" ||
+    pdfBayFilter !== "__all__" ||
+    pdfLevelFilter !== "__all__" ||
+    pdfBinFilter !== "__all__" ||
+    pdfCreatedSince.trim().length > 0;
+
+  const clearPdfFilters = () => {
+    setPdfAreaFilter("__all__");
+    setPdfRowFilter("__all__");
+    setPdfBayFilter("__all__");
+    setPdfLevelFilter("__all__");
+    setPdfBinFilter("__all__");
+    setPdfCreatedSince("");
+  };
+
+  const [shelvingDialogOpen, setShelvingDialogOpen] = useState(false);
+  const [shelvingArea, setShelvingArea] = useState<WarehouseAreaDoc | null>(null);
+  const [rowEditOpen, setRowEditOpen] = useState(false);
+  const [rowEditCode, setRowEditCode] = useState("");
+  const [rowEditRefill, setRowEditRefill] = useState(false);
 
   const openExtendShelving = (area: WarehouseAreaDoc) => {
     resetAreaWizard();
@@ -208,6 +400,11 @@ export function WarehouseManagement() {
     setWizRowCountStr("1");
     setWizStep("rows");
     setAreaWizardOpen(true);
+  };
+
+  const openShelving = (area: WarehouseAreaDoc) => {
+    setShelvingArea(area);
+    setShelvingDialogOpen(true);
   };
 
   const openEditArea = (area: WarehouseAreaDoc) => {
@@ -222,17 +419,193 @@ export function WarehouseManagement() {
     if (!selected || !editAreaId) return;
     setSaving(true);
     try {
-      await updateWarehouseArea(selected.id, editAreaId, {
-        code: editAreaCode,
-        name: editAreaName,
-        purposes: editAreaPurposes,
+      const { binsUpdated } = await updateWarehouseAreaWithBinSync(
+        selected.id,
+        editAreaId,
+        selected.code,
+        {
+          code: editAreaCode,
+          name: editAreaName,
+          purposes: editAreaPurposes,
+        }
+      );
+      toast({
+        title: "Area updated",
+        description:
+          binsUpdated > 0 ? `${binsUpdated} bin path(s) updated to match the new area code.` : undefined,
       });
-      toast({ title: "Area updated" });
       setEditAreaOpen(false);
     } catch (e: unknown) {
       toast({
         variant: "destructive",
         title: "Update failed",
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEditBin = (bin: WarehouseBinDoc) => {
+    setEditBinId(bin.id);
+    setEditBinOpen(true);
+  };
+
+  const handleSaveEditBin = async (input: {
+    area: string;
+    row: string;
+    bay: string;
+    level: string;
+    binCode: string;
+    barcode: string;
+    active: boolean;
+    temporary: boolean;
+  }) => {
+    if (!selected || !editBinId) return;
+    setSaving(true);
+    try {
+      await updateWarehouseBin(selected.id, editBinId, selected.code, input);
+      toast({ title: "Bin updated" });
+      setEditBinOpen(false);
+      setEditBinId(null);
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Update failed",
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteBin = async (binId: string) => {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      await deleteWarehouseBin(selected.id, binId);
+      toast({ title: "Bin deleted" });
+      if (editBinId === binId) {
+        setEditBinOpen(false);
+        setEditBinId(null);
+      }
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Delete failed",
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClearAreaBins = async (area: WarehouseAreaDoc) => {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const removed = await clearWarehouseAreaBins(selected.id, area.code);
+      toast({
+        title: "Shelving cleared",
+        description: `Removed ${removed} bin(s) from area ${area.code}. The area record is unchanged.`,
+      });
+      setShelvingDialogOpen(false);
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Clear failed",
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemoveShelvingRow = async (rowCode: string) => {
+    if (!selected || !shelvingArea) return;
+    setSaving(true);
+    try {
+      const removed = await deleteWarehouseBinsByAreaRow(selected.id, shelvingArea.code, rowCode);
+      toast({
+        title: "Row removed",
+        description: `Deleted ${removed} bin(s) on row ${rowCode} in area ${shelvingArea.code}.`,
+      });
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Remove failed",
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openRowEdit = (rowCode: string, refill: boolean) => {
+    setRowEditCode(rowCode);
+    setRowEditRefill(refill);
+    setRowEditOpen(true);
+  };
+
+  const handleSaveRowEdit = async (payload: RowRackSavePayload) => {
+    if (!selected || !shelvingArea) return;
+    const estimated = countBinSlotsInDetailedRack(
+      payload.baysByRow,
+      payload.levelsPerBay,
+      payload.binsPerLevel
+    );
+    if (estimated > 25_000) {
+      toast({
+        variant: "destructive",
+        title: "Too many bins",
+        description: `This row would create about ${estimated.toLocaleString()} bins (limit 25,000).`,
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await replaceWarehouseAreaRow({
+        warehouseId: selected.id,
+        warehouseCode: selected.code,
+        storageAreaId: shelvingArea.id,
+        areaCode: shelvingArea.code,
+        rowCode: payload.rowCode,
+        rowCodes: [payload.rowCode],
+        baysByRow: payload.baysByRow,
+        levelsPerBay: payload.levelsPerBay,
+        binsPerLevel: payload.binsPerLevel,
+      });
+      toast({
+        title: rowEditRefill ? "Row refilled" : "Row updated",
+        description: `Bins created ${res.created}, skipped ${res.skipped}${
+          res.failed ? `, failed ${res.failed}` : ""
+        }.`,
+      });
+      setRowEditOpen(false);
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Save failed",
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteArea = async (area: WarehouseAreaDoc) => {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const { binsRemoved } = await deleteWarehouseAreaCascade(selected.id, area.id);
+      toast({
+        title: "Area deleted",
+        description: `Removed area ${area.code} and ${binsRemoved} bin(s).`,
+      });
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Delete failed",
         description: e instanceof Error ? e.message : String(e),
       });
     } finally {
@@ -255,8 +628,13 @@ export function WarehouseManagement() {
 
   const resolveWizardRowCodes = (rowCount: number): string[] =>
     rackWizardMode === "extend-area"
-      ? buildRowCodesAfterExisting(existingRowsForRackTarget, rowCount)
+      ? buildRowCodesWithAssignment(existingRowsForRackTarget, rowCount, wizRowAssignMode)
       : buildRowCodes(rowCount);
+
+  const gapRowCodesForExtend = useMemo(
+    () => (rackWizardMode === "extend-area" ? listGapRowCodes(existingRowsForRackTarget) : []),
+    [rackWizardMode, existingRowsForRackTarget]
+  );
 
   const wizGridLayout = useMemo(() => {
     try {
@@ -267,14 +645,14 @@ export function WarehouseManagement() {
       }
       const rowCodes =
         rackWizardMode === "extend-area"
-          ? buildRowCodesAfterExisting(existingRowsForRackTarget, rowCount)
+          ? buildRowCodesWithAssignment(existingRowsForRackTarget, rowCount, wizRowAssignMode)
           : buildRowCodes(rowCount);
       const baysByRow = buildBaysPerRowFromCounts(rowCodes, wizBayCounts);
       return { rowCodes, baysByRow };
     } catch {
       return null;
     }
-  }, [wizRowCountStr, wizBayCounts, rackWizardMode, existingRowsForRackTarget]);
+  }, [wizRowCountStr, wizBayCounts, rackWizardMode, existingRowsForRackTarget, wizRowAssignMode]);
 
   const wizardRackLayout = useMemo(() => {
     if (!selected) return null;
@@ -287,7 +665,7 @@ export function WarehouseManagement() {
       }
       const rowCodes =
         rackWizardMode === "extend-area"
-          ? buildRowCodesAfterExisting(existingRowsForRackTarget, rowCount)
+          ? buildRowCodesWithAssignment(existingRowsForRackTarget, rowCount, wizRowAssignMode)
           : buildRowCodes(rowCount);
       const baysByRow = buildBaysPerRowFromCounts(rowCodes, wizBayCounts);
       if (wizLevelsPerBay.length !== rowCodes.length || wizBinsPerLevel.length !== rowCodes.length) return null;
@@ -333,21 +711,21 @@ export function WarehouseManagement() {
     wizLevelsPerBay,
     wizBinsPerLevel,
     wizCode,
+    wizRowAssignMode,
   ]);
 
   const wizRowLabels = useMemo(() => {
     try {
       const rc = parseBoundedInt(wizRowCountStr, "Row count", 1, 999);
       if (rackWizardMode === "extend-area") {
-        return buildRowCodesAfterExisting(existingRowsForRackTarget, rc);
+        return buildRowCodesWithAssignment(existingRowsForRackTarget, rc, wizRowAssignMode);
       }
       return buildRowCodes(rc);
     } catch {
       return [] as string[];
     }
-  }, [wizRowCountStr, rackWizardMode, existingRowsForRackTarget]);
+  }, [wizRowCountStr, rackWizardMode, existingRowsForRackTarget, wizRowAssignMode]);
 
-  const [pdfActiveOnly, setPdfActiveOnly] = useState(true);
   const [printing, setPrinting] = useState(false);
   const [deletingWarehouse, setDeletingWarehouse] = useState(false);
 
@@ -821,33 +1199,7 @@ export function WarehouseManagement() {
 
   const handlePrintPdf = async () => {
     if (!selected) return;
-    let source = pdfActiveOnly ? bins.filter((b) => b.active !== false) : bins.slice();
-    if (pdfAreaFilter !== "__all__") {
-      const areaCode = areas.find((a) => a.id === pdfAreaFilter)?.code;
-      if (areaCode) source = source.filter((b) => b.area === areaCode);
-    }
-    if (pdfRowFilter !== "__all__") {
-      source = source.filter((b) => b.row === pdfRowFilter);
-    }
-    if (pdfBlockFilter !== "__all__") {
-      source = source.filter((b) => b.layoutBlockId === pdfBlockFilter);
-    }
-    if (pdfCreatedSince.trim()) {
-      const sinceMs = Date.parse(pdfCreatedSince);
-      if (Number.isFinite(sinceMs)) {
-        source = source.filter((b) => {
-          const c = b.createdAt;
-          if (!c) return false;
-          const ms =
-            c instanceof Date
-              ? c.getTime()
-              : typeof (c as { seconds?: number }).seconds === "number"
-                ? (c as { seconds: number }).seconds * 1000
-                : NaN;
-          return Number.isFinite(ms) && ms >= sinceMs;
-        });
-      }
-    }
+    const source = pdfBinsForLabels;
     if (source.length === 0) {
       toast({
         variant: "destructive",
@@ -859,8 +1211,9 @@ export function WarehouseManagement() {
     setPrinting(true);
     try {
       const bytes = await buildWarehouseBinLabelsPdf({
-        title: `${selected.name} (${selected.code}) — bin labels`,
+        title: `${selected.name} (${selected.code}) - bin labels`,
         bins: source,
+        binsForLevelContext: bins,
         activeOnly: false,
       });
       const safe = selected.code.replace(/[^a-z0-9-_]/gi, "_");
@@ -1140,7 +1493,7 @@ export function WarehouseManagement() {
                   <p className="text-sm text-muted-foreground">
                     Design each area your way: pick one or more purposes (including custom labels), optionally add
                     shelving with per-row layout, and extend or add temporary shelves later. Labels can be printed for
-                    the whole warehouse or filtered by area, row, or shelf block.
+                    the whole warehouse or filtered by area or row.
                   </p>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border rounded-lg p-4 bg-muted/30">
                     <p className="text-sm text-muted-foreground shrink-0">Step-by-step wizard for all area types.</p>
@@ -1164,7 +1517,7 @@ export function WarehouseManagement() {
                           <TableHead>Purposes</TableHead>
                           <TableHead className="w-28">Bins</TableHead>
                           <TableHead className="w-28">Active</TableHead>
-                          <TableHead className="w-40 text-right">Actions</TableHead>
+                          <TableHead className="min-w-[280px] text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1222,11 +1575,36 @@ export function WarehouseManagement() {
                                       type="button"
                                       variant="secondary"
                                       size="sm"
-                                      onClick={() => openExtendShelving(a)}
+                                      onClick={() => openShelving(a)}
                                     >
                                       <Plus className="h-3.5 w-3.5 mr-1" />
                                       Shelving
                                     </Button>
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button type="button" variant="destructive" size="sm">
+                                          <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                          Delete
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Delete area {a.code}?</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            Removes the area and all {binCount} bin(s). Cannot be undone.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            onClick={() => void handleDeleteArea(a)}
+                                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                          >
+                                            Delete area
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
                                   </div>
                                 </TableCell>
                               </TableRow>
@@ -1240,45 +1618,110 @@ export function WarehouseManagement() {
 
                 <TabsContent value="bins" className="space-y-4 mt-4">
                   <p className="text-sm text-muted-foreground">
-                    Bins are created from <strong className="text-foreground">Areas</strong> (add area with shelving, or
-                    use <strong className="text-foreground">Shelving</strong> on an existing area). Search by path and
-                    toggle active bins.
+                    Edit any bin path segment, barcode, or status. Use <strong className="text-foreground">Shelving</strong> on
+                    an area to add rows or remove individual rows, or edit bins below.
                   </p>
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold text-foreground">Bin list</h3>
-                    <Input
-                      placeholder="Filter by path"
-                      value={binSearch}
-                      onChange={(e) => setBinSearch(e.target.value)}
-                      className="max-w-sm"
-                    />
-                    <div className="rounded-md border overflow-x-auto mouse-h-scroll max-h-[480px] overflow-y-auto">
-                      <Table>
-                        <TableHeader>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <h3 className="text-sm font-semibold text-foreground">Bin list</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Showing {filteredBins.length.toLocaleString()} of {bins.length.toLocaleString()} bins
+                      </p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 rounded-lg border p-4 bg-muted/30">
+                      <div className="space-y-1 sm:col-span-2 lg:col-span-3 xl:col-span-2">
+                        <Label className="text-xs text-muted-foreground">Search path</Label>
+                        <Input placeholder="e.g. NJ01-A-03" value={binSearch} onChange={(e) => setBinSearch(e.target.value)} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Area</Label>
+                        <Select value={binFilterArea} onValueChange={(v) => { setBinFilterArea(v); setBinFilterRow("__all__"); setBinFilterBay("__all__"); setBinFilterLevel("__all__"); }}>
+                          <SelectTrigger><SelectValue placeholder="All areas" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__all__">All areas</SelectItem>
+                            {areas.map((a) => (<SelectItem key={a.id} value={a.code}>{a.code}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Row</Label>
+                        <Select value={binFilterRow} onValueChange={(v) => { setBinFilterRow(v); setBinFilterBay("__all__"); setBinFilterLevel("__all__"); }} disabled={binFilterRowOptions.length === 0}>
+                          <SelectTrigger><SelectValue placeholder="All rows" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__all__">All rows</SelectItem>
+                            {binFilterRowOptions.map((row) => (<SelectItem key={row} value={row}>{row}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Bay</Label>
+                        <Select value={binFilterBay} onValueChange={(v) => { setBinFilterBay(v); setBinFilterLevel("__all__"); }} disabled={binFilterBayOptions.length === 0}>
+                          <SelectTrigger><SelectValue placeholder="All bays" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__all__">All bays</SelectItem>
+                            {binFilterBayOptions.map((bay) => (<SelectItem key={bay} value={bay}>{bay}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Level</Label>
+                        <Select value={binFilterLevel} onValueChange={setBinFilterLevel} disabled={binFilterLevelOptions.length === 0}>
+                          <SelectTrigger><SelectValue placeholder="All levels" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__all__">All levels</SelectItem>
+                            {binFilterLevelOptions.map((level) => (<SelectItem key={level} value={level}>{level}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Status</Label>
+                        <Select value={binFilterActive} onValueChange={(v) => setBinFilterActive(v as "all" | "active" | "inactive")}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All</SelectItem>
+                            <SelectItem value="active">Active only</SelectItem>
+                            <SelectItem value="inactive">Inactive only</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    {binFiltersActive ? (<Button type="button" variant="outline" size="sm" onClick={clearBinFilters}>Clear filters</Button>) : null}
+                    <div className="h-[min(60vh,560px)] min-h-[280px] rounded-md border mouse-both-scroll overscroll-contain">
+                      <Table containerClassName="overflow-visible min-w-[720px]">
+                        <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
                         <TableRow>
                           <TableHead>Path</TableHead>
-                          <TableHead className="w-24">Level</TableHead>
-                          <TableHead className="w-28 text-right">Active</TableHead>
+                          <TableHead className="w-16">Area</TableHead>
+                          <TableHead className="w-14">Row</TableHead>
+                          <TableHead className="w-14">Bay</TableHead>
+                          <TableHead className="w-16">Level</TableHead>
+                          <TableHead className="w-20 text-right">Active</TableHead>
+                          <TableHead className="w-32 text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {binsLoading ? (
                           <TableRow>
-                            <TableCell colSpan={3} className="text-muted-foreground text-sm">
+                            <TableCell colSpan={7} className="text-muted-foreground text-sm">
                               Loading bins…
                             </TableCell>
                           </TableRow>
                         ) : filteredBins.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={3} className="text-muted-foreground text-sm">
-                              No bins match.
+                            <TableCell colSpan={7} className="text-muted-foreground text-sm">
+                              No bins match these filters.
                             </TableCell>
                           </TableRow>
                         ) : (
                           filteredBins.map((b) => (
                             <TableRow key={b.id}>
-                              <TableCell className="font-mono text-xs">{b.path}</TableCell>
-                              <TableCell>{b.level}</TableCell>
+                              <TableCell className="font-mono text-xs max-w-[280px] truncate" title={b.path}>
+                                {b.path}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">{b.area}</TableCell>
+                              <TableCell className="font-mono text-xs">{b.row}</TableCell>
+                              <TableCell className="font-mono text-xs">{b.bay}</TableCell>
+                              <TableCell className="font-mono text-xs">{b.level}</TableCell>
                               <TableCell className="text-right">
                                 <Switch
                                   checked={b.active !== false}
@@ -1295,69 +1738,128 @@ export function WarehouseManagement() {
                                   }}
                                 />
                               </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => openEditBin(b)}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-destructive"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete this bin?</AlertDialogTitle>
+                                        <AlertDialogDescription className="font-mono text-xs break-all">
+                                          {b.path}
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() => void handleDeleteBin(b.id)}
+                                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        >
+                                          Delete bin
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </div>
+                              </TableCell>
                             </TableRow>
                           ))
                         )}
                       </TableBody>
                     </Table>
-                  </div>
+                    </div>
                   </div>
                 </TabsContent>
 
                 <TabsContent value="labels" className="space-y-4 mt-4">
                   <p className="text-sm text-muted-foreground">
-                    Print bin label PDFs (same format as before). Filter by area, row, shelf block, or date to print
-                    only new shelves.
+                    Choose exactly which bins get labels — by area, row, bay, level, or one specific bin. Leave filters on &quot;All&quot; to include everything (still respects active-only below).
                   </p>
                   {!bins.length ? (
                     <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
                       No bins yet — add shelving in <strong>Areas</strong>, then return here.
                     </p>
                   ) : null}
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 rounded-lg border p-4 bg-muted/30">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm font-medium text-foreground">
+                      {pdfBinsForLabels.length.toLocaleString()} label{pdfBinsForLabels.length === 1 ? "" : "s"} will be generated
+                    </p>
+                    {pdfFiltersActive ? (
+                      <Button type="button" variant="outline" size="sm" onClick={clearPdfFilters}>
+                        Clear label filters
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 rounded-lg border p-4 bg-muted/30">
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">Area</Label>
-                      <Select
-                        value={pdfAreaFilter}
-                        onValueChange={(v) => {
-                          setPdfAreaFilter(v);
-                          setPdfRowFilter("__all__");
-                        }}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                      <Select value={pdfAreaFilter} onValueChange={(v) => { setPdfAreaFilter(v); setPdfRowFilter("__all__"); setPdfBayFilter("__all__"); setPdfLevelFilter("__all__"); setPdfBinFilter("__all__"); }}>
+                        <SelectTrigger><SelectValue placeholder="All areas" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__all__">All areas</SelectItem>
-                          {areas.map((a) => (
-                            <SelectItem key={a.id} value={a.id}>{a.code}</SelectItem>
-                          ))}
+                          {areas.map((a) => (<SelectItem key={a.id} value={a.id}>{a.code}</SelectItem>))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">Row</Label>
-                      <Select value={pdfRowFilter} onValueChange={setPdfRowFilter}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                      <Select value={pdfRowFilter} onValueChange={(v) => { setPdfRowFilter(v); setPdfBayFilter("__all__"); setPdfLevelFilter("__all__"); setPdfBinFilter("__all__"); }} disabled={pdfRowOptions.length === 0}>
+                        <SelectTrigger><SelectValue placeholder="All rows" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__all__">All rows</SelectItem>
-                          {pdfRowOptions.map((r) => (
-                            <SelectItem key={r} value={r}>{r}</SelectItem>
-                          ))}
+                          {pdfRowOptions.map((r) => (<SelectItem key={r} value={r}>{r}</SelectItem>))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Shelf block</Label>
-                      <Select value={pdfBlockFilter} onValueChange={setPdfBlockFilter}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                      <Label className="text-xs text-muted-foreground">Bay</Label>
+                      <Select value={pdfBayFilter} onValueChange={(v) => { setPdfBayFilter(v); setPdfLevelFilter("__all__"); setPdfBinFilter("__all__"); }} disabled={pdfBayOptions.length === 0}>
+                        <SelectTrigger><SelectValue placeholder="All bays" /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__all__">All blocks</SelectItem>
-                          {layoutBlockOptions.map((id) => (
-                            <SelectItem key={id} value={id}>{id.slice(0, 8)}</SelectItem>
-                          ))}
+                          <SelectItem value="__all__">All bays</SelectItem>
+                          {pdfBayOptions.map((bay) => (<SelectItem key={bay} value={bay}>{bay}</SelectItem>))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Level</Label>
+                      <Select value={pdfLevelFilter} onValueChange={(v) => { setPdfLevelFilter(v); setPdfBinFilter("__all__"); }} disabled={pdfLevelOptions.length === 0}>
+                        <SelectTrigger><SelectValue placeholder="All levels" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All levels</SelectItem>
+                          {pdfLevelOptions.map((level) => (<SelectItem key={level} value={level}>{level}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1 sm:col-span-2 lg:col-span-3 xl:col-span-2">
+                      <Label className="text-xs text-muted-foreground">Bin (single path)</Label>
+                      <Select value={pdfBinFilter} onValueChange={setPdfBinFilter} disabled={pdfBinOptions.length === 0}>
+                        <SelectTrigger><SelectValue placeholder="All matching bins" /></SelectTrigger>
+                        <SelectContent className="max-h-[min(50vh,320px)]">
+                          <SelectItem value="__all__">All matching bins</SelectItem>
+                          {pdfBinOptions.map((b) => (<SelectItem key={b.id} value={b.id} className="font-mono text-xs">{b.path}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1 sm:col-span-2 lg:col-span-3 xl:col-span-2">
                       <Label className="text-xs text-muted-foreground">Created since</Label>
                       <Input type="datetime-local" value={pdfCreatedSince} onChange={(e) => setPdfCreatedSince(e.target.value)} />
                     </div>
@@ -1369,7 +1871,7 @@ export function WarehouseManagement() {
                         Active bins only
                       </Label>
                     </div>
-                    <Button onClick={handlePrintPdf} disabled={printing || !bins.length}>
+                    <Button onClick={handlePrintPdf} disabled={printing || !bins.length || pdfBinsForLabels.length === 0}>
                       {printing ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
@@ -1482,7 +1984,7 @@ export function WarehouseManagement() {
               {wizStep === "shelving" && "Add rack/shelf bins now, or create a zone only."}
               {wizStep === "rows" &&
                 (rackWizardMode === "extend-area"
-                  ? "How many new rows to add? (continues after existing rows.)"
+                  ? "How many rows to add? Choose whether to refill empty row numbers first or continue after the highest row."
                   : "How many rack rows in this area?")}
               {wizStep === "bays" && "For each row, how many bays (positions along the aisle)?"}
               {wizStep === "rackLevels" && "For each bay, how many vertical levels (1, 2, 3… in the path)?"}
@@ -1571,9 +2073,52 @@ export function WarehouseManagement() {
                   onChange={(e) => setWizRowCountStr(e.target.value)}
                   className="max-w-[120px]"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Rows are numbered 01, 02, … (width adjusts for large counts).
-                </p>
+                {rackWizardMode === "extend-area" ? (
+                  <div className="space-y-2 pt-2">
+                    <Label className="text-sm">Row numbering</Label>
+                    <RadioGroup
+                      value={wizRowAssignMode}
+                      onValueChange={(v) => setWizRowAssignMode(v as RowAssignMode)}
+                      className="space-y-2"
+                    >
+                      <div className="flex items-start gap-2 rounded-md border p-3">
+                        <RadioGroupItem value="fill-gaps" id="row-assign-gaps" className="mt-0.5" />
+                        <label htmlFor="row-assign-gaps" className="text-sm cursor-pointer space-y-0.5">
+                          <span className="font-medium">Refill gaps first</span>
+                          <p className="text-xs text-muted-foreground">
+                            Use empty row numbers (e.g. 01, 02) before adding new rows after the highest.
+                            {gapRowCodesForExtend.length > 0 ? (
+                              <>
+                                {" "}
+                                Gaps: <span className="font-mono">{gapRowCodesForExtend.join(", ")}</span>
+                              </>
+                            ) : (
+                              " No gaps right now — same as continue after highest."
+                            )}
+                          </p>
+                        </label>
+                      </div>
+                      <div className="flex items-start gap-2 rounded-md border p-3">
+                        <RadioGroupItem value="continue" id="row-assign-continue" className="mt-0.5" />
+                        <label htmlFor="row-assign-continue" className="text-sm cursor-pointer space-y-0.5">
+                          <span className="font-medium">Continue after highest row</span>
+                          <p className="text-xs text-muted-foreground">
+                            Always number after the current maximum (e.g. existing 03, 04 → next is 05).
+                          </p>
+                        </label>
+                      </div>
+                    </RadioGroup>
+                    {wizRowLabels.length > 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        New row codes: <span className="font-mono">{wizRowLabels.join(", ")}</span>
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Rows are numbered 01, 02, … (width adjusts for large counts).
+                  </p>
+                )}
               </div>
             ) : null}
 
@@ -1811,11 +2356,62 @@ export function WarehouseManagement() {
         </DialogContent>
       </Dialog>
 
+      <WarehouseShelvingDialog
+        open={shelvingDialogOpen}
+        onOpenChange={(open) => {
+          setShelvingDialogOpen(open);
+          if (!open) setShelvingArea(null);
+        }}
+        area={shelvingArea}
+        warehouseCode={selected?.code ?? ""}
+        bins={bins}
+        saving={saving}
+        onAddShelving={() => {
+          if (shelvingArea) openExtendShelving(shelvingArea);
+        }}
+        onEditRow={(row) => openRowEdit(row, false)}
+        onRefillRow={(row) => openRowEdit(row, true)}
+        onRemoveRow={handleRemoveShelvingRow}
+        onClearAll={() => {
+          if (shelvingArea) void handleClearAreaBins(shelvingArea);
+        }}
+      />
+
+      <WarehouseRowEditDialog
+        open={rowEditOpen}
+        onOpenChange={(open) => {
+          setRowEditOpen(open);
+          if (!open) setRowEditCode("");
+        }}
+        rowCode={rowEditCode}
+        areaCode={shelvingArea?.code ?? ""}
+        warehouseCode={selected?.code ?? ""}
+        bins={bins}
+        saving={saving}
+        isRefill={rowEditRefill}
+        onSave={handleSaveRowEdit}
+      />
+
+      <WarehouseBinEditDialog
+        open={editBinOpen}
+        onOpenChange={(open) => {
+          setEditBinOpen(open);
+          if (!open) setEditBinId(null);
+        }}
+        bin={editBin}
+        areas={areas}
+        saving={saving}
+        onSave={handleSaveEditBin}
+      />
+
       <Dialog open={editAreaOpen} onOpenChange={setEditAreaOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Edit area</DialogTitle>
-            <DialogDescription>Update code, name, and purposes. Shelving is managed via the Shelving button.</DialogDescription>
+            <DialogDescription>
+              Update code, name, and purposes. Changing the area code updates all bin paths. Use Shelving to add or
+              remove rows.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-2">

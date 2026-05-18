@@ -3,19 +3,94 @@ import QRCode from "qrcode";
 import type { WarehouseBinDoc } from "@/types";
 import { compareBinPaths, formatPathSegmentLabelCompact, parseBinPath } from "@/lib/warehouse-bin-path";
 
-/** Level theme ΓÇö border, top accent block, LEVEL chip (reference sheet 1). */
-const LEVEL_STYLES = [
-  { accent: rgb(0.78, 0.58, 0.08) },
-  { accent: rgb(0.52, 0.28, 0.82) },
-  { accent: rgb(0.2, 0.45, 0.9) },
-  { accent: rgb(0.05, 0.65, 0.45) },
-  { accent: rgb(0.82, 0.14, 0.14) },
+/** Helvetica in pdf-lib uses WinAnsi; replace unsupported characters before drawText. */
+export function sanitizePdfWinAnsi(text: string): string {
+  return String(text ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u2013\u2014\u2015]/g, "-")
+    .replace(/[\u2018\u2019\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u2033]/g, '"')
+    .replace(/[\u2026]/g, "...")
+    .replace(/[\u00A0]/g, " ")
+    .replace(/[^\t\n\r\x20-\x7E\xA0-\xFF]/g, "?");
+}
+
+function pdfText(text: string): string {
+  return sanitizePdfWinAnsi(text);
+}
+
+type PdfRgb = ReturnType<typeof rgb>;
+
+/** Bottom (level 1) to top: green, yellow, blue, purple; top level always red. */
+const LEVEL_GREEN = rgb(0.06, 0.62, 0.38);
+const LEVEL_YELLOW = rgb(0.93, 0.78, 0.1);
+const LEVEL_BLUE = rgb(0.18, 0.42, 0.88);
+const LEVEL_PURPLE = rgb(0.48, 0.22, 0.78);
+const LEVEL_RED = rgb(0.82, 0.12, 0.12);
+
+/** Extra hues for level 5..(max-1) when max > 5 (no black/white). */
+const OVERFLOW_LEVEL_COLORS: PdfRgb[] = [
+  rgb(0.95, 0.45, 0.12),
+  rgb(0.12, 0.72, 0.68),
+  rgb(0.88, 0.28, 0.58),
+  rgb(0.55, 0.72, 0.22),
+  rgb(0.72, 0.38, 0.18),
+  rgb(0.28, 0.58, 0.92),
+  rgb(0.62, 0.32, 0.82),
 ];
 
-function levelIndex(level: string): number {
+export function parseLevelNumber(level: string): number {
   const n = parseInt(String(level).replace(/\D/g, ""), 10);
-  if (!Number.isFinite(n) || n < 1) return 0;
-  return (n - 1) % LEVEL_STYLES.length;
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return n;
+}
+
+export function bayLevelKey(bin: Pick<WarehouseBinDoc, "area" | "row" | "bay">): string {
+  return `${bin.area}|${bin.row}|${bin.bay}`;
+}
+
+export function buildMaxLevelByBay(bins: WarehouseBinDoc[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const b of bins) {
+    const key = bayLevelKey(b);
+    const n = parseLevelNumber(b.level);
+    map.set(key, Math.max(map.get(key) ?? 0, n));
+  }
+  return map;
+}
+
+function overflowLevelColor(levelNum: number, bayKey: string): PdfRgb {
+  let h = 2166136261;
+  const seed = `${bayKey}#${levelNum}`;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return OVERFLOW_LEVEL_COLORS[Math.abs(h) % OVERFLOW_LEVEL_COLORS.length];
+}
+
+/**
+ * Label accent by shelf height (level 1 = bottom).
+ * Levels 1-4: green, yellow, blue, purple. Top level in bay: always red.
+ * If max > 5, middle levels (5 .. max-1) use a stable random color (not black/white).
+ */
+export function getLevelAccentColor(levelNum: number, maxLevelInBay: number, bayKey: string): PdfRgb {
+  const max = Math.max(1, maxLevelInBay);
+  const level = Math.min(Math.max(1, levelNum), max);
+  if (level === max) return LEVEL_RED;
+  switch (level) {
+    case 1:
+      return LEVEL_GREEN;
+    case 2:
+      return LEVEL_YELLOW;
+    case 3:
+      return LEVEL_BLUE;
+    case 4:
+      return LEVEL_PURPLE;
+    default:
+      return overflowLevelColor(level, bayKey);
+  }
 }
 
 async function qrPngBytes(payload: string, size = 128): Promise<Uint8Array> {
@@ -55,6 +130,7 @@ function drawBinLabel(
   w: number,
   h: number,
   bin: WarehouseBinDoc,
+  maxLevelInBay: number,
   font: PDFFont,
   fontBold: PDFFont,
   img: PDFImage
@@ -66,8 +142,8 @@ function drawBinLabel(
   const cardBottom = yTop - h + outerPad;
 
   const parsed = parseBinPath(bin.path);
-  const lvlIdx = levelIndex(bin.level);
-  const style = LEVEL_STYLES[lvlIdx];
+  const levelNum = parseLevelNumber(bin.level);
+  const accent = getLevelAccentColor(levelNum, maxLevelInBay, bayLevelKey(bin));
 
   const borderW = cardH < 90 ? 2.5 : 4;
 
@@ -77,7 +153,7 @@ function drawBinLabel(
       y: cardBottom,
       width: cardW,
       height: cardH,
-      color: style.accent,
+      color: accent,
     });
     page.drawRectangle({
       x: cardX + borderW,
@@ -92,7 +168,7 @@ function drawBinLabel(
     const qx = innerX;
     const qy = cardBottom + cardH - borderW - 6 - qrSide;
     page.drawImage(img, { x: qx, y: qy, width: qrSide, height: qrSide });
-    page.drawText(bin.path, {
+    page.drawText(pdfText(bin.path), {
       x: innerX,
       y: cardBottom + borderW + 6,
       size: 7,
@@ -114,7 +190,7 @@ function drawBinLabel(
     y: cardBottom,
     width: cardW,
     height: cardH,
-    color: style.accent,
+    color: accent,
   });
   page.drawRectangle({
     x: innerX,
@@ -128,7 +204,7 @@ function drawBinLabel(
   const topH = innerH - botH;
   const topBottom = innerY + botH;
   const halfW = innerW / 2;
-  const qrOnLeft = lvlIdx % 2 === 0;
+  const qrOnLeft = (levelNum - 1) % 2 === 0;
 
   const accentLeft = qrOnLeft ? innerX + halfW : innerX;
   page.drawRectangle({
@@ -136,7 +212,7 @@ function drawBinLabel(
     y: topBottom,
     width: halfW,
     height: topH,
-    color: style.accent,
+    color: accent,
   });
 
   const qrHalfX = qrOnLeft ? innerX : innerX + halfW;
@@ -159,12 +235,12 @@ function drawBinLabel(
    * Display line: `NJ03 - A - 1 - A - 1 - A2` (spaces around hyphens). LEVEL stays in accent chip.
    * Header baselines stay inside the white band so glyphs are not painted over the top gold block.
    */
-  const whD = parsed.warehouse;
-  const areaD = formatPathSegmentLabelCompact(parsed.area);
-  const rowD = formatPathSegmentLabelCompact(parsed.row);
-  const bayD = formatPathSegmentLabelCompact(parsed.bay);
-  const levelD = formatPathSegmentLabelCompact(parsed.level);
-  const binD = parsed.pos;
+  const whD = pdfText(parsed.warehouse);
+  const areaD = pdfText(formatPathSegmentLabelCompact(parsed.area));
+  const rowD = pdfText(formatPathSegmentLabelCompact(parsed.row));
+  const bayD = pdfText(formatPathSegmentLabelCompact(parsed.bay));
+  const levelD = pdfText(formatPathSegmentLabelCompact(parsed.level));
+  const binD = pdfText(parsed.pos);
 
   const looseSep = " - ";
   const valSize = innerH < 72 ? 10.5 : 12.5;
@@ -229,7 +305,7 @@ function drawBinLabel(
   zones.push({ label: "BAY", centerX: x + wBay / 2 });
   x += wBay + wSep;
 
-  page.drawText(prefixStr, {
+  page.drawText(pdfText(prefixStr), {
     x: startX,
     y: valBaseline,
     size: valSize,
@@ -244,7 +320,7 @@ function drawBinLabel(
     y: boxY,
     width: levelBoxW,
     height: levelBoxH,
-    color: style.accent,
+    color: accent,
   });
   const levelTextX = levelBoxLeft + (levelBoxW - levelTw) / 2;
   page.drawText(levelD, {
@@ -255,7 +331,7 @@ function drawBinLabel(
     color: white,
   });
 
-  page.drawText(suffixStr, {
+  page.drawText(pdfText(suffixStr), {
     x: levelBoxLeft + levelBoxW,
     y: valBaseline,
     size: valSize,
@@ -270,7 +346,7 @@ function drawBinLabel(
     const tw = font.widthOfTextAtSize(z.label, headerSize);
     const left = z.centerX - tw / 2;
     const xClamped = Math.max(innerX + 1, Math.min(left, innerRight - tw - 1));
-    page.drawText(z.label, {
+    page.drawText(pdfText(z.label), {
       x: xClamped,
       y: headerY,
       size: headerSize,
@@ -283,11 +359,13 @@ function drawBinLabel(
 export type BuildBinLabelsPdfOptions = {
   title: string;
   bins: WarehouseBinDoc[];
+  /** When set, used to find top level per bay (so filtered prints still color vs full rack height). */
+  binsForLevelContext?: WarehouseBinDoc[];
   activeOnly?: boolean;
 };
 
 /**
- * US Letter PDF ΓÇö landscape bin labels (~4├ù1.75 in proportion), 3 columns, as many rows as fit per page.
+ * US Letter PDF - landscape bin labels (~4x1.75 in proportion), 3 columns, as many rows as fit per page.
  */
 export async function buildWarehouseBinLabelsPdf(options: BuildBinLabelsPdfOptions): Promise<Uint8Array> {
   const list = (options.bins || [])
@@ -300,6 +378,9 @@ export async function buildWarehouseBinLabelsPdf(options: BuildBinLabelsPdfOptio
     throw new Error("No bins to print.");
   }
 
+  const levelContext = options.binsForLevelContext?.length ? options.binsForLevelContext : list;
+  const maxLevelByBay = buildMaxLevelByBay(levelContext);
+
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -308,7 +389,7 @@ export async function buildWarehouseBinLabelsPdf(options: BuildBinLabelsPdfOptio
   const pageH = 792;
   const margin = 24;
   const headerBand = 42;
-  /** Landscape shelf label shape (~4" ├ù 1.75" at 72 dpi Γëê 288├ù126 pt). */
+  /** Landscape shelf label shape (~4" x 1.75" at 72 dpi ~ 288x126 pt). */
   const LABEL_ASPECT = 4 / 1.75;
   const gutter = 5;
   const cols = 3;
@@ -327,14 +408,14 @@ export async function buildWarehouseBinLabelsPdf(options: BuildBinLabelsPdfOptio
   let idxOnPage = 0;
 
   const drawPageHeader = (p: PDFPage) => {
-    p.drawText(options.title, {
+    p.drawText(pdfText(options.title), {
       x: margin,
       y: pageH - margin - 14,
       size: 11,
       font: fontBold,
       color: rgb(0.06, 0.09, 0.16),
     });
-    p.drawText("Bin labels ΓÇö QR = full path (Warehouse-Area-Row-Bay-Level-Bin)", {
+    p.drawText("Bin labels - QR = full path (Warehouse-Area-Row-Bay-Level-Bin)", {
       x: margin,
       y: pageH - margin - 28,
       size: 7,
@@ -357,10 +438,11 @@ export async function buildWarehouseBinLabelsPdf(options: BuildBinLabelsPdfOptio
     const yTop = row0Top - row * (labelH + gutter);
 
     const bin = list[i];
+    const maxLevelInBay = maxLevelByBay.get(bayLevelKey(bin)) ?? parseLevelNumber(bin.level);
     const png = await qrPngBytes(bin.barcode || bin.path, 180);
     const img = await pdf.embedPng(png);
 
-    drawBinLabel(page, x0, yTop, labelW - 0.5, labelH - 0.5, bin, font, fontBold, img);
+    drawBinLabel(page, x0, yTop, labelW - 0.5, labelH - 0.5, bin, maxLevelInBay, font, fontBold, img);
 
     idxOnPage += 1;
   }

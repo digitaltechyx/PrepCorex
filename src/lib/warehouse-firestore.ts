@@ -549,6 +549,283 @@ export async function setWarehouseBinActive(
   });
 }
 
+async function assertUniqueBinPath(
+  warehouseId: string,
+  path: string,
+  excludeBinId?: string
+): Promise<void> {
+  const dup = query(warehouseBinsCollectionRef(warehouseId), where("path", "==", path), limit(2));
+  const snap = await getDocs(dup);
+  for (const d of snap.docs) {
+    if (excludeBinId && d.id === excludeBinId) continue;
+    throw new Error(`Another bin already uses path "${path}".`);
+  }
+}
+
+export type WarehouseBinUpdateInput = {
+  area?: string;
+  row?: string;
+  bay?: string;
+  level?: string;
+  binCode?: string;
+  barcode?: string;
+  active?: boolean;
+  temporary?: boolean;
+};
+
+/** Admin edit of any bin field; path and barcode are rebuilt from segments unless barcode is set explicitly. */
+export async function updateWarehouseBin(
+  warehouseId: string,
+  binId: string,
+  warehouseCode: string,
+  input: WarehouseBinUpdateInput
+): Promise<void> {
+  const binRef = doc(db, WAREHOUSES, warehouseId, "bins", binId);
+  const snap = await getDoc(binRef);
+  if (!snap.exists()) throw new Error("Bin not found.");
+  const cur = snap.data() as {
+    area?: string;
+    row?: string;
+    bay?: string;
+    level?: string;
+    binCode?: string;
+    barcode?: string;
+    active?: boolean;
+    temporary?: boolean;
+  };
+
+  const area = (input.area !== undefined ? input.area : cur.area || "").trim();
+  const row = (input.row !== undefined ? input.row : cur.row || "").trim();
+  const bay = (input.bay !== undefined ? input.bay : cur.bay || "").trim();
+  const level = (input.level !== undefined ? input.level : cur.level || "").trim();
+  const binCode = (input.binCode !== undefined ? input.binCode : cur.binCode || "").trim();
+
+  for (const [label, token] of [
+    ["Area", area],
+    ["Row", row],
+    ["Bay", bay],
+    ["Level", level],
+    ["Bin", binCode],
+  ] as const) {
+    if (!isValidPathSegment(token)) {
+      throw new Error(`${label} must be alphanumeric (no spaces).`);
+    }
+  }
+
+  const path = buildBinPath(warehouseCode, area, row, bay, level, binCode);
+  await assertUniqueBinPath(warehouseId, path, binId);
+
+  const payload: Record<string, unknown> = {
+    area,
+    row,
+    bay,
+    level,
+    binCode,
+    path,
+    updatedAt: serverTimestamp(),
+  };
+  if (input.barcode !== undefined) {
+    const b = String(input.barcode).trim();
+    if (!b) throw new Error("Barcode cannot be empty.");
+    payload.barcode = b;
+  } else {
+    payload.barcode = path;
+  }
+  if (input.active !== undefined) payload.active = Boolean(input.active);
+  if (input.temporary !== undefined) payload.temporary = Boolean(input.temporary);
+
+  await updateDoc(binRef, payload);
+}
+
+export async function deleteWarehouseBin(warehouseId: string, binId: string): Promise<void> {
+  await deleteDoc(doc(db, WAREHOUSES, warehouseId, "bins", binId));
+}
+
+async function deleteBinDocs(docs: { ref: ReturnType<typeof doc> }[]): Promise<number> {
+  let removed = 0;
+  const BATCH = 400;
+  for (let i = 0; i < docs.length; i += BATCH) {
+    const slice = docs.slice(i, i + BATCH);
+    const batch = writeBatch(db);
+    for (const d of slice) batch.delete(d.ref);
+    await batch.commit();
+    removed += slice.length;
+  }
+  return removed;
+}
+
+/** Remove all bins in an area (by area code segment). Area record is kept. */
+export async function clearWarehouseAreaBins(
+  warehouseId: string,
+  areaCode: string
+): Promise<number> {
+  const code = areaCode.trim();
+  const snap = await getDocs(
+    query(warehouseBinsCollectionRef(warehouseId), where("area", "==", code))
+  );
+  return deleteBinDocs(snap.docs.map((d) => ({ ref: d.ref })));
+}
+
+/** Replace all bins on one row with a new rack layout (delete row bins, then regenerate). */
+export async function replaceWarehouseAreaRow(
+  params: GenerateBinsDetailedRackParams & { areaCode: string; rowCode: string }
+): Promise<GenerateBinsResult> {
+  const row = params.rowCode.trim();
+  const area = params.areaCode.trim();
+  await deleteWarehouseBinsByAreaRow(params.warehouseId, area, row);
+  return generateWarehouseBinsFromDetailedRack({
+    warehouseId: params.warehouseId,
+    warehouseCode: params.warehouseCode,
+    storageAreaId: params.storageAreaId,
+    rowCodes: [row],
+    baysByRow: params.baysByRow,
+    levelsPerBay: params.levelsPerBay,
+    binsPerLevel: params.binsPerLevel,
+    temporary: params.temporary,
+    layoutBlockId: params.layoutBlockId,
+  });
+}
+
+/** Remove every bin on one row within an area (e.g. remove row 3 of 4). */
+export async function deleteWarehouseBinsByAreaRow(
+  warehouseId: string,
+  areaCode: string,
+  rowCode: string
+): Promise<number> {
+  const area = areaCode.trim();
+  const row = rowCode.trim();
+  if (!area || !row) throw new Error("Area and row are required.");
+  const snap = await getDocs(query(warehouseBinsCollectionRef(warehouseId), where("area", "==", area)));
+  const toDelete = snap.docs.filter((d) => String((d.data() as { row?: string }).row || "").trim() === row);
+  return deleteBinDocs(toDelete.map((d) => ({ ref: d.ref })));
+}
+
+/** Remove bins added in one shelving run. */
+export async function deleteWarehouseBinsByLayoutBlock(
+  warehouseId: string,
+  layoutBlockId: string
+): Promise<number> {
+  const id = layoutBlockId.trim();
+  if (!id) throw new Error("Shelf block id is required.");
+  const snap = await getDocs(
+    query(warehouseBinsCollectionRef(warehouseId), where("layoutBlockId", "==", id))
+  );
+  return deleteBinDocs(snap.docs.map((d) => ({ ref: d.ref })));
+}
+
+/** Permanently delete an area and all bins tied to it (by area code or storageAreaId). */
+export async function deleteWarehouseAreaCascade(
+  warehouseId: string,
+  areaId: string
+): Promise<{ binsRemoved: number }> {
+  const areaRef = doc(db, WAREHOUSES, warehouseId, "areas", areaId);
+  const areaSnap = await getDoc(areaRef);
+  if (!areaSnap.exists()) throw new Error("Area not found.");
+  const areaCode = String((areaSnap.data() as { code?: string }).code || "").trim();
+
+  const allBins = await getDocs(warehouseBinsCollectionRef(warehouseId));
+  const toDelete = allBins.docs.filter((d) => {
+    const data = d.data() as { area?: string; storageAreaId?: string };
+    if (data.storageAreaId === areaId) return true;
+    return areaCode && data.area === areaCode;
+  });
+
+  const binsRemoved = await deleteBinDocs(toDelete.map((d) => ({ ref: d.ref })));
+  await deleteDoc(areaRef);
+  return { binsRemoved };
+}
+
+/** When an area code changes, update every bin path under that area. */
+export async function syncWarehouseBinPathsAfterAreaCodeChange(
+  warehouseId: string,
+  areaId: string,
+  oldAreaCode: string,
+  newAreaCode: string,
+  warehouseCode: string
+): Promise<number> {
+  const oldCode = oldAreaCode.trim();
+  const newCode = newAreaCode.trim();
+  if (!isValidPathSegment(newCode)) throw new Error("New area code must be alphanumeric.");
+  if (oldCode === newCode) return 0;
+
+  const snap = await getDocs(warehouseBinsCollectionRef(warehouseId));
+  const targets = snap.docs.filter((d) => {
+    const data = d.data() as { area?: string; storageAreaId?: string };
+    if (data.storageAreaId === areaId) return true;
+    return oldCode && data.area === oldCode;
+  });
+
+  const pathsSeen = new Set<string>();
+  const updates: { ref: ReturnType<typeof doc>; payload: Record<string, unknown> }[] = [];
+
+  for (const d of targets) {
+    const data = d.data() as {
+      row?: string;
+      bay?: string;
+      level?: string;
+      binCode?: string;
+      barcode?: string;
+    };
+    const row = String(data.row || "").trim();
+    const bay = String(data.bay || "").trim();
+    const level = String(data.level || "").trim();
+    const binCode = String(data.binCode || "").trim();
+    const path = buildBinPath(warehouseCode, newCode, row, bay, level, binCode);
+    if (pathsSeen.has(path)) {
+      throw new Error(`Cannot rename area: duplicate path would be created (${path}).`);
+    }
+    pathsSeen.add(path);
+    const barcodeWasPath =
+      !data.barcode || data.barcode === buildBinPath(warehouseCode, oldCode, row, bay, level, binCode);
+    updates.push({
+      ref: d.ref,
+      payload: {
+        area: newCode,
+        path,
+        barcode: barcodeWasPath ? path : data.barcode,
+        updatedAt: serverTimestamp(),
+      },
+    });
+  }
+
+  const BATCH = 400;
+  for (let i = 0; i < updates.length; i += BATCH) {
+    const slice = updates.slice(i, i + BATCH);
+    const batch = writeBatch(db);
+    for (const u of slice) batch.update(u.ref, u.payload);
+    await batch.commit();
+  }
+
+  return updates.length;
+}
+
+export async function updateWarehouseAreaWithBinSync(
+  warehouseId: string,
+  areaId: string,
+  warehouseCode: string,
+  data: Partial<Pick<WarehouseAreaDoc, "code" | "name" | "purposes" | "active">>
+): Promise<{ binsUpdated: number }> {
+  const areaRef = doc(db, WAREHOUSES, warehouseId, "areas", areaId);
+  const before = await getDoc(areaRef);
+  if (!before.exists()) throw new Error("Area not found.");
+  const oldCode = String((before.data() as { code?: string }).code || "").trim();
+
+  await updateWarehouseArea(warehouseId, areaId, data);
+
+  if (data.code !== undefined) {
+    const newCode = String(data.code).trim();
+    const binsUpdated = await syncWarehouseBinPathsAfterAreaCodeChange(
+      warehouseId,
+      areaId,
+      oldCode,
+      newCode,
+      warehouseCode
+    );
+    return { binsUpdated };
+  }
+  return { binsUpdated: 0 };
+}
+
 /** Optional: count bins for summary (uses aggregation). */
 export async function countBins(warehouseId: string): Promise<number> {
   const snap = await getCountFromServer(warehouseBinsCollectionRef(warehouseId));
