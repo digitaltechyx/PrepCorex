@@ -713,6 +713,7 @@ export function AddInventoryRequestForm({
             productName: finalProductName,
             sku: row.sku.trim(),
             quantity: row.quantity,
+            requestedQuantity: row.quantity,
             color: row.color,
             size: row.size,
             variantLabel: `${row.color} / ${row.size}`,
@@ -760,6 +761,7 @@ export function AddInventoryRequestForm({
           ...baseRequestData,
           productName: finalProductName,
           quantity: values.quantity,
+          requestedQuantity: values.quantity,
         };
         // Only include SKU for new product type
         if (values.inventoryType === "product" && values.productSubType === "new" && values.sku) {

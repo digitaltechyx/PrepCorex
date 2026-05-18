@@ -38,6 +38,36 @@ import { useToast } from "@/hooks/use-toast";
 import { doc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
+import { formatInboundQuantityDisplay } from "@/lib/inventory-qty-display";
+
+function formatRowQuantity(item: {
+  quantity?: number;
+  requestedQuantity?: number;
+  receivedQuantity?: number;
+  isRequest?: boolean;
+  status?: string;
+  requestData?: { quantity?: number; requestedQuantity?: number; receivedQuantity?: number; status?: string };
+}): string {
+  const status =
+    item.isRequest && item.status === "Pending"
+      ? "pending"
+      : item.isRequest && item.status === "Rejected"
+        ? "rejected"
+        : item.isRequest
+          ? String(item.requestData?.status || item.status || "pending").toLowerCase()
+          : "approved";
+  return formatInboundQuantityDisplay({
+    quantity: item.quantity,
+    requestedQuantity:
+      item.requestedQuantity ??
+      item.requestData?.requestedQuantity ??
+      item.requestData?.quantity ??
+      item.quantity,
+    receivedQuantity: item.receivedQuantity ?? item.requestData?.receivedQuantity,
+    isRequest: item.isRequest && status === "pending",
+    status,
+  });
+}
 
 function formatDate(date: InventoryItem["dateAdded"]) {
   if (typeof date === 'string') {
@@ -396,14 +426,16 @@ export function InventoryTable({
     // Convert approved inventory items - get remarks from inventory item OR approved request
     const inventoryItems = data.map(item => {
       // Try to find matching approved request to get remarks
-      const matchingRequest = approvedRequests.find(req => {
+      const matchingRequest = approvedRequests.find((req) => {
+        if ((item as any).sourceRequestId && req.id === (item as any).sourceRequestId) return true;
         const requestSku = ((req as any).sku || "").trim().toLowerCase();
         const itemSku = (((item as any).sku as string) || "").trim().toLowerCase();
         if (requestSku && itemSku) return requestSku === itemSku;
+        const reqReceived = (req as any).receivedQuantity ?? req.quantity;
         return (
           req.productName === item.productName &&
           req.requestedBy === item.requestedBy &&
-          req.quantity === item.quantity
+          (reqReceived === item.quantity || req.quantity === item.quantity)
         );
       });
       
@@ -418,6 +450,12 @@ export function InventoryTable({
         ...item,
         status: item.status as "Pending" | "In Stock" | "Out of Stock" | "Rejected",
         isRequest: false,
+        requestedQuantity:
+          (item as any).requestedQuantity ??
+          (matchingRequest as any)?.requestedQuantity ??
+          (matchingRequest as any)?.quantity,
+        receivedQuantity:
+          (item as any).receivedQuantity ?? (matchingRequest as any)?.receivedQuantity ?? item.quantity,
         remarks: remarks && remarks.trim() ? remarks.trim() : undefined,
         imageUrls: imageUrls,
         retailIdentifier: (item as any).retailIdentifier || (matchingRequest as any)?.retailIdentifier,
@@ -630,7 +668,7 @@ export function InventoryTable({
                         isLowStockVisual && lowStockQtyClass
                       )}
                     >
-                      {item.quantity}
+                      {formatRowQuantity(item as any)}
                     </div>
                   </div>
                 </div>
@@ -773,7 +811,7 @@ export function InventoryTable({
                               isLowStockVisual ? lowStockQtyClass : "text-gray-500"
                             )}
                           >
-                            Qty: {item.quantity}
+                            Qty: {formatRowQuantity(item as any)}
                           </span>
                           <br />
                           <span className="text-gray-500 text-xs">Added: {formatDate(item.dateAdded)}</span>
@@ -799,7 +837,7 @@ export function InventoryTable({
                         isLowStockVisual && lowStockQtyClass
                       )}
                     >
-                      {item.quantity}
+                      {formatRowQuantity(item as any)}
                     </TableCell>
                     <TableCell className="hidden sm:table-cell whitespace-nowrap">
                       {formatDate(item.dateAdded)}
