@@ -17,6 +17,74 @@ export interface Location {
   createdAt?: Date;
 }
 
+/** Physical warehouse root for barcode / bin hierarchy (see docs/BARCODE_SCANNING/01_LOCATION_STRUCTURE.md). */
+export interface WarehouseDoc {
+  id: string;
+  /** Short code used in bin paths, e.g. NJ02 */
+  code: string;
+  name: string;
+  active: boolean;
+  /** Optional link to `locations/{id}` for user assignment and legacy flows. */
+  linkedLocationId?: string | null;
+  country?: string;
+  stateOrProvince?: string;
+  street1?: string;
+  city?: string;
+  zip?: string;
+  /** Admin-defined purpose labels reused when configuring areas in this warehouse. */
+  customPurposes?: string[];
+  createdAt?: { seconds: number; nanoseconds: number } | Date;
+  updatedAt?: { seconds: number; nanoseconds: number } | Date;
+}
+
+/** Operational zone type - see `docs/BARCODE_SCANNING/03_WAREHOUSE_WORKFLOW_V2.md` Part 0. */
+export type WarehouseAreaType =
+  | "storage"
+  | "receiving"
+  | "quarantine"
+  | "damaged"
+  | "returns"
+  | "packing"
+  | "dispatch";
+
+/** Zone metadata under a warehouse. Shelving (bins) is optional for any area. */
+export interface WarehouseAreaDoc {
+  id: string;
+  /** Single segment used in bin path, e.g. A */
+  code: string;
+  name?: string;
+  /** What happens here (multi-select). Admin can add custom labels. */
+  purposes?: string[];
+  /** @deprecated Legacy single type — use `purposes`. Kept for older Firestore docs. */
+  areaType?: WarehouseAreaType | string;
+  active: boolean;
+  createdAt?: { seconds: number; nanoseconds: number } | Date;
+  updatedAt?: { seconds: number; nanoseconds: number } | Date;
+}
+
+/** Leaf storage slot: Warehouse → Area → Row → Bay → Level → binCode */
+export interface WarehouseBinDoc {
+  id: string;
+  area: string;
+  row: string;
+  bay: string;
+  level: string;
+  binCode: string;
+  /** Full human-readable address, e.g. NJ02-A-1-A-1-A1 */
+  path: string;
+  /** Encoded on printed labels (defaults to path; may become short id later). */
+  barcode: string;
+  active: boolean;
+  /** Parent area doc id (set when bins are created from the layout wizard). */
+  storageAreaId?: string;
+  /** Marks bins from a one-off / temporary shelf block (admin can deactivate later). */
+  temporary?: boolean;
+  /** Groups bins added in one “add shelving” run (for filtered label print). */
+  layoutBlockId?: string;
+  createdAt?: { seconds: number; nanoseconds: number } | Date;
+  updatedAt?: { seconds: number; nanoseconds: number } | Date;
+}
+
 export type UserFeature =
   | "view_dashboard"
   | "view_inventory"

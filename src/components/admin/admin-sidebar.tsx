@@ -34,6 +34,7 @@ import {
   Tag,
   Plug,
   ShoppingCart,
+  Warehouse,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
@@ -236,6 +237,13 @@ export function AdminSidebar() {
       url: "/admin/dashboard/inventory-management",
       icon: Boxes,
       color: "text-violet-600",
+      requiredFeature: "manage_inventory_admin" as const,
+    },
+    {
+      title: "Warehouses",
+      url: "/admin/dashboard/warehouses",
+      icon: Warehouse,
+      color: "text-fuchsia-600",
       requiredFeature: "manage_inventory_admin" as const,
     },
     {

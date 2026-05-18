@@ -214,6 +214,20 @@ service cloud.firestore {
       allow write: if isAdminOrSubAdmin();
     }
 
+    // ---- WAREHOUSES (barcode / bin hierarchy — Phase 1) ----
+    match /warehouses/{warehouseId} {
+      allow read: if signedIn();
+      allow write: if isAdminOrSubAdmin();
+      match /bins/{binId} {
+        allow read: if signedIn();
+        allow write: if isAdminOrSubAdmin();
+      }
+      match /areas/{areaId} {
+        allow read: if signedIn();
+        allow write: if isAdminOrSubAdmin();
+      }
+    }
+
     // ---- CRM LEADS (PrepCorex CRM app — /crmLeads + timeline subcollection) ----
     match /crmLeads/{leadId} {
       allow read, write: if isAdminOrSubAdmin();
