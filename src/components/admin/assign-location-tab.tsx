@@ -5,7 +5,8 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { useCollection } from "@/hooks/use-collection";
-import { createLocation, removeLocation } from "@/lib/locations";
+import { removeLocation } from "@/lib/locations";
+import Link from "next/link";
 import { formatLocationPath } from "@/lib/region-display";
 import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
 import { normalizeUserLocationIds } from "@/lib/user-locations";
@@ -15,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { MapPin, Plus, Trash2, Loader2, Search } from "lucide-react";
+import { MapPin, Trash2, Loader2, Search, Warehouse } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,8 +30,6 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
 type LocationDoc = {
   id: string;
   name?: string;
@@ -48,16 +47,6 @@ export function AssignLocationTab() {
   const { data: locationDocs, loading: locationsLoading } = useCollection<LocationDoc>("locations");
   const { data: users } = useCollection<UserProfile>("users");
 
-  const [newLocationName, setNewLocationName] = useState("");
-  const [selectedCountry, setSelectedCountry] = useState("");
-  const [newCountryName, setNewCountryName] = useState("");
-  const [selectedStateOrProvince, setSelectedStateOrProvince] = useState("");
-  const [newStateOrProvinceName, setNewStateOrProvinceName] = useState("");
-  const [street1, setStreet1] = useState("");
-  const [street2, setStreet2] = useState("");
-  const [city, setCity] = useState("");
-  const [zip, setZip] = useState("");
-  const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
@@ -94,24 +83,6 @@ export function AssignLocationTab() {
     );
     return vals.sort((a, b) => a.localeCompare(b));
   }, [activeLocations]);
-
-  const resolvedCountry = (selectedCountry === "__new__" ? newCountryName : selectedCountry).trim();
-  const statesOrProvinces = useMemo(() => {
-    if (!resolvedCountry) return [] as string[];
-    const vals = Array.from(
-      new Set(
-        activeLocations
-          .filter((loc) => (loc.country || "").trim().toLowerCase() === resolvedCountry.toLowerCase())
-          .map((loc) => (loc.stateOrProvince || "").trim())
-          .filter(Boolean)
-      )
-    );
-    return vals.sort((a, b) => a.localeCompare(b));
-  }, [activeLocations, resolvedCountry]);
-
-  const resolvedStateOrProvince = (
-    selectedStateOrProvince === "__new__" ? newStateOrProvinceName : selectedStateOrProvince
-  ).trim();
 
   const locationLabel = (loc: LocationType) =>
     formatLocationPath(loc.country, loc.stateOrProvince, loc.name);
@@ -152,65 +123,6 @@ export function AssignLocationTab() {
       return hay.includes(q);
     });
   }, [activeLocations, locationSearch]);
-
-  const handleAddLocation = async () => {
-    const name = newLocationName.trim();
-    const country = resolvedCountry;
-    const stateOrProvince = resolvedStateOrProvince;
-    if (!name) {
-      toast({ variant: "destructive", title: "Error", description: "Enter a location name." });
-      return;
-    }
-    if (!country) {
-      toast({ variant: "destructive", title: "Error", description: "Select or enter a country." });
-      return;
-    }
-    if (!stateOrProvince) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Select or enter a state/province.",
-      });
-      return;
-    }
-    if (!street1.trim()) {
-      toast({ variant: "destructive", title: "Error", description: "Enter street address (Street1)." });
-      return;
-    }
-    if (!city.trim()) {
-      toast({ variant: "destructive", title: "Error", description: "Enter city." });
-      return;
-    }
-    if (!zip.trim()) {
-      toast({ variant: "destructive", title: "Error", description: "Enter zip/postal code." });
-      return;
-    }
-    setAdding(true);
-    try {
-      await createLocation({
-        name,
-        country,
-        stateOrProvince,
-        street1,
-        street2,
-        city,
-        zip,
-      });
-      setNewLocationName("");
-      setStreet1("");
-      setStreet2("");
-      setCity("");
-      setZip("");
-      toast({
-        title: "Success",
-        description: `Location "${name}" added with address in ${stateOrProvince}, ${country}.`,
-      });
-    } catch (e) {
-      toast({ variant: "destructive", title: "Error", description: (e as Error).message });
-    } finally {
-      setAdding(false);
-    }
-  };
 
   const handleRemoveLocation = async (id: string) => {
     setConfirmRemoveId(null);
@@ -310,131 +222,22 @@ export function AssignLocationTab() {
             Active locations
           </CardTitle>
           <CardDescription className="text-base">
-            Create warehouse locations by entering location name first, then the full address fields.
+            Locations are created in Warehouses (with address and layout). Here you assign existing locations to users.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 pt-6">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2 md:col-span-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Location Name
-              </Label>
-              <Input
-                placeholder="Warehouse name (e.g. NJ1, NJ2, CA1)"
-                value={newLocationName}
-                onChange={(e) => setNewLocationName(e.target.value)}
-                className="rounded-xl border-2 h-11"
-                onKeyDown={(e) => e.key === "Enter" && handleAddLocation()}
-              />
+          <div className="flex flex-col gap-3 rounded-xl border-2 border-violet-200 bg-violet-50/80 p-4 dark:border-violet-900 dark:bg-violet-950/30 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <Warehouse className="h-5 w-5 shrink-0 text-violet-600 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Add a new warehouse site</p>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Use Admin → Warehouses to create the location, address, and bin layout in one step.
+                </p>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Country</Label>
-              <Select
-                value={selectedCountry}
-                onValueChange={(v) => {
-                  setSelectedCountry(v);
-                  setSelectedStateOrProvince("");
-                  setNewStateOrProvinceName("");
-                }}
-              >
-                <SelectTrigger className="h-11 rounded-xl border-2">
-                  <SelectValue placeholder="Select country" />
-                </SelectTrigger>
-                <SelectContent>
-                  {countries.map((country) => (
-                    <SelectItem key={country} value={country}>
-                      {country}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="__new__">+ Add new country</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                New country (if adding)
-              </Label>
-              <Input
-                placeholder="e.g. USA"
-                value={newCountryName}
-                onChange={(e) => setNewCountryName(e.target.value)}
-                className="rounded-xl border-2 h-11"
-                disabled={selectedCountry !== "__new__"}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">State / Province</Label>
-              <Select value={selectedStateOrProvince} onValueChange={setSelectedStateOrProvince}>
-                <SelectTrigger className="h-11 rounded-xl border-2">
-                  <SelectValue placeholder="Select state/province" />
-                </SelectTrigger>
-                <SelectContent>
-                  {statesOrProvinces.map((stateOrProvince) => (
-                    <SelectItem key={stateOrProvince} value={stateOrProvince}>
-                      {stateOrProvince}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="__new__">+ Add new state/province</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                New state/province (if adding)
-              </Label>
-              <Input
-                placeholder="e.g. New Jersey"
-                value={newStateOrProvinceName}
-                onChange={(e) => setNewStateOrProvinceName(e.target.value)}
-                className="rounded-xl border-2 h-11"
-                disabled={selectedStateOrProvince !== "__new__"}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Street 1</Label>
-              <Input
-                placeholder="e.g. 7000 Atrium Way"
-                value={street1}
-                onChange={(e) => setStreet1(e.target.value)}
-                className="rounded-xl border-2 h-11"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Street 2 (optional)
-              </Label>
-              <Input
-                placeholder="e.g. Unit B05"
-                value={street2}
-                onChange={(e) => setStreet2(e.target.value)}
-                className="rounded-xl border-2 h-11"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">City</Label>
-              <Input
-                placeholder="e.g. Mount Laurel"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className="rounded-xl border-2 h-11"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Zip / Postal Code
-              </Label>
-              <Input
-                placeholder="e.g. 08054"
-                value={zip}
-                onChange={(e) => setZip(e.target.value)}
-                className="rounded-xl border-2 h-11"
-              />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={handleAddLocation} disabled={adding} className="rounded-xl h-11 px-5">
-              {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              <span className="ml-2">Add location</span>
+            <Button asChild className="rounded-xl shrink-0">
+              <Link href="/admin/dashboard/warehouses">Open Warehouses</Link>
             </Button>
           </div>
           {locationsLoading ? (
@@ -443,7 +246,7 @@ export function AssignLocationTab() {
             </div>
           ) : activeLocations.length === 0 ? (
             <p className="rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/10 py-6 text-center text-sm text-muted-foreground">
-              No active locations. Add one above.
+              No active locations yet. Create one under Admin → Warehouses.
             </p>
           ) : (
             <div className="space-y-4">

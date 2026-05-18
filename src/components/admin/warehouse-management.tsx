@@ -49,14 +49,25 @@ import { Loader2, MapPin, Pencil, Plus, Printer, Trash2, Warehouse } from "lucid
 import type { Location, WarehouseAreaDoc, WarehouseBinDoc, WarehouseDoc } from "@/types";
 import {
   addWarehouseCustomPurpose,
-  createWarehouse,
   createWarehouseArea,
+  createWarehouseFromExistingLocation,
+  createWarehouseWithLocation,
   deleteWarehouseCascade,
   generateWarehouseBinsFromDetailedRack,
   setWarehouseBinActive,
   updateWarehouse,
   updateWarehouseArea,
+  updateWarehouseWithLocation,
 } from "@/lib/warehouse-firestore";
+import {
+  emptyWarehouseLocationForm,
+  locationToFormValues,
+  validateWarehouseLocationForm,
+  warehouseLocationFormToPayload,
+  WarehouseLocationAddressFields,
+  type WarehouseLocationFormValues,
+} from "@/components/admin/warehouse-location-address-fields";
+import { formatLocationPath } from "@/lib/region-display";
 import { buildWarehouseBinLabelsPdf, downloadUint8ArrayAsFile } from "@/lib/warehouse-bin-label-pdf";
 import { buildBinPath, compareBinPaths, isValidPathSegment } from "@/lib/warehouse-bin-path";
 import {
@@ -78,14 +89,16 @@ export function WarehouseManagement() {
   const { data: locations } = useCollection<Location>("locations");
 
   const [selectedId, setSelectedId] = useState("");
+  const [selectedOrphanId, setSelectedOrphanId] = useState<string | null>(null);
   useEffect(() => {
+    if (selectedOrphanId) return;
     if (!selectedId && warehouses.length > 0) {
       setSelectedId(warehouses[0].id);
     }
     if (selectedId && !warehouses.some((w) => w.id === selectedId)) {
       setSelectedId(warehouses[0]?.id || "");
     }
-  }, [warehouses, selectedId]);
+  }, [warehouses, selectedId, selectedOrphanId]);
 
   const selected = useMemo(
     () => warehouses.find((w) => w.id === selectedId) || null,
@@ -109,7 +122,9 @@ export function WarehouseManagement() {
   const [editOpen, setEditOpen] = useState(false);
   const [newCode, setNewCode] = useState("");
   const [newName, setNewName] = useState("");
-  const [newLinked, setNewLinked] = useState<string>("__none__");
+  const [locForm, setLocForm] = useState<WarehouseLocationFormValues>(emptyWarehouseLocationForm);
+  const [orphanSetupCode, setOrphanSetupCode] = useState("");
+  const [orphanSetupName, setOrphanSetupName] = useState("");
   const [saving, setSaving] = useState(false);
 
   type AreaWizardStep = "details" | "purposes" | "shelving" | "rows" | "bays" | "rackLevels" | "rackBins" | "review";
@@ -339,29 +354,72 @@ export function WarehouseManagement() {
   const resetCreateForm = () => {
     setNewCode("");
     setNewName("");
-    setNewLinked("__none__");
+    setLocForm(emptyWarehouseLocationForm());
   };
+
+  const suggestWarehouseCode = (label: string) =>
+    label.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 16);
 
   const openEdit = () => {
     if (!selected) return;
     setNewCode(selected.code);
     setNewName(selected.name);
-    setNewLinked(selected.linkedLocationId || "__none__");
+    const linked = selected.linkedLocationId
+      ? locations.find((l) => l.id === selected.linkedLocationId)
+      : null;
+    if (linked) {
+      setLocForm(locationToFormValues(linked));
+    } else {
+      setLocForm({
+        ...emptyWarehouseLocationForm(),
+        locationName: selected.name,
+        selectedCountry: selected.country || "",
+        selectedStateOrProvince: selected.stateOrProvince || "",
+        street1: selected.street1 || "",
+        street2: selected.street2 || "",
+        city: selected.city || "",
+        zip: selected.zip || "",
+      });
+    }
     setEditOpen(true);
   };
 
   const handleCreateWarehouse = async () => {
+    const locErr = validateWarehouseLocationForm(locForm);
+    if (locErr) {
+      toast({ variant: "destructive", title: "Address required", description: locErr });
+      return;
+    }
+    if (!newCode.trim() || !isValidPathSegment(newCode.trim())) {
+      toast({
+        variant: "destructive",
+        title: "Invalid code",
+        description: "Warehouse code must be alphanumeric (used in bin paths).",
+      });
+      return;
+    }
+    const addr = warehouseLocationFormToPayload(locForm);
     setSaving(true);
     try {
-      const id = await createWarehouse({
-        code: newCode,
-        name: newName,
-        linkedLocationId: newLinked === "__none__" ? null : newLinked,
+      const { warehouseId } = await createWarehouseWithLocation({
+        code: newCode.trim(),
+        name: newName.trim() || addr.name,
+        locationName: addr.name,
+        country: addr.country,
+        stateOrProvince: addr.stateOrProvince,
+        street1: addr.street1,
+        street2: addr.street2,
+        city: addr.city,
+        zip: addr.zip,
       });
-      toast({ title: "Warehouse created", description: `You can now add areas and generate bins.` });
+      toast({
+        title: "Warehouse created",
+        description: "Location and warehouse are linked. Add areas to design the layout.",
+      });
       setCreateOpen(false);
       resetCreateForm();
-      setSelectedId(id);
+      setSelectedOrphanId(null);
+      setSelectedId(warehouseId);
     } catch (e: unknown) {
       toast({
         variant: "destructive",
@@ -375,19 +433,68 @@ export function WarehouseManagement() {
 
   const handleUpdateWarehouse = async () => {
     if (!selected) return;
+    const locErr = validateWarehouseLocationForm(locForm);
+    if (locErr) {
+      toast({ variant: "destructive", title: "Address required", description: locErr });
+      return;
+    }
+    const addr = warehouseLocationFormToPayload(locForm);
     setSaving(true);
     try {
-      await updateWarehouse(selected.id, {
-        code: newCode,
-        name: newName,
-        linkedLocationId: newLinked === "__none__" ? null : newLinked,
+      await updateWarehouseWithLocation(selected.id, {
+        code: newCode.trim(),
+        name: newName.trim() || addr.name,
+        locationName: addr.name,
+        country: addr.country,
+        stateOrProvince: addr.stateOrProvince,
+        street1: addr.street1,
+        street2: addr.street2,
+        city: addr.city,
+        zip: addr.zip,
       });
-      toast({ title: "Saved", description: "Warehouse updated." });
+      toast({ title: "Saved", description: "Warehouse and location updated." });
       setEditOpen(false);
     } catch (e: unknown) {
       toast({
         variant: "destructive",
         title: "Update failed",
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSetupOrphanWarehouse = async () => {
+    if (!selectedOrphanId) return;
+    const code = orphanSetupCode.trim();
+    if (!code || !isValidPathSegment(code)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid code",
+        description: "Enter an alphanumeric warehouse code for bin paths.",
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      const warehouseId = await createWarehouseFromExistingLocation(
+        selectedOrphanId,
+        code,
+        orphanSetupName.trim() || undefined
+      );
+      toast({
+        title: "Warehouse linked",
+        description: "You can now add areas and shelving for this location.",
+      });
+      setSelectedOrphanId(null);
+      setOrphanSetupCode("");
+      setOrphanSetupName("");
+      setSelectedId(warehouseId);
+    } catch (e: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Setup failed",
         description: e instanceof Error ? e.message : String(e),
       });
     } finally {
@@ -775,6 +882,34 @@ export function WarehouseManagement() {
     [locations]
   );
 
+  const linkedLocationIds = useMemo(
+    () => new Set(warehouses.map((w) => w.linkedLocationId).filter((id): id is string => Boolean(id))),
+    [warehouses]
+  );
+
+  const orphanLocations = useMemo(
+    () => activeLocations.filter((l) => !linkedLocationIds.has(l.id)),
+    [activeLocations, linkedLocationIds]
+  );
+
+  const selectedOrphan = useMemo(
+    () => (selectedOrphanId ? activeLocations.find((l) => l.id === selectedOrphanId) || null : null),
+    [selectedOrphanId, activeLocations]
+  );
+
+  const selectWarehouse = (id: string) => {
+    setSelectedId(id);
+    setSelectedOrphanId(null);
+  };
+
+  const selectOrphanLocation = (locationId: string) => {
+    const loc = activeLocations.find((l) => l.id === locationId);
+    setSelectedOrphanId(locationId);
+    setSelectedId("");
+    setOrphanSetupCode(suggestWarehouseCode(loc?.name || ""));
+    setOrphanSetupName(loc?.name || "");
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -784,14 +919,9 @@ export function WarehouseManagement() {
             Warehouses &amp; bins
           </h1>
           <p className="text-muted-foreground text-sm mt-1 max-w-2xl">
-            Release 1 / Phase 1 — matches{" "}
-            <code className="text-xs bg-muted px-1 rounded">03_WAREHOUSE_WORKFLOW_V2.md</code> (setup) and{" "}
-            <code className="text-xs bg-muted px-1 rounded">04_IMPLEMENTATION_PLAN.md</code> (Phase 1). Use the tabs in
-            order: <strong className="font-medium text-foreground">Areas</strong> (guided setup creates storage rack
-            bins), then <strong className="font-medium text-foreground">Bins</strong> (review paths), then{" "}
-            <strong className="font-medium text-foreground">Labels</strong>. Bin paths look like{" "}
-            <code className="text-xs bg-muted px-1 rounded">Warehouse-Area-Row-Bay-Level-Bin</code> (same pattern as{" "}
-            <code className="text-xs bg-muted px-1 rounded">02_WORKFLOW…</code> label payload).
+            Create each site here with its address — a matching location is created automatically for user assignment in
+            Roles &amp; Permissions. Then design areas, shelving, and print bin labels. Existing locations without layout
+            appear in the sidebar until you link them.
           </p>
         </div>
         <Button onClick={() => { resetCreateForm(); setCreateOpen(true); }} className="shrink-0">
@@ -811,7 +941,7 @@ export function WarehouseManagement() {
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading…
               </div>
-            ) : warehouses.length === 0 ? (
+            ) : warehouses.length === 0 && orphanLocations.length === 0 ? (
               <p className="text-sm text-muted-foreground">No warehouses yet. Create one to begin.</p>
             ) : (
               <div className="flex flex-col gap-1">
@@ -819,9 +949,9 @@ export function WarehouseManagement() {
                   <button
                     key={w.id}
                     type="button"
-                    onClick={() => setSelectedId(w.id)}
+                    onClick={() => selectWarehouse(w.id)}
                     className={`text-left rounded-md border px-3 py-2 text-sm transition-colors ${
-                      w.id === selectedId
+                      w.id === selectedId && !selectedOrphanId
                         ? "border-violet-500 bg-violet-50 dark:bg-violet-950/40"
                         : "border-transparent hover:bg-muted"
                     }`}
@@ -842,12 +972,81 @@ export function WarehouseManagement() {
                     </div>
                   </button>
                 ))}
+                {orphanLocations.length > 0 ? (
+                  <>
+                    <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide pt-3 px-1">
+                      Needs layout
+                    </p>
+                    {orphanLocations.map((loc) => (
+                      <button
+                        key={loc.id}
+                        type="button"
+                        onClick={() => selectOrphanLocation(loc.id)}
+                        className={`text-left rounded-md border px-3 py-2 text-sm transition-colors ${
+                          selectedOrphanId === loc.id
+                            ? "border-amber-500 bg-amber-50 dark:bg-amber-950/30"
+                            : "border-dashed border-muted-foreground/30 hover:bg-muted"
+                        }`}
+                      >
+                        <div className="font-medium flex items-center gap-2">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                          <span className="truncate">{loc.name}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                          {formatLocationPath(loc.country, loc.stateOrProvince, loc.name)}
+                        </p>
+                      </button>
+                    ))}
+                  </>
+                ) : null}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {!selected ? (
+        {selectedOrphan ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>{selectedOrphan.name}</CardTitle>
+              <CardDescription>
+                This location exists for user assignment but has no warehouse layout yet. Add a bin-path code and start
+                designing areas.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 max-w-md">
+              <p className="text-sm text-muted-foreground">
+                {formatLocationPath(
+                  selectedOrphan.country,
+                  selectedOrphan.stateOrProvince,
+                  selectedOrphan.name
+                )}
+                <br />
+                {[selectedOrphan.street1, selectedOrphan.street2, selectedOrphan.city, selectedOrphan.zip]
+                  .filter(Boolean)
+                  .join(", ")}
+              </p>
+              <div className="space-y-2">
+                <Label>Warehouse code (bin paths)</Label>
+                <Input
+                  value={orphanSetupCode}
+                  onChange={(e) => setOrphanSetupCode(e.target.value.toUpperCase())}
+                  placeholder="NJ01"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Display name (optional)</Label>
+                <Input
+                  value={orphanSetupName}
+                  onChange={(e) => setOrphanSetupName(e.target.value)}
+                  placeholder={selectedOrphan.name}
+                />
+              </div>
+              <Button onClick={handleSetupOrphanWarehouse} disabled={saving || !orphanSetupCode.trim()}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create warehouse & design layout"}
+              </Button>
+            </CardContent>
+          </Card>
+        ) : !selected ? (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground text-sm">
               Select or create a warehouse.
@@ -1190,83 +1389,69 @@ export function WarehouseManagement() {
       </div>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>New warehouse</DialogTitle>
             <DialogDescription>
-              Code appears in every bin path. Use the same style as operations (e.g. NJ02).
+              Creates the location (for user assignment) and warehouse (for layout and bin paths) together.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-2">
-              <Label>Code</Label>
-              <Input value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="NJ02" />
+          <div className="space-y-4 py-2">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Warehouse code</Label>
+                <Input
+                  value={newCode}
+                  onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                  placeholder="NJ02"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Display name</Label>
+                <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="New Jersey 02" />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Name</Label>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="New Jersey 02" />
-            </div>
-            <div className="space-y-2">
-              <Label>Link to existing location (optional)</Label>
-              <Select value={newLinked} onValueChange={setNewLinked}>
-                <SelectTrigger>
-                  <SelectValue placeholder="None" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">None</SelectItem>
-                  {activeLocations.map((l) => (
-                    <SelectItem key={l.id} value={l.id}>
-                      {l.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Links this warehouse to a row in Assign Location for reporting and user assignment.
-              </p>
-            </div>
+            <WarehouseLocationAddressFields
+              values={locForm}
+              onChange={setLocForm}
+              existingLocations={activeLocations}
+              disabled={saving}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreateWarehouse} disabled={saving || !newCode.trim() || !newName.trim()}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
+            <Button onClick={handleCreateWarehouse} disabled={saving || !newCode.trim()}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create warehouse"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit warehouse</DialogTitle>
+            <DialogDescription>Updates warehouse code, display name, and linked location address.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-2">
-              <Label>Code</Label>
-              <Input value={newCode} onChange={(e) => setNewCode(e.target.value)} />
+          <div className="space-y-4 py-2">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Warehouse code</Label>
+                <Input value={newCode} onChange={(e) => setNewCode(e.target.value.toUpperCase())} />
+              </div>
+              <div className="space-y-2">
+                <Label>Display name</Label>
+                <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Name</Label>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Linked location</Label>
-              <Select value={newLinked} onValueChange={setNewLinked}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">None</SelectItem>
-                  {activeLocations.map((l) => (
-                    <SelectItem key={l.id} value={l.id}>
-                      {l.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <WarehouseLocationAddressFields
+              values={locForm}
+              onChange={setLocForm}
+              existingLocations={activeLocations}
+              disabled={saving}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>

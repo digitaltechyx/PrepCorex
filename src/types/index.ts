@@ -29,6 +29,7 @@ export interface WarehouseDoc {
   country?: string;
   stateOrProvince?: string;
   street1?: string;
+  street2?: string;
   city?: string;
   zip?: string;
   /** Admin-defined purpose labels reused when configuring areas in this warehouse. */

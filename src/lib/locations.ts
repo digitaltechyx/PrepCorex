@@ -50,11 +50,30 @@ export async function removeLocation(id: string): Promise<void> {
   invalidateDefaultWarehouseLocationCache();
 }
 
-export async function updateLocation(id: string, data: { name?: string; active?: boolean }): Promise<void> {
-  await updateDoc(doc(db, COLLECTION, id), data as Record<string, unknown>);
-  if (data.name !== undefined || data.active !== undefined) {
-    invalidateDefaultWarehouseLocationCache();
-  }
+export type LocationAddressUpdate = {
+  name?: string;
+  active?: boolean;
+  country?: string;
+  stateOrProvince?: string;
+  street1?: string;
+  street2?: string;
+  city?: string;
+  zip?: string;
+};
+
+export async function updateLocation(id: string, data: LocationAddressUpdate): Promise<void> {
+  const payload: Record<string, unknown> = {};
+  if (data.name !== undefined) payload.name = data.name.trim();
+  if (data.active !== undefined) payload.active = Boolean(data.active);
+  if (data.country !== undefined) payload.country = data.country.trim() || null;
+  if (data.stateOrProvince !== undefined) payload.stateOrProvince = data.stateOrProvince.trim() || null;
+  if (data.street1 !== undefined) payload.street1 = data.street1.trim() || null;
+  if (data.street2 !== undefined) payload.street2 = data.street2.trim() || null;
+  if (data.city !== undefined) payload.city = data.city.trim() || null;
+  if (data.zip !== undefined) payload.zip = data.zip.trim() || null;
+  if (!Object.keys(payload).length) return;
+  await updateDoc(doc(db, COLLECTION, id), payload);
+  invalidateDefaultWarehouseLocationCache();
 }
 
 /** Map Firestore doc to Location (doc id = location id) */

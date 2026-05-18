@@ -15,6 +15,7 @@ import {
 } from "firebase/firestore";
 import type { CollectionReference, DocumentData } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { createLocation, docToLocation, updateLocation } from "@/lib/locations";
 import type { WarehouseAreaDoc, WarehouseDoc } from "@/types";
 import { normalizePurposeLabel, purposeKey } from "@/lib/warehouse-area-purposes";
 import { buildBinPath, isValidPathSegment, parseTokenList } from "@/lib/warehouse-bin-path";
@@ -25,6 +26,27 @@ import {
 } from "@/lib/warehouse-storage-layout";
 
 const WAREHOUSES = "warehouses";
+
+export type WarehouseAddressInput = {
+  country?: string;
+  stateOrProvince?: string;
+  street1?: string;
+  street2?: string;
+  city?: string;
+  zip?: string;
+};
+
+function addressFieldsPayload(input?: WarehouseAddressInput): Record<string, string | undefined> {
+  if (!input) return {};
+  return {
+    country: input.country?.trim() || undefined,
+    stateOrProvince: input.stateOrProvince?.trim() || undefined,
+    street1: input.street1?.trim() || undefined,
+    street2: input.street2?.trim() || undefined,
+    city: input.city?.trim() || undefined,
+    zip: input.zip?.trim() || undefined,
+  };
+}
 
 export function warehousesCollectionRef() {
   return collection(db, WAREHOUSES);
@@ -47,6 +69,7 @@ export async function createWarehouse(input: {
   name: string;
   active?: boolean;
   linkedLocationId?: string | null;
+  address?: WarehouseAddressInput;
 }): Promise<string> {
   const code = input.code.trim();
   const name = input.name.trim();
@@ -64,15 +87,154 @@ export async function createWarehouse(input: {
     name,
     active: input.active !== false,
     linkedLocationId: input.linkedLocationId?.trim() || null,
+    ...addressFieldsPayload(input.address),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
   return ref.id;
 }
 
+/** Creates a `locations` row and warehouse together (single admin flow). */
+export async function createWarehouseWithLocation(input: {
+  code: string;
+  name: string;
+  locationName: string;
+  country: string;
+  stateOrProvince: string;
+  street1: string;
+  street2?: string;
+  city: string;
+  zip: string;
+  active?: boolean;
+}): Promise<{ warehouseId: string; locationId: string }> {
+  const locationId = await createLocation({
+    name: input.locationName,
+    country: input.country,
+    stateOrProvince: input.stateOrProvince,
+    street1: input.street1,
+    street2: input.street2,
+    city: input.city,
+    zip: input.zip,
+  });
+  const address: WarehouseAddressInput = {
+    country: input.country,
+    stateOrProvince: input.stateOrProvince,
+    street1: input.street1,
+    street2: input.street2,
+    city: input.city,
+    zip: input.zip,
+  };
+  const warehouseId = await createWarehouse({
+    code: input.code,
+    name: input.name,
+    linkedLocationId: locationId,
+    active: input.active,
+    address,
+  });
+  return { warehouseId, locationId };
+}
+
+/** Link an existing location (e.g. NJ-1) to a new warehouse for layout design. */
+export async function createWarehouseFromExistingLocation(
+  locationId: string,
+  code: string,
+  displayName?: string
+): Promise<string> {
+  const locSnap = await getDoc(doc(db, "locations", locationId));
+  if (!locSnap.exists()) throw new Error("Location not found.");
+  const loc = docToLocation({ id: locationId, ...locSnap.data() });
+  const linked = query(warehousesCollectionRef(), where("linkedLocationId", "==", locationId), limit(1));
+  const linkedSnap = await getDocs(linked);
+  if (!linkedSnap.empty) {
+    throw new Error("This location already has a warehouse record.");
+  }
+  return createWarehouse({
+    code,
+    name: (displayName || loc.name).trim(),
+    linkedLocationId: locationId,
+    address: {
+      country: loc.country,
+      stateOrProvince: loc.stateOrProvince,
+      street1: loc.street1,
+      street2: loc.street2,
+      city: loc.city,
+      zip: loc.zip,
+    },
+  });
+}
+
+export async function updateWarehouseWithLocation(
+  warehouseId: string,
+  input: {
+    code?: string;
+    name?: string;
+    locationName?: string;
+    country?: string;
+    stateOrProvince?: string;
+    street1?: string;
+    street2?: string;
+    city?: string;
+    zip?: string;
+    active?: boolean;
+  }
+): Promise<void> {
+  const snap = await getDoc(warehouseDocRef(warehouseId));
+  if (!snap.exists()) throw new Error("Warehouse not found.");
+  const linkedLocationId = (snap.data() as { linkedLocationId?: string | null }).linkedLocationId;
+
+  if (linkedLocationId) {
+    await updateLocation(linkedLocationId, {
+      name: input.locationName,
+      country: input.country,
+      stateOrProvince: input.stateOrProvince,
+      street1: input.street1,
+      street2: input.street2,
+      city: input.city,
+      zip: input.zip,
+      active: input.active,
+    });
+  }
+
+  await updateWarehouse(warehouseId, {
+    code: input.code,
+    name: input.name,
+    active: input.active,
+  });
+
+  const addressPayload = addressFieldsPayload({
+    country: input.country,
+    stateOrProvince: input.stateOrProvince,
+    street1: input.street1,
+    street2: input.street2,
+    city: input.city,
+    zip: input.zip,
+  });
+  if (Object.keys(addressPayload).length) {
+    await updateDoc(warehouseDocRef(warehouseId), {
+      ...addressPayload,
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
 export async function updateWarehouse(
   warehouseId: string,
-  data: Partial<Pick<WarehouseDoc, "code" | "name" | "active" | "linkedLocationId" | "customPurposes">>
+  data: Partial<
+    Pick<
+      WarehouseDoc,
+      | "code"
+      | "name"
+      | "active"
+      | "linkedLocationId"
+      | "customPurposes"
+      | "country"
+      | "stateOrProvince"
+      | "street1"
+      | "street2"
+      | "city"
+      | "zip"
+    >
+  >
 ): Promise<void> {
   const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
   if (data.code !== undefined) {
@@ -88,6 +250,12 @@ export async function updateWarehouse(
   if (data.customPurposes !== undefined) {
     payload.customPurposes = data.customPurposes.map(normalizePurposeLabel).filter(Boolean);
   }
+  if (data.country !== undefined) payload.country = data.country?.trim() || null;
+  if (data.stateOrProvince !== undefined) payload.stateOrProvince = data.stateOrProvince?.trim() || null;
+  if (data.street1 !== undefined) payload.street1 = data.street1?.trim() || null;
+  if (data.street2 !== undefined) payload.street2 = data.street2?.trim() || null;
+  if (data.city !== undefined) payload.city = data.city?.trim() || null;
+  if (data.zip !== undefined) payload.zip = data.zip?.trim() || null;
   await updateDoc(warehouseDocRef(warehouseId), payload);
 }
 
