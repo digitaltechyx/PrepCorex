@@ -30,7 +30,7 @@ Warehouse → Area → Row → Bay → Level → Bin
 - **Row**: aisle / row of racking (`1, 2`)
 - **Bay**: a section in the row (`A, B, C`)
 - **Level**: shelf level inside a bay (`1, 2, 3, 4`)
-- **Bin**: smallest slot where stock physically sits (`A1, A2, A3`)
+- **Bin**: smallest slot where stock physically sits (`B01, B02, B03`)
 
 > Stock **only** lives at the **Bin** level (leaf).
 > Higher levels (Area/Row/Bay/Level) are organizational, not stock holders.
@@ -53,21 +53,21 @@ Each bin has two identifiers:
 **Example:**
 
 ```
-NJ02-A-1-A-1-A1
+NJ03-A-R1-BA1-L1-B01
 ```
 
 **Allowed characters:** `A–Z`, `0–9`. No spaces, no special characters (keeps barcodes clean).
 
-**Suggested widths per level:**
+**Segment format (v2 — typed prefixes):**
 
-| Level     | Type     | Example       |
-| --------- | -------- | ------------- |
-| Warehouse | code     | `NJ02`, `NJ03` |
-| Area      | 1 letter | `A`           |
-| Row       | digits   | `1`, `2`      |
-| Bay       | 1 letter | `A`           |
-| Level     | digit    | `1`–`4`       |
-| Bin       | letter+digit | `A1`, `A2` |
+| Level     | Pattern | Example |
+| --------- | ------- | ------- |
+| Warehouse | code as-is | `NJ03` |
+| Area      | plain code (no prefix) | `A` |
+| Row       | `R` + number (no leading zeros) | `R1`, `R2` |
+| Bay       | `BA` + number | `BA1`, `BA2` |
+| Level     | `L` + number | `L1`, `L2` |
+| Bin       | `B` + two-digit number | `B01`, `B02` |
 
 ---
 
@@ -102,9 +102,9 @@ warehouses/{warehouseId}/bins/{binId}
   - row: "1"
   - bay: "A"
   - level: "1"
-  - bin: "A1"
-  - path: "NJ02-A-1-A-1-A1"
-  - barcode: "NJ02-A-1-A-1-A1"   // can be path or short code, decided in Step 2
+  - bin: "B01"
+  - path: "NJ03-A-R1-BA1-L1-B01"
+  - barcode: "NJ03-A-R1-BA1-L1-B01"   // QR payload = full path
   - active: true
   - capacity?: number
   - createdAt, updatedAt
@@ -136,7 +136,7 @@ Admin opens **Generator UI**, selects a warehouse, and provides:
 - Rows per area (default `1, 2`)
 - Bays per row (default `A, B, C`)
 - Levels per bay (default `1, 2, 3, 4`)
-- Bins per level (default `A1, A2, A3`)
+- Bins per level (default `B01, B02, B03`)
 
 System then:
 
@@ -158,7 +158,7 @@ After generation, admin can:
 - Click **Print Labels (PDF)**.
 - System renders one label per bin with:
   - Barcode (encoding decided in Step 2)
-  - Human-readable path (e.g. `NJ02-A-1-A-1-A1`)
+  - Human-readable path (e.g. `NJ03-A-R1-BA1-L1-B01`)
   - Optional metadata (warehouse name).
 
 Label sheet layout (size, columns, paper) finalized in Step 2.

@@ -18,7 +18,13 @@ import { db } from "@/lib/firebase";
 import { createLocation, docToLocation, updateLocation } from "@/lib/locations";
 import type { WarehouseAreaDoc, WarehouseDoc } from "@/types";
 import { normalizePurposeLabel, purposeKey } from "@/lib/warehouse-area-purposes";
-import { buildBinPath, isValidPathSegment, parseTokenList } from "@/lib/warehouse-bin-path";
+import {
+  binSegmentsNeedMigration,
+  buildBinPath,
+  isValidPathSegment,
+  normalizeBinSegments,
+  parseTokenList,
+} from "@/lib/warehouse-bin-path";
 import {
   buildBinCombinationsFromDetailedRack,
   buildBinCombinationsFromLayout,
@@ -594,33 +600,30 @@ export async function updateWarehouseBin(
     temporary?: boolean;
   };
 
-  const area = (input.area !== undefined ? input.area : cur.area || "").trim();
-  const row = (input.row !== undefined ? input.row : cur.row || "").trim();
-  const bay = (input.bay !== undefined ? input.bay : cur.bay || "").trim();
-  const level = (input.level !== undefined ? input.level : cur.level || "").trim();
-  const binCode = (input.binCode !== undefined ? input.binCode : cur.binCode || "").trim();
+  const norm = normalizeBinSegments({
+    area: input.area !== undefined ? input.area : cur.area || "",
+    row: input.row !== undefined ? input.row : cur.row || "",
+    bay: input.bay !== undefined ? input.bay : cur.bay || "",
+    level: input.level !== undefined ? input.level : cur.level || "",
+    binCode: input.binCode !== undefined ? input.binCode : cur.binCode || "",
+  });
 
-  for (const [label, token] of [
-    ["Area", area],
-    ["Row", row],
-    ["Bay", bay],
-    ["Level", level],
-    ["Bin", binCode],
-  ] as const) {
-    if (!isValidPathSegment(token)) {
-      throw new Error(`${label} must be alphanumeric (no spaces).`);
-    }
-  }
-
-  const path = buildBinPath(warehouseCode, area, row, bay, level, binCode);
+  const path = buildBinPath(
+    warehouseCode,
+    norm.area,
+    norm.row,
+    norm.bay,
+    norm.level,
+    norm.binCode
+  );
   await assertUniqueBinPath(warehouseId, path, binId);
 
   const payload: Record<string, unknown> = {
-    area,
-    row,
-    bay,
-    level,
-    binCode,
+    area: norm.area,
+    row: norm.row,
+    bay: norm.bay,
+    level: norm.level,
+    binCode: norm.binCode,
     path,
     updatedAt: serverTimestamp(),
   };
@@ -639,6 +642,90 @@ export async function updateWarehouseBin(
 
 export async function deleteWarehouseBin(warehouseId: string, binId: string): Promise<void> {
   await deleteDoc(doc(db, WAREHOUSES, warehouseId, "bins", binId));
+}
+
+/** Rewrite all bins to v2 path segments (R1, BA1, L1, B01) and update path/barcode. */
+export async function migrateWarehouseBinPathFormat(
+  warehouseId: string,
+  warehouseCode: string
+): Promise<{ updated: number; skipped: number }> {
+  const code = warehouseCode.trim();
+  if (!isValidPathSegment(code)) {
+    throw new Error("Invalid warehouse code.");
+  }
+
+  const snap = await getDocs(warehouseBinsCollectionRef(warehouseId));
+  const pathOwners = new Map<string, string>();
+  for (const d of snap.docs) {
+    const p = (d.data() as { path?: string }).path;
+    if (p) pathOwners.set(p, d.id);
+  }
+
+  let updated = 0;
+  let skipped = 0;
+  const BATCH_LIMIT = 400;
+  let batch = writeBatch(db);
+  let batchCount = 0;
+
+  const flush = async () => {
+    if (batchCount === 0) return;
+    await batch.commit();
+    batch = writeBatch(db);
+    batchCount = 0;
+  };
+
+  for (const d of snap.docs) {
+    const data = d.data() as {
+      area?: string;
+      row?: string;
+      bay?: string;
+      level?: string;
+      binCode?: string;
+      path?: string;
+    };
+    if (!binSegmentsNeedMigration(data)) {
+      skipped += 1;
+      continue;
+    }
+
+    const norm = normalizeBinSegments({
+      area: data.area || "",
+      row: data.row || "",
+      bay: data.bay || "",
+      level: data.level || "",
+      binCode: data.binCode || "",
+    });
+    const path = buildBinPath(code, norm.area, norm.row, norm.bay, norm.level, norm.binCode);
+
+    const oldPath = data.path;
+    if (oldPath && oldPath !== path) {
+      pathOwners.delete(oldPath);
+    }
+    const otherId = pathOwners.get(path);
+    if (otherId && otherId !== d.id) {
+      throw new Error(
+        `Cannot migrate: path "${path}" would duplicate another bin. Resolve conflicts manually.`
+      );
+    }
+    pathOwners.set(path, d.id);
+
+    batch.update(d.ref, {
+      area: norm.area,
+      row: norm.row,
+      bay: norm.bay,
+      level: norm.level,
+      binCode: norm.binCode,
+      path,
+      barcode: path,
+      updatedAt: serverTimestamp(),
+    });
+    updated += 1;
+    batchCount += 1;
+    if (batchCount >= BATCH_LIMIT) await flush();
+  }
+
+  await flush();
+  return { updated, skipped };
 }
 
 async function deleteBinDocs(docs: { ref: ReturnType<typeof doc> }[]): Promise<number> {

@@ -1,12 +1,19 @@
-import { buildBinPath, isValidPathSegment } from "@/lib/warehouse-bin-path";
+import {
+  buildBinPath,
+  formatBayCode,
+  formatBinSlotCode,
+  formatLevelCode,
+  formatRowCode,
+  isValidPathSegment,
+  normalizeRowCode,
+} from "@/lib/warehouse-bin-path";
 
-/** Padded row codes: `01`ΓÇª`12` (width scales with max row index). */
+/** Row codes: R1, R2, … */
 export function buildRowCodes(rowCount: number): string[] {
   if (!Number.isFinite(rowCount) || rowCount < 1 || rowCount > 999) {
     throw new Error("Row count must be between 1 and 999.");
   }
-  const pad = String(rowCount).length >= 3 ? 3 : 2;
-  return Array.from({ length: rowCount }, (_, i) => String(i + 1).padStart(pad, "0"));
+  return Array.from({ length: rowCount }, (_, i) => formatRowCode(i + 1));
 }
 
 export function parseRowIndex(rowCode: string): number {
@@ -23,37 +30,31 @@ export function buildRowCodesAfterExisting(existingRowCodes: string[], addCount:
   for (const r of existingRowCodes) {
     max = Math.max(max, parseRowIndex(r));
   }
-  const end = max + addCount;
-  const pad = String(end).length >= 3 ? 3 : 2;
-  return Array.from({ length: addCount }, (_, i) => String(max + 1 + i).padStart(pad, "0"));
+  return Array.from({ length: addCount }, (_, i) => formatRowCode(max + 1 + i));
 }
 
-/** Bays `A`ΓÇª`Z` for up to 26; beyond that use two-digit `01`ΓÇª (alphanumeric path segments). */
+/** Bay codes: BA1, BA2, … */
 export function buildBayCodes(bayCount: number): string[] {
   if (!Number.isFinite(bayCount) || bayCount < 1 || bayCount > 99) {
     throw new Error("Bay count per row must be between 1 and 99.");
   }
-  if (bayCount <= 26) {
-    return Array.from({ length: bayCount }, (_, i) => String.fromCharCode(65 + i));
-  }
-  const pad = String(bayCount).length >= 3 ? 3 : 2;
-  return Array.from({ length: bayCount }, (_, i) => String(i + 1).padStart(pad, "0"));
+  return Array.from({ length: bayCount }, (_, i) => formatBayCode(i + 1));
 }
 
-/** Level codes `1`ΓÇª`L` (single segment per path rules). */
+/** Level codes: L1, L2, … */
 export function buildLevelCodes(levelCount: number): string[] {
   if (!Number.isFinite(levelCount) || levelCount < 1 || levelCount > 99) {
     throw new Error("Level count must be between 1 and 99.");
   }
-  return Array.from({ length: levelCount }, (_, i) => String(i + 1));
+  return Array.from({ length: levelCount }, (_, i) => formatLevelCode(i + 1));
 }
 
-/** Slot codes `A1`ΓÇª`A{n}` (alphanumeric). */
+/** Bin slot codes: B01, B02, … */
 export function buildBinSlotCodes(binCount: number): string[] {
   if (!Number.isFinite(binCount) || binCount < 1 || binCount > 999) {
     throw new Error("Bin count per level must be between 1 and 999.");
   }
-  return Array.from({ length: binCount }, (_, i) => `A${i + 1}`);
+  return Array.from({ length: binCount }, (_, i) => formatBinSlotCode(i + 1));
 }
 
 export function buildBaysPerRowFromCounts(rowCodes: string[], bayCounts: number[]): string[][] {
@@ -111,8 +112,8 @@ export function countBinSlotsInDetailedRack(
 }
 
 /**
- * Per-bay level count and per-level bin count (slots A1ΓÇª).
- * Level codes are 1ΓÇªL within each bay independently.
+ * Per-bay level count and per-level bin count (slots B01…).
+ * Level codes are L1…L within each bay independently.
  */
 export function buildBinCombinationsFromDetailedRack(
   warehouseCode: string,
@@ -133,7 +134,7 @@ export function buildBinCombinationsFromDetailedRack(
   }
   const combinations: BinCombo[] = [];
   for (let ri = 0; ri < rowCodes.length; ri++) {
-    const row = rowCodes[ri];
+    const row = normalizeRowCode(rowCodes[ri]);
     const bays = baysByRow[ri];
     const lvRow = levelsPerBay[ri];
     const binRow = binsPerLevel[ri];
@@ -147,7 +148,7 @@ export function buildBinCombinationsFromDetailedRack(
       const bay = bays[bi];
       const levelCount = lvRow[bi];
       if (!Number.isFinite(levelCount) || levelCount < 1 || levelCount > 99) {
-        throw new Error(`Row ${row} bay ${bay}: level count must be 1ΓÇô99.`);
+        throw new Error(`Row ${row} bay ${bay}: level count must be 1–99.`);
       }
       const levelCodes = buildLevelCodes(levelCount);
       const binsForBay = binRow[bi];
@@ -157,7 +158,7 @@ export function buildBinCombinationsFromDetailedRack(
       for (let li = 0; li < levelCount; li++) {
         const binCount = binsForBay[li];
         if (!Number.isFinite(binCount) || binCount < 1 || binCount > 999) {
-          throw new Error(`Row ${row} bay ${bay} level ${li + 1}: bin count must be 1ΓÇô999.`);
+          throw new Error(`Row ${row} bay ${bay} level ${li + 1}: bin count must be 1–999.`);
         }
         const level = levelCodes[li];
         for (const binCode of buildBinSlotCodes(binCount)) {
@@ -186,7 +187,7 @@ export function buildBinCombinationsFromLayout(
   }
   const combinations: BinCombo[] = [];
   for (let ri = 0; ri < rowCodes.length; ri++) {
-    const row = rowCodes[ri];
+    const row = normalizeRowCode(rowCodes[ri]);
     const bays = baysByRow[ri];
     if (!bays.length) throw new Error(`Row ${row} has no bays.`);
     for (const bay of bays) {

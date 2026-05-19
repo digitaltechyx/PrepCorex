@@ -1,6 +1,6 @@
 /**
  * Sample A4 PDFs for PrepCorex barcode labels:
- * Page 1 — Bin QR sheet: one bay, 5 levels × N bins/level (default 3: A1, A2, A3).
+ * Page 1 — Bin QR sheet: one bay, 5 levels × N bins/level (default 3: B01, B02, B03).
  * Page 2 — Other QR types: product, carton/receiving, shipment (accent colors).
  *
  * Run: node scripts/generate-bin-label-sheet-pdf.mjs
@@ -20,12 +20,12 @@ const ROOT = path.join(__dirname, "..");
 const OUT = path.join(ROOT, "docs", "BARCODE_SCANNING", "barcode-label-sheets-sample.pdf");
 
 /** Admin-configurable defaults (sample) */
-const WAREHOUSE_CODE = "NJ02";
+const WAREHOUSE_CODE = "NJ03";
 const AREA = "A";
-const ROW = "1";
-const BAY = "A";
+const ROW = "R1";
+const BAY = "BA1";
 const LEVELS = 5;
-const BIN_CODES = ["A1", "A2", "A3"];
+const BIN_CODES = ["B01", "B02", "B03"];
 
 /** Background + border per shelf level (L1 floor … L5 top) */
 const LEVEL_THEME = [
@@ -37,7 +37,7 @@ const LEVEL_THEME = [
 ];
 
 function binPath(level, binCode) {
-  return `${WAREHOUSE_CODE}-${AREA}-${ROW}-${BAY}-${String(level)}-${binCode}`;
+  return `${WAREHOUSE_CODE}-${AREA}-${ROW}-${BAY}-L${level}-${binCode}`;
 }
 
 async function pngQr(text, size = 140) {

@@ -1,6 +1,7 @@
 /**
- * Bin path helpers ΓÇö aligned with docs/BARCODE_SCANNING/01_LOCATION_STRUCTURE.md
+ * Bin path helpers — v2 segment prefixes (see docs/BARCODE_SCANNING/01_LOCATION_STRUCTURE.md)
  * Path: <Warehouse>-<Area>-<Row>-<Bay>-<Level>-<Bin>
+ * Example: NJ03-A-R1-BA1-L1-B01
  */
 
 const SEGMENT = /^[A-Za-z0-9]+$/;
@@ -18,6 +19,140 @@ export function assertValidPathSegment(label: string, value: string): string {
   return s;
 }
 
+/** Area: plain code (e.g. A, B) — no prefix. */
+export function normalizeAreaCode(raw: string): string {
+  return assertValidPathSegment("Area", String(raw || "").trim().toUpperCase());
+}
+
+/** Row: R + index without leading zeros (R1, R2, R10). */
+export function formatRowCode(index: number): string {
+  if (!Number.isFinite(index) || index < 1 || index > 999) {
+    throw new Error("Row index must be between 1 and 999.");
+  }
+  return `R${index}`;
+}
+
+export function normalizeRowCode(raw: string): string {
+  const s = String(raw || "").trim().toUpperCase();
+  if (/^R\d+$/i.test(s)) {
+    const n = parseInt(s.slice(1), 10);
+    if (n >= 1) return formatRowCode(n);
+  }
+  if (/^\d+$/.test(s)) {
+    const n = parseInt(s, 10);
+    if (n >= 1) return formatRowCode(n);
+  }
+  const n = parseInt(s.replace(/\D/g, ""), 10);
+  if (n >= 1) return formatRowCode(n);
+  return assertValidPathSegment("Row", s);
+}
+
+/** Bay: BA + index (BA1, BA2). Legacy single letter A→BA1, B→BA2. */
+export function formatBayCode(index: number): string {
+  if (!Number.isFinite(index) || index < 1 || index > 99) {
+    throw new Error("Bay index must be between 1 and 99.");
+  }
+  return `BA${index}`;
+}
+
+export function normalizeBayCode(raw: string): string {
+  const s = String(raw || "").trim().toUpperCase();
+  if (/^BA\d+$/i.test(s)) {
+    const n = parseInt(s.slice(2), 10);
+    if (n >= 1) return formatBayCode(n);
+  }
+  if (/^[A-Z]$/.test(s)) {
+    return formatBayCode(s.charCodeAt(0) - 64);
+  }
+  if (/^\d+$/.test(s)) {
+    const n = parseInt(s, 10);
+    if (n >= 1) return formatBayCode(n);
+  }
+  const n = parseInt(s.replace(/\D/g, ""), 10);
+  if (n >= 1) return formatBayCode(n);
+  return assertValidPathSegment("Bay", s);
+}
+
+/** Level: L + index (L1, L2). */
+export function formatLevelCode(index: number): string {
+  if (!Number.isFinite(index) || index < 1 || index > 99) {
+    throw new Error("Level index must be between 1 and 99.");
+  }
+  return `L${index}`;
+}
+
+export function normalizeLevelCode(raw: string): string {
+  const s = String(raw || "").trim().toUpperCase();
+  if (/^L\d+$/i.test(s)) {
+    const n = parseInt(s.slice(1), 10);
+    if (n >= 1) return formatLevelCode(n);
+  }
+  if (/^\d+$/.test(s)) {
+    const n = parseInt(s, 10);
+    if (n >= 1) return formatLevelCode(n);
+  }
+  const n = parseInt(s.replace(/\D/g, ""), 10);
+  if (n >= 1) return formatLevelCode(n);
+  return assertValidPathSegment("Level", s);
+}
+
+/** Bin slot: B + two-digit index (B01, B02). Legacy A1→B01. */
+export function formatBinSlotCode(index: number): string {
+  if (!Number.isFinite(index) || index < 1 || index > 999) {
+    throw new Error("Bin index must be between 1 and 999.");
+  }
+  return `B${String(index).padStart(2, "0")}`;
+}
+
+export function normalizeBinSlotCode(raw: string): string {
+  const s = String(raw || "").trim().toUpperCase();
+  if (/^B\d+$/i.test(s)) {
+    const n = parseInt(s.slice(1), 10);
+    if (n >= 1) return formatBinSlotCode(n);
+  }
+  const legacyA = s.match(/^A(\d+)$/);
+  if (legacyA) {
+    const n = parseInt(legacyA[1], 10);
+    if (n >= 1) return formatBinSlotCode(n);
+  }
+  const n = parseInt(s.replace(/\D/g, ""), 10);
+  if (n >= 1) return formatBinSlotCode(n);
+  return assertValidPathSegment("Bin", s);
+}
+
+export function normalizeBinSegments(input: {
+  area: string;
+  row: string;
+  bay: string;
+  level: string;
+  binCode: string;
+}): { area: string; row: string; bay: string; level: string; binCode: string } {
+  return {
+    area: normalizeAreaCode(input.area),
+    row: normalizeRowCode(input.row),
+    bay: normalizeBayCode(input.bay),
+    level: normalizeLevelCode(input.level),
+    binCode: normalizeBinSlotCode(input.binCode),
+  };
+}
+
+export function binSegmentsNeedMigration(bin: {
+  row?: string;
+  bay?: string;
+  level?: string;
+  binCode?: string;
+}): boolean {
+  try {
+    if (bin.row && normalizeRowCode(bin.row) !== bin.row.trim().toUpperCase()) return true;
+    if (bin.bay && normalizeBayCode(bin.bay) !== bin.bay.trim().toUpperCase()) return true;
+    if (bin.level && normalizeLevelCode(bin.level) !== bin.level.trim().toUpperCase()) return true;
+    if (bin.binCode && normalizeBinSlotCode(bin.binCode) !== bin.binCode.trim().toUpperCase()) return true;
+  } catch {
+    return true;
+  }
+  return false;
+}
+
 export function buildBinPath(
   warehouseCode: string,
   area: string,
@@ -27,12 +162,8 @@ export function buildBinPath(
   binCode: string
 ): string {
   const w = assertValidPathSegment("Warehouse code", warehouseCode);
-  const a = assertValidPathSegment("Area", area);
-  const r = assertValidPathSegment("Row", row);
-  const b = assertValidPathSegment("Bay", bay);
-  const l = assertValidPathSegment("Level", level);
-  const bin = assertValidPathSegment("Bin", binCode);
-  return [w, a, r, b, l, bin].join("-");
+  const norm = normalizeBinSegments({ area, row, bay, level, binCode });
+  return [w, norm.area, norm.row, norm.bay, norm.level, norm.binCode].join("-");
 }
 
 /** Parse comma- or newline-separated tokens; trim; drop empties. */
@@ -44,7 +175,7 @@ export function parseTokenList(raw: string): string[] {
 }
 
 /**
- * Sort bin paths for sheets and UI (walk order: row ΓåÆ bay ΓåÆ level ΓåÆ bin slot).
+ * Sort bin paths for sheets and UI (walk order: row → bay → level → bin slot).
  * Uses `localeCompare` with `numeric: true` so embedded numbers sort naturally (1, 2, 10).
  */
 export function compareBinPaths(pathA: string | undefined, pathB: string | undefined): number {
@@ -80,7 +211,7 @@ export function parseBinPath(path: string): ParsedBinPath | null {
   };
 }
 
-/** Display segment without leading zeros on pure numeric tokens (e.g. `01` ΓåÆ `1`). */
+/** Display segment without leading zeros on pure numeric tokens (e.g. `01` → `1`). */
 export function formatPathSegmentLabelCompact(segment: string): string {
   const s = String(segment || "").trim();
   if (!s) return s;
@@ -92,7 +223,7 @@ export function formatPathSegmentLabelCompact(segment: string): string {
   return s;
 }
 
-/** Pad pure numeric segments for display (e.g. `1` ΓåÆ `01`). */
+/** Pad pure numeric segments for display (e.g. `1` → `01`). */
 export function formatPathSegmentDisplay(segment: string, minDigits = 2): string {
   const s = String(segment || "").trim();
   if (/^\d+$/.test(s) && s.length < minDigits) {

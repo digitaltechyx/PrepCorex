@@ -1,4 +1,5 @@
 import type { WarehouseBinDoc } from "@/types";
+import { formatRowCode } from "@/lib/warehouse-bin-path";
 import {
   buildBayCodes,
   buildRowCodes,
@@ -18,10 +19,9 @@ export function listGapRowCodes(existingRowCodes: string[]): string[] {
     max = Math.max(max, n);
   }
   if (max === 0) return [];
-  const pad = String(max).length >= 3 ? 3 : 2;
   const gaps: string[] = [];
   for (let i = 1; i <= max; i++) {
-    if (!used.has(i)) gaps.push(String(i).padStart(pad, "0"));
+    if (!used.has(i)) gaps.push(formatRowCode(i));
   }
   return gaps;
 }

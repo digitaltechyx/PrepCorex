@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,7 +64,9 @@ import {
   updateWarehouseAreaWithBinSync,
   updateWarehouseBin,
   updateWarehouseWithLocation,
+  migrateWarehouseBinPathFormat,
 } from "@/lib/warehouse-firestore";
+import { binSegmentsNeedMigration } from "@/lib/warehouse-bin-path";
 import { WarehouseBinEditDialog } from "@/components/admin/warehouse-bin-edit-dialog";
 import { WarehouseShelvingDialog } from "@/components/admin/warehouse-shelving-dialog";
 import {
@@ -126,6 +128,39 @@ export function WarehouseManagement() {
   const areasPath = selectedId ? `warehouses/${selectedId}/areas` : "";
   const { data: bins, loading: binsLoading } = useCollection<WarehouseBinDoc>(binsPath);
   const { data: areas, loading: areasLoading } = useCollection<WarehouseAreaDoc>(areasPath);
+
+  const pathMigrateBusyRef = useRef(false);
+
+  useEffect(() => {
+    if (!selected?.id || !selected.code || binsLoading || pathMigrateBusyRef.current) return;
+    if (!bins.some((b) => binSegmentsNeedMigration(b))) return;
+    pathMigrateBusyRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { updated } = await migrateWarehouseBinPathFormat(selected.id, selected.code);
+        if (!cancelled && updated > 0) {
+          toast({
+            title: "Bin paths updated",
+            description: `Updated ${updated} bin(s) to the new barcode format (e.g. ${selected.code}-A-R1-BA1-L1-B01). Reprint labels if they were already on the racks.`,
+          });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          toast({
+            variant: "destructive",
+            title: "Could not update bin paths",
+            description: e instanceof Error ? e.message : "Migration failed.",
+          });
+        }
+      } finally {
+        pathMigrateBusyRef.current = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id, selected?.code, binsLoading, bins, toast]);
 
   const [binSearch, setBinSearch] = useState("");
   const [binFilterArea, setBinFilterArea] = useState("__all__");
@@ -1988,7 +2023,7 @@ export function WarehouseManagement() {
                   : "How many rack rows in this area?")}
               {wizStep === "bays" && "For each row, how many bays (positions along the aisle)?"}
               {wizStep === "rackLevels" && "For each bay, how many vertical levels (1, 2, 3… in the path)?"}
-              {wizStep === "rackBins" && "For each level in each bay, how many bin slots (labeled A1, A2, …)?"}
+              {wizStep === "rackBins" && "For each level in each bay, how many bin slots (labeled B01, B02, …)?"}
               {wizStep === "review" && "Confirm before generating bins (existing paths are skipped)."}
             </DialogDescription>
           </DialogHeader>
@@ -2206,7 +2241,7 @@ export function WarehouseManagement() {
             {wizStep === "rackBins" && wizGridLayout ? (
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground">
-                  Slots use codes A1, A2, … within each level.
+                  Slots use codes B01, B02, … within each level.
                 </p>
                 <ScrollArea className="h-96 max-h-[55vh] rounded-md border p-3">
                   <div className="space-y-6 pr-3">

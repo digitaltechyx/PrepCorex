@@ -40,7 +40,7 @@ npm run docs:bin-label-pdf
 
 ### 2.1 Bin Label (Required)
 - Purpose: identifies exact location.
-- Payload: `binPath` (example: `NJ02-A-1-A-1-A1`).
+- Payload: `binPath` (example: `NJ03-A-R1-BA1-L1-B01`).
 - Printed by system from location generator.
 
 ### 2.2 Product Label (Required, unless vendor barcode exists)
