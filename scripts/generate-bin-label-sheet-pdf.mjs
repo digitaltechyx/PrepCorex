@@ -85,8 +85,8 @@ async function drawBayBinSheet(pdf, page, fontBold, font) {
   const pad = 6;
 
   for (let r = 0; r < rows; r++) {
-    const level = r + 1;
-    const theme = LEVEL_THEME[r % LEVEL_THEME.length];
+    const level = LEVELS - r;
+    const theme = LEVEL_THEME[level - 1] ?? LEVEL_THEME[r % LEVEL_THEME.length];
     const yTop = gridTop - r * rowH;
 
     for (let c = 0; c < cols; c++) {
@@ -143,7 +143,7 @@ async function drawBayBinSheet(pdf, page, fontBold, font) {
   }
 
   page.drawText(
-    "Rows = shelf levels (each level has its own color). Columns = bins on that level (admin sets count and codes, e.g. A1–A3).",
+    "Rows = shelf levels top-to-bottom (highest level first). Columns = bins on that level (e.g. B01–B03).",
     {
       x: margin,
       y: margin + 8,

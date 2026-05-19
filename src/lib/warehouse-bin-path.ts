@@ -185,6 +185,24 @@ export function compareBinPaths(pathA: string | undefined, pathB: string | undef
   });
 }
 
+/**
+ * Label sheet order: row → bay → level high-to-low → bin (fills PDF rows by level, cols by bin slot).
+ */
+export function compareBinPathsForLabelPrint(pathA: string | undefined, pathB: string | undefined): number {
+  const a = parseBinPath(String(pathA || ""));
+  const b = parseBinPath(String(pathB || ""));
+  if (!a || !b) return compareBinPaths(pathA, pathB);
+
+  for (const key of ["warehouse", "area", "row", "bay"] as const) {
+    const cmp = a[key].localeCompare(b[key], undefined, { numeric: true, sensitivity: "base" });
+    if (cmp !== 0) return cmp;
+  }
+  const levelA = parseInt(a.level.replace(/\D/g, ""), 10) || 0;
+  const levelB = parseInt(b.level.replace(/\D/g, ""), 10) || 0;
+  if (levelA !== levelB) return levelB - levelA;
+  return a.pos.localeCompare(b.pos, undefined, { numeric: true, sensitivity: "base" });
+}
+
 /** Parsed `Warehouse-Area-Row-Bay-Level-Bin` (six hyphen-separated segments). */
 export type ParsedBinPath = {
   warehouse: string;

@@ -1,7 +1,11 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont, type PDFImage } from "pdf-lib";
 import QRCode from "qrcode";
 import type { WarehouseBinDoc } from "@/types";
-import { compareBinPaths, formatPathSegmentLabelCompact, parseBinPath } from "@/lib/warehouse-bin-path";
+import {
+  compareBinPathsForLabelPrint,
+  formatPathSegmentLabelCompact,
+  parseBinPath,
+} from "@/lib/warehouse-bin-path";
 
 /** Helvetica in pdf-lib uses WinAnsi; replace unsupported characters before drawText. */
 export function sanitizePdfWinAnsi(text: string): string {
@@ -239,11 +243,11 @@ function drawBinLabel(
   const areaD = pdfText(formatPathSegmentLabelCompact(parsed.area));
   const rowD = pdfText(formatPathSegmentLabelCompact(parsed.row));
   const bayD = pdfText(formatPathSegmentLabelCompact(parsed.bay));
-  const levelD = pdfText(formatPathSegmentLabelCompact(parsed.level));
-  const binD = pdfText(parsed.pos);
+  const levelD = pdfText(String(levelNum));
+  const binD = pdfText(formatPathSegmentLabelCompact(parsed.pos));
 
   const looseSep = " - ";
-  const valSize = innerH < 72 ? 10.5 : 12.5;
+  const valSize = innerH < 72 ? 9 : 10.5;
   const headerSize = innerH < 72 ? 4.5 : innerW < 200 ? 5 : 5.25;
 
   const piece = (txt: string) => fontBold.widthOfTextAtSize(txt, valSize);
@@ -365,7 +369,8 @@ export type BuildBinLabelsPdfOptions = {
 };
 
 /**
- * US Letter PDF - landscape bin labels (~4x1.75 in proportion), 3 columns, as many rows as fit per page.
+ * US Letter PDF - landscape bin labels (~4x1.75 in proportion), 3 columns per row.
+ * Layout: **each row = one level** (top = highest), **each column = bin slot** (B01, B02, B03).
  */
 export async function buildWarehouseBinLabelsPdf(options: BuildBinLabelsPdfOptions): Promise<Uint8Array> {
   const list = (options.bins || [])
@@ -373,7 +378,7 @@ export async function buildWarehouseBinLabelsPdf(options: BuildBinLabelsPdfOptio
       if (options.activeOnly && b.active === false) return false;
       return Boolean(b.path);
     })
-    .sort((a, b) => compareBinPaths(a.path, b.path));
+    .sort((a, b) => compareBinPathsForLabelPrint(a.path, b.path));
   if (list.length === 0) {
     throw new Error("No bins to print.");
   }
@@ -415,13 +420,16 @@ export async function buildWarehouseBinLabelsPdf(options: BuildBinLabelsPdfOptio
       font: fontBold,
       color: rgb(0.06, 0.09, 0.16),
     });
-    p.drawText("Bin labels - QR = full path (Warehouse-Area-Row-Bay-Level-Bin)", {
-      x: margin,
-      y: pageH - margin - 28,
-      size: 7,
-      font,
-      color: rgb(0.38, 0.42, 0.48),
-    });
+    p.drawText(
+      pdfText("Bin labels — each row = one level (top = highest); columns = B01, B02, B03. QR = full path."),
+      {
+        x: margin,
+        y: pageH - margin - 28,
+        size: 7,
+        font,
+        color: rgb(0.38, 0.42, 0.48),
+      }
+    );
   };
 
   drawPageHeader(page);
