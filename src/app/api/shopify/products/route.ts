@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { parseShopifyErrorBody, shopifyAdminRestUrl } from "@/lib/shopify-api";
+import {
+  getValidShopifyAccessToken,
+  ShopifyReconnectRequired,
+} from "@/lib/shopify-access-token";
 
 export const dynamic = "force-dynamic";
 
@@ -63,10 +67,15 @@ export async function GET(request: NextRequest) {
   if (connSnap.empty) {
     return NextResponse.json({ error: "Store not connected" }, { status: 404 });
   }
-  const conn = connSnap.docs[0].data();
-  const accessToken = conn.accessToken as string | undefined;
-  if (!accessToken) {
-    return NextResponse.json({ error: "Store not connected" }, { status: 404 });
+  const connDoc = connSnap.docs[0];
+  let accessToken: string;
+  try {
+    accessToken = await getValidShopifyAccessToken(connDoc.ref, connDoc.data(), shop);
+  } catch (e) {
+    if (e instanceof ShopifyReconnectRequired) {
+      return NextResponse.json({ error: e.message, detail: e.message }, { status: 401 });
+    }
+    throw e;
   }
 
   const url = `${shopifyAdminRestUrl(shop, "/products.json")}?limit=250`;
@@ -80,16 +89,19 @@ export async function GET(request: NextRequest) {
     const text = await res.text();
     const detail = parseShopifyErrorBody(text);
     console.error("[Shopify products]", res.status, detail, text.slice(0, 500));
-    const needsReconnect = res.status === 401 || res.status === 403;
+    const nonExpiring =
+      detail.toLowerCase().includes("non-expiring") ||
+      detail.toLowerCase().includes("expiring offline");
+    const needsReconnect = res.status === 401 || res.status === 403 || nonExpiring;
     return NextResponse.json(
       {
         error: needsReconnect
-          ? "Shopify access expired or missing permission. Disconnect and reconnect the store from Integrations."
+          ? "Shopify connection must be renewed. Disconnect and reconnect the store from Integrations."
           : "Failed to fetch products from Shopify",
         detail,
         shopifyStatus: res.status,
       },
-      { status: 502 }
+      { status: needsReconnect ? 401 : 502 }
     );
   }
   const data = (await res.json()) as { products?: ShopifyProduct[] };

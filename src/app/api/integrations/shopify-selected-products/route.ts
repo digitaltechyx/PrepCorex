@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb, adminFieldValue } from "@/lib/firebase-admin";
 import type { ShopifySelectedVariant } from "@/types";
 import { shopifyAdminRestUrl } from "@/lib/shopify-api";
+import { getValidShopifyAccessToken } from "@/lib/shopify-access-token";
 
 export const dynamic = "force-dynamic";
 
@@ -86,8 +87,9 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Store not connected" }, { status: 404 });
     }
 
-    const accessToken = connSnap.docs[0].data().accessToken as string;
-    await connSnap.docs[0].ref.update({ selectedVariants });
+    const connDoc = connSnap.docs[0];
+    const accessToken = await getValidShopifyAccessToken(connDoc.ref, connDoc.data(), shop);
+    await connDoc.ref.update({ selectedVariants });
 
     const selectedIds = new Set(selectedVariants.map((v) => v.variantId));
     const FieldValue = adminFieldValue();

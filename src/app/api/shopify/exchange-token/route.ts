@@ -3,6 +3,10 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { ensureShopifyAppSubscriptionAfterConnect } from "@/lib/shopify-billing";
 import { shopifyAdminRestUrl } from "@/lib/shopify-api";
+import {
+  exchangeShopifyAuthorizationCode,
+  shopifyTokenFieldsFromResponse,
+} from "@/lib/shopify-access-token";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -116,41 +120,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const res = await fetch(`https://${normalizedShop}/admin/oauth/access_token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-        redirect_uri: redirectUri,
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("[Shopify exchange-token]", res.status, text);
-      let detail: string | undefined;
-      try {
-        const errJson = JSON.parse(text) as { error?: string; error_description?: string };
-        detail = errJson.error_description || errJson.error || text.slice(0, 200);
-      } catch {
-        // Shopify often returns HTML; extract <title> or first meaningful line for user
-        const titleMatch = text.match(/<title[^>]*>([^<]+)<\/title>/i);
-        detail = titleMatch ? titleMatch[1].trim() : text.replace(/\s+/g, " ").slice(0, 150);
-      }
+    let tokenData;
+    try {
+      tokenData = await exchangeShopifyAuthorizationCode(normalizedShop, code);
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error("[Shopify exchange-token]", detail);
       return NextResponse.json(
         { error: "Failed to exchange code with Shopify", detail },
         { status: 502 }
       );
     }
-    const data = (await res.json()) as { access_token?: string };
-    const accessToken = data.access_token;
-    if (!accessToken) {
-      return NextResponse.json(
-        { error: "No access token in Shopify response" },
-        { status: 502 }
-      );
-    }
+    const tokenFields = shopifyTokenFieldsFromResponse(tokenData);
+    const accessToken = tokenFields.accessToken;
 
     const db = adminDb();
     const col = db.collection("users").doc(uid).collection("shopifyConnections");
@@ -159,7 +141,7 @@ export async function POST(request: NextRequest) {
     const docData = {
       shop: normalizedShop,
       shopName: normalizedShop.replace(".myshopify.com", ""),
-      accessToken,
+      ...tokenFields,
       connectedAt: { seconds: Math.floor(connectedAt.getTime() / 1000), nanoseconds: 0 },
     };
     if (!snapshot.empty) {

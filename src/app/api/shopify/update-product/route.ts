@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { shopifyAdminRestUrl } from "@/lib/shopify-api";
+import { getShopifyAccessTokenForUserShop } from "@/lib/shopify-access-token";
 
 export const dynamic = "force-dynamic";
 
@@ -54,18 +55,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const db = adminDb();
-    const connSnap = await db
-      .collection("users")
-      .doc(userId)
-      .collection("shopifyConnections")
-      .where("shop", "==", shopNorm)
-      .limit(1)
-      .get();
-
-    if (connSnap.empty) {
-      return NextResponse.json({ error: "Store not connected" }, { status: 404 });
-    }
-    const accessToken = connSnap.docs[0].data().accessToken as string;
+    const accessToken = await getShopifyAccessTokenForUserShop(db, userId, shopNorm);
 
     const productId = Number(shopifyProductId);
     if (!Number.isFinite(productId)) {

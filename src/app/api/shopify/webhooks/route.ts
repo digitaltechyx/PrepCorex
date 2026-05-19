@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { adminDb } from "@/lib/firebase-admin";
 import { shopifyAdminRestUrl } from "@/lib/shopify-api";
+import { getValidShopifyAccessToken } from "@/lib/shopify-access-token";
 
 export const dynamic = "force-dynamic";
 
@@ -114,16 +115,25 @@ export async function POST(request: NextRequest) {
         if (userId) {
           const connSnap = await db.collection("users").doc(userId).collection("shopifyConnections").where("shop", "==", shopNorm).limit(1).get();
           if (!connSnap.empty) {
-            const accessToken = connSnap.docs[0].data().accessToken as string;
-            const levelsRes = await fetch(
-              `${shopifyAdminRestUrl(shopNorm, "/inventory_levels.json")}?inventory_item_ids=${encodeURIComponent(idStr)}&limit=250`,
-              { headers: { "X-Shopify-Access-Token": accessToken } }
-            );
-            if (levelsRes.ok) {
-              const levelsData = (await levelsRes.json()) as { inventory_levels?: Array<{ available?: number }> };
-              const levels = levelsData.inventory_levels ?? [];
-              const total = levels.reduce((sum, l) => sum + (l.available != null ? Number(l.available) : 0), 0);
-              available = total;
+            const connDoc = connSnap.docs[0];
+            let accessToken: string;
+            try {
+              accessToken = await getValidShopifyAccessToken(connDoc.ref, connDoc.data(), shopNorm);
+            } catch (e) {
+              console.warn("[Shopify webhooks] Could not refresh access token for inventory_levels/update", e);
+              accessToken = "";
+            }
+            if (accessToken) {
+              const levelsRes = await fetch(
+                `${shopifyAdminRestUrl(shopNorm, "/inventory_levels.json")}?inventory_item_ids=${encodeURIComponent(idStr)}&limit=250`,
+                { headers: { "X-Shopify-Access-Token": accessToken } }
+              );
+              if (levelsRes.ok) {
+                const levelsData = (await levelsRes.json()) as { inventory_levels?: Array<{ available?: number }> };
+                const levels = levelsData.inventory_levels ?? [];
+                const total = levels.reduce((sum, l) => sum + (l.available != null ? Number(l.available) : 0), 0);
+                available = total;
+              }
             }
           }
         }
