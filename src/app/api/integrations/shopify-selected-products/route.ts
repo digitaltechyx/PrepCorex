@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb, adminFieldValue } from "@/lib/firebase-admin";
 import type { ShopifySelectedVariant } from "@/types";
+import { shopifyAdminRestUrl } from "@/lib/shopify-api";
 
 export const dynamic = "force-dynamic";
 
@@ -96,7 +97,7 @@ export async function PUT(request: NextRequest) {
 
     if (selectedVariants.length > 0 && accessToken) {
       const productsRes = await fetch(
-        `https://${shop}/admin/api/2025-04/products.json?limit=250`,
+        `${shopifyAdminRestUrl(shop, "/products.json")}?limit=250`,
         {
           headers: {
             "X-Shopify-Access-Token": accessToken,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { parseShopifyErrorBody, shopifyAdminRestUrl } from "@/lib/shopify-api";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +69,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Store not connected" }, { status: 404 });
   }
 
-  const url = `https://${shop}/admin/api/2025-04/products.json?limit=250`;
+  const url = `${shopifyAdminRestUrl(shop, "/products.json")}?limit=250`;
   const res = await fetch(url, {
     headers: {
       "X-Shopify-Access-Token": accessToken,
@@ -77,9 +78,17 @@ export async function GET(request: NextRequest) {
   });
   if (!res.ok) {
     const text = await res.text();
-    console.error("[Shopify products]", res.status, text);
+    const detail = parseShopifyErrorBody(text);
+    console.error("[Shopify products]", res.status, detail, text.slice(0, 500));
+    const needsReconnect = res.status === 401 || res.status === 403;
     return NextResponse.json(
-      { error: "Failed to fetch products from Shopify" },
+      {
+        error: needsReconnect
+          ? "Shopify access expired or missing permission. Disconnect and reconnect the store from Integrations."
+          : "Failed to fetch products from Shopify",
+        detail,
+        shopifyStatus: res.status,
+      },
       { status: 502 }
     );
   }

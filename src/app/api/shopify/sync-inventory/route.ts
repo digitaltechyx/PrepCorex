@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { shopifyAdminRestUrl } from "@/lib/shopify-api";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
     let inventoryItemId = shopifyInventoryItemId;
     if (!inventoryItemId) {
       const variantRes = await fetch(
-        `https://${shopNorm}/admin/api/2025-04/variants/${shopifyVariantId}.json`,
+        shopifyAdminRestUrl(shopNorm, `/variants/${shopifyVariantId}.json`),
         {
           headers: {
             "X-Shopify-Access-Token": accessToken,
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest) {
     }
 
     const locRes = await fetch(
-      `https://${shopNorm}/admin/api/2025-04/locations.json?limit=250`,
+      `${shopifyAdminRestUrl(shopNorm, "/locations.json")}?limit=250`,
       {
         headers: {
           "X-Shopify-Access-Token": accessToken,
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest) {
       const locationId = locations[i].id;
       const available = i === 0 ? newQuantity : 0;
       const setRes = await fetch(
-        `https://${shopNorm}/admin/api/2025-04/inventory_levels/set.json`,
+        shopifyAdminRestUrl(shopNorm, "/inventory_levels/set.json"),
         {
           method: "POST",
           headers,

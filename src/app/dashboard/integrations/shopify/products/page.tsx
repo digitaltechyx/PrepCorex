@@ -47,8 +47,9 @@ export default function ShopifyProductsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to load products");
+        const data = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+        const msg = [data.error, data.detail].filter(Boolean).join(" — ") || "Failed to load products";
+        throw new Error(msg);
       }
       const data = await res.json();
       setProducts(data.products ?? []);

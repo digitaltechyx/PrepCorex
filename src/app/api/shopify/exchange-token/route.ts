@@ -2,11 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { ensureShopifyAppSubscriptionAfterConnect } from "@/lib/shopify-billing";
+import { shopifyAdminRestUrl } from "@/lib/shopify-api";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const SCOPES = "read_orders,read_products,write_fulfillments,read_inventory";
 
 /**
  * Verify Shopify's HMAC over the OAuth callback query string.
@@ -197,7 +196,7 @@ export async function POST(request: NextRequest) {
       ];
       for (const topic of topics) {
         const webhookRes = await fetch(
-          `https://${normalizedShop}/admin/api/2025-04/webhooks.json`,
+          shopifyAdminRestUrl(normalizedShop, "/webhooks.json"),
           {
             method: "POST",
             headers,

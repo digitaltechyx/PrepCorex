@@ -4,7 +4,7 @@
  * @see https://shopify.dev/docs/apps/launch/billing
  */
 
-const SHOPIFY_API_VERSION = "2025-04";
+import { shopifyAdminGraphqlUrl } from "@/lib/shopify-api";
 
 const CURRENT_SUBS_QUERY = `
   query ShopifyBillingCurrentSubs {
@@ -56,7 +56,7 @@ async function adminGraphql<T>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
-  const res = await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+  const res = await fetch(shopifyAdminGraphqlUrl(shop), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

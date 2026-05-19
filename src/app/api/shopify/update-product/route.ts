@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { shopifyAdminRestUrl } from "@/lib/shopify-api";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
     }
 
     const res = await fetch(
-      `https://${shopNorm}/admin/api/2025-04/products/${productId}.json`,
+      shopifyAdminRestUrl(shopNorm, `/products/${productId}.json`),
       {
         method: "PUT",
         headers: {
