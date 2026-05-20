@@ -68,6 +68,7 @@ import {
 } from "@/lib/warehouse-firestore";
 import { binSegmentsNeedMigration } from "@/lib/warehouse-bin-path";
 import { WarehouseBinEditDialog } from "@/components/admin/warehouse-bin-edit-dialog";
+import { WarehouseCartonManagement } from "@/components/admin/warehouse-carton-management";
 import { WarehouseShelvingDialog } from "@/components/admin/warehouse-shelving-dialog";
 import {
   WarehouseRowEditDialog,
@@ -1521,7 +1522,8 @@ export function WarehouseManagement() {
                 <TabsList className="flex flex-wrap h-auto gap-1 w-full sm:w-auto">
                   <TabsTrigger value="areas">1 -+ Areas ({areas.length})</TabsTrigger>
                   <TabsTrigger value="bins">2 -+ Bins ({bins.length})</TabsTrigger>
-                  <TabsTrigger value="labels">3 -+ Labels</TabsTrigger>
+                  <TabsTrigger value="labels">3 -+ Bin labels</TabsTrigger>
+                  <TabsTrigger value="cartons">4 -+ Cartons</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="areas" className="space-y-4 mt-4">
@@ -1917,6 +1919,14 @@ export function WarehouseManagement() {
                       )}
                     </Button>
                   </div>
+                </TabsContent>
+
+                <TabsContent value="cartons" className="space-y-4 mt-4">
+                  {selected ? (
+                    <WarehouseCartonManagement warehouse={selected} />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Select a warehouse first.</p>
+                  )}
                 </TabsContent>
 
               </Tabs>

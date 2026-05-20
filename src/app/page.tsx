@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { Loader2 } from "lucide-react";
-import { hasRole } from "@/lib/permissions";
+import { getPostLoginPath } from "@/lib/auth-redirect";
 
 export default function Home() {
   const { user, loading, userProfile } = useAuth();
@@ -19,12 +19,8 @@ export default function Home() {
           router.replace("/login");
         } else if (userStatus === "pending") {
           router.replace("/pending-approval");
-        } else if (hasRole(userProfile, 'admin') || hasRole(userProfile, 'sub_admin')) {
-          // ALWAYS prioritize admin/sub_admin dashboard if user has that role
-          // Even if they have other roles, admin dashboard should be the default
-          router.replace("/admin/dashboard");
         } else {
-          router.replace("/dashboard");
+          router.replace(getPostLoginPath(userProfile));
         }
       } else {
         router.replace("/login");

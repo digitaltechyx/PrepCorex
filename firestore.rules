@@ -9,6 +9,18 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
+    function isWarehouseOperator() {
+      return signedIn() && currentUserDoc().exists &&
+        (
+          (currentUserDoc().data.role is string &&
+            currentUserDoc().data.role.matches('(?i)^\\s*warehouse[_\\s-]*operator\\s*$')) ||
+          (currentUserDoc().data.roles is list &&
+            currentUserDoc().data.roles.hasAny([
+              'warehouse_operator', 'warehouse operator', 'Warehouse Operator'
+            ]))
+        );
+    }
+
     function isAdminOrSubAdmin() {
       // Be tolerant to older/dirty data (case/format variations) and feature-based admin access.
       return signedIn() &&
@@ -226,6 +238,19 @@ service cloud.firestore {
         allow read: if signedIn();
         allow write: if isAdminOrSubAdmin();
       }
+      match /cartons/{cartonId} {
+        allow read: if signedIn();
+        allow write: if isAdminOrSubAdmin() || isWarehouseOperator();
+      }
+      match /pallets/{palletId} {
+        allow read: if signedIn();
+        allow write: if isAdminOrSubAdmin() || isWarehouseOperator();
+      }
+    }
+
+    // Carton / pallet ID sequences (Phase 2) — one doc per warehouse
+    match /warehouseLabelCounters/{warehouseId} {
+      allow read, write: if isAdminOrSubAdmin() || isWarehouseOperator();
     }
 
     // ---- CRM LEADS (PrepCorex CRM app — /crmLeads + timeline subcollection) ----

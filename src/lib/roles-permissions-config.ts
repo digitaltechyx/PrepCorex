@@ -30,7 +30,15 @@ export const ROLE_DEFINITIONS: {
     description: "Limited admin with only explicitly granted admin features.",
     dashboardAccess: "Admin dashboard with only the features granted below.",
   },
+  {
+    value: "warehouse_operator",
+    label: "Warehouse Operator",
+    description: "Floor staff — receiving, putaway, and scans via Warehouse Ops app.",
+    dashboardAccess: "/warehouse-ops (features and assigned warehouses set by admin).",
+  },
 ];
+
+export { OPS_FEATURES_CONFIG, OPS_FEATURE_PRESETS } from "@/lib/warehouse-ops-permissions";
 
 export const CLIENT_FEATURES_CONFIG: { value: UserFeature; label: string; description: string }[] = [
   { value: "view_dashboard", label: "Dashboard", description: "Access to client dashboard overview" },

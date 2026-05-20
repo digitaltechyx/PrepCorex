@@ -21,10 +21,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { auth, db } from "@/lib/firebase";
-import { Loader2, UserPlus, Shield, Zap, MapPin, Users } from "lucide-react";
+import { Loader2, UserPlus, Shield, Zap, MapPin, Users, Package } from "lucide-react";
 import { getDefaultFeaturesForRole } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
-import type { UserProfile, UserRole, UserFeature } from "@/types";
+import { OPS_FEATURES_CONFIG, OPS_FEATURE_PRESETS } from "@/lib/warehouse-ops-permissions";
+import type { UserProfile, UserRole, UserFeature, WarehouseDoc } from "@/types";
 
 const createUserSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -38,7 +39,7 @@ const createUserSchema = z.object({
   state: z.string().min(1, "State is required"),
   country: z.string().min(1, "Country is required"),
   zipCode: z.string().min(5, "Zip code must be at least 5 characters"),
-  role: z.enum(["user", "sub_admin"]).default("user"),
+  role: z.enum(["user", "sub_admin", "warehouse_operator"]).default("user"),
   features: z.array(z.string()).default([]),
 });
 
@@ -71,8 +72,14 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [subAdminManagedLocationIds, setSubAdminManagedLocationIds] = useState<string[]>([]);
   const [subAdminAssignedUserIds, setSubAdminAssignedUserIds] = useState<string[]>([]);
+  const [assignedWarehouseIds, setAssignedWarehouseIds] = useState<string[]>([]);
 
   const { data: locationDocs } = useCollection<LocationDoc>("locations");
+  const { data: warehouseDocs } = useCollection<WarehouseDoc>("warehouses");
+  const activeWarehouses = useMemo(
+    () => warehouseDocs.filter((w) => w.active !== false),
+    [warehouseDocs]
+  );
   const { data: allUsersList } = useCollection<UserProfile>("users");
 
   const activeLocations = useMemo(
@@ -110,6 +117,14 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
   const selectedFeatures = form.watch("features");
 
   async function onSubmit(values: z.infer<typeof createUserSchema>) {
+    if (values.role === "warehouse_operator" && assignedWarehouseIds.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Warehouse required",
+        description: "Assign at least one warehouse for this operator.",
+      });
+      return;
+    }
     setIsLoading(true);
     try {
       // Create the user account in Firebase Auth
@@ -122,37 +137,43 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
       // Determine features based on role
       let userFeatures: UserFeature[] = [];
       if (values.role === "sub_admin") {
-        // Sub admin: use selected features, or all admin features if none selected (full access scoped to assigned users)
         const selected = values.features as UserFeature[];
         userFeatures = selected.length > 0 ? selected : ADMIN_FEATURES.map((f) => f.value);
+      } else if (values.role === "warehouse_operator") {
+        const selected = values.features as UserFeature[];
+        userFeatures =
+          selected.length > 0 ? selected : getDefaultFeaturesForRole("warehouse_operator");
       } else {
-        // Regular users get default features for their role
         userFeatures = getDefaultFeaturesForRole(values.role);
       }
 
+      const isOps = values.role === "warehouse_operator";
       const profileData: Record<string, unknown> = {
         uid: userCredential.user.uid,
         name: values.name,
         email: values.email,
         phone: values.phone,
         password: values.password,
-        companyName: values.companyName,
-        ein: values.ein,
-        address: values.address,
-        city: values.city,
-        state: values.state,
-        country: values.country,
-        zipCode: values.zipCode,
+        companyName: isOps ? values.companyName?.trim() || "PrepCorex Ops" : values.companyName,
+        ein: isOps ? values.ein?.trim() || "N/A" : values.ein,
+        address: isOps ? values.address?.trim() || "N/A" : values.address,
+        city: isOps ? values.city?.trim() || "N/A" : values.city,
+        state: isOps ? values.state?.trim() || "N/A" : values.state,
+        country: isOps ? values.country?.trim() || "USA" : values.country,
+        zipCode: isOps ? values.zipCode?.trim() || "00000" : values.zipCode,
         role: values.role,
         roles: [values.role],
         features: userFeatures,
-        status: values.role === "sub_admin" ? "approved" : "pending",
+        status: values.role === "sub_admin" || isOps ? "approved" : "pending",
         createdAt: new Date(),
         clientId: await generateClientId(),
       };
       if (values.role === "sub_admin") {
         profileData.managedLocationIds = subAdminManagedLocationIds;
         profileData.assignedUserIds = subAdminAssignedUserIds;
+      }
+      if (isOps) {
+        profileData.assignedWarehouseIds = assignedWarehouseIds;
       }
       const defaultWarehouseId = await findDefaultWarehouseLocationId();
       if (defaultWarehouseId && values.role === "user") {
@@ -405,12 +426,117 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
                           </div>
                         </label>
                       </div>
+                      <div className="flex items-center space-x-2 p-3 border rounded-lg hover:bg-accent/50 border-orange-200/60">
+                        <input
+                          type="radio"
+                          id="role-warehouse_operator"
+                          checked={field.value === "warehouse_operator"}
+                          onChange={() => field.onChange("warehouse_operator")}
+                          className="h-4 w-4"
+                        />
+                        <label htmlFor="role-warehouse_operator" className="flex-1 cursor-pointer">
+                          <div className="font-medium">Warehouse Operator</div>
+                          <div className="text-xs text-muted-foreground">
+                            Floor staff — /warehouse-ops (receiving, putaway). No client or admin billing access.
+                          </div>
+                        </label>
+                      </div>
                     </div>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
+
+            {selectedRole === "warehouse_operator" && (
+              <>
+                <div className="rounded-lg border border-orange-200/60 p-4 space-y-3 bg-orange-50/50 dark:bg-orange-950/20">
+                  <div className="flex flex-wrap gap-2">
+                    <Label className="text-sm font-medium w-full">Ops permission presets</Label>
+                    {OPS_FEATURE_PRESETS.map((preset) => (
+                      <Button
+                        key={preset.id}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => form.setValue("features", preset.features)}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Package className="h-4 w-4 text-orange-600" />
+                    <Label className="text-base font-medium">Assigned warehouses</Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Operator only sees and works in these warehouses. Super admin can change anytime in Roles &amp; Permissions.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {activeWarehouses.map((w) => {
+                      const on = assignedWarehouseIds.includes(w.id);
+                      return (
+                        <Badge
+                          key={w.id}
+                          variant={on ? "default" : "outline"}
+                          className="cursor-pointer"
+                          onClick={() =>
+                            setAssignedWarehouseIds((prev) =>
+                              on ? prev.filter((id) => id !== w.id) : [...prev, w.id]
+                            )
+                          }
+                        >
+                          {w.code}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                  {assignedWarehouseIds.length === 0 ? (
+                    <p className="text-sm text-amber-700">Select at least one warehouse.</p>
+                  ) : null}
+                </div>
+                <FormField
+                  control={form.control}
+                  name="features"
+                  render={() => (
+                    <FormItem>
+                      <FormLabel className="text-base flex items-center gap-2">
+                        <Zap className="h-4 w-4" />
+                        Warehouse Ops features
+                      </FormLabel>
+                      <div className="grid grid-cols-1 gap-3">
+                        {OPS_FEATURES_CONFIG.map((feature) => (
+                          <div
+                            key={feature.value}
+                            className="flex items-start space-x-3 p-3 border rounded-lg"
+                          >
+                            <Checkbox
+                              checked={selectedFeatures.includes(feature.value)}
+                              onCheckedChange={(checked) => {
+                                const currentFeatures = form.getValues("features");
+                                if (checked) {
+                                  form.setValue("features", [...currentFeatures, feature.value]);
+                                } else {
+                                  form.setValue(
+                                    "features",
+                                    currentFeatures.filter((f) => f !== feature.value)
+                                  );
+                                }
+                              }}
+                              className="mt-1"
+                            />
+                            <div>
+                              <p className="text-sm font-medium">{feature.label}</p>
+                              <p className="text-xs text-muted-foreground">{feature.description}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
 
             {selectedRole === "sub_admin" && (
               <>

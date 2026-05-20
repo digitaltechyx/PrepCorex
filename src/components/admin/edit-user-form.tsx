@@ -27,7 +27,7 @@ const editUserSchema = z.object({
   state: z.string().optional(),
   country: z.string().optional(),
   zipCode: z.string().optional(),
-  role: z.enum(["admin", "sub_admin", "user", "commission_agent"]),
+  role: z.enum(["admin", "sub_admin", "user", "commission_agent", "warehouse_operator"]),
   status: z.enum(["pending", "approved", "deleted"]).optional(),
 });
 
@@ -169,6 +169,7 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
                     <SelectContent>
                       <SelectItem value="user">User</SelectItem>
                       <SelectItem value="sub_admin">Sub Admin</SelectItem>
+                      <SelectItem value="warehouse_operator">Warehouse Operator</SelectItem>
                       <SelectItem value="commission_agent">Commission Agent</SelectItem>
                       <SelectItem value="admin">Admin</SelectItem>
                     </SelectContent>

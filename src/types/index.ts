@@ -1,6 +1,6 @@
 ﻿import type { User as FirebaseUser } from "firebase/auth";
 
-export type UserRole = "admin" | "user" | "commission_agent" | "sub_admin";
+export type UserRole = "admin" | "user" | "commission_agent" | "sub_admin" | "warehouse_operator";
 export type UserStatus = "pending" | "approved" | "deleted";
 
 /** Location that can be assigned to users and to sub admins for scoping. */
@@ -86,6 +86,53 @@ export interface WarehouseBinDoc {
   updatedAt?: { seconds: number; nanoseconds: number } | Date;
 }
 
+/** Carton stock state — see `docs/BARCODE_SCANNING/03_WAREHOUSE_WORKFLOW_V2.md` Part 7. */
+export type WarehouseCartonStatus =
+  | "receiving"
+  | "available"
+  | "quarantine"
+  | "damaged"
+  | "expired"
+  | "on_hold"
+  | "reserved";
+
+export type WarehousePalletStatus = "receiving" | "available" | "on_hold" | "dispatched";
+
+/** Physical carton (WHAT) — `warehouses/{id}/cartons/{cartonId}`. */
+export interface WarehouseCartonDoc {
+  id: string;
+  /** Human + QR id, e.g. CTN-2026-00042 */
+  cartonCode: string;
+  sku: string;
+  lot?: string | null;
+  /** ISO date YYYY-MM-DD when expiry-managed */
+  expiry?: string | null;
+  quantity: number;
+  status: WarehouseCartonStatus;
+  /** PrepCorex client (3PL) when stock is client-owned */
+  clientId?: string | null;
+  /** Current bin doc id under this warehouse */
+  binId?: string | null;
+  /** Optional pallet grouping */
+  palletId?: string | null;
+  productTitle?: string | null;
+  /** Encoded on printed label QR */
+  barcode: string;
+  createdAt?: { seconds: number; nanoseconds: number } | Date;
+  updatedAt?: { seconds: number; nanoseconds: number } | Date;
+}
+
+/** Physical pallet (mixed-SKU grouping) — `warehouses/{id}/pallets/{palletId}`. */
+export interface WarehousePalletDoc {
+  id: string;
+  palletCode: string;
+  status: WarehousePalletStatus;
+  binId?: string | null;
+  barcode: string;
+  createdAt?: { seconds: number; nanoseconds: number } | Date;
+  updatedAt?: { seconds: number; nanoseconds: number } | Date;
+}
+
 export type UserFeature =
   | "view_dashboard"
   | "view_inventory"
@@ -116,7 +163,16 @@ export type UserFeature =
   | "manage_shopify_orders"
   | "manage_ebay_orders"
   | "manage_inventory_admin"
-  | "manage_notifications";
+  | "manage_notifications"
+  | "ops_dashboard"
+  | "ops_receive"
+  | "ops_putaway"
+  | "ops_move"
+  | "ops_pick"
+  | "ops_pack"
+  | "ops_count"
+  | "ops_supervisor"
+  | "ops_view_expected_inbound";
 
 export interface UserProfile {
   uid: string;
@@ -152,6 +208,8 @@ export interface UserProfile {
   managedLocationIds?: string[];
   /** Sub admin only: user UIDs explicitly assigned to this sub admin (they can manage these users). */
   assignedUserIds?: string[];
+  /** Warehouse ops: Firestore `warehouses/{id}` doc ids this user may work in (admin-assigned). */
+  assignedWarehouseIds?: string[];
   /** Client (user role): set when user accepts MSA; unlocks default features. */
   accountActivatedAt?: { seconds: number; nanoseconds: number } | Date | null;
   /** Snapshot of client details at MSA acceptance (for agreement document). */

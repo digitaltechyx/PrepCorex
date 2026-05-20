@@ -23,7 +23,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Loader2, Shield, Zap, RotateCcw, MapPin, Users, UserCheck, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import type { UserProfile, UserRole, UserFeature } from "@/types";
+import type { UserProfile, UserRole, UserFeature, WarehouseDoc } from "@/types";
+import { OPS_FEATURES_CONFIG, OPS_FEATURE_PRESETS } from "@/lib/warehouse-ops-permissions";
 import { getUserRoles, getDefaultFeaturesForRole } from "@/lib/permissions";
 import { generateUniqueReferralCode } from "@/lib/commission-utils";
 import { formatUserDisplayName } from "@/lib/format-user-display";
@@ -39,7 +40,7 @@ interface RoleFeatureManagementProps {
   onSuccess?: () => void;
 }
 
-const ALL_ROLES: UserRole[] = ["user", "commission_agent", "sub_admin"];
+const ALL_ROLES: UserRole[] = ["user", "commission_agent", "sub_admin", "warehouse_operator"];
 
 // Client features — all user-side modules
 const CLIENT_FEATURES: { value: UserFeature; label: string; description: string }[] = [
@@ -91,6 +92,11 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
 
   const { data: locationDocs } = useCollection<LocationDoc>("locations");
   const { data: allUsersList } = useCollection<UserProfile>("users");
+  const { data: warehouseDocs } = useCollection<WarehouseDoc>("warehouses");
+  const activeWarehouses = useMemo(
+    () => warehouseDocs.filter((w) => w.active !== false),
+    [warehouseDocs]
+  );
 
   // Firestore may contain legacy values for some fields (e.g. strings/objects instead of arrays).
   // Normalize defensively so this component never crashes on spread/sort.
@@ -99,6 +105,9 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
     ? user.managedLocationIds
     : [];
   const safeAssignedUserIds: string[] = Array.isArray(user.assignedUserIds) ? user.assignedUserIds : [];
+  const safeAssignedWarehouseIds: string[] = Array.isArray(user.assignedWarehouseIds)
+    ? user.assignedWarehouseIds
+    : [];
 
   const [locationSearch, setLocationSearch] = useState("");
   const [assignedUserSearch, setAssignedUserSearch] = useState("");
@@ -156,11 +165,14 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
         ? getDefaultFeaturesForRole("user")
         : currentRoles.includes("sub_admin")
           ? getDefaultFeaturesForRole("sub_admin")
-          : [];
+          : currentRoles.includes("warehouse_operator")
+            ? getDefaultFeaturesForRole("warehouse_operator")
+            : [];
   const [selectedFeatures, setSelectedFeatures] = useState<UserFeature[]>(effectiveFeatures);
 
   const [managedLocationIds, setManagedLocationIds] = useState<string[]>(safeManagedLocationIds);
   const [assignedUserIds, setAssignedUserIds] = useState<string[]>(safeAssignedUserIds);
+  const [assignedWarehouseIds, setAssignedWarehouseIds] = useState<string[]>(safeAssignedWarehouseIds);
 
   const [clientLocationIds, setClientLocationIds] = useState<string[]>(() =>
     normalizeUserLocationIds(user.locations)
@@ -207,10 +219,20 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
         if (role === "commission_agent") {
           setAssignedAffiliateIds([]);
         }
+        if (role === "warehouse_operator") {
+          setAssignedWarehouseIds([]);
+        }
         return prev.filter((r) => r !== role);
       } else {
         if (role === "sub_admin") {
           const defaults = getDefaultFeaturesForRole("sub_admin");
+          setSelectedFeatures((f) => {
+            const set = new Set([...f, ...defaults]);
+            return Array.from(set);
+          });
+        }
+        if (role === "warehouse_operator") {
+          const defaults = getDefaultFeaturesForRole("warehouse_operator");
           setSelectedFeatures((f) => {
             const set = new Set([...f, ...defaults]);
             return Array.from(set);
@@ -272,6 +294,12 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
       } else {
         updateData.managedLocationIds = [];
         updateData.assignedUserIds = [];
+      }
+
+      if (selectedRoles.includes("warehouse_operator")) {
+        updateData.assignedWarehouseIds = assignedWarehouseIds;
+      } else {
+        updateData.assignedWarehouseIds = [];
       }
 
       if (selectedRoles.includes("user")) {
@@ -374,11 +402,16 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
     selectedRoles.includes("user") &&
     JSON.stringify([...normalizeUserLocationIds(user.locations)].sort()) !==
       JSON.stringify([...clientLocationIds].sort());
+  const hasOpsWarehouseChanges =
+    selectedRoles.includes("warehouse_operator") &&
+    JSON.stringify([...assignedWarehouseIds].sort()) !==
+      JSON.stringify([...safeAssignedWarehouseIds].sort());
   const hasChanges =
     hasRoleOrFeatureChanges ||
     hasSubAdminScopeChanges ||
     hasCommissionAgentScopeChanges ||
-    hasClientWarehouseChanges;
+    hasClientWarehouseChanges ||
+    hasOpsWarehouseChanges;
 
   return (
     <div className="space-y-6">
@@ -413,11 +446,13 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                     className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                   >
                     <div className="flex items-center gap-2">
-                      {role === "user" 
-                        ? "Client/User" 
+                      {role === "user"
+                        ? "Client/User"
                         : role === "commission_agent"
-                        ? "Commission Agent"
-                        : "Sub Admin"}
+                          ? "Commission Agent"
+                          : role === "warehouse_operator"
+                            ? "Warehouse Operator"
+                            : "Sub Admin"}
                       {isSelected && (
                         <Badge variant="secondary" className="text-xs">
                           Active
@@ -429,8 +464,10 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                     {role === "user"
                       ? "Access to client dashboard with inventory management, shipments, and invoices"
                       : role === "commission_agent"
-                      ? "Access to affiliate dashboard with referral code, clients, and commissions"
-                      : "Access to admin dashboard with limited features (select features below)"}
+                        ? "Access to affiliate dashboard with referral code, clients, and commissions"
+                        : role === "warehouse_operator"
+                          ? "Floor app at /warehouse-ops — assign warehouses and ops features below"
+                          : "Access to admin dashboard with limited features (select features below)"}
                   </p>
                 </div>
               </div>
@@ -799,6 +836,82 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {selectedRoles.includes("warehouse_operator") && (
+            <div className="mt-6 space-y-4">
+              <div className="p-3 bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                <h4 className="text-sm font-semibold text-orange-900 dark:text-orange-100 mb-1">
+                  Warehouse Ops (floor app)
+                </h4>
+                <p className="text-xs text-orange-800 dark:text-orange-200">
+                  Grant ops features for /warehouse-ops. Supervisors: include{" "}
+                  <strong>Supervisor overrides</strong>. Assign at least one warehouse below.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {OPS_FEATURE_PRESETS.map((preset) => (
+                    <Button
+                      key={preset.id}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedFeatures((f) => Array.from(new Set([...f, ...preset.features])))}
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {OPS_FEATURES_CONFIG.map((feature) => {
+                  const isSelected = selectedFeatures.includes(feature.value);
+                  return (
+                    <div
+                      key={feature.value}
+                      className="flex items-start space-x-3 p-4 border rounded-lg border-orange-200/50"
+                    >
+                      <Checkbox
+                        id={`ops-feature-${feature.value}`}
+                        checked={isSelected}
+                        onCheckedChange={() => handleFeatureToggle(feature.value)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1 space-y-1">
+                        <Label htmlFor={`ops-feature-${feature.value}`} className="cursor-pointer text-sm font-medium">
+                          {feature.label}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">{feature.description}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="rounded-lg border p-4 space-y-2">
+                <Label className="text-sm font-medium">Assigned warehouses</Label>
+                <div className="flex flex-wrap gap-2">
+                  {activeWarehouses.map((w) => {
+                    const on = assignedWarehouseIds.includes(w.id);
+                    return (
+                      <Badge
+                        key={w.id}
+                        variant={on ? "default" : "outline"}
+                        className="cursor-pointer"
+                        onClick={() =>
+                          setAssignedWarehouseIds((prev) =>
+                            on ? prev.filter((id) => id !== w.id) : [...prev, w.id]
+                          )
+                        }
+                      >
+                        {w.code} — {w.name}
+                      </Badge>
+                    );
+                  })}
+                </div>
+                {assignedWarehouseIds.length === 0 ? (
+                  <p className="text-xs text-amber-700">No warehouse assigned — operator cannot work until admin assigns one.</p>
+                ) : null}
+              </div>
             </div>
           )}
         </CardContent>

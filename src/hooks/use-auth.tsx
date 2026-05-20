@@ -83,6 +83,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           roles: rolesNormalized.length ? rolesNormalized : ["user"],
           features: Array.isArray(data.features) ? data.features : [],
           locations: normalizeUserLocationIds((data as Record<string, unknown>).locations),
+          assignedWarehouseIds: Array.isArray(data.assignedWarehouseIds)
+            ? (data.assignedWarehouseIds as string[]).map((id) => String(id).trim()).filter(Boolean)
+            : [],
         } as UserProfile;
       };
 

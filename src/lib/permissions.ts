@@ -37,6 +37,8 @@ export function getDefaultFeaturesForRole(role: UserRole): UserFeature[] {
       "manage_shopify_orders",
       "manage_ebay_orders",
     ];
+  } else if (role === "warehouse_operator") {
+    return ["ops_dashboard", "ops_receive", "ops_view_expected_inbound"];
   }
   // Admin has all features (handled in hasFeature function)
   return [];
@@ -58,6 +60,7 @@ export function getUserRoles(userProfile: UserProfile | null | undefined): UserR
     if (s === "sub_admin" || s === "subadmin") return "sub_admin";
     if (s === "commission_agent" || s === "commissionagent") return "commission_agent";
     if (s === "user") return "user";
+    if (s === "warehouse_operator" || s === "warehouseoperator") return "warehouse_operator";
     return null;
   };
 
@@ -106,6 +109,7 @@ export function hasAllRoles(userProfile: UserProfile | null | undefined, ...role
 export function isAccountActivated(userProfile: UserProfile | null | undefined): boolean {
   if (!userProfile) return false;
   if (!hasRole(userProfile, "user")) return true; // non-clients not gated by MSA
+  if (hasRole(userProfile, "warehouse_operator")) return true;
   return !!(userProfile.accountActivatedAt != null);
 }
 
@@ -130,6 +134,11 @@ export function hasFeature(userProfile: UserProfile | null | undefined, feature:
   // admin_dashboard is only for admin/sub_admin; don't grant to others unless in their list
   if (feature === "admin_dashboard") {
     return hasExplicitFeatures && features.includes("admin_dashboard");
+  }
+
+  if (hasRole(userProfile, "warehouse_operator")) {
+    if (hasExplicitFeatures) return features.includes(feature);
+    return getDefaultFeaturesForRole("warehouse_operator").includes(feature);
   }
 
   // Sub admins and others: only if explicitly in features array
@@ -157,6 +166,14 @@ export function hasAnyFeature(userProfile: UserProfile | null | undefined, ...re
       return requestedFeatures.some((f) => userFeatures.includes(f));
     }
     return requestedFeatures.some((f) => DEFAULT_CLIENT_FEATURES_FOR_NEW_USERS.includes(f));
+  }
+
+  if (hasRole(userProfile, "warehouse_operator")) {
+    if (hasExplicitFeatures) {
+      return requestedFeatures.some((f) => userFeatures.includes(f));
+    }
+    const defaults = getDefaultFeaturesForRole("warehouse_operator");
+    return requestedFeatures.some((f) => defaults.includes(f));
   }
 
   if (hasExplicitFeatures) {

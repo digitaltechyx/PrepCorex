@@ -42,6 +42,7 @@ import type { UserFeature, UserProfile } from "@/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hasFeature, hasRole } from "@/lib/permissions";
+import { hasWarehouseOpsAccess } from "@/lib/warehouse-ops-permissions";
 import { brandLogoSrc } from "@/components/logo";
 import { collectionGroup, getCountFromServer, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -234,6 +235,13 @@ export function AdminSidebar() {
       requiredFeature: "manage_inventory_admin" as const,
     },
     {
+      title: "Warehouse Ops",
+      url: "/warehouse-ops",
+      icon: Package,
+      color: "text-orange-600",
+      warehouseOpsEntry: true as const,
+    },
+    {
       title: "Notification",
       url: "/admin/dashboard/notifications",
       icon: Bell,
@@ -327,6 +335,9 @@ export function AdminSidebar() {
 
   // Filter menu items based on user's role and features
   const menuItems = allMenuItems.filter((item) => {
+    if ((item as { warehouseOpsEntry?: boolean }).warehouseOpsEntry) {
+      return hasRole(userProfile, "admin") || hasWarehouseOpsAccess(userProfile);
+    }
     const adminOnly = (item as { adminOnly?: boolean }).adminOnly;
     if (adminOnly) return hasRole(userProfile, "admin");
 
