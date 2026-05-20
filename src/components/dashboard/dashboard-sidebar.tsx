@@ -13,9 +13,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuBadge,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { NavMenuCountBadge } from "@/components/ui/nav-menu-count-badge";
 import {
   LayoutDashboard,
   History,
@@ -757,33 +757,35 @@ export function DashboardSidebar() {
                             isActive={isActive}
                             tooltip={item.title}
                             className={cn(
-                              "group relative h-11 rounded-lg transition-all duration-200",
+                              "group relative h-11 overflow-visible rounded-lg transition-all duration-200",
                               isActive
                                 ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
                                 : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                             )}
                           >
-                            <Link href={item.url} className="flex items-center gap-3">
+                            <Link href={item.url} className="flex w-full min-w-0 items-center gap-3 pr-1">
                               <Icon
                                 className={cn(
-                                  "h-5 w-5 transition-transform group-hover:scale-110",
+                                  "h-5 w-5 shrink-0 transition-transform group-hover:scale-110",
                                   isActive ? item.color : "text-muted-foreground"
                                 )}
                               />
                               <span
-                                className={cn("font-medium transition-colors", isActive && "font-semibold")}
+                                className={cn(
+                                  "min-w-0 flex-1 truncate font-medium transition-colors",
+                                  isActive && "font-semibold"
+                                )}
                               >
                                 {item.title}
                               </span>
                               {item.badge !== null && item.badge !== undefined && (
-                                <SidebarMenuBadge
+                                <NavMenuCountBadge
+                                  count={item.badge}
                                   className={cn(
-                                    "ml-auto bg-primary text-primary-foreground shadow-sm",
+                                    "bg-primary text-primary-foreground shadow-sm",
                                     isActive && "bg-primary/90"
                                   )}
-                                >
-                                  {item.badge}
-                                </SidebarMenuBadge>
+                                />
                               )}
                             </Link>
                           </SidebarMenuButton>

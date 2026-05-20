@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -13,9 +13,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuBadge,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { NavMenuCountBadge } from "@/components/ui/nav-menu-count-badge";
 import {
   LayoutDashboard,
   Users,
@@ -56,73 +56,74 @@ export function AdminSidebar() {
   const activeUsersCount = managedUsers.filter(u => u.status === "active").length;
   const pendingUsersCount = managedUsers.filter(u => u.status === "pending").length;
 
-  // Pending requests badge (Notifications)
-  const [pendingRequestsCount, setPendingRequestsCount] = useState<number>(0);
-  // Pending document requests badge
-  const [pendingDocumentRequestsCount, setPendingDocumentRequestsCount] = useState<number>(0);
-  // Pending dispose requests badge
-  const [disposePendingCount, setDisposePendingCount] = useState<number>(0);
-  // Pending product returns badge
-  const [productReturnsPendingCount, setProductReturnsPendingCount] = useState<number>(0);
+  const [shipmentPendingCount, setShipmentPendingCount] = useState(0);
+  const [inventoryPendingCount, setInventoryPendingCount] = useState(0);
+  const [productReturnsPendingCount, setProductReturnsPendingCount] = useState(0);
+  const [disposePendingCount, setDisposePendingCount] = useState(0);
+  const [pendingDocumentRequestsCount, setPendingDocumentRequestsCount] = useState(0);
+
+  const pendingRequestsCount = useMemo(
+    () =>
+      shipmentPendingCount +
+      inventoryPendingCount +
+      productReturnsPendingCount +
+      disposePendingCount,
+    [
+      shipmentPendingCount,
+      inventoryPendingCount,
+      productReturnsPendingCount,
+      disposePendingCount,
+    ]
+  );
+
   useEffect(() => {
-    // Don't start Firestore listeners until auth/profile is ready.
-    // Starting collectionGroup listeners unauthenticated triggers permission-denied "uncaught" snapshot errors.
     if (!userProfile?.uid) return;
 
     let cancelled = false;
-    let warnedRealtime = false;
-    const run = async () => {
+
+    const countStatuses = async (collectionName: string, statuses: string[]) => {
+      const counts = await Promise.all(
+        statuses.map(async (status) => {
+          const q = query(collectionGroup(db, collectionName), where("status", "==", status));
+          const snap = await getCountFromServer(q);
+          return snap.data().count || 0;
+        })
+      );
+      return counts.reduce((a, b) => a + b, 0);
+    };
+
+    const refreshCounts = async () => {
       try {
-        const countStatuses = async (collectionName: string, statuses: string[]) => {
-          const counts = await Promise.all(
-            statuses.map(async (status) => {
-              const q = query(collectionGroup(db, collectionName), where("status", "==", status));
-              const snap = await getCountFromServer(q);
-              return snap.data().count || 0;
-            })
-          );
-          return counts.reduce((a, b) => a + b, 0);
-        };
+        const [shipmentPending, inventoryPending, productReturnPending, disposePending, documentPending] =
+          await Promise.all([
+            countStatuses("shipmentRequests", ["pending", "Pending"]),
+            countStatuses("inventoryRequests", ["pending", "Pending"]),
+            countStatuses("productReturns", [
+              "pending",
+              "Pending",
+              "approved",
+              "Approved",
+              "in_progress",
+              "In Progress",
+              "in progress",
+            ]),
+            countStatuses("disposeRequests", ["pending", "Pending"]),
+            countStatuses("documentRequests", ["pending", "Pending"]),
+          ]);
 
-        const [shipmentPending, inventoryPending, productReturnPending, disposePending, documentPending] = await Promise.all([
-          // Shipment requests may use "pending" or "Pending"
-          countStatuses("shipmentRequests", ["pending", "Pending"]),
-          // Inventory requests may use "pending" or "Pending" (older data)
-          countStatuses("inventoryRequests", ["pending", "Pending"]),
-          // Product returns: pending-ish statuses (support mixed casing / legacy formatting)
-          countStatuses("productReturns", [
-            "pending",
-            "Pending",
-            "approved",
-            "Approved",
-            "in_progress",
-            "In Progress",
-            "in progress",
-          ]),
-          // Dispose requests: pending
-          countStatuses("disposeRequests", ["pending", "Pending"]),
-          // Document requests: pending status
-          countStatuses("documentRequests", ["pending", "Pending"]),
-        ]);
-
-        if (!cancelled) {
-          setPendingRequestsCount(shipmentPending + inventoryPending + productReturnPending + disposePending);
-          setDisposePendingCount(disposePending);
-          setProductReturnsPendingCount(productReturnPending);
-          console.log("[AdminSidebar] Document pending count (polling):", documentPending);
-          setPendingDocumentRequestsCount(documentPending);
-        }
-      } catch {
-        if (!cancelled) {
-          setPendingRequestsCount(0);
-          setPendingDocumentRequestsCount(0);
-          setDisposePendingCount(0);
-          setProductReturnsPendingCount(0);
-        }
+        if (cancelled) return;
+        setShipmentPendingCount(shipmentPending);
+        setInventoryPendingCount(inventoryPending);
+        setProductReturnsPendingCount(productReturnPending);
+        setDisposePendingCount(disposePending);
+        setPendingDocumentRequestsCount(documentPending);
+      } catch (err) {
+        console.warn("[AdminSidebar] Badge count refresh failed; keeping last counts.", err);
       }
     };
 
-    // Prefer realtime badge updates (so badge increases immediately when new request arrives)
+    void refreshCounts();
+
     const shipmentQ = query(
       collectionGroup(db, "shipmentRequests"),
       where("status", "in", ["pending", "Pending"])
@@ -133,7 +134,11 @@ export function AdminSidebar() {
     );
     const returnsQ = query(
       collectionGroup(db, "productReturns"),
-      where("status", "in", ["pending", "Pending", "approved", "Approved", "in_progress", "In Progress", "in progress"])
+      where(
+        "status",
+        "in",
+        ["pending", "Pending", "approved", "Approved", "in_progress", "In Progress", "in progress"]
+      )
     );
     const documentsQ = query(
       collectionGroup(db, "documentRequests"),
@@ -144,81 +149,63 @@ export function AdminSidebar() {
       where("status", "in", ["pending", "Pending"])
     );
 
-    let shipmentCount = 0;
-    let inventoryCount = 0;
-    let returnsCount = 0;
-    let documentCount = 0;
-    let disposeCount = 0;
-    const push = () => {
-      if (!cancelled) {
-        setPendingRequestsCount(shipmentCount + inventoryCount + returnsCount + disposeCount);
-        setPendingDocumentRequestsCount(documentCount);
-        setDisposePendingCount(disposeCount);
-        setProductReturnsPendingCount(returnsCount);
-      }
-    };
-
-    let unsub1: (() => void) | null = null;
-    let unsub2: (() => void) | null = null;
-    let unsub3: (() => void) | null = null;
-    let unsub4: (() => void) | null = null;
-    let unsub5: (() => void) | null = null;
-
-    const onRealtimeError = (err: any) => {
+    const onListenerError = (label: string) => (err: unknown) => {
       if (cancelled) return;
-      // Most common: auth not ready, rules deny collectionGroup, or query needs index
-      const code = err?.code || err?.name;
-      if (!warnedRealtime) {
-        warnedRealtime = true;
-        console.warn("[AdminSidebar] Realtime badge listener failed; falling back to polling.", code, err?.message || err);
-      }
-      // Fallback polling uses simpler equality queries; if those are also blocked, we'll just show 0.
-      run();
+      const e = err as { code?: string; message?: string };
+      console.warn(`[AdminSidebar] ${label} badge listener:`, e?.code || e?.message || err);
     };
 
-    try {
-      unsub1 = onSnapshot(shipmentQ, (snap) => {
-        shipmentCount = snap.size;
-        push();
-      }, onRealtimeError);
-      unsub2 = onSnapshot(inventoryQ, (snap) => {
-        inventoryCount = snap.size;
-        push();
-      }, onRealtimeError);
-      unsub3 = onSnapshot(returnsQ, (snap) => {
-        returnsCount = snap.size;
-        push();
-      }, onRealtimeError);
-      unsub4 = onSnapshot(documentsQ, (snap) => {
-        documentCount = snap.size;
-        console.log("[AdminSidebar] Document requests count:", documentCount);
-        push();
-      }, onRealtimeError);
-      unsub5 = onSnapshot(disposeQ, (snap) => {
-        disposeCount = snap.size;
-        push();
-      }, onRealtimeError);
-    } catch {
-      // Fallback to polling if realtime listeners fail (permissions / indexing)
-      run();
-    }
+    const unsub1 = onSnapshot(
+      shipmentQ,
+      (snap) => {
+        if (!cancelled) setShipmentPendingCount(snap.size);
+      },
+      onListenerError("shipmentRequests")
+    );
+    const unsub2 = onSnapshot(
+      inventoryQ,
+      (snap) => {
+        if (!cancelled) setInventoryPendingCount(snap.size);
+      },
+      onListenerError("inventoryRequests")
+    );
+    const unsub3 = onSnapshot(
+      returnsQ,
+      (snap) => {
+        if (!cancelled) setProductReturnsPendingCount(snap.size);
+      },
+      onListenerError("productReturns")
+    );
+    const unsub4 = onSnapshot(
+      documentsQ,
+      (snap) => {
+        if (!cancelled) setPendingDocumentRequestsCount(snap.size);
+      },
+      onListenerError("documentRequests")
+    );
+    const unsub5 = onSnapshot(
+      disposeQ,
+      (snap) => {
+        if (!cancelled) setDisposePendingCount(snap.size);
+      },
+      onListenerError("disposeRequests")
+    );
 
-    // Also refresh counts when tab becomes visible
     const onVis = () => {
-      if (document.visibilityState === "visible") run();
+      if (document.visibilityState === "visible") void refreshCounts();
     };
     document.addEventListener("visibilitychange", onVis);
+    const interval = setInterval(() => void refreshCounts(), 60000);
 
-    const interval = setInterval(run, 60000);
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVis);
       clearInterval(interval);
-      unsub1?.();
-      unsub2?.();
-      unsub3?.();
-      unsub4?.();
-      unsub5?.();
+      unsub1();
+      unsub2();
+      unsub3();
+      unsub4();
+      unsub5();
     };
   }, [userProfile?.uid]);
 
@@ -338,13 +325,6 @@ export function AdminSidebar() {
     },
   ];
 
-  // Debug: Log document requests count
-  useEffect(() => {
-    if (pendingDocumentRequestsCount > 0) {
-      console.log("[AdminSidebar] Pending document requests count:", pendingDocumentRequestsCount);
-    }
-  }, [pendingDocumentRequestsCount]);
-
   // Filter menu items based on user's role and features
   const menuItems = allMenuItems.filter((item) => {
     const adminOnly = (item as { adminOnly?: boolean }).adminOnly;
@@ -426,30 +406,31 @@ export function AdminSidebar() {
                         isActive={isActive}
                         tooltip={item.title}
                         className={cn(
-                          "group relative h-11 rounded-lg transition-all duration-200",
+                          "group relative h-11 overflow-visible rounded-lg transition-all duration-200",
                           isActive 
                             ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20" 
                             : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                         )}
                       >
-                        <Link href={item.url} className="flex items-center gap-3 relative w-full">
+                        <Link href={item.url} className="flex w-full min-w-0 items-center gap-3 pr-1">
                           <Icon className={cn(
-                            "h-5 w-5 transition-transform group-hover:scale-110",
+                            "h-5 w-5 shrink-0 transition-transform group-hover:scale-110",
                             isActive ? item.color : "text-muted-foreground"
                           )} />
                           <span className={cn(
-                            "font-medium transition-colors flex-1",
+                            "min-w-0 flex-1 truncate font-medium transition-colors",
                             isActive && "font-semibold"
                           )}>
                             {item.title}
                           </span>
                           {item.badge !== null && item.badge !== undefined && (
-                            <SidebarMenuBadge className={cn(
-                              "ml-auto bg-primary text-primary-foreground shadow-sm",
-                              isActive && "bg-primary/90"
-                            )}>
-                              {item.badge}
-                            </SidebarMenuBadge>
+                            <NavMenuCountBadge
+                              count={item.badge}
+                              className={cn(
+                                "bg-primary text-primary-foreground shadow-sm",
+                                isActive && "bg-primary/90"
+                              )}
+                            />
                           )}
                         </Link>
                       </SidebarMenuButton>
