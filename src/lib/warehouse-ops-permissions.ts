@@ -95,7 +95,6 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       title: "Receiving",
       href: "/warehouse-ops/receiving",
       feature: "ops_receive",
-      description: "Phase 3 — dock receiving",
     },
     {
       title: "Putaway",

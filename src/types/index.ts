@@ -116,6 +116,8 @@ export interface WarehouseCartonDoc {
   /** Optional pallet grouping */
   palletId?: string | null;
   productTitle?: string | null;
+  /** Client user uid when received against an inventory request */
+  inventoryRequestId?: string | null;
   /** Encoded on printed label QR */
   barcode: string;
   createdAt?: { seconds: number; nanoseconds: number } | Date;

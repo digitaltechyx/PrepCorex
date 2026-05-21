@@ -101,6 +101,7 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     binId: data.binId != null ? String(data.binId) : null,
     palletId: data.palletId != null ? String(data.palletId) : null,
     productTitle: data.productTitle != null ? String(data.productTitle) : null,
+    inventoryRequestId: data.inventoryRequestId != null ? String(data.inventoryRequestId) : null,
     barcode: String(data.barcode ?? ""),
     createdAt: data.createdAt as WarehouseCartonDoc["createdAt"],
     updatedAt: data.updatedAt as WarehouseCartonDoc["updatedAt"],
@@ -150,6 +151,7 @@ export async function createWarehouseCarton(input: {
   binId?: string | null;
   palletId?: string | null;
   productTitle?: string | null;
+  inventoryRequestId?: string | null;
   cartonCode?: string;
 }): Promise<string> {
   const warehouseId = input.warehouseId;
@@ -183,6 +185,7 @@ export async function createWarehouseCarton(input: {
     binId: input.binId?.trim() || null,
     palletId: input.palletId?.trim() || null,
     productTitle: input.productTitle?.trim() || null,
+    inventoryRequestId: input.inventoryRequestId?.trim() || null,
     barcode,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

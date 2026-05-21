@@ -25,7 +25,7 @@ export default function WarehouseOpsHomePage() {
             {selectedWarehouse ? `${selectedWarehouse.code} — ${selectedWarehouse.name}` : "No warehouse selected"}
           </CardTitle>
           <CardDescription>
-            Scan-first floor workflows. Receiving (Phase 3) is next; putaway follows in Phase 4.
+            Scan-first floor workflows. Receive at the dock, then putaway into storage bins.
             {isOpsSupervisor(userProfile) ? " You have supervisor override access." : null}
           </CardDescription>
         </CardHeader>
