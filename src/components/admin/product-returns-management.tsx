@@ -45,6 +45,35 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { format } from "date-fns";
+
+/** Firestore rejects `undefined`; returns may omit SKU (e.g. new product without SKU). */
+function resolveReturnSku(returnItem: Pick<ProductReturn, "sku" | "newProductSku">): string {
+  return String(returnItem.sku ?? returnItem.newProductSku ?? "").trim();
+}
+
+function buildInventoryCreatePayload(input: {
+  productName: string;
+  quantity: number;
+  now: Timestamp;
+  returnSummary: string;
+  sku: string;
+}): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    productName: input.productName,
+    quantity: input.quantity,
+    dateAdded: input.now,
+    receivingDate: input.now,
+    status: "In Stock",
+    inventoryType: "product",
+    remarks: input.returnSummary,
+    createdAt: input.now,
+    updatedAt: input.now,
+  };
+  if (input.sku) {
+    payload.sku = input.sku;
+  }
+  return payload;
+}
 import {
   Eye,
   Check,
@@ -671,7 +700,7 @@ export function ProductReturnsManagement({
         
         // Calculate values needed for transaction
         const productName = selectedReturn.productName || selectedReturn.newProductName || "Unknown Product";
-        const sku = selectedReturn.sku || selectedReturn.newProductSku;
+        const sku = resolveReturnSku(selectedReturn);
         const shippedQty = latestReturn?.shippedQuantity || 0;
         const currentShippingLog = latestReturn?.shippingLog || selectedReturn.shippingLog || [];
         const remainingQuantity = Math.max(0, selectedReturn.receivedQuantity - shippedQty);
@@ -769,34 +798,30 @@ export function ProductReturnsManagement({
             } else {
               // Product not found, create new inventory item
               const newInventoryRef = doc(collection(db, `users/${ownerId}/inventory`));
-              transaction.set(newInventoryRef, {
-                productName: productName,
-                quantity: remainingQuantity,
-                dateAdded: now,
-                receivingDate: now,
-                status: "In Stock",
-                inventoryType: "product",
-                sku: sku,
-                remarks: returnSummary,
-                createdAt: now,
-                updatedAt: now,
-              });
+              transaction.set(
+                newInventoryRef,
+                buildInventoryCreatePayload({
+                  productName,
+                  quantity: remainingQuantity,
+                  now,
+                  returnSummary,
+                  sku,
+                })
+              );
             }
           } else {
             // Create new inventory item for new product return
             const newInventoryRef = doc(collection(db, `users/${ownerId}/inventory`));
-            transaction.set(newInventoryRef, {
-              productName: productName,
-              quantity: remainingQuantity,
-              dateAdded: now,
-              receivingDate: now,
-              status: "In Stock",
-              inventoryType: "product",
-              sku: sku,
-              remarks: returnSummary,
-              createdAt: now,
-              updatedAt: now,
-            });
+            transaction.set(
+              newInventoryRef,
+              buildInventoryCreatePayload({
+                productName,
+                quantity: remainingQuantity,
+                now,
+                returnSummary,
+                sku,
+              })
+            );
           }
         }
 
@@ -810,7 +835,7 @@ export function ProductReturnsManagement({
             {
               quantity: selectedReturn.receivedQuantity,
               productName: `${productName} (Return Handling)`,
-              sku: sku || '',
+              sku,
               shipDate: format(today, 'dd/MM/yyyy'),
               packaging: 'N/A',
               shipTo: shipToAddress,
@@ -849,7 +874,7 @@ export function ProductReturnsManagement({
             invoiceItems.push({
               quantity: remainingQuantity,
               productName: `${productName} (Return Shipment)`,
-              sku: sku || '',
+              sku,
               shipDate: format(today, 'dd/MM/yyyy'),
               packaging: 'N/A',
               shipTo: shipToAddress,
