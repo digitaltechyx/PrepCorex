@@ -27,6 +27,7 @@ import {
   PackageCheck,
   X,
   ShoppingBag,
+  Store,
   Truck,
   Users,
   UserCheck,
@@ -327,6 +328,15 @@ export function DashboardSidebar() {
       color: "text-teal-600",
       requiredRole: "user" as const,
       requiredFeature: "shipped_orders" as const,
+    },
+    {
+      title: "Shopify Orders",
+      url: "/dashboard/shopify-orders",
+      icon: Store,
+      color: "text-emerald-600",
+      badge: null,
+      requiredRole: "user" as const,
+      requiredFeature: "view_shopify_orders" as const,
     },
     {
       title: "Product Returns",

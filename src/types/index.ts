@@ -151,6 +151,7 @@ export type UserFeature =
   | "my_pricing"
   | "client_documents"
   | "integrations"
+  | "view_shopify_orders"
   | "request_product_returns"
   | "affiliate_dashboard"
   | "admin_dashboard"

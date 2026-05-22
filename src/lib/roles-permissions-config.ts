@@ -57,6 +57,7 @@ export const CLIENT_FEATURES_CONFIG: { value: UserFeature; label: string; descri
   { value: "disposed_inventory", label: "Disposed Inventory", description: "View disposed items and recycle bin" },
   { value: "client_documents", label: "Documents", description: "Access to document requests" },
   { value: "integrations", label: "Integrations", description: "Access to Shopify and eBay integrations" },
+  { value: "view_shopify_orders", label: "Shopify Orders", description: "View orders synced from connected Shopify stores" },
   { value: "affiliate_dashboard", label: "Affiliate Dashboard", description: "Access affiliate/commission dashboard" },
 ];
 
