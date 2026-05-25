@@ -25,6 +25,7 @@ function drawCartonLabel(
 ) {
   const borderW = h < 100 ? 3 : 4;
   const isMixed = !!carton.isMixed || (carton.lines && carton.lines.length > 1) || false;
+  const isLoose = !!carton.isLoose;
   const hasDamaged = !!carton.lines?.some((l) => l.condition === "damaged");
 
   const { bottom, innerX, innerW, innerH } = drawFramedLabel(
@@ -51,7 +52,13 @@ function drawCartonLabel(
     height: headerH,
     color: cartonAccent,
   });
-  const headerLabel = isMixed ? "MIXED CARTON" : "CARTON";
+  const headerLabel = isLoose
+    ? isMixed
+      ? "LOOSE STOCK · MIXED"
+      : "LOOSE STOCK"
+    : isMixed
+    ? "MIXED CARTON"
+    : "CARTON";
   page.drawText(pdfText(headerLabel), {
     x: innerX + 6,
     y: headerBottom + (headerH - 7) / 2,

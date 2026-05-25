@@ -150,6 +150,7 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     barcode: String(data.barcode ?? ""),
     lines: parseLines(data.lines),
     isMixed: data.isMixed === true,
+    isLoose: data.isLoose === true,
     trackingNumber: data.trackingNumber != null ? String(data.trackingNumber) : null,
     carrier: data.carrier != null ? String(data.carrier) : null,
     notes: data.notes != null ? String(data.notes) : null,
@@ -216,6 +217,7 @@ export async function createWarehouseCarton(input: {
   cartonCode?: string;
   lines?: WarehouseCartonLine[];
   isMixed?: boolean;
+  isLoose?: boolean;
   trackingNumber?: string | null;
   carrier?: string | null;
   notes?: string | null;
@@ -260,6 +262,7 @@ export async function createWarehouseCarton(input: {
     barcode,
     ...(linesPayload ? { lines: linesPayload } : {}),
     ...(input.isMixed != null ? { isMixed: !!input.isMixed } : {}),
+    ...(input.isLoose != null ? { isLoose: !!input.isLoose } : {}),
     ...(input.trackingNumber !== undefined ? { trackingNumber: input.trackingNumber?.trim() || null } : {}),
     ...(input.carrier !== undefined ? { carrier: input.carrier?.trim() || null } : {}),
     ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
@@ -412,6 +415,8 @@ export async function createReceiveBatch(input: {
     notes?: string | null;
     photoUrl?: string | null;
   };
+  /** True when this batch represents loose inventory (not packed in cartons). */
+  isLoose?: boolean;
   cartons: Array<{
     /** How many physical copies of this carton config to create. */
     copies: number;
@@ -493,6 +498,7 @@ export async function createReceiveBatch(input: {
         palletId,
         lines,
         isMixed,
+        isLoose: input.isLoose ?? false,
         trackingNumber: cfg.trackingNumber ?? input.pallet?.trackingNumber ?? null,
         carrier: cfg.carrier ?? input.pallet?.carrier ?? null,
         notes: cfg.notes ?? null,

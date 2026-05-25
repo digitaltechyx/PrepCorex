@@ -34,6 +34,7 @@ import {
   Loader2,
   Scan,
   Package,
+  PackageOpen,
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
@@ -467,17 +468,28 @@ function CartonPutawayPanel({
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="space-y-1">
               <CardTitle className="text-base flex items-center gap-2">
-                <Package className="h-4 w-4 text-orange-600" />
+                {carton.isLoose ? (
+                  <PackageOpen className="h-4 w-4 text-emerald-600" />
+                ) : (
+                  <Package className="h-4 w-4 text-orange-600" />
+                )}
                 {carton.cartonCode}
               </CardTitle>
               <CardDescription className="text-xs">
-                {isMixed
+                {carton.isLoose
+                  ? `Loose stock · ${carton.lines?.length ?? 0} line${(carton.lines?.length ?? 0) === 1 ? "" : "s"} · ${carton.quantity}u`
+                  : isMixed
                   ? `Mixed carton · ${carton.lines?.length ?? 0} lines`
                   : `Single SKU · ${carton.sku} × ${carton.quantity}`}
                 {carton.palletId ? " · on pallet" : ""}
               </CardDescription>
             </div>
             <div className="flex gap-2 flex-wrap">
+              {carton.isLoose ? (
+                <Badge variant="outline" className="bg-emerald-100 border-emerald-300 text-emerald-800">
+                  <PackageOpen className="h-3 w-3 mr-1" /> Loose
+                </Badge>
+              ) : null}
               {isMixed ? (
                 <Badge variant="outline" className="bg-amber-100 border-amber-300 text-amber-800">
                   <Layers className="h-3 w-3 mr-1" /> Mixed

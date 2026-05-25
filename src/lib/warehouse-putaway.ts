@@ -348,6 +348,7 @@ function docToCartonShallow(id: string, data: Record<string, unknown>): Warehous
     barcode: String(data.barcode ?? ""),
     lines: lines && lines.length > 0 ? lines : undefined,
     isMixed: data.isMixed === true,
+    isLoose: data.isLoose === true,
     trackingNumber: data.trackingNumber != null ? String(data.trackingNumber) : null,
     carrier: data.carrier != null ? String(data.carrier) : null,
     notes: data.notes != null ? String(data.notes) : null,

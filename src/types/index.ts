@@ -167,6 +167,8 @@ export interface WarehouseCartonDoc {
   lines?: WarehouseCartonLine[];
   /** True when `lines.length > 1` (more than one distinct SKU). */
   isMixed?: boolean;
+  /** True when this represents loose inventory (no physical carton). */
+  isLoose?: boolean;
   /** Carrier tracking number on the inbound box (for admin reconciliation later). */
   trackingNumber?: string | null;
   /** UPS / FedEx / USPS / DHL / Other */

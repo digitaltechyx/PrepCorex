@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import {
   Card,
   CardContent,
@@ -46,8 +45,13 @@ import {
   AlertTriangle,
   Layers,
   ChevronRight,
+  ArrowLeft,
+  PackageOpen,
+  Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+type ReceiveType = "carton" | "pallet" | "loose";
 
 type LineDraft = {
   id: string;
@@ -63,7 +67,6 @@ type CartonDraft = {
   id: string;
   copies: string;
   lines: LineDraft[];
-  collapsed: boolean;
 };
 
 type Props = {
@@ -89,20 +92,98 @@ function newLine(): LineDraft {
 }
 
 function newCarton(): CartonDraft {
-  return {
-    id: uid("ctn"),
-    copies: "1",
-    lines: [newLine()],
-    collapsed: false,
-  };
+  return { id: uid("ctn"), copies: "1", lines: [newLine()] };
 }
 
 export function WarehouseOpsReceiving({ warehouse }: Props) {
+  const [type, setType] = useState<ReceiveType | null>(null);
+
+  if (!type) {
+    return (
+      <div className="max-w-3xl space-y-6">
+        <WarehouseOpsHeader title="Receiving" />
+        <p className="text-sm text-muted-foreground">
+          What are you receiving? Pick a type — each one has its own simple form.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <TypePickerCard
+            color="orange"
+            icon={<Package className="h-8 w-8" />}
+            title="Carton"
+            description="One or more cartons. Each carton can hold one SKU or many."
+            onClick={() => setType("carton")}
+          />
+          <TypePickerCard
+            color="indigo"
+            icon={<Boxes className="h-8 w-8" />}
+            title="Pallet"
+            description="A pallet with cartons on it. Pallet label + carton labels."
+            onClick={() => setType("pallet")}
+          />
+          <TypePickerCard
+            color="emerald"
+            icon={<PackageOpen className="h-8 w-8" />}
+            title="Loose inventory"
+            description="No carton. Loose units in a bag, tote, or just on the dock."
+            onClick={() => setType("loose")}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return <ReceiveForm warehouse={warehouse} type={type} onBack={() => setType(null)} />;
+}
+
+function TypePickerCard({
+  color,
+  icon,
+  title,
+  description,
+  onClick,
+}: {
+  color: "orange" | "indigo" | "emerald";
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  onClick: () => void;
+}) {
+  const colorMap = {
+    orange: "border-orange-200 hover:border-orange-400 hover:bg-orange-50/40 text-orange-600",
+    indigo: "border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50/40 text-indigo-600",
+    emerald: "border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/40 text-emerald-600",
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-xl border-2 p-5 text-left transition-colors flex flex-col items-start gap-3 h-full",
+        colorMap[color]
+      )}
+    >
+      <div className={cn(colorMap[color].split(" ").pop())}>{icon}</div>
+      <div>
+        <h3 className="text-base font-semibold text-foreground">{title}</h3>
+        <p className="text-xs text-muted-foreground mt-1">{description}</p>
+      </div>
+    </button>
+  );
+}
+
+function ReceiveForm({
+  warehouse,
+  type,
+  onBack,
+}: {
+  warehouse: WarehouseDoc;
+  type: ReceiveType;
+  onBack: () => void;
+}) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const operatorName = userProfile?.name || userProfile?.email || user?.uid || null;
 
-  const [onPallet, setOnPallet] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [carrier, setCarrier] = useState<string>("");
   const [notes, setNotes] = useState("");
@@ -113,11 +194,17 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
     cartons: WarehouseCartonDoc[];
   } | null>(null);
 
+  // Loose mode only ever has a single "carton" (a virtual container for the loose lines).
+  // Copies are not shown for loose. Hide copies for pallet too — keep it simple.
+  const showCopies = type === "carton";
+  const showMultipleCartons = type === "carton" || type === "pallet";
+  const showShipmentDetails = true; // visible for all 3, but compact
+
+  const totalLineCount = cartons.reduce((s, c) => s + c.lines.length, 0);
   const totalCartonCount = cartons.reduce(
     (s, c) => s + Math.max(1, parseInt(c.copies, 10) || 1),
     0
   );
-  const totalLineCount = cartons.reduce((s, c) => s + c.lines.length, 0);
   const totalUnitCount = cartons.reduce((sum, c) => {
     const copies = Math.max(1, parseInt(c.copies, 10) || 1);
     const cartonUnits = c.lines.reduce((u, l) => {
@@ -130,12 +217,10 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   const hasAnyDamaged = cartons.some((c) =>
     c.lines.some((l) => (parseInt(l.damagedQty, 10) || 0) > 0)
   );
-  const hasAnyMixed = cartons.some((c) => new Set(c.lines.map((l) => l.sku.trim()).filter(Boolean)).size > 1);
 
   function updateCarton(cartonId: string, patch: Partial<CartonDraft>) {
     setCartons((prev) => prev.map((c) => (c.id === cartonId ? { ...c, ...patch } : c)));
   }
-
   function updateLine(cartonId: string, lineId: string, patch: Partial<LineDraft>) {
     setCartons((prev) =>
       prev.map((c) =>
@@ -145,13 +230,11 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
       )
     );
   }
-
   function addLine(cartonId: string) {
     setCartons((prev) =>
       prev.map((c) => (c.id === cartonId ? { ...c, lines: [...c.lines, newLine()] } : c))
     );
   }
-
   function removeLine(cartonId: string, lineId: string) {
     setCartons((prev) =>
       prev.map((c) =>
@@ -164,11 +247,9 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
       )
     );
   }
-
   function addCarton() {
     setCartons((prev) => [...prev, newCarton()]);
   }
-
   function duplicateCarton(cartonId: string) {
     setCartons((prev) => {
       const idx = prev.findIndex((c) => c.id === cartonId);
@@ -178,18 +259,15 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
         ...src,
         id: uid("ctn"),
         lines: src.lines.map((l) => ({ ...l, id: uid("ln") })),
-        collapsed: false,
       };
       return [...prev.slice(0, idx + 1), copy, ...prev.slice(idx + 1)];
     });
   }
-
   function removeCarton(cartonId: string) {
     setCartons((prev) => (prev.length > 1 ? prev.filter((c) => c.id !== cartonId) : prev));
   }
 
   function resetForm() {
-    setOnPallet(false);
     setTrackingNumber("");
     setCarrier("");
     setNotes("");
@@ -202,7 +280,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
         if (!l.sku.trim()) {
           toast({
             title: "Missing SKU",
-            description: "Every line needs a SKU before receiving.",
+            description: "Every line needs a SKU.",
             variant: "destructive",
           });
           return;
@@ -212,7 +290,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
         if (good + dmg < 1) {
           toast({
             title: "Quantity required",
-            description: `SKU ${l.sku} needs at least 1 good or damaged unit.`,
+            description: `SKU ${l.sku} needs at least 1 unit.`,
             variant: "destructive",
           });
           return;
@@ -223,7 +301,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
     setSaving(true);
     try {
       const payloadCartons = cartons.map((c) => {
-        const copies = Math.max(1, parseInt(c.copies, 10) || 1);
+        const copies = showCopies ? Math.max(1, parseInt(c.copies, 10) || 1) : 1;
         const flatLines: Array<{
           sku: string;
           productTitle?: string | null;
@@ -259,11 +337,13 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
         return { copies, lines: flatLines };
       });
 
+      const useShipmentOnPallet = type === "pallet";
       const { palletId, cartonIds } = await createReceiveBatch({
         warehouseId: warehouse.id,
         receivedBy: operatorName,
         stagingArea: "RCV-STAGE",
-        pallet: onPallet
+        isLoose: type === "loose",
+        pallet: useShipmentOnPallet
           ? {
               trackingNumber: trackingNumber.trim() || null,
               carrier: carrier || null,
@@ -273,9 +353,9 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
           : undefined,
         cartons: payloadCartons.map((c) => ({
           ...c,
-          trackingNumber: !onPallet ? trackingNumber.trim() || null : null,
-          carrier: !onPallet ? carrier || null : null,
-          notes: !onPallet ? notes.trim() || null : null,
+          trackingNumber: !useShipmentOnPallet ? trackingNumber.trim() || null : null,
+          carrier: !useShipmentOnPallet ? carrier || null : null,
+          notes: !useShipmentOnPallet ? notes.trim() || null : null,
         })),
       });
 
@@ -290,12 +370,12 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
 
       if (created.length > 0) {
         const cartonPdf = await buildWarehouseCartonLabelsPdf({
-          title: `${warehouse.code} — ${created.length} carton label${created.length > 1 ? "s" : ""}`,
+          title: `${warehouse.code} — ${created.length} label${created.length > 1 ? "s" : ""}`,
           cartons: created,
         });
         downloadUint8ArrayAsFile(
           cartonPdf,
-          `carton-labels-${created[0].cartonCode}-${created.length}.pdf`
+          `${type}-labels-${created[0].cartonCode}-${created.length}.pdf`
         );
       }
       if (createdPallet) {
@@ -309,8 +389,8 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
       setLastBatch({ palletCode: createdPallet?.palletCode ?? null, cartons: created });
 
       toast({
-        title: "Received",
-        description: `${created.length} carton${created.length > 1 ? "s" : ""} parked in receiving staging. Stick labels before moving to putaway.`,
+        title: type === "loose" ? "Loose stock received" : "Received",
+        description: `${created.length} label${created.length > 1 ? "s" : ""} printed. Stock parked in receiving staging.`,
       });
       resetForm();
     } catch (e) {
@@ -324,152 +404,156 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
     }
   }
 
+  const titleByType: Record<ReceiveType, string> = {
+    carton: "Receive cartons",
+    pallet: "Receive a pallet",
+    loose: "Receive loose inventory",
+  };
+  const subtitleByType: Record<ReceiveType, string> = {
+    carton: "Each carton can hold one SKU or many. Use “Copies” when you receive several identical cartons.",
+    pallet: "All cartons below will be wrapped under a single pallet label.",
+    loose: "No carton — units come loose in a bag, tote, or stacked. A small label will print so you can stow them.",
+  };
+  const accentByType: Record<ReceiveType, string> = {
+    carton: "border-orange-300 bg-orange-600 hover:bg-orange-700",
+    pallet: "border-indigo-300 bg-indigo-600 hover:bg-indigo-700",
+    loose: "border-emerald-300 bg-emerald-600 hover:bg-emerald-700",
+  };
+
   return (
-    <div className="max-w-5xl space-y-6">
-      <WarehouseOpsHeader title="Receive inventory" />
+    <div className="max-w-4xl space-y-4">
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Change type
+        </Button>
+        <Badge variant="outline" className="capitalize">{type}</Badge>
+      </div>
+      <WarehouseOpsHeader title={titleByType[type]} />
+      <p className="text-sm text-muted-foreground -mt-2">{subtitleByType[type]}</p>
 
-      <Card className="border-orange-200/60 bg-orange-50/30 dark:bg-orange-950/20">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Package className="h-4 w-4 text-orange-600" />
-            How this works
-          </CardTitle>
-          <CardDescription className="text-xs leading-relaxed">
-            Receive inventory <strong>blind</strong> — no client or request is needed at the dock.
-            Add one carton, or add multiple cartons (with copies). Each carton can hold one SKU
-            or many SKUs (mixed). Print labels here, stick them on the boxes, then move to{" "}
-            <strong>Putaway</strong>. Admin will <strong>Allocate</strong> stock to client requests later.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Inbound shipment details (optional)</CardTitle>
-          <CardDescription className="text-xs">
-            Capture once for the whole truck/box so admin can reconcile later.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+      {showShipmentDetails ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">
+              {type === "pallet" ? "Pallet details (optional)" : "Inbound details (optional)"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Tracking #</Label>
+                <Input
+                  value={trackingNumber}
+                  onChange={(e) => setTrackingNumber(e.target.value)}
+                  placeholder="e.g. 1Z999AA10123456784"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Carrier</Label>
+                <Select value={carrier || "__none__"} onValueChange={(v) => setCarrier(v === "__none__" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">—</SelectItem>
+                    {CARRIERS.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="space-y-1">
-              <Label>Tracking #</Label>
-              <Input
-                value={trackingNumber}
-                onChange={(e) => setTrackingNumber(e.target.value)}
-                placeholder="e.g. 1Z999AA10123456784"
+              <Label className="text-xs">Notes</Label>
+              <Textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                placeholder='e.g. "Outer box crushed, contents OK"'
               />
             </div>
-            <div className="space-y-1">
-              <Label>Carrier</Label>
-              <Select value={carrier || "__none__"} onValueChange={(v) => setCarrier(v === "__none__" ? "" : v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="—" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">—</SelectItem>
-                  {CARRIERS.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label>Notes (optional)</Label>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              placeholder='e.g. "Outer box crushed, contents OK"'
-            />
-          </div>
-          <div className="flex items-center justify-between rounded-md border p-3">
-            <div>
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Layers className="h-4 w-4" />
-                On a pallet
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Wraps all cartons below in a new pallet. A pallet label will also be printed.
-              </p>
-            </div>
-            <Switch checked={onPallet} onCheckedChange={setOnPallet} />
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">
-            Cartons ({cartons.length})
-          </h2>
-          <Button type="button" variant="outline" size="sm" onClick={addCarton}>
-            <Plus className="h-4 w-4 mr-1" />
-            Add another carton
-          </Button>
-        </div>
+        {showMultipleCartons ? (
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold">
+              {type === "pallet" ? "Cartons on this pallet" : "Cartons"} ({cartons.length})
+            </h2>
+            <Button type="button" variant="outline" size="sm" onClick={addCarton}>
+              <Plus className="h-4 w-4 mr-1" />
+              Add another carton
+            </Button>
+          </div>
+        ) : null}
 
         {cartons.map((c, idx) => {
           const distinctSkus = new Set(c.lines.map((l) => l.sku.trim()).filter(Boolean));
           const isMixed = distinctSkus.size > 1;
-          const totalCopies = Math.max(1, parseInt(c.copies, 10) || 1);
+          const totalCopies = showCopies ? Math.max(1, parseInt(c.copies, 10) || 1) : 1;
           const cartonUnits = c.lines.reduce((u, l) => {
             return u + Math.max(0, parseInt(l.goodQty, 10) || 0) + Math.max(0, parseInt(l.damagedQty, 10) || 0);
           }, 0);
           const hasDamaged = c.lines.some((l) => (parseInt(l.damagedQty, 10) || 0) > 0);
+          const headerLabel =
+            type === "loose"
+              ? "Loose lines"
+              : showMultipleCartons
+              ? `Carton #${idx + 1}`
+              : "Items";
           return (
             <Card key={c.id} className="border-slate-200">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <CardTitle className="text-sm">Carton #{idx + 1}</CardTitle>
-                    {isMixed ? (
-                      <Badge variant="outline" className="bg-amber-100 border-amber-300 text-amber-800">
-                        Mixed · {distinctSkus.size} SKUs
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">Single SKU</Badge>
-                    )}
-                    {hasDamaged ? (
-                      <Badge variant="outline" className="bg-red-100 border-red-300 text-red-800">
-                        <AlertTriangle className="h-3 w-3 mr-1" />
-                        Has damaged
-                      </Badge>
-                    ) : null}
-                    {totalCopies > 1 ? (
-                      <Badge variant="outline" className="bg-blue-50 border-blue-300 text-blue-800">
-                        × {totalCopies} copies
-                      </Badge>
-                    ) : null}
+              {showMultipleCartons ? (
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <CardTitle className="text-sm">{headerLabel}</CardTitle>
+                      {isMixed ? (
+                        <Badge variant="outline" className="bg-amber-100 border-amber-300 text-amber-800">
+                          Mixed · {distinctSkus.size} SKUs
+                        </Badge>
+                      ) : null}
+                      {hasDamaged ? (
+                        <Badge variant="outline" className="bg-red-100 border-red-300 text-red-800">
+                          <AlertTriangle className="h-3 w-3 mr-1" /> Has damaged
+                        </Badge>
+                      ) : null}
+                      {showCopies && totalCopies > 1 ? (
+                        <Badge variant="outline" className="bg-blue-50 border-blue-300 text-blue-800">
+                          × {totalCopies} copies
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {type === "carton" ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => duplicateCarton(c.id)}
+                          title="Duplicate this carton"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                      {cartons.length > 1 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeCarton(c.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-red-600" />
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => duplicateCarton(c.id)}
-                      title="Duplicate this carton"
-                    >
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                    {cartons.length > 1 ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeCarton(c.id)}
-                        title="Remove this carton"
-                      >
-                        <Trash2 className="h-4 w-4 text-red-600" />
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
+                </CardHeader>
+              ) : null}
+              <CardContent className={cn("space-y-3", !showMultipleCartons && "pt-6")}>
                 {c.lines.map((line, lineIdx) => {
                   const good = Math.max(0, parseInt(line.goodQty, 10) || 0);
                   const dmg = Math.max(0, parseInt(line.damagedQty, 10) || 0);
@@ -497,7 +581,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                         ) : null}
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
-                        <div className="space-y-1 sm:col-span-1">
+                        <div className="space-y-1">
                           <Label className="text-xs">SKU</Label>
                           <Input
                             value={line.sku}
@@ -505,14 +589,13 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                             placeholder="Required"
                           />
                         </div>
-                        <div className="space-y-1 sm:col-span-1">
+                        <div className="space-y-1">
                           <Label className="text-xs">Product name (optional)</Label>
                           <Input
                             value={line.productTitle}
                             onChange={(e) =>
                               updateLine(c.id, line.id, { productTitle: e.target.value })
                             }
-                            placeholder="Display name"
                           />
                         </div>
                       </div>
@@ -564,30 +647,27 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   );
                 })}
                 <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => addLine(c.id)}
-                  >
+                  <Button type="button" variant="outline" size="sm" onClick={() => addLine(c.id)}>
                     <Plus className="h-3 w-3 mr-1" />
-                    Add line (another SKU in this carton)
+                    Add another SKU in this {type === "loose" ? "batch" : "carton"}
                   </Button>
-                  <div className="flex items-end gap-2">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Copies of this carton</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={c.copies}
-                        onChange={(e) => updateCarton(c.id, { copies: e.target.value })}
-                        className="w-24"
-                      />
+                  {showCopies ? (
+                    <div className="flex items-end gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Copies of this carton</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={c.copies}
+                          onChange={(e) => updateCarton(c.id, { copies: e.target.value })}
+                          className="w-24"
+                        />
+                      </div>
+                      <span className="text-xs text-muted-foreground pb-2">
+                        = {totalCopies * cartonUnits} units
+                      </span>
                     </div>
-                    <span className="text-xs text-muted-foreground pb-2">
-                      = {totalCopies * cartonUnits} units total
-                    </span>
-                  </div>
+                  ) : null}
                 </div>
               </CardContent>
             </Card>
@@ -595,22 +675,17 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
         })}
       </div>
 
-      <Card className="border-orange-300 sticky bottom-4 bg-background shadow-lg">
+      <Card className={cn("sticky bottom-4 bg-background shadow-lg", accentByType[type].split(" ")[0])}>
         <CardContent className="py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm flex flex-wrap items-center gap-2">
-            <Badge variant="outline">
-              {totalCartonCount} carton{totalCartonCount === 1 ? "" : "s"}
-            </Badge>
-            <Badge variant="outline">
-              {totalLineCount} line{totalLineCount === 1 ? "" : "s"}
-            </Badge>
-            <Badge variant="outline">{totalUnitCount} units</Badge>
-            {onPallet ? <Badge className="bg-indigo-600">+ 1 pallet label</Badge> : null}
-            {hasAnyMixed ? (
-              <Badge variant="outline" className="bg-amber-100 border-amber-300 text-amber-800">
-                Includes mixed
+            {type === "pallet" ? <Badge className="bg-indigo-600">+ 1 pallet label</Badge> : null}
+            {type !== "loose" ? (
+              <Badge variant="outline">
+                {totalCartonCount} label{totalCartonCount === 1 ? "" : "s"}
               </Badge>
             ) : null}
+            <Badge variant="outline">{totalLineCount} line{totalLineCount === 1 ? "" : "s"}</Badge>
+            <Badge variant="outline">{totalUnitCount} units</Badge>
             {hasAnyDamaged ? (
               <Badge variant="outline" className="bg-red-100 border-red-300 text-red-800">
                 Includes damaged → quarantine
@@ -619,7 +694,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
           </div>
           <Button
             size="lg"
-            className="bg-orange-600 hover:bg-orange-700"
+            className={accentByType[type].split(" ").slice(1).join(" ")}
             onClick={() => void handleReceive()}
             disabled={saving}
           >
@@ -628,7 +703,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
             ) : (
               <>
                 <Printer className="h-4 w-4 mr-2" />
-                Receive &amp; print labels
+                Receive &amp; print
               </>
             )}
           </Button>
@@ -638,16 +713,21 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
       {lastBatch ? (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Last batch ({lastBatch.cartons.length} carton{lastBatch.cartons.length === 1 ? "" : "s"})</CardTitle>
+            <CardTitle className="text-base">
+              Last batch ({lastBatch.cartons.length} label{lastBatch.cartons.length === 1 ? "" : "s"})
+            </CardTitle>
             <CardDescription className="text-xs">
-              Labels downloaded — stick them now. Stock is parked in Receiving Staging.
+              Labels downloaded — stick them now. Stock parked in Receiving Staging.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {lastBatch.palletCode ? (
               <div className="flex items-center justify-between rounded-md border bg-indigo-50/60 px-3 py-2 text-sm">
                 <span className="font-mono">{lastBatch.palletCode}</span>
-                <Badge className="bg-indigo-600">Pallet</Badge>
+                <Badge className="bg-indigo-600">
+                  <Layers className="h-3 w-3 mr-1" />
+                  Pallet
+                </Badge>
               </div>
             ) : null}
             <div className="space-y-1 max-h-[200px] overflow-y-auto">
@@ -658,7 +738,9 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                 >
                   <span>{c.cartonCode}</span>
                   <span className="text-xs text-muted-foreground">
-                    {c.isMixed
+                    {c.isLoose
+                      ? `Loose · ${c.lines?.length ?? 0} line${(c.lines?.length ?? 0) === 1 ? "" : "s"} · ${c.quantity}u`
+                      : c.isMixed
                       ? `Mixed · ${c.lines?.length ?? 0} SKUs · ${c.quantity}u`
                       : `${c.sku} × ${c.quantity}`}
                   </span>
