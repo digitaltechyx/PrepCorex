@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScanLine, Loader2, Search } from "lucide-react";
+import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { useToast } from "@/hooks/use-toast";
 import { useCollection } from "@/hooks/use-collection";
 import {
@@ -110,20 +111,27 @@ export function ScanLookupPopover({ onPick, onAcceptRaw, initialQuery = "" }: Pr
       <PopoverContent align="end" className="w-[340px] p-3">
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground">Scan or type UPC / SKU</p>
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input
-              ref={inputRef}
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  if (matches[0]) handlePick(matches[0]);
-                  else handleAcceptRaw();
-                }
-              }}
-              placeholder="Scanner input or text"
-              className="pl-7"
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+              <Input
+                ref={inputRef}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    if (matches[0]) handlePick(matches[0]);
+                    else handleAcceptRaw();
+                  }
+                }}
+                placeholder="Type or use camera"
+                className="pl-7"
+              />
+            </div>
+            <ScanCameraButton
+              onScan={(text) => setQ(text)}
+              scannerTitle="Scan product barcode"
+              scannerDescription="Point at the UPC/EAN on the product or box."
             />
           </div>
           <div className="max-h-[260px] overflow-y-auto -mx-3 px-3">

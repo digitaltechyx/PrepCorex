@@ -53,6 +53,7 @@ import {
 import { cn } from "@/lib/utils";
 import { detectCarrier } from "@/lib/carrier-detect";
 import { ScanLookupPopover } from "@/components/warehouse-ops/scan-lookup-popover";
+import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import {
   QuickScanDialog,
   type QuickScanLine,
@@ -489,12 +490,20 @@ function ReceiveForm({
                   <ScanLine className="h-3 w-3" />
                   Tracking #
                 </Label>
-                <Input
-                  value={trackingNumber}
-                  onChange={(e) => handleTrackingChange(e.target.value)}
-                  placeholder="Scan barcode or type"
-                  autoComplete="off"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={trackingNumber}
+                    onChange={(e) => handleTrackingChange(e.target.value)}
+                    placeholder="Camera or type tracking #"
+                    autoComplete="off"
+                    className="flex-1"
+                  />
+                  <ScanCameraButton
+                    onScan={handleTrackingChange}
+                    scannerTitle="Scan tracking barcode"
+                    scannerDescription="Scan the carrier label on the box or pallet."
+                  />
+                </div>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs flex items-center gap-2">

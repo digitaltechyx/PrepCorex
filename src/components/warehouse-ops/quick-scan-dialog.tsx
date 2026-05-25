@@ -20,6 +20,7 @@ import {
   type ProductMatch,
 } from "@/lib/warehouse-product-lookup";
 import { Loader2, ScanLine, Trash2, AlertTriangle } from "lucide-react";
+import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { cn } from "@/lib/utils";
 
 export type QuickScanLine = {
@@ -66,8 +67,8 @@ export function QuickScanDialog({ open, onOpenChange, onApply, title }: Props) {
     }
   }, [open]);
 
-  async function handleScan() {
-    const v = scanValue.trim();
+  async function handleScanFromValue(value: string) {
+    const v = value.trim();
     if (!v) return;
     setResolving(true);
     try {
@@ -109,6 +110,10 @@ export function QuickScanDialog({ open, onOpenChange, onApply, title }: Props) {
     } finally {
       setResolving(false);
     }
+  }
+
+  async function handleScan() {
+    await handleScanFromValue(scanValue);
   }
 
   function adjustQty(id: string, delta: number) {
@@ -189,9 +194,18 @@ export function QuickScanDialog({ open, onOpenChange, onApply, title }: Props) {
               >
                 {resolving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
               </Button>
+              <ScanCameraButton
+                onScan={(text) => {
+                  setScanValue(text);
+                  void handleScanFromValue(text);
+                }}
+                disabled={resolving}
+                scannerTitle="Scan item"
+                scannerDescription="Scan each product barcode. Repeat scans increase quantity."
+              />
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Each scan looks up your client catalog by UPC/SKU. Unknown codes are kept as-is.
+              Use the camera on your phone or a Bluetooth scanner. Unknown codes are kept as-is.
             </p>
           </div>
 

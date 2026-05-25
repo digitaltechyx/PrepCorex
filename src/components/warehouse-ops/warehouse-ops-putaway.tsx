@@ -43,6 +43,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 
 type Props = {
   warehouse: WarehouseDoc;
@@ -105,11 +106,13 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     setTimeout(() => cartonInputRef.current?.focus(), 50);
   }
 
-  async function handleResolveCarton() {
-    if (!cartonScan.trim()) return;
+  async function handleResolveCartonWithValue(raw?: string) {
+    const code = (raw ?? cartonScan).trim();
+    if (!code) return;
+    if (raw != null) setCartonScan(raw);
     setResolving(true);
     try {
-      const res = await resolveScan(warehouse.id, cartonScan);
+      const res = await resolveScan(warehouse.id, code);
       if (res.kind === "none") {
         toast({
           title: "Not found",
@@ -162,6 +165,10 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     }
   }
 
+  function handleResolveCarton() {
+    void handleResolveCartonWithValue();
+  }
+
   async function resolveBin(path: string): Promise<ResolvedBin | null> {
     const bin = await findBinByPath(warehouse.id, path);
     if (!bin) return null;
@@ -173,10 +180,10 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     setWholeBin({ binPath: value, resolved: null, loading: false, error: null });
   }
 
-  async function handleResolveWholeBin() {
-    const v = wholeBin.binPath.trim();
+  async function handleResolveWholeBin(pathOverride?: string) {
+    const v = (pathOverride ?? wholeBin.binPath).trim();
     if (!v) return;
-    setWholeBin((s) => ({ ...s, loading: true, error: null }));
+    setWholeBin({ binPath: v, resolved: null, loading: true, error: null });
     try {
       const resolved = await resolveBin(v);
       if (!resolved) {
@@ -200,13 +207,13 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     }));
   }
 
-  async function handleResolvePerLineBin(lineId: string) {
+  async function handleResolvePerLineBin(lineId: string, pathOverride?: string) {
     const slot = perLine[lineId];
-    const v = slot?.binPath.trim() ?? "";
+    const v = (pathOverride ?? slot?.binPath ?? "").trim();
     if (!v) return;
     setPerLine((prev) => ({
       ...prev,
-      [lineId]: { ...slot, loading: true, error: null },
+      [lineId]: { binPath: v, resolved: null, loading: true, error: null },
     }));
     try {
       const resolved = await resolveBin(v);
@@ -368,11 +375,17 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
                 ref={cartonInputRef}
                 value={cartonScan}
                 onChange={(e) => setCartonScan(e.target.value)}
-                placeholder="Scan or type carton code (CTN-…)"
+                placeholder="Camera or type CTN-…"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleResolveCarton();
                 }}
                 autoFocus
+                className="flex-1"
+              />
+              <ScanCameraButton
+                onScan={(text) => void handleResolveCartonWithValue(text)}
+                scannerTitle="Scan carton label"
+                scannerDescription="Scan the QR or barcode on the carton label."
               />
               <Button onClick={() => void handleResolveCarton()} disabled={resolving}>
                 {resolving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Find"}
@@ -422,11 +435,11 @@ type PanelProps = {
   setMode: (m: Mode) => void;
   wholeBin: LineAssignment;
   onWholeBinChange: (v: string) => void;
-  onResolveWholeBin: () => void;
+  onResolveWholeBin: (path?: string) => void;
   wholeValidations: Array<{ line: WarehouseCartonLine; error: string | null }>;
   perLine: Record<string, LineAssignment>;
   onPerLineBinChange: (lineId: string, v: string) => void;
-  onResolvePerLineBin: (lineId: string) => void;
+  onResolvePerLineBin: (lineId: string, path?: string) => void;
   onClearPerLine: (lineId: string) => void;
   validatePerLine: (line: WarehouseCartonLine) => string | null;
   onCancel: () => void;
@@ -542,13 +555,22 @@ function CartonPutawayPanel({
               <Input
                 value={wholeBin.binPath}
                 onChange={(e) => onWholeBinChange(e.target.value)}
-                placeholder="Scan or type bin path (e.g. NJ02-A-1-A-1-A1)"
+                placeholder="Camera or type bin path"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") onResolveWholeBin();
                 }}
                 autoFocus
+                className="flex-1"
               />
-              <Button onClick={onResolveWholeBin} disabled={wholeBin.loading}>
+              <ScanCameraButton
+                onScan={(text) => {
+                  onWholeBinChange(text);
+                  onResolveWholeBin(text);
+                }}
+                scannerTitle="Scan bin label"
+                scannerDescription="Scan the QR on the storage bin label."
+              />
+              <Button onClick={() => onResolveWholeBin()} disabled={wholeBin.loading}>
                 {wholeBin.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
               </Button>
             </div>
@@ -629,10 +651,19 @@ function CartonPutawayPanel({
                     <Input
                       value={slot?.binPath ?? ""}
                       onChange={(e) => onPerLineBinChange(line.lineId, e.target.value)}
-                      placeholder="Scan or type bin path"
+                      placeholder="Camera or type bin path"
                       onKeyDown={(e) => {
                         if (e.key === "Enter") onResolvePerLineBin(line.lineId);
                       }}
+                      className="flex-1"
+                    />
+                    <ScanCameraButton
+                      onScan={(text) => {
+                        onPerLineBinChange(line.lineId, text);
+                        onResolvePerLineBin(line.lineId, text);
+                      }}
+                      scannerTitle="Scan bin label"
+                      scannerDescription="Scan the QR on the storage bin."
                     />
                     <Button
                       onClick={() => onResolvePerLineBin(line.lineId)}
