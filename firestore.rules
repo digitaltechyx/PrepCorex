@@ -152,6 +152,12 @@ service cloud.firestore {
       allow update, delete: if isAdminOrSubAdmin();
     }
 
+    // Ops floor staff: read client product catalog for UPC/SKU scan lookup at receiving
+    match /users/{userId}/inventory/{itemId} {
+      allow read: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
+      allow write: if isSelf(userId) || isAdminOrSubAdmin();
+    }
+
     // ---- ALL USER SUBCOLLECTIONS (inventory, invoices, requests, logs, pricing, etc.) ----
     match /users/{userId}/{document=**} {
       allow read, write: if isSelfOrAdmin(userId);

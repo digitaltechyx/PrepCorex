@@ -48,8 +48,15 @@ import {
   ArrowLeft,
   PackageOpen,
   Boxes,
+  ScanLine,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { detectCarrier } from "@/lib/carrier-detect";
+import { ScanLookupPopover } from "@/components/warehouse-ops/scan-lookup-popover";
+import {
+  QuickScanDialog,
+  type QuickScanLine,
+} from "@/components/warehouse-ops/quick-scan-dialog";
 
 type ReceiveType = "carton" | "pallet" | "loose";
 
@@ -186,9 +193,23 @@ function ReceiveForm({
 
   const [trackingNumber, setTrackingNumber] = useState("");
   const [carrier, setCarrier] = useState<string>("");
+  const [carrierAutoDetected, setCarrierAutoDetected] = useState(false);
   const [notes, setNotes] = useState("");
   const [cartons, setCartons] = useState<CartonDraft[]>([newCarton()]);
   const [saving, setSaving] = useState(false);
+  const [quickScanCartonId, setQuickScanCartonId] = useState<string | null>(null);
+
+  function handleTrackingChange(value: string) {
+    setTrackingNumber(value);
+    const detected = detectCarrier(value);
+    if (detected && (!carrier || carrierAutoDetected)) {
+      setCarrier(detected);
+      setCarrierAutoDetected(true);
+    } else if (!detected && carrierAutoDetected) {
+      setCarrier("");
+      setCarrierAutoDetected(false);
+    }
+  }
   const [lastBatch, setLastBatch] = useState<{
     palletCode: string | null;
     cartons: WarehouseCartonDoc[];
@@ -265,6 +286,28 @@ function ReceiveForm({
   }
   function removeCarton(cartonId: string) {
     setCartons((prev) => (prev.length > 1 ? prev.filter((c) => c.id !== cartonId) : prev));
+  }
+
+  function applyQuickScanLines(cartonId: string, scanned: QuickScanLine[]) {
+    setCartons((prev) =>
+      prev.map((c) => {
+        if (c.id !== cartonId) return c;
+        // Replace the carton's lines wholesale, ignoring the default empty line.
+        const hasOnlyEmptyDefault =
+          c.lines.length === 1 && !c.lines[0].sku.trim() && c.lines[0].goodQty === "1";
+        const base = hasOnlyEmptyDefault ? [] : c.lines;
+        const newLines: LineDraft[] = scanned.map((s) => ({
+          id: uid("ln"),
+          sku: s.sku,
+          productTitle: s.productTitle,
+          goodQty: s.goodQty,
+          damagedQty: s.damagedQty,
+          lot: s.lot,
+          expiry: s.expiry,
+        }));
+        return { ...c, lines: [...base, ...newLines] };
+      })
+    );
   }
 
   function resetForm() {
@@ -442,16 +485,33 @@ function ReceiveForm({
           <CardContent className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label className="text-xs">Tracking #</Label>
+                <Label className="text-xs flex items-center gap-2">
+                  <ScanLine className="h-3 w-3" />
+                  Tracking #
+                </Label>
                 <Input
                   value={trackingNumber}
-                  onChange={(e) => setTrackingNumber(e.target.value)}
-                  placeholder="e.g. 1Z999AA10123456784"
+                  onChange={(e) => handleTrackingChange(e.target.value)}
+                  placeholder="Scan barcode or type"
+                  autoComplete="off"
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Carrier</Label>
-                <Select value={carrier || "__none__"} onValueChange={(v) => setCarrier(v === "__none__" ? "" : v)}>
+                <Label className="text-xs flex items-center gap-2">
+                  Carrier
+                  {carrierAutoDetected ? (
+                    <Badge variant="outline" className="bg-emerald-50 border-emerald-300 text-emerald-800 text-[10px] px-1 py-0">
+                      auto
+                    </Badge>
+                  ) : null}
+                </Label>
+                <Select
+                  value={carrier || "__none__"}
+                  onValueChange={(v) => {
+                    setCarrier(v === "__none__" ? "" : v);
+                    setCarrierAutoDetected(false);
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="—" />
                   </SelectTrigger>
@@ -583,11 +643,22 @@ function ReceiveForm({
                       <div className="grid gap-2 sm:grid-cols-2">
                         <div className="space-y-1">
                           <Label className="text-xs">SKU</Label>
-                          <Input
-                            value={line.sku}
-                            onChange={(e) => updateLine(c.id, line.id, { sku: e.target.value })}
-                            placeholder="Required"
-                          />
+                          <div className="flex gap-2">
+                            <Input
+                              value={line.sku}
+                              onChange={(e) => updateLine(c.id, line.id, { sku: e.target.value })}
+                              placeholder="Required"
+                            />
+                            <ScanLookupPopover
+                              onPick={(m) =>
+                                updateLine(c.id, line.id, {
+                                  sku: m.sku,
+                                  productTitle: m.productName,
+                                })
+                              }
+                              onAcceptRaw={(raw) => updateLine(c.id, line.id, { sku: raw })}
+                            />
+                          </div>
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs">Product name (optional)</Label>
@@ -647,10 +718,21 @@ function ReceiveForm({
                   );
                 })}
                 <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
-                  <Button type="button" variant="outline" size="sm" onClick={() => addLine(c.id)}>
-                    <Plus className="h-3 w-3 mr-1" />
-                    Add another SKU in this {type === "loose" ? "batch" : "carton"}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => addLine(c.id)}>
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add another SKU in this {type === "loose" ? "batch" : "carton"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setQuickScanCartonId(c.id)}
+                    >
+                      <ScanLine className="h-3 w-3 mr-1" />
+                      Quick scan items
+                    </Button>
+                  </div>
                   {showCopies ? (
                     <div className="flex items-end gap-2">
                       <div className="space-y-1">
@@ -709,6 +791,16 @@ function ReceiveForm({
           </Button>
         </CardContent>
       </Card>
+
+      <QuickScanDialog
+        open={!!quickScanCartonId}
+        onOpenChange={(o) => !o && setQuickScanCartonId(null)}
+        onApply={(scanned) => {
+          if (quickScanCartonId) applyQuickScanLines(quickScanCartonId, scanned);
+          setQuickScanCartonId(null);
+        }}
+        title={type === "loose" ? "Quick scan loose items" : "Quick scan items in this carton"}
+      />
 
       {lastBatch ? (
         <Card>

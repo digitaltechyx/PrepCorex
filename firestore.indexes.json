@@ -18,6 +18,16 @@
       "collectionGroup": "inventoryRequests",
       "queryScope": "COLLECTION_GROUP",
       "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "inventory",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "sku", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "inventory",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "retailIdentifier", "order": "ASCENDING" }]
     }
   ],
   "fieldOverrides": []
