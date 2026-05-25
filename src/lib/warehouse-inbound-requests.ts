@@ -1,4 +1,4 @@
-import { collectionGroup, getDocs, query, where } from "firebase/firestore";
+import { collection, collectionGroup, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { listWarehouseCartons } from "@/lib/warehouse-carton-firestore";
 import type { InventoryRequest, UserProfile, WarehouseDoc } from "@/types";
@@ -43,13 +43,24 @@ function expectedQuantity(req: InventoryRequest): number {
   return Math.max(0, req.quantity ?? 0);
 }
 
-/** Sum carton qty per inventory request id for a warehouse. */
+/** Sum carton qty per inventory request id for a warehouse.
+ *  Considers both the legacy root-level `inventoryRequestId` (single-SKU cartons)
+ *  AND per-line allocations stamped during the new Receive → Allocate flow.
+ */
 export async function cartonQtyByInventoryRequestId(
   warehouseId: string
 ): Promise<Map<string, number>> {
   const cartons = await listWarehouseCartons(warehouseId);
   const map = new Map<string, number>();
   for (const c of cartons) {
+    if (Array.isArray(c.lines) && c.lines.length > 0) {
+      for (const l of c.lines) {
+        const rid = (l.inventoryRequestId ?? "").trim();
+        if (!rid) continue;
+        map.set(rid, (map.get(rid) ?? 0) + Math.max(0, l.quantity));
+      }
+      continue;
+    }
     const rid = c.inventoryRequestId?.trim();
     if (!rid) continue;
     map.set(rid, (map.get(rid) ?? 0) + Math.max(0, c.quantity));
@@ -69,14 +80,34 @@ export async function loadInboundRequestQueue(input: {
   );
 
   const statuses = includePending ? ["pending", "approved"] : ["approved"];
-  const snap = await getDocs(
-    query(collectionGroup(db, "inventoryRequests"), where("status", "in", statuses))
-  );
+  let docs: Array<{ id: string; data: () => Omit<InventoryRequest, "id">; ref: { path: string } }> = [];
+  try {
+    const snap = await getDocs(
+      query(collectionGroup(db, "inventoryRequests"), where("status", "in", statuses))
+    );
+    docs = snap.docs as Array<{ id: string; data: () => Omit<InventoryRequest, "id">; ref: { path: string } }>;
+  } catch {
+    // Fallback path when collection-group indexes are missing on a project.
+    const eligible = Array.from(eligibleClientIds);
+    const perUserSnaps = await Promise.all(
+      eligible.map((uid) =>
+        getDocs(
+          query(
+            collection(db, `users/${uid}/inventoryRequests`),
+            where("status", "in", statuses)
+          )
+        )
+      )
+    );
+    docs = perUserSnaps.flatMap((s) =>
+      s.docs as Array<{ id: string; data: () => Omit<InventoryRequest, "id">; ref: { path: string } }>
+    );
+  }
 
   const cartonMap = await cartonQtyByInventoryRequestId(warehouse.id);
 
   const rows: InboundRequestRow[] = [];
-  for (const d of snap.docs) {
+  for (const d of docs) {
     const data = d.data() as Omit<InventoryRequest, "id">;
     if (data.inventoryType && data.inventoryType !== "product") continue;
 

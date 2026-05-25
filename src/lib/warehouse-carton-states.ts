@@ -2,17 +2,37 @@ import type { WarehouseCartonStatus } from "@/types";
 
 /** Whether pickers may allocate this carton (FEFO etc. applied elsewhere). */
 export function isCartonPickable(status: WarehouseCartonStatus): boolean {
-  return status === "available" || status === "reserved";
+  return status === "available" || status === "reserved" || status === "stowed";
+}
+
+/** Carton statuses that represent "in the building" stock (any allocation state). */
+export function isCartonOnHand(status: WarehouseCartonStatus): boolean {
+  return (
+    status === "receiving" ||
+    status === "received" ||
+    status === "stowed_partial" ||
+    status === "stowed" ||
+    status === "available" ||
+    status === "reserved" ||
+    status === "quarantine" ||
+    status === "on_hold" ||
+    status === "damaged"
+  );
 }
 
 const ALLOWED_TRANSITIONS: Record<WarehouseCartonStatus, WarehouseCartonStatus[]> = {
-  receiving: ["available", "quarantine", "damaged", "on_hold", "expired"],
-  available: ["reserved", "on_hold", "quarantine", "damaged", "expired"],
-  quarantine: ["available", "damaged", "on_hold", "expired"],
-  damaged: ["quarantine", "on_hold", "expired"],
-  on_hold: ["available", "quarantine", "damaged", "expired"],
-  reserved: ["available", "on_hold", "expired"],
-  expired: [],
+  receiving: ["received", "available", "quarantine", "damaged", "on_hold", "expired"],
+  received: ["stowed", "stowed_partial", "split", "available", "quarantine", "damaged", "on_hold", "expired"],
+  stowed_partial: ["stowed", "split", "available", "quarantine", "damaged", "on_hold", "expired"],
+  stowed: ["split", "available", "reserved", "quarantine", "damaged", "on_hold", "expired", "closed"],
+  split: ["closed"],
+  available: ["reserved", "on_hold", "quarantine", "damaged", "expired", "closed"],
+  quarantine: ["available", "damaged", "on_hold", "expired", "closed"],
+  damaged: ["quarantine", "on_hold", "expired", "closed"],
+  on_hold: ["available", "quarantine", "damaged", "expired", "closed"],
+  reserved: ["available", "on_hold", "expired", "closed"],
+  expired: ["closed"],
+  closed: [],
 };
 
 export function canTransitionCartonStatus(
@@ -45,10 +65,15 @@ export function isExpiryPast(expiry: string | null | undefined, today = new Date
 
 export const CARTON_STATUS_LABELS: Record<WarehouseCartonStatus, string> = {
   receiving: "Receiving",
+  received: "Received",
+  stowed: "Stowed",
+  stowed_partial: "Stowed (partial)",
+  split: "Split",
   available: "Available",
   quarantine: "Quarantine",
   damaged: "Damaged",
   expired: "Expired",
   on_hold: "On hold",
   reserved: "Reserved",
+  closed: "Closed",
 };

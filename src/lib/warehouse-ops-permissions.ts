@@ -100,8 +100,7 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       title: "Putaway",
       href: "/warehouse-ops/putaway",
       feature: "ops_putaway",
-      description: "Coming in Phase 4",
-      disabled: true,
+      description: "Scan carton → scan bin",
     },
   ];
   return items.filter((item) => hasFeature(userProfile, item.feature));

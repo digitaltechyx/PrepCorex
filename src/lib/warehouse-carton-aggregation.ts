@@ -32,6 +32,9 @@ export type SkuTotalsSummary = {
 
 const COUNTABLE_STATUSES: WarehouseCartonStatus[] = [
   "receiving",
+  "received",
+  "stowed",
+  "stowed_partial",
   "available",
   "quarantine",
   "damaged",

@@ -235,6 +235,13 @@ export function AdminSidebar() {
       requiredFeature: "manage_inventory_admin" as const,
     },
     {
+      title: "Allocate & Search",
+      url: "/admin/dashboard/warehouse-allocate",
+      icon: Boxes,
+      color: "text-emerald-600",
+      requiredFeature: "manage_inventory_admin" as const,
+    },
+    {
       title: "Warehouse Ops",
       url: "/warehouse-ops",
       icon: Package,

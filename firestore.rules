@@ -253,6 +253,11 @@ service cloud.firestore {
         allow read: if signedIn();
         allow write: if isAdminOrSubAdmin() || isWarehouseOperator();
       }
+      match /movementEvents/{eventId} {
+        allow read: if signedIn();
+        allow create: if isAdminOrSubAdmin() || isWarehouseOperator();
+        allow update, delete: if isAdminOrSubAdmin();
+      }
     }
 
     // Carton / pallet ID sequences (Phase 2) — one doc per warehouse

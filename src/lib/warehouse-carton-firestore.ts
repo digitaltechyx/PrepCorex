@@ -19,6 +19,7 @@ import {
 } from "@/lib/warehouse-carton-states";
 import type {
   WarehouseCartonDoc,
+  WarehouseCartonLine,
   WarehouseCartonStatus,
   WarehousePalletDoc,
   WarehousePalletStatus,
@@ -88,6 +89,50 @@ export async function generatePalletCode(warehouseId: string): Promise<string> {
   return `PAL-${year}-${String(seq).padStart(5, "0")}`;
 }
 
+function parseLines(raw: unknown): WarehouseCartonLine[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: WarehouseCartonLine[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const obj = item as Record<string, unknown>;
+    const sku = typeof obj.sku === "string" ? obj.sku : "";
+    if (!sku) continue;
+    out.push({
+      lineId: typeof obj.lineId === "string" && obj.lineId ? obj.lineId : `L${out.length + 1}`,
+      sku,
+      productTitle: obj.productTitle != null ? String(obj.productTitle) : null,
+      quantity: typeof obj.quantity === "number" ? obj.quantity : 0,
+      lot: obj.lot != null ? String(obj.lot) : null,
+      expiry: obj.expiry != null ? String(obj.expiry) : null,
+      condition: obj.condition === "damaged" ? "damaged" : "good",
+      binId: obj.binId != null ? String(obj.binId) : null,
+      allocationStatus:
+        obj.allocationStatus === "allocated" || obj.allocationStatus === "picked"
+          ? (obj.allocationStatus as "allocated" | "picked")
+          : "unallocated",
+      clientId: obj.clientId != null ? String(obj.clientId) : null,
+      inventoryRequestId: obj.inventoryRequestId != null ? String(obj.inventoryRequestId) : null,
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function lineToFirestore(line: WarehouseCartonLine): Record<string, unknown> {
+  return {
+    lineId: line.lineId,
+    sku: line.sku,
+    productTitle: line.productTitle ?? null,
+    quantity: Math.max(0, Math.floor(line.quantity)),
+    lot: line.lot ?? null,
+    expiry: line.expiry ? line.expiry.slice(0, 10) : null,
+    condition: line.condition,
+    binId: line.binId ?? null,
+    allocationStatus: line.allocationStatus ?? "unallocated",
+    clientId: line.clientId ?? null,
+    inventoryRequestId: line.inventoryRequestId ?? null,
+  };
+}
+
 function docToCarton(id: string, data: Record<string, unknown>): WarehouseCartonDoc {
   return {
     id,
@@ -103,6 +148,15 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     productTitle: data.productTitle != null ? String(data.productTitle) : null,
     inventoryRequestId: data.inventoryRequestId != null ? String(data.inventoryRequestId) : null,
     barcode: String(data.barcode ?? ""),
+    lines: parseLines(data.lines),
+    isMixed: data.isMixed === true,
+    trackingNumber: data.trackingNumber != null ? String(data.trackingNumber) : null,
+    carrier: data.carrier != null ? String(data.carrier) : null,
+    notes: data.notes != null ? String(data.notes) : null,
+    photoUrl: data.photoUrl != null ? String(data.photoUrl) : null,
+    receivedBy: data.receivedBy != null ? String(data.receivedBy) : null,
+    stagingArea: data.stagingArea != null ? String(data.stagingArea) : null,
+    receivedAt: data.receivedAt as WarehouseCartonDoc["receivedAt"],
     createdAt: data.createdAt as WarehouseCartonDoc["createdAt"],
     updatedAt: data.updatedAt as WarehouseCartonDoc["updatedAt"],
   };
@@ -115,6 +169,13 @@ function docToPallet(id: string, data: Record<string, unknown>): WarehousePallet
     status: (data.status as WarehousePalletStatus) ?? "receiving",
     binId: data.binId != null ? String(data.binId) : null,
     barcode: String(data.barcode ?? ""),
+    trackingNumber: data.trackingNumber != null ? String(data.trackingNumber) : null,
+    carrier: data.carrier != null ? String(data.carrier) : null,
+    notes: data.notes != null ? String(data.notes) : null,
+    photoUrl: data.photoUrl != null ? String(data.photoUrl) : null,
+    receivedBy: data.receivedBy != null ? String(data.receivedBy) : null,
+    stagingArea: data.stagingArea != null ? String(data.stagingArea) : null,
+    receivedAt: data.receivedAt as WarehousePalletDoc["receivedAt"],
     createdAt: data.createdAt as WarehousePalletDoc["createdAt"],
     updatedAt: data.updatedAt as WarehousePalletDoc["updatedAt"],
   };
@@ -153,6 +214,14 @@ export async function createWarehouseCarton(input: {
   productTitle?: string | null;
   inventoryRequestId?: string | null;
   cartonCode?: string;
+  lines?: WarehouseCartonLine[];
+  isMixed?: boolean;
+  trackingNumber?: string | null;
+  carrier?: string | null;
+  notes?: string | null;
+  photoUrl?: string | null;
+  receivedBy?: string | null;
+  stagingArea?: string | null;
 }): Promise<string> {
   const warehouseId = input.warehouseId;
   const cartonCode = input.cartonCode?.trim() || (await generateCartonCode(warehouseId));
@@ -174,6 +243,8 @@ export async function createWarehouseCarton(input: {
     quantity,
   });
 
+  const linesPayload = input.lines && input.lines.length > 0 ? input.lines.map(lineToFirestore) : null;
+
   const ref = await addDoc(warehouseCartonsCollectionRef(warehouseId), {
     cartonCode,
     sku,
@@ -187,6 +258,15 @@ export async function createWarehouseCarton(input: {
     productTitle: input.productTitle?.trim() || null,
     inventoryRequestId: input.inventoryRequestId?.trim() || null,
     barcode,
+    ...(linesPayload ? { lines: linesPayload } : {}),
+    ...(input.isMixed != null ? { isMixed: !!input.isMixed } : {}),
+    ...(input.trackingNumber !== undefined ? { trackingNumber: input.trackingNumber?.trim() || null } : {}),
+    ...(input.carrier !== undefined ? { carrier: input.carrier?.trim() || null } : {}),
+    ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+    ...(input.photoUrl !== undefined ? { photoUrl: input.photoUrl?.trim() || null } : {}),
+    ...(input.receivedBy !== undefined ? { receivedBy: input.receivedBy?.trim() || null } : {}),
+    ...(input.stagingArea !== undefined ? { stagingArea: input.stagingArea?.trim() || null } : {}),
+    ...(status === "received" ? { receivedAt: serverTimestamp() } : {}),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -198,6 +278,12 @@ export async function createWarehousePallet(input: {
   status?: WarehousePalletStatus;
   binId?: string | null;
   palletCode?: string;
+  trackingNumber?: string | null;
+  carrier?: string | null;
+  notes?: string | null;
+  photoUrl?: string | null;
+  receivedBy?: string | null;
+  stagingArea?: string | null;
 }): Promise<string> {
   const warehouseId = input.warehouseId;
   const palletCode = input.palletCode?.trim() || (await generatePalletCode(warehouseId));
@@ -207,6 +293,13 @@ export async function createWarehousePallet(input: {
     status: input.status ?? "receiving",
     binId: input.binId?.trim() || null,
     barcode,
+    ...(input.trackingNumber !== undefined ? { trackingNumber: input.trackingNumber?.trim() || null } : {}),
+    ...(input.carrier !== undefined ? { carrier: input.carrier?.trim() || null } : {}),
+    ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+    ...(input.photoUrl !== undefined ? { photoUrl: input.photoUrl?.trim() || null } : {}),
+    ...(input.receivedBy !== undefined ? { receivedBy: input.receivedBy?.trim() || null } : {}),
+    ...(input.stagingArea !== undefined ? { stagingArea: input.stagingArea?.trim() || null } : {}),
+    ...(input.status === "receiving" ? { receivedAt: serverTimestamp() } : {}),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -301,6 +394,147 @@ export async function linkCartonsToPallet(
     });
   }
   await batch.commit();
+}
+
+/**
+ * Unified receiving batch. Optionally wraps cartons in a pallet, supports
+ * single-SKU or mixed-line cartons, and can produce N identical "copies" of
+ * each carton config in one click. Status defaults to "received".
+ */
+export async function createReceiveBatch(input: {
+  warehouseId: string;
+  receivedBy?: string | null;
+  stagingArea?: string | null;
+  /** When provided, all cartons in the batch are wrapped in a new pallet. */
+  pallet?: {
+    trackingNumber?: string | null;
+    carrier?: string | null;
+    notes?: string | null;
+    photoUrl?: string | null;
+  };
+  cartons: Array<{
+    /** How many physical copies of this carton config to create. */
+    copies: number;
+    lines: Array<{
+      sku: string;
+      productTitle?: string | null;
+      quantity: number;
+      lot?: string | null;
+      expiry?: string | null;
+      /** When true, this line is recorded as damaged → quarantine candidate. */
+      damaged?: boolean;
+    }>;
+    trackingNumber?: string | null;
+    carrier?: string | null;
+    notes?: string | null;
+    photoUrl?: string | null;
+  }>;
+}): Promise<{ palletId: string | null; cartonIds: string[] }> {
+  if (!input.cartons || input.cartons.length === 0) {
+    throw new Error("At least one carton is required.");
+  }
+
+  let palletId: string | null = null;
+  if (input.pallet) {
+    palletId = await createWarehousePallet({
+      warehouseId: input.warehouseId,
+      status: "receiving",
+      trackingNumber: input.pallet.trackingNumber ?? null,
+      carrier: input.pallet.carrier ?? null,
+      notes: input.pallet.notes ?? null,
+      photoUrl: input.pallet.photoUrl ?? null,
+      receivedBy: input.receivedBy ?? null,
+      stagingArea: input.stagingArea ?? null,
+    });
+  }
+
+  const cartonIds: string[] = [];
+  for (const cfg of input.cartons) {
+    const copies = Math.max(1, Math.floor(cfg.copies || 1));
+    const validLines = cfg.lines.filter(
+      (l) => l.sku.trim() && Math.max(0, Math.floor(l.quantity)) >= 1
+    );
+    if (validLines.length === 0) {
+      throw new Error("Each carton must have at least one line with SKU and quantity ≥ 1.");
+    }
+
+    for (let copy = 0; copy < copies; copy++) {
+      const lines: WarehouseCartonLine[] = validLines.map((l, i) => ({
+        lineId: `L${i + 1}`,
+        sku: l.sku.trim(),
+        productTitle: l.productTitle?.trim() || null,
+        quantity: Math.max(1, Math.floor(l.quantity)),
+        lot: l.lot?.trim() || null,
+        expiry: l.expiry?.trim().slice(0, 10) || null,
+        condition: l.damaged ? "damaged" : "good",
+        binId: null,
+        allocationStatus: "unallocated",
+        clientId: null,
+        inventoryRequestId: null,
+      }));
+
+      const totalQty = lines.reduce((s, l) => s + l.quantity, 0);
+      const isMixed = new Set(lines.map((l) => l.sku)).size > 1;
+      const rootSku = isMixed ? "MIXED" : lines[0].sku;
+      const rootLot = isMixed ? null : lines[0].lot ?? null;
+      const rootExpiry = isMixed ? null : lines[0].expiry ?? null;
+      const rootTitle = isMixed
+        ? `Mixed — ${new Set(lines.map((l) => l.sku)).size} SKUs`
+        : lines[0].productTitle ?? null;
+
+      const cartonId = await createWarehouseCarton({
+        warehouseId: input.warehouseId,
+        sku: rootSku,
+        quantity: totalQty,
+        lot: rootLot,
+        expiry: rootExpiry,
+        productTitle: rootTitle,
+        status: "received",
+        palletId,
+        lines,
+        isMixed,
+        trackingNumber: cfg.trackingNumber ?? input.pallet?.trackingNumber ?? null,
+        carrier: cfg.carrier ?? input.pallet?.carrier ?? null,
+        notes: cfg.notes ?? null,
+        photoUrl: cfg.photoUrl ?? null,
+        receivedBy: input.receivedBy ?? null,
+        stagingArea: input.stagingArea ?? null,
+      });
+      cartonIds.push(cartonId);
+    }
+  }
+
+  return { palletId, cartonIds };
+}
+
+/**
+ * Update lines of a carton (used by Putaway to mark `binId` per line and roll
+ * the carton status to stowed / stowed_partial / split).
+ */
+export async function updateCartonLines(
+  warehouseId: string,
+  cartonId: string,
+  lines: WarehouseCartonLine[],
+  options?: { status?: WarehouseCartonStatus; binId?: string | null }
+): Promise<void> {
+  const ref = warehouseCartonDocRef(warehouseId, cartonId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Carton not found.");
+  const current = docToCarton(snap.id, snap.data() as Record<string, unknown>);
+
+  const next: Partial<Record<string, unknown>> = {
+    lines: lines.map(lineToFirestore),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (options?.status && options.status !== current.status) {
+    assertCartonStatusTransition(current.status, options.status);
+    next.status = options.status;
+  }
+  if (options?.binId !== undefined) {
+    next.binId = options.binId ? String(options.binId) : null;
+  }
+  await updateDoc(ref, next);
 }
 
 export { cartonBarcodeFromDoc };

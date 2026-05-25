@@ -13,6 +13,11 @@
         { "fieldPath": "shop", "order": "ASCENDING" },
         { "fieldPath": "shopifyInventoryItemId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "inventoryRequests",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
     }
   ],
   "fieldOverrides": []

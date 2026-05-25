@@ -3,15 +3,35 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { WarehouseOpsPutaway } from "@/components/warehouse-ops/warehouse-ops-putaway";
+import { useWarehouseOps } from "@/components/warehouse-ops/warehouse-ops-provider";
+import { hasFeature } from "@/lib/permissions";
+import { useAuth } from "@/hooks/use-auth";
 
-export default function WarehouseOpsPutawayPlaceholderPage() {
-  return (
-    <div className="max-w-xl">
-      <WarehouseOpsHeader title="Putaway" />
-      <p className="text-muted-foreground mb-4">Phase 4 — scan carton, then bin.</p>
-      <Button variant="outline" asChild>
-        <Link href="/warehouse-ops">Back to home</Link>
-      </Button>
-    </div>
-  );
+export default function WarehouseOpsPutawayPage() {
+  const { userProfile } = useAuth();
+  const { selectedWarehouse } = useWarehouseOps();
+
+  if (!hasFeature(userProfile, "ops_putaway")) {
+    return (
+      <div>
+        <WarehouseOpsHeader title="Putaway" />
+        <p className="text-muted-foreground">You do not have putaway access.</p>
+        <Button variant="outline" className="mt-4" asChild>
+          <Link href="/warehouse-ops">Back</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  if (!selectedWarehouse) {
+    return (
+      <div>
+        <WarehouseOpsHeader title="Putaway" />
+        <p className="text-muted-foreground">Select a warehouse to continue.</p>
+      </div>
+    );
+  }
+
+  return <WarehouseOpsPutaway warehouse={selectedWarehouse} />;
 }

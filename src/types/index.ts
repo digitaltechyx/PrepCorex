@@ -94,19 +94,58 @@ export type WarehouseCartonStatus =
   | "damaged"
   | "expired"
   | "on_hold"
-  | "reserved";
+  | "reserved"
+  /** Receive-first model: carton has been received at dock, awaiting putaway/allocation. */
+  | "received"
+  /** All lines have been put away into bins. */
+  | "stowed"
+  /** Some lines stowed, some still in receiving staging. */
+  | "stowed_partial"
+  /** Mixed carton has been split — its lines now live in different bins. The carton record is closed. */
+  | "split"
+  /** Carton is fully consumed (lines picked) or terminally closed. */
+  | "closed";
 
 export type WarehousePalletStatus = "receiving" | "available" | "on_hold" | "dispatched";
+
+/**
+ * One SKU line inside a received carton. Single-SKU cartons have exactly one line.
+ * Mixed cartons have N lines. Damaged units are recorded as their own line with
+ * `condition = "damaged"` so they can be routed to quarantine independently.
+ */
+export interface WarehouseCartonLine {
+  /** Stable id inside the carton (used by Putaway / Allocate). */
+  lineId: string;
+  sku: string;
+  productTitle?: string | null;
+  quantity: number;
+  lot?: string | null;
+  expiry?: string | null;
+  /** "good" lines flow to normal SKU bins; "damaged" goes to quarantine. */
+  condition: "good" | "damaged";
+  /** Set once this line has been put away. null = still in receiving staging. */
+  binId?: string | null;
+  /** Allocation state for this specific line. */
+  allocationStatus?: "unallocated" | "allocated" | "picked";
+  /** When admin allocates this line to a client/request. */
+  clientId?: string | null;
+  inventoryRequestId?: string | null;
+}
 
 /** Physical carton (WHAT) — `warehouses/{id}/cartons/{cartonId}`. */
 export interface WarehouseCartonDoc {
   id: string;
   /** Human + QR id, e.g. CTN-2026-00042 */
   cartonCode: string;
+  /**
+   * Single-SKU root field (kept for backward compat + label rendering).
+   * For mixed cartons, this is the string "MIXED" and `lines` is the source of truth.
+   */
   sku: string;
   lot?: string | null;
   /** ISO date YYYY-MM-DD when expiry-managed */
   expiry?: string | null;
+  /** Total good+damaged units across all lines. */
   quantity: number;
   status: WarehouseCartonStatus;
   /** PrepCorex client (3PL) when stock is client-owned */
@@ -120,6 +159,28 @@ export interface WarehouseCartonDoc {
   inventoryRequestId?: string | null;
   /** Encoded on printed label QR */
   barcode: string;
+  /**
+   * Multi-SKU support. Always populated for new cartons (length 1 for single-SKU,
+   * length N for mixed). Old single-SKU cartons may be missing this — readers should
+   * fall back to root `sku`/`quantity`.
+   */
+  lines?: WarehouseCartonLine[];
+  /** True when `lines.length > 1` (more than one distinct SKU). */
+  isMixed?: boolean;
+  /** Carrier tracking number on the inbound box (for admin reconciliation later). */
+  trackingNumber?: string | null;
+  /** UPS / FedEx / USPS / DHL / Other */
+  carrier?: string | null;
+  /** Free-text notes captured at the dock. */
+  notes?: string | null;
+  /** Uploaded photo of damage / packaging issue. */
+  photoUrl?: string | null;
+  /** UID of operator who clicked Receive. */
+  receivedBy?: string | null;
+  /** Receiving staging area code (e.g. RCV-STAGE-A). */
+  stagingArea?: string | null;
+  /** When the carton was received (separate from createdAt for clarity). */
+  receivedAt?: { seconds: number; nanoseconds: number } | Date;
   createdAt?: { seconds: number; nanoseconds: number } | Date;
   updatedAt?: { seconds: number; nanoseconds: number } | Date;
 }
@@ -131,6 +192,14 @@ export interface WarehousePalletDoc {
   status: WarehousePalletStatus;
   binId?: string | null;
   barcode: string;
+  /** Carrier tracking number captured at receiving. */
+  trackingNumber?: string | null;
+  carrier?: string | null;
+  notes?: string | null;
+  photoUrl?: string | null;
+  receivedBy?: string | null;
+  stagingArea?: string | null;
+  receivedAt?: { seconds: number; nanoseconds: number } | Date;
   createdAt?: { seconds: number; nanoseconds: number } | Date;
   updatedAt?: { seconds: number; nanoseconds: number } | Date;
 }
