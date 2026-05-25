@@ -17,6 +17,7 @@ import {
   assertCartonStatusTransition,
   isExpiryPast,
 } from "@/lib/warehouse-carton-states";
+import { resolveReceiveLot } from "@/lib/warehouse-receive-lot";
 import type {
   WarehouseCartonDoc,
   WarehouseCartonLine,
@@ -158,6 +159,11 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     receivedBy: data.receivedBy != null ? String(data.receivedBy) : null,
     stagingArea: data.stagingArea != null ? String(data.stagingArea) : null,
     receivedAt: data.receivedAt as WarehouseCartonDoc["receivedAt"],
+    voidedAt: data.voidedAt as WarehouseCartonDoc["voidedAt"],
+    voidedBy: data.voidedBy != null ? String(data.voidedBy) : null,
+    voidReason: data.voidReason != null ? String(data.voidReason) : null,
+    correctedAt: data.correctedAt as WarehouseCartonDoc["correctedAt"],
+    correctedBy: data.correctedBy != null ? String(data.correctedBy) : null,
     createdAt: data.createdAt as WarehouseCartonDoc["createdAt"],
     updatedAt: data.updatedAt as WarehouseCartonDoc["updatedAt"],
   };
@@ -464,19 +470,24 @@ export async function createReceiveBatch(input: {
     }
 
     for (let copy = 0; copy < copies; copy++) {
-      const lines: WarehouseCartonLine[] = validLines.map((l, i) => ({
+      const lines: WarehouseCartonLine[] = validLines.map((l, i) => {
+        const sku = l.sku.trim();
+        const expiry = l.expiry?.trim().slice(0, 10) || null;
+        const lot = resolveReceiveLot({ sku, expiry, lot: l.lot });
+        return {
         lineId: `L${i + 1}`,
-        sku: l.sku.trim(),
+        sku,
         productTitle: l.productTitle?.trim() || null,
         quantity: Math.max(1, Math.floor(l.quantity)),
-        lot: l.lot?.trim() || null,
-        expiry: l.expiry?.trim().slice(0, 10) || null,
+        lot,
+        expiry,
         condition: l.damaged ? "damaged" : "good",
         binId: null,
         allocationStatus: "unallocated",
         clientId: null,
         inventoryRequestId: null,
-      }));
+      };
+      });
 
       const totalQty = lines.reduce((s, l) => s + l.quantity, 0);
       const isMixed = new Set(lines.map((l) => l.sku)).size > 1;

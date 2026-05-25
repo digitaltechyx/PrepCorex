@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,15 +49,42 @@ import {
   PackageOpen,
   Boxes,
   ScanLine,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { detectCarrier } from "@/lib/carrier-detect";
+import {
+  describeReceiveLotHint,
+  describeReceiveLotPattern,
+} from "@/lib/warehouse-receive-lot";
 import { ScanLookupPopover } from "@/components/warehouse-ops/scan-lookup-popover";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import {
   QuickScanDialog,
   type QuickScanLine,
 } from "@/components/warehouse-ops/quick-scan-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WarehouseOpsReceiveCorrection } from "@/components/warehouse-ops/warehouse-ops-receive-correction";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { isOpsSupervisor } from "@/lib/warehouse-ops-permissions";
+import {
+  batchHasPutaway,
+  clearStoredLastBatch,
+  readStoredLastBatch,
+  voidWarehouseCartons,
+  writeStoredLastBatch,
+  type StoredReceiveFormSnapshot,
+} from "@/lib/warehouse-receive-corrections";
 
 type ReceiveType = "carton" | "pallet" | "loose";
 
@@ -104,16 +131,25 @@ function newCarton(): CartonDraft {
 }
 
 export function WarehouseOpsReceiving({ warehouse }: Props) {
+  const [tab, setTab] = useState<"receive" | "correct">("receive");
   const [type, setType] = useState<ReceiveType | null>(null);
+  const [formRestore, setFormRestore] = useState<StoredReceiveFormSnapshot | null>(null);
+  const [restoreKey, setRestoreKey] = useState(0);
 
   if (!type) {
     return (
       <div className="max-w-3xl space-y-6">
         <WarehouseOpsHeader title="Receiving" />
-        <p className="text-sm text-muted-foreground">
-          What are you receiving? Pick a type — each one has its own simple form.
-        </p>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "receive" | "correct")}>
+          <TabsList>
+            <TabsTrigger value="receive">Receive</TabsTrigger>
+            <TabsTrigger value="correct">Correct receive</TabsTrigger>
+          </TabsList>
+          <TabsContent value="receive" className="mt-4 space-y-4">
+            <p className="text-sm text-muted-foreground">
+              What are you receiving? Pick a type — each one has its own simple form.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
           <TypePickerCard
             color="orange"
             icon={<Package className="h-8 w-8" />}
@@ -135,12 +171,44 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
             description="No carton. Loose units in a bag, tote, or just on the dock."
             onClick={() => setType("loose")}
           />
-        </div>
+            </div>
+          </TabsContent>
+          <TabsContent value="correct" className="mt-4">
+            <WarehouseOpsReceiveCorrection warehouse={warehouse} />
+          </TabsContent>
+        </Tabs>
       </div>
     );
   }
 
-  return <ReceiveForm warehouse={warehouse} type={type} onBack={() => setType(null)} />;
+  return (
+    <div className="max-w-4xl space-y-4">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "receive" | "correct")}>
+        <TabsList>
+          <TabsTrigger value="receive">Receive</TabsTrigger>
+          <TabsTrigger value="correct">Correct receive</TabsTrigger>
+        </TabsList>
+        <TabsContent value="receive" className="mt-4">
+          <ReceiveForm
+            key={`receive-${type}-${restoreKey}`}
+            warehouse={warehouse}
+            type={type}
+            onBack={() => setType(null)}
+            initialSnapshot={formRestore}
+            onSnapshotConsumed={() => setFormRestore(null)}
+            onRestoreForm={(snap) => {
+              setFormRestore(snap);
+              setType(snap.type);
+              setRestoreKey((k) => k + 1);
+            }}
+          />
+        </TabsContent>
+        <TabsContent value="correct" className="mt-4">
+          <WarehouseOpsReceiveCorrection warehouse={warehouse} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
 }
 
 function TypePickerCard({
@@ -183,22 +251,39 @@ function ReceiveForm({
   warehouse,
   type,
   onBack,
+  initialSnapshot,
+  onSnapshotConsumed,
+  onRestoreForm,
 }: {
   warehouse: WarehouseDoc;
   type: ReceiveType;
   onBack: () => void;
+  initialSnapshot?: StoredReceiveFormSnapshot | null;
+  onSnapshotConsumed?: () => void;
+  onRestoreForm?: (snap: StoredReceiveFormSnapshot) => void;
 }) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
+  const supervisor = isOpsSupervisor(userProfile);
   const operatorName = userProfile?.name || userProfile?.email || user?.uid || null;
+  const operatorId = user?.uid ?? null;
 
-  const [trackingNumber, setTrackingNumber] = useState("");
-  const [carrier, setCarrier] = useState<string>("");
-  const [carrierAutoDetected, setCarrierAutoDetected] = useState(false);
-  const [notes, setNotes] = useState("");
-  const [cartons, setCartons] = useState<CartonDraft[]>([newCarton()]);
+  const [trackingNumber, setTrackingNumber] = useState(initialSnapshot?.trackingNumber ?? "");
+  const [carrier, setCarrier] = useState<string>(initialSnapshot?.carrier ?? "");
+  const [carrierAutoDetected, setCarrierAutoDetected] = useState(
+    initialSnapshot?.carrierAutoDetected ?? false
+  );
+  const [notes, setNotes] = useState(initialSnapshot?.notes ?? "");
+  const [cartons, setCartons] = useState<CartonDraft[]>(
+    initialSnapshot?.cartons?.length ? initialSnapshot.cartons : [newCarton()]
+  );
   const [saving, setSaving] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   const [quickScanCartonId, setQuickScanCartonId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialSnapshot) onSnapshotConsumed?.();
+  }, [initialSnapshot, onSnapshotConsumed]);
 
   function handleTrackingChange(value: string) {
     setTrackingNumber(value);
@@ -213,8 +298,28 @@ function ReceiveForm({
   }
   const [lastBatch, setLastBatch] = useState<{
     palletCode: string | null;
+    cartonIds: string[];
     cartons: WarehouseCartonDoc[];
   } | null>(null);
+
+  useEffect(() => {
+    const stored = readStoredLastBatch(warehouse.id);
+    if (!stored?.cartonIds?.length) return;
+    void listWarehouseCartons(warehouse.id).then((all) => {
+      const cartons = stored.cartonIds
+        .map((id) => all.find((c) => c.id === id))
+        .filter((c): c is WarehouseCartonDoc => !!c && c.status !== "voided");
+      if (cartons.length === 0) {
+        clearStoredLastBatch(warehouse.id);
+        return;
+      }
+      setLastBatch({
+        palletCode: stored.palletCode,
+        cartonIds: stored.cartonIds,
+        cartons,
+      });
+    });
+  }, [warehouse.id]);
 
   // Loose mode only ever has a single "carton" (a virtual container for the loose lines).
   // Copies are not shown for loose. Hide copies for pallet too — keep it simple.
@@ -430,7 +535,26 @@ function ReceiveForm({
         downloadUint8ArrayAsFile(palletPdf, `${createdPallet.palletCode}.pdf`);
       }
 
-      setLastBatch({ palletCode: createdPallet?.palletCode ?? null, cartons: created });
+      const formSnapshot: StoredReceiveFormSnapshot = {
+        type,
+        trackingNumber,
+        carrier,
+        carrierAutoDetected,
+        notes,
+        cartons,
+      };
+      writeStoredLastBatch(warehouse.id, {
+        cartonIds,
+        palletId: palletId ?? null,
+        palletCode: createdPallet?.palletCode ?? null,
+        formSnapshot,
+        savedAt: Date.now(),
+      });
+      setLastBatch({
+        palletCode: createdPallet?.palletCode ?? null,
+        cartonIds,
+        cartons: created,
+      });
 
       toast({
         title: type === "loose" ? "Loose stock received" : "Received",
@@ -447,6 +571,61 @@ function ReceiveForm({
       setSaving(false);
     }
   }
+
+  async function handleUndoLastBatch() {
+    if (!lastBatch) return;
+    const stored = readStoredLastBatch(warehouse.id);
+    if (batchHasPutaway(lastBatch.cartons) && !supervisor) {
+      toast({
+        title: "Cannot undo",
+        description: "One or more cartons were already put away. Use Correct receive or ask a supervisor.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setUndoing(true);
+    try {
+      const res = await voidWarehouseCartons({
+        warehouseId: warehouse.id,
+        cartonIds: lastBatch.cartonIds,
+        reason: "Undo last receive batch",
+        operatorId,
+        supervisorOverride: supervisor,
+      });
+      if (res.voidedIds.length === 0) {
+        const msg = res.blocked.map((b) => b.reason).join(" ") || "Could not void batch.";
+        throw new Error(msg);
+      }
+      clearStoredLastBatch(warehouse.id);
+      setLastBatch(null);
+      if (stored?.formSnapshot && onRestoreForm) {
+        onRestoreForm(stored.formSnapshot);
+        toast({
+          title: "Batch undone",
+          description: "Labels voided. Your form was restored — fix and receive again.",
+        });
+      } else {
+        toast({
+          title: "Batch undone",
+          description: `${res.voidedIds.length} carton(s) voided.`,
+        });
+      }
+    } catch (e) {
+      toast({
+        title: "Undo failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setUndoing(false);
+    }
+  }
+
+  const canUndoLastBatch =
+    lastBatch &&
+    lastBatch.cartons.length > 0 &&
+    lastBatch.cartons.every((c) => c.status !== "voided") &&
+    (!batchHasPutaway(lastBatch.cartons) || supervisor);
 
   const titleByType: Record<ReceiveType, string> = {
     carton: "Receive cartons",
@@ -702,10 +881,11 @@ function ReceiveForm({
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs">Lot (optional)</Label>
+                          <Label className="text-xs">Lot (required)</Label>
                           <Input
                             value={line.lot}
                             onChange={(e) => updateLine(c.id, line.id, { lot: e.target.value })}
+                            placeholder="Or leave blank to auto-generate"
                           />
                         </div>
                         <div className="space-y-1">
@@ -717,6 +897,11 @@ function ReceiveForm({
                           />
                         </div>
                       </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Lot: enter your own, or leave blank —{" "}
+                        <span className="font-mono">{describeReceiveLotPattern()}</span>.{" "}
+                        {describeReceiveLotHint()}
+                      </p>
                       {good + dmg > 0 ? (
                         <p className="text-[10px] text-muted-foreground tabular-nums">
                           Line total: {good + dmg} ({good} good
@@ -848,7 +1033,44 @@ function ReceiveForm({
                 </div>
               ))}
             </div>
-            <div className="flex gap-2 pt-2">
+            {batchHasPutaway(lastBatch.cartons) && !supervisor ? (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                Putaway started on this batch — undo is disabled. Use Correct receive or a supervisor.
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-2 pt-2">
+              {canUndoLastBatch ? (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm" disabled={undoing}>
+                      {undoing ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4 mr-1" />
+                      )}
+                      Undo last batch
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Undo this receive batch?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Voids {lastBatch.cartons.length} carton label
+                        {lastBatch.cartons.length === 1 ? "" : "s"} and restores your last form so you can fix and receive again.
+                        {supervisor && batchHasPutaway(lastBatch.cartons)
+                          ? " Supervisor override: putaway assignments on these records will be cleared."
+                          : ""}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => void handleUndoLastBatch()}>
+                        Undo batch
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : null}
               <Button variant="outline" size="sm" asChild>
                 <Link href="/warehouse-ops/putaway">
                   Continue to putaway

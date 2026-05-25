@@ -10,7 +10,11 @@ export const OPS_FEATURES_CONFIG: { value: UserFeature; label: string; descripti
   { value: "ops_pick", label: "Pick", description: "Outbound picking (future)" },
   { value: "ops_pack", label: "Pack", description: "Pack and verify (future)" },
   { value: "ops_count", label: "Cycle count", description: "Inventory counts (future)" },
-  { value: "ops_supervisor", label: "Supervisor overrides", description: "Approve lot/expiry blocks and exceptions" },
+  {
+    value: "ops_supervisor",
+    label: "Supervisor overrides",
+    description: "Void/edit receives after putaway; undo restricted batches",
+  },
 ];
 
 export const OPS_FEATURE_PRESETS: { id: string; label: string; features: UserFeature[] }[] = [

@@ -1,0 +1,548 @@
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { isOpsSupervisor } from "@/lib/warehouse-ops-permissions";
+import { findCartonByCode } from "@/lib/warehouse-putaway";
+import {
+  canEditReceivedCarton,
+  canVoidCarton,
+  cartonHasPutaway,
+  cartonToLineDrafts,
+  correctReceivedCarton,
+  lineDraftsToReceiveInput,
+  voidWarehouseCartons,
+} from "@/lib/warehouse-receive-corrections";
+import { CARTON_STATUS_LABELS } from "@/lib/warehouse-carton-states";
+import {
+  buildWarehouseCartonLabelsPdf,
+  downloadUint8ArrayAsFile,
+} from "@/lib/warehouse-carton-label-pdf";
+import { ScanLookupPopover } from "@/components/warehouse-ops/scan-lookup-popover";
+import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
+import type { WarehouseCartonDoc, WarehouseDoc } from "@/types";
+import {
+  AlertTriangle,
+  Loader2,
+  Plus,
+  Printer,
+  ScanLine,
+  Shield,
+  Trash2,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  describeReceiveLotHint,
+  describeReceiveLotPattern,
+} from "@/lib/warehouse-receive-lot";
+
+type LineDraft = {
+  id: string;
+  sku: string;
+  productTitle: string;
+  goodQty: string;
+  damagedQty: string;
+  lot: string;
+  expiry: string;
+};
+
+function newLine(): LineDraft {
+  return {
+    id: `ln_${Math.random().toString(36).slice(2, 9)}`,
+    sku: "",
+    productTitle: "",
+    goodQty: "1",
+    damagedQty: "0",
+    lot: "",
+    expiry: "",
+  };
+}
+
+type Props = {
+  warehouse: WarehouseDoc;
+};
+
+export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
+  const { toast } = useToast();
+  const { user, userProfile } = useAuth();
+  const supervisor = isOpsSupervisor(userProfile);
+  const operatorId = user?.uid ?? null;
+
+  const [scan, setScan] = useState("");
+  const [resolving, setResolving] = useState(false);
+  const [carton, setCarton] = useState<WarehouseCartonDoc | null>(null);
+  const [lines, setLines] = useState<LineDraft[]>([newLine()]);
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [carrier, setCarrier] = useState("");
+  const [notes, setNotes] = useState("");
+  const [voidReason, setVoidReason] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const editable = carton ? canEditReceivedCarton(carton, supervisor) : false;
+  const voidable = carton ? canVoidCarton(carton, supervisor) : false;
+  const hasPutaway = carton ? cartonHasPutaway(carton) : false;
+
+  function loadCartonIntoForm(c: WarehouseCartonDoc) {
+    setCarton(c);
+    setLines(cartonToLineDrafts(c));
+    setTrackingNumber(c.trackingNumber ?? "");
+    setCarrier(c.carrier ?? "");
+    setNotes(c.notes ?? "");
+    setVoidReason("");
+    setCorrectionReason("");
+  }
+
+  async function handleLookup(raw?: string) {
+    const code = (raw ?? scan).trim();
+    if (!code) return;
+    if (raw != null) setScan(raw);
+    setResolving(true);
+    try {
+      const found = await findCartonByCode(warehouse.id, code);
+      if (!found) {
+        toast({
+          title: "Not found",
+          description: "No carton matches that code in this warehouse.",
+          variant: "destructive",
+        });
+        setCarton(null);
+        return;
+      }
+      if (found.status === "voided") {
+        toast({
+          title: "Carton voided",
+          description: `${found.cartonCode} was voided and cannot be edited.`,
+          variant: "destructive",
+        });
+        setCarton(null);
+        return;
+      }
+      loadCartonIntoForm(found);
+    } catch (e) {
+      toast({
+        title: "Lookup failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setResolving(false);
+    }
+  }
+
+  function updateLine(lineId: string, patch: Partial<LineDraft>) {
+    setLines((prev) => prev.map((l) => (l.id === lineId ? { ...l, ...patch } : l)));
+  }
+
+  async function handleSave() {
+    if (!carton) return;
+    for (const l of lines) {
+      if (!l.sku.trim()) {
+        toast({ title: "Missing SKU", variant: "destructive" });
+        return;
+      }
+      const good = Math.max(0, parseInt(l.goodQty, 10) || 0);
+      const dmg = Math.max(0, parseInt(l.damagedQty, 10) || 0);
+      if (good + dmg < 1) {
+        toast({
+          title: "Quantity required",
+          description: `SKU ${l.sku} needs at least 1 unit.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    if (hasPutaway && supervisor && !correctionReason.trim()) {
+      toast({
+        title: "Reason required",
+        description: "Supervisors must enter a correction reason after putaway.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const updated = await correctReceivedCarton({
+        warehouseId: warehouse.id,
+        cartonId: carton.id,
+        lines: lineDraftsToReceiveInput(lines),
+        trackingNumber: trackingNumber.trim() || null,
+        carrier: carrier.trim() || null,
+        notes: notes.trim() || null,
+        operatorId,
+        supervisorOverride: supervisor,
+        correctionReason: correctionReason.trim() || null,
+      });
+      loadCartonIntoForm(updated);
+      toast({
+        title: "Carton updated",
+        description: hasPutaway && supervisor
+          ? `${updated.cartonCode} reset to receiving — re-putaway required.`
+          : `${updated.cartonCode} lines saved.`,
+      });
+    } catch (e) {
+      toast({
+        title: "Save failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleVoid() {
+    if (!carton) return;
+    setSaving(true);
+    try {
+      const res = await voidWarehouseCartons({
+        warehouseId: warehouse.id,
+        cartonIds: [carton.id],
+        reason: voidReason.trim() || "Voided at dock",
+        operatorId,
+        supervisorOverride: supervisor,
+      });
+      if (res.voidedIds.length === 0) {
+        const b = res.blocked[0];
+        throw new Error(b?.reason ?? "Could not void carton.");
+      }
+      toast({
+        title: "Carton voided",
+        description: `${carton.cartonCode} is no longer on hand.`,
+      });
+      setCarton(null);
+      setScan("");
+      setLines([newLine()]);
+    } catch (e) {
+      toast({
+        title: "Void failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleReprint() {
+    if (!carton) return;
+    setSaving(true);
+    try {
+      const pdf = await buildWarehouseCartonLabelsPdf({
+        title: `${warehouse.code} — ${carton.cartonCode}`,
+        cartons: [carton],
+      });
+      downloadUint8ArrayAsFile(pdf, `${carton.cartonCode}-reprint.pdf`);
+    } catch (e) {
+      toast({
+        title: "Print failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="max-w-4xl space-y-4">
+      {supervisor ? (
+        <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-sm text-amber-900">
+          <Shield className="h-4 w-4 shrink-0" />
+          Supervisor mode — you can void or edit cartons even after putaway (re-putaway may be required).
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Scan a carton label (CTN-…) to fix lines or void a mistake. Changes are only allowed before putaway unless you have supervisor access.
+        </p>
+      )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <ScanLine className="h-4 w-4" />
+            Scan carton
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Enter CTN code or scan the carton QR label.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex gap-2">
+          <Input
+            value={scan}
+            onChange={(e) => setScan(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void handleLookup()}
+            placeholder="CTN-2026-00042"
+            className="font-mono"
+          />
+          <ScanCameraButton onScan={(v) => void handleLookup(v)} />
+          <Button type="button" onClick={() => void handleLookup()} disabled={resolving}>
+            {resolving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Load"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {carton ? (
+        <>
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="text-base font-mono">{carton.cartonCode}</CardTitle>
+                <Badge variant="outline">{CARTON_STATUS_LABELS[carton.status]}</Badge>
+              </div>
+              {hasPutaway ? (
+                <CardDescription className="text-xs flex items-center gap-1 text-amber-800">
+                  <AlertTriangle className="h-3 w-3" />
+                  Putaway started — {supervisor ? "supervisor can still correct" : "editing blocked"}
+                </CardDescription>
+              ) : null}
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Tracking #</Label>
+                  <Input
+                    value={trackingNumber}
+                    onChange={(e) => setTrackingNumber(e.target.value)}
+                    disabled={!editable}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Carrier</Label>
+                  <Input
+                    value={carrier}
+                    onChange={(e) => setCarrier(e.target.value)}
+                    disabled={!editable}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Notes</Label>
+                <Textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                  disabled={!editable}
+                />
+              </div>
+              {hasPutaway && supervisor ? (
+                <div className="space-y-1">
+                  <Label className="text-xs">Correction reason (required)</Label>
+                  <Input
+                    value={correctionReason}
+                    onChange={(e) => setCorrectionReason(e.target.value)}
+                    placeholder="Why are you changing this after putaway?"
+                  />
+                </div>
+              ) : null}
+
+              <p className="text-[10px] text-muted-foreground">
+                Lot required — blank lot auto-generates:{" "}
+                <span className="font-mono">{describeReceiveLotPattern()}</span>.{" "}
+                {describeReceiveLotHint()}
+              </p>
+
+              {lines.map((line, idx) => {
+                const dmg = Math.max(0, parseInt(line.damagedQty, 10) || 0);
+                return (
+                  <div
+                    key={line.id}
+                    className={cn(
+                      "rounded-md border p-3 space-y-2",
+                      dmg > 0 && "border-red-200 bg-red-50/40"
+                    )}
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Line {idx + 1}</span>
+                      {lines.length > 1 && editable ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setLines((prev) =>
+                              prev.length > 1 ? prev.filter((l) => l.id !== line.id) : prev
+                            )
+                          }
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">SKU</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            value={line.sku}
+                            onChange={(e) => updateLine(line.id, { sku: e.target.value })}
+                            disabled={!editable}
+                          />
+                          {editable ? (
+                            <ScanLookupPopover
+                              onPick={(m) =>
+                                updateLine(line.id, {
+                                  sku: m.sku,
+                                  productTitle: m.productName,
+                                })
+                              }
+                              onAcceptRaw={(raw) => updateLine(line.id, { sku: raw })}
+                            />
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Title</Label>
+                        <Input
+                          value={line.productTitle}
+                          onChange={(e) =>
+                            updateLine(line.id, { productTitle: e.target.value })
+                          }
+                          disabled={!editable}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Good qty</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={line.goodQty}
+                          onChange={(e) => updateLine(line.id, { goodQty: e.target.value })}
+                          disabled={!editable}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Damaged qty</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={line.damagedQty}
+                          onChange={(e) => updateLine(line.id, { damagedQty: e.target.value })}
+                          disabled={!editable}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Lot (required)</Label>
+                        <Input
+                          value={line.lot}
+                          onChange={(e) => updateLine(line.id, { lot: e.target.value })}
+                          disabled={!editable}
+                          placeholder="Or blank → auto-generate"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Expiry (optional)</Label>
+                        <Input
+                          type="date"
+                          value={line.expiry}
+                          onChange={(e) => updateLine(line.id, { expiry: e.target.value })}
+                          disabled={!editable}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {editable ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLines((prev) => [...prev, newLine()])}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add line
+                </Button>
+              ) : null}
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                {editable ? (
+                  <Button type="button" onClick={() => void handleSave()} disabled={saving}>
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                    Save changes
+                  </Button>
+                ) : null}
+                <Button type="button" variant="outline" onClick={() => void handleReprint()} disabled={saving}>
+                  <Printer className="h-4 w-4 mr-1" />
+                  Reprint label
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {voidable ? (
+            <Card className="border-red-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base text-red-800">Void this carton</CardTitle>
+                <CardDescription className="text-xs">
+                  Removes it from inventory. Use when the label should not be put away.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Reason</Label>
+                  <Input
+                    value={voidReason}
+                    onChange={(e) => setVoidReason(e.target.value)}
+                    placeholder="Wrong SKU, duplicate label, etc."
+                  />
+                </div>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button type="button" variant="destructive" disabled={saving}>
+                      Void {carton.cartonCode}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Void carton?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {carton.cartonCode} will be marked voided
+                        {hasPutaway && supervisor
+                          ? " and cleared from its bin assignments on record"
+                          : ""}
+                        . This cannot be undone from the dock app.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => void handleVoid()}>
+                        Void carton
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </CardContent>
+            </Card>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}

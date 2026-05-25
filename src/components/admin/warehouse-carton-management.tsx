@@ -45,12 +45,18 @@ import { CARTON_STATUS_LABELS } from "@/lib/warehouse-carton-states";
 
 const STATUS_OPTIONS: WarehouseCartonStatus[] = [
   "receiving",
+  "received",
+  "stowed",
+  "stowed_partial",
+  "split",
   "available",
   "quarantine",
   "damaged",
   "expired",
   "on_hold",
   "reserved",
+  "voided",
+  "closed",
 ];
 
 type Props = {

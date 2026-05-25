@@ -132,10 +132,13 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         return;
       }
       const c = res.carton;
-      if (c.status === "split" || c.status === "closed") {
+      if (c.status === "split" || c.status === "closed" || c.status === "voided") {
         toast({
-          title: "Already finalized",
-          description: `Carton ${c.cartonCode} is ${c.status}.`,
+          title: "Not available for putaway",
+          description:
+            c.status === "voided"
+              ? `Carton ${c.cartonCode} was voided. Scan a different label or correct receive.`
+              : `Carton ${c.cartonCode} is ${c.status}.`,
           variant: "destructive",
         });
         return;

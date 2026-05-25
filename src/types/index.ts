@@ -104,7 +104,9 @@ export type WarehouseCartonStatus =
   /** Mixed carton has been split — its lines now live in different bins. The carton record is closed. */
   | "split"
   /** Carton is fully consumed (lines picked) or terminally closed. */
-  | "closed";
+  | "closed"
+  /** Receive was reversed — not on hand, not putaway-eligible. */
+  | "voided";
 
 export type WarehousePalletStatus = "receiving" | "available" | "on_hold" | "dispatched";
 
@@ -183,6 +185,13 @@ export interface WarehouseCartonDoc {
   stagingArea?: string | null;
   /** When the carton was received (separate from createdAt for clarity). */
   receivedAt?: { seconds: number; nanoseconds: number } | Date;
+  /** When a receive was voided (undo / correction). */
+  voidedAt?: { seconds: number; nanoseconds: number } | Date;
+  voidedBy?: string | null;
+  voidReason?: string | null;
+  /** Last receive correction (supervisor or pre-putaway edit). */
+  correctedAt?: { seconds: number; nanoseconds: number } | Date;
+  correctedBy?: string | null;
   createdAt?: { seconds: number; nanoseconds: number } | Date;
   updatedAt?: { seconds: number; nanoseconds: number } | Date;
 }

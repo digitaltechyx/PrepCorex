@@ -21,18 +21,19 @@ export function isCartonOnHand(status: WarehouseCartonStatus): boolean {
 }
 
 const ALLOWED_TRANSITIONS: Record<WarehouseCartonStatus, WarehouseCartonStatus[]> = {
-  receiving: ["received", "available", "quarantine", "damaged", "on_hold", "expired"],
-  received: ["stowed", "stowed_partial", "split", "available", "quarantine", "damaged", "on_hold", "expired"],
-  stowed_partial: ["stowed", "split", "available", "quarantine", "damaged", "on_hold", "expired"],
-  stowed: ["split", "available", "reserved", "quarantine", "damaged", "on_hold", "expired", "closed"],
-  split: ["closed"],
-  available: ["reserved", "on_hold", "quarantine", "damaged", "expired", "closed"],
-  quarantine: ["available", "damaged", "on_hold", "expired", "closed"],
-  damaged: ["quarantine", "on_hold", "expired", "closed"],
-  on_hold: ["available", "quarantine", "damaged", "expired", "closed"],
-  reserved: ["available", "on_hold", "expired", "closed"],
-  expired: ["closed"],
+  receiving: ["received", "available", "quarantine", "damaged", "on_hold", "expired", "voided"],
+  received: ["stowed", "stowed_partial", "split", "available", "quarantine", "damaged", "on_hold", "expired", "voided"],
+  stowed_partial: ["stowed", "split", "received", "available", "quarantine", "damaged", "on_hold", "expired", "voided"],
+  stowed: ["split", "received", "available", "reserved", "quarantine", "damaged", "on_hold", "expired", "closed", "voided"],
+  split: ["closed", "received", "voided"],
+  available: ["reserved", "on_hold", "quarantine", "damaged", "expired", "closed", "voided"],
+  quarantine: ["available", "damaged", "on_hold", "expired", "closed", "voided"],
+  damaged: ["quarantine", "on_hold", "expired", "closed", "voided"],
+  on_hold: ["available", "quarantine", "damaged", "expired", "closed", "voided"],
+  reserved: ["available", "on_hold", "expired", "closed", "voided"],
+  expired: ["closed", "voided"],
   closed: [],
+  voided: [],
 };
 
 export function canTransitionCartonStatus(
@@ -76,4 +77,5 @@ export const CARTON_STATUS_LABELS: Record<WarehouseCartonStatus, string> = {
   on_hold: "On hold",
   reserved: "Reserved",
   closed: "Closed",
+  voided: "Voided",
 };
