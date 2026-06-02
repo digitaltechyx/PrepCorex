@@ -1,3 +1,4 @@
+import { Timestamp } from "firebase-admin/firestore";
 import { getAdminDb, getAdminFieldValue } from "@/lib/firebase-admin";
 import { detectCarrier } from "@/lib/carrier-detect";
 import { INBOUND_TRACKING_REFRESH_MS, isInboundTrackingStale } from "@/lib/inbound-tracking";
@@ -5,6 +6,21 @@ import { fetchShippoTracking, parseShippoTrackingStatus } from "@/lib/shippo-tra
 import type { InboundTrackingEntry, InventoryRequest } from "@/types";
 
 const INDEX_COLLECTION = "inboundTrackingIndex";
+
+/** Firestore rejects FieldValue.serverTimestamp() inside array elements. */
+function trackingNow(): Timestamp {
+  return Timestamp.now();
+}
+
+function serializeTrackingsForFirestore(
+  trackings: InboundTrackingEntry[]
+): InboundTrackingEntry[] {
+  return trackings.map((entry) => ({
+    ...entry,
+    addedAt: entry.addedAt ?? trackingNow(),
+    lastCheckedAt: entry.lastCheckedAt ?? undefined,
+  }));
+}
 
 function indexDocId(userId: string, requestId: string, entryId: string) {
   return `${userId}__${requestId}__${entryId}`;
@@ -60,7 +76,7 @@ async function upsertIndexDoc(
       entryId: entry.id,
       trackingNumber: entry.trackingNumber,
       carrier: entry.carrier ?? null,
-      lastCheckedAt: entry.lastCheckedAt ?? FieldValue.serverTimestamp(),
+      lastCheckedAt: entry.lastCheckedAt ?? trackingNow(),
       lastStatus: entry.lastStatus ?? null,
       lastStatusLabel: entry.lastStatusLabel ?? null,
       updatedAt: FieldValue.serverTimestamp(),
@@ -76,15 +92,16 @@ async function persistTrackings(
 ) {
   const db = getAdminDb();
   const FieldValue = getAdminFieldValue();
+  const serialized = serializeTrackingsForFirestore(trackings);
   const requestRef = db.doc(`users/${userId}/inventoryRequests/${requestId}`);
-  await requestRef.set({ inboundTrackings: trackings }, { merge: true });
+  await requestRef.set({ inboundTrackings: serialized }, { merge: true });
 
   const inv = await findInventoryBySourceRequestId(userId, requestId);
   if (inv) {
-    await inv.ref.set({ inboundTrackings: trackings }, { merge: true });
+    await inv.ref.set({ inboundTrackings: serialized }, { merge: true });
   }
 
-  for (const entry of trackings) {
+  for (const entry of serialized) {
     await upsertIndexDoc(userId, requestId, entry);
   }
 }
@@ -92,14 +109,13 @@ async function persistTrackings(
 export async function refreshOneInboundTrackingEntry(
   entry: InboundTrackingEntry
 ): Promise<InboundTrackingEntry> {
-  const FieldValue = getAdminFieldValue();
   const result = await fetchShippoTracking(entry.trackingNumber, entry.carrier);
-  const now = FieldValue.serverTimestamp();
+  const now = trackingNow();
 
   if (!result.ok) {
     return {
       ...entry,
-      lastCheckedAt: now as InboundTrackingEntry["lastCheckedAt"],
+      lastCheckedAt: now,
       lastError: result.error || "Failed to refresh",
     };
   }
@@ -107,7 +123,7 @@ export async function refreshOneInboundTrackingEntry(
   const parsed = parseShippoTrackingStatus(result.tracking);
   return {
     ...entry,
-    lastCheckedAt: now as InboundTrackingEntry["lastCheckedAt"],
+    lastCheckedAt: now,
     lastStatus: parsed.status,
     lastStatusLabel: parsed.statusLabel,
     lastStatusDetails: parsed.statusDetails ?? null,
@@ -123,7 +139,6 @@ export async function addInboundTracking(input: {
   addedBy: string;
 }): Promise<InboundTrackingEntry[]> {
   const db = getAdminDb();
-  const FieldValue = getAdminFieldValue();
   const requestRef = db.doc(`users/${input.userId}/inventoryRequests/${input.requestId}`);
   const snap = await requestRef.get();
   if (!snap.exists) throw new Error("Inventory request not found.");
@@ -150,7 +165,7 @@ export async function addInboundTracking(input: {
     id: entryId,
     trackingNumber: tn,
     carrier,
-    addedAt: FieldValue.serverTimestamp() as InboundTrackingEntry["addedAt"],
+    addedAt: trackingNow(),
     addedBy: input.addedBy,
   };
 
