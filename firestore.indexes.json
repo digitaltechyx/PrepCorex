@@ -13,6 +13,26 @@
         { "fieldPath": "shop", "order": "ASCENDING" },
         { "fieldPath": "shopifyInventoryItemId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "inventoryRequests",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "inventory",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "sku", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "inventory",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "retailIdentifier", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "inboundTrackingIndex",
+      "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "lastCheckedAt", "order": "ASCENDING" }]
     }
   ],
   "fieldOverrides": []

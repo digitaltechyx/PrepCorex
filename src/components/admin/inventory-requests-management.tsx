@@ -341,7 +341,7 @@ export function InventoryRequestsManagement({
           const newQuantity = currentQuantity + finalQuantity;
           
           // Update existing product with new quantity
-          transaction.update(existingProductRef!, {
+          const restockUpdate: Record<string, unknown> = {
             quantity: newQuantity,
             requestedQuantity: requestedQty,
             receivedQuantity: finalQuantity,
@@ -351,7 +351,11 @@ export function InventoryRequestsManagement({
             remarks: remarksToSave,
             imageUrls: finalImageUrls,
             sourceRequestId: request.id,
-          });
+          };
+          if (Array.isArray((request as any).inboundTrackings) && (request as any).inboundTrackings.length > 0) {
+            restockUpdate.inboundTrackings = (request as any).inboundTrackings;
+          }
+          transaction.update(existingProductRef!, restockUpdate);
         } else {
           // For new product/box/pallet OR restock with product not found: Create new inventory item
           const inventoryRef = collection(db, `users/${userId}/inventory`);
@@ -375,6 +379,9 @@ export function InventoryRequestsManagement({
             remarks: remarksToSave,
             imageUrls: finalImageUrls,
           };
+          if (Array.isArray((request as any).inboundTrackings) && (request as any).inboundTrackings.length > 0) {
+            finalData.inboundTrackings = (request as any).inboundTrackings;
+          }
           
           // Only include SKU for product type
           if (request.inventoryType === "product" && finalSku) {
