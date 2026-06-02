@@ -2,9 +2,16 @@
   "firestore": {
     "rules": "firestore.rules"
   },
-  "functions": {
-    "source": "functions"
-  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default"
+    },
+    {
+      "source": "functions-inbound-cron",
+      "codebase": "inbound-cron"
+    }
+  ],
   "storage": {
     "rules": "storage.rules"
   }
