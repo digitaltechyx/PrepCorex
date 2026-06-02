@@ -1,0 +1,11 @@
+{
+  "name": "psf-inbound-tracking-cron",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-functions": "^7.0.5"
+  }
+}
