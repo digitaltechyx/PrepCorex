@@ -28,6 +28,11 @@
       "collectionGroup": "inventory",
       "queryScope": "COLLECTION_GROUP",
       "fields": [{ "fieldPath": "retailIdentifier", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "inboundTrackingIndex",
+      "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "lastCheckedAt", "order": "ASCENDING" }]
     }
   ],
   "fieldOverrides": []

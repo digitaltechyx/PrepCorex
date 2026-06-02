@@ -22,7 +22,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2 } from "lucide-react";
+import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History } from "lucide-react";
+import { InventoryHistoryDialog } from "@/components/inventory/inventory-history-dialog";
+import { AddInboundTrackingDialog } from "@/components/inventory/add-inbound-tracking-dialog";
+import { InboundTrackingDetailDialog } from "@/components/inventory/inbound-tracking-detail-dialog";
+import { InboundTrackingStatusCell } from "@/components/inventory/inbound-tracking-status-cell";
+import type { InboundTrackingEntry } from "@/types";
 import { format } from "date-fns";
 import { AddInventoryRequestForm } from "./add-inventory-request-form";
 import { useCollection } from "@/hooks/use-collection";
@@ -228,7 +233,7 @@ export function InventoryTable({
     adminActions && (adminActions.onRestock || adminActions.onDispose || adminActions.onEdit || adminActions.onDelete)
   );
   const searchParams = useSearchParams();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
   const effectiveUserId = ownerUserId || userProfile?.uid;
   const effectiveUserName = ownerUserName || userProfile?.name || "Unknown User";
   const [searchTerm, setSearchTerm] = useState("");
@@ -258,12 +263,78 @@ export function InventoryTable({
   const [editProductName, setEditProductName] = useState("");
   const [editQuantity, setEditQuantity] = useState(0);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [historyItem, setHistoryItem] = useState<InventoryItem | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [trackingDialog, setTrackingDialog] = useState<{
+    requestId: string;
+    productName: string;
+  } | null>(null);
+  const [trackingDetail, setTrackingDetail] = useState<{
+    productName: string;
+    trackings: InboundTrackingEntry[];
+  } | null>(null);
   const { toast } = useToast();
+
+  function canAddInboundTracking(
+    item: {
+      isRequest?: boolean;
+      requestData?: InventoryRequest;
+      sourceRequestId?: string;
+    },
+    requests: InventoryRequest[]
+  ): boolean {
+    if (item.isRequest && item.requestData) {
+      const s = item.requestData.status;
+      return s === "pending" || s === "approved";
+    }
+    const sourceId = item.sourceRequestId;
+    if (!sourceId) return false;
+    const req = requests.find((r) => r.id === sourceId);
+    return req?.status === "pending" || req?.status === "approved";
+  }
+
+  function openHistory(item: InventoryItem) {
+    setHistoryItem(item);
+    setHistoryOpen(true);
+  }
 
   // Fetch inventory requests
   const { data: inventoryRequests } = useCollection<InventoryRequest>(
     effectiveUserId ? `users/${effectiveUserId}/inventoryRequests` : ""
   );
+
+  // Refresh stale carrier statuses (> 6 hours) when inventory loads
+  useEffect(() => {
+    if (!user || !effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/inbound-tracking/refresh-stale", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ userId: effectiveUserId }),
+        });
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          if (data.refreshedRequests > 0) {
+            toast({
+              title: "Tracking updated",
+              description: data.message,
+            });
+          }
+        }
+      } catch {
+        /* non-blocking */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, effectiveUserId, toast]);
 
   const pendingCount = inventoryRequests.filter(req => req.status === "pending").length;
   const rejectedCount = inventoryRequests.filter(req => req.status === "rejected").length;
@@ -394,7 +465,8 @@ export function InventoryTable({
         imageUrls: getImageUrls(req as any),
         isRequest: true,
         requestId: req.id,
-        requestData: req, // Store full request data for editing
+        requestData: req,
+        inboundTrackings: (req as InventoryRequest & { inboundTrackings?: InboundTrackingEntry[] }).inboundTrackings,
       }));
 
     // Convert rejected requests to display format
@@ -464,6 +536,10 @@ export function InventoryTable({
         color: (item as any).color || (matchingRequest as any)?.color,
         size: (item as any).size || (matchingRequest as any)?.size,
         productEntryMode: (item as any).productEntryMode || (matchingRequest as any)?.productEntryMode,
+        inboundTrackings:
+          (item as InventoryItem).inboundTrackings ??
+          (matchingRequest as { inboundTrackings?: InboundTrackingEntry[] } | undefined)?.inboundTrackings,
+        sourceRequestId: (item as any).sourceRequestId,
       };
     });
 
@@ -684,6 +760,38 @@ export function InventoryTable({
                     {item.status === "Pending" ? "Pending Approval" :
                      item.status === "Rejected" ? "Rejected" : item.status}
                   </Badge>
+                  {item.status !== "Rejected" && (
+                    <InboundTrackingStatusCell
+                      trackings={(item as any).inboundTrackings}
+                      canAddTracking={canAddInboundTracking(item as any, inventoryRequests)}
+                      onAddTracking={() => {
+                        const requestId =
+                          (item as any).requestId || (item as any).sourceRequestId;
+                        if (!requestId || !effectiveUserId) return;
+                        setTrackingDialog({
+                          requestId,
+                          productName: item.productName,
+                        });
+                      }}
+                      onViewTracking={() => {
+                        setTrackingDetail({
+                          productName: item.productName,
+                          trackings: (item as any).inboundTrackings ?? [],
+                        });
+                      }}
+                    />
+                  )}
+                  {!(item as any).isRequest && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => openHistory(item as InventoryItem)}
+                    >
+                      <History className="h-3 w-3 mr-1" />
+                      History
+                    </Button>
+                  )}
                   {hasAdminActions && !(item as any).isRequest && (
                     <div className="flex flex-wrap items-center gap-1 ml-auto">
                       {adminActions?.onRestock && (
@@ -753,6 +861,8 @@ export function InventoryTable({
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">Receiving Date</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden lg:table-cell">Remarks</TableHead>
                 <TableHead className="text-xs sm:text-sm">Status</TableHead>
+                <TableHead className="text-xs sm:text-sm text-center w-[88px]">Tracking</TableHead>
+                <TableHead className="text-xs sm:text-sm text-center w-[72px]">History</TableHead>
                 {hasAdminActions && (
                   <TableHead className="text-xs sm:text-sm text-right">Actions</TableHead>
                 )}
@@ -873,6 +983,47 @@ export function InventoryTable({
                          item.status === "Rejected" ? "Rejected" : item.status}
                       </Badge>
                     </TableCell>
+                    <TableCell className="text-center whitespace-nowrap">
+                      {item.status !== "Rejected" ? (
+                        <InboundTrackingStatusCell
+                          trackings={(item as any).inboundTrackings}
+                          canAddTracking={canAddInboundTracking(item as any, inventoryRequests)}
+                          onAddTracking={() => {
+                            const requestId =
+                              (item as any).requestId ||
+                              (item as any).sourceRequestId;
+                            if (!requestId || !effectiveUserId) return;
+                            setTrackingDialog({
+                              requestId,
+                              productName: item.productName,
+                            });
+                          }}
+                          onViewTracking={() => {
+                            setTrackingDetail({
+                              productName: item.productName,
+                              trackings: (item as any).inboundTrackings ?? [],
+                            });
+                          }}
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center whitespace-nowrap">
+                      {!(item as any).isRequest ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          title="View stock history"
+                          onClick={() => openHistory(item as InventoryItem)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     {hasAdminActions && (
                       <TableCell className="whitespace-nowrap text-right">
                         {!(item as any).isRequest ? (
@@ -932,7 +1083,7 @@ export function InventoryTable({
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={hasAdminActions ? 10 : 9} className="text-center py-8">
+                  <TableCell colSpan={hasAdminActions ? 11 : 10} className="text-center py-8">
                     <div className="text-xs sm:text-sm text-gray-500">
                       {combinedData.length === 0 ? "No inventory items or requests found." : "No items match your search criteria."}
                     </div>
@@ -1114,6 +1265,36 @@ export function InventoryTable({
           )}
         </DialogContent>
       </Dialog>
+
+      <InventoryHistoryDialog
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        item={historyItem}
+        userId={effectiveUserId}
+        ownerLabel={effectiveUserName}
+      />
+
+      {effectiveUserId && trackingDialog ? (
+        <AddInboundTrackingDialog
+          open={!!trackingDialog}
+          onOpenChange={(open) => {
+            if (!open) setTrackingDialog(null);
+          }}
+          userId={effectiveUserId}
+          requestId={trackingDialog.requestId}
+          productName={trackingDialog.productName}
+          onAdded={() => setTrackingDialog(null)}
+        />
+      ) : null}
+
+      <InboundTrackingDetailDialog
+        open={!!trackingDetail}
+        onOpenChange={(open) => {
+          if (!open) setTrackingDetail(null);
+        }}
+        productName={trackingDetail?.productName ?? ""}
+        trackings={trackingDetail?.trackings}
+      />
     </Card>
   );
 }

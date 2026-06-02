@@ -284,6 +284,11 @@ service cloud.firestore {
       allow read, write: if signedIn();
     }
 
+    // Inbound tracking index — server/cron only (Admin SDK)
+    match /inboundTrackingIndex/{docId} {
+      allow read, write: if false;
+    }
+
     // ---- ADMIN OVERRIDE ----
     // Ensures admin/sub_admin never sees "Missing or insufficient permissions"
     // for top-level admin-managed collections not explicitly listed above.

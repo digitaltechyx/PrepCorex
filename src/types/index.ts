@@ -328,6 +328,8 @@ export interface InventoryItem {
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
   imageUrl?: string;
   imageUrls?: string[];
+  /** Copied from approved inbound request; refreshed on same 6-hour schedule. */
+  inboundTrackings?: InboundTrackingEntry[];
   /** Internal warehouse location (admin-facing operations). */
   locationId?: string;
   /** Internal per-location quantity allocation (admin-facing, hidden from user UI). */
@@ -389,6 +391,22 @@ export interface InventoryRequest {
   remarks?: string;
   imageUrl?: string;
   imageUrls?: string[];
+  /** Carrier tracking numbers client adds while inbound is pending or in transit to warehouse. */
+  inboundTrackings?: InboundTrackingEntry[];
+}
+
+/** Inbound shipment tracking (client → warehouse). Status refreshed every 6 hours via Shippo. */
+export interface InboundTrackingEntry {
+  id: string;
+  trackingNumber: string;
+  carrier?: string | null;
+  addedAt?: { seconds: number; nanoseconds: number } | string | Date;
+  addedBy?: string | null;
+  lastStatus?: string | null;
+  lastStatusLabel?: string | null;
+  lastStatusDetails?: string | null;
+  lastCheckedAt?: { seconds: number; nanoseconds: number } | string | Date;
+  lastError?: string | null;
 }
 
 export interface ShipmentProductItem {

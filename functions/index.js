@@ -532,3 +532,52 @@ exports.sendInvoiceReminders = functions.pubsub
 
   return null;
 });
+
+/**
+ * Refresh inbound Shippo tracking statuses every 6 hours (stale > 6h).
+ * Calls Next.js POST /api/inbound-tracking/cron (same CRON_SECRET as hosting).
+ *
+ * Configure (pick one):
+ *   firebase functions:config:set app.url="https://dev.prepservicesfba.com" cron.secret="YOUR_CRON_SECRET"
+ *   OR set Cloud Functions env: APP_URL, CRON_SECRET
+ */
+exports.inboundTrackingRefreshCron = functions.pubsub
+  .schedule("every 6 hours")
+  .onRun(async () => {
+    let configAppUrl = "";
+    let configCronSecret = "";
+    try {
+      const cfg = functions.config();
+      configAppUrl = (cfg.app && cfg.app.url) || "";
+      configCronSecret = (cfg.cron && cfg.cron.secret) || "";
+    } catch (_) {
+      /* config unavailable (e.g. local without .runtimeconfig.json) */
+    }
+    const baseUrl =
+      process.env.APP_URL ||
+      configAppUrl ||
+      "https://dev.prepservicesfba.com";
+    const secret =
+      process.env.CRON_SECRET ||
+      process.env.INBOUND_TRACKING_CRON_SECRET ||
+      configCronSecret;
+    if (!secret) {
+      console.warn(
+        "[inboundTrackingRefreshCron] Missing secret. Set CRON_SECRET (hosting + function) or firebase functions:config:set cron.secret=..."
+      );
+      return null;
+    }
+    const url = `${String(baseUrl).replace(/\/$/, "")}/api/inbound-tracking/cron?secret=${encodeURIComponent(secret)}`;
+    try {
+      const res = await fetch(url, { method: "POST" });
+      const body = await res.text();
+      if (!res.ok) {
+        console.error("[inboundTrackingRefreshCron] failed", res.status, body);
+      } else {
+        console.log("[inboundTrackingRefreshCron] ok", body);
+      }
+    } catch (err) {
+      console.error("[inboundTrackingRefreshCron] error", err);
+    }
+    return null;
+  });
