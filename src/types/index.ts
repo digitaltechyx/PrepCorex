@@ -182,6 +182,8 @@ export interface WarehouseCartonDoc {
   isLoose?: boolean;
   /** crossdock = closed carton/pallet; unpackaged = units without master carton. */
   receiveMode?: WarehouseReceiveMode | null;
+  /** True when received closed — no SKU manifest until putaway opens it. */
+  isClosedCrossdock?: boolean;
   /** Chosen at putaway (forward / stage closed / open into bins). */
   putawayDisposition?: WarehousePutawayDisposition | null;
   /** Carrier tracking number on the inbound box (for admin reconciliation later). */

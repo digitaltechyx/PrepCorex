@@ -42,6 +42,7 @@ import {
   type OpenInventoryRequest,
   type UnallocatedLine,
 } from "@/lib/warehouse-allocate";
+import { isCrossdockClosedSku } from "@/lib/warehouse-crossdock";
 import {
   Loader2,
   CheckCircle2,
@@ -132,8 +133,11 @@ export function WarehouseAllocate({ warehouse }: Props) {
   const filteredUnallocated = useMemo(() => {
     const skuQ = skuFilter.trim().toUpperCase();
     return unallocated.filter((u) => {
-      if (skuQ && !u.line.sku.toUpperCase().includes(skuQ)) return false;
-      return true;
+      if (!skuQ) return true;
+      const inSku = u.line.sku.toUpperCase().includes(skuQ);
+      const inCode = u.cartonCode.toUpperCase().includes(skuQ);
+      if (isCrossdockClosedSku(u.line.sku)) return inCode || skuQ === "CLOSED";
+      return inSku;
     });
   }, [unallocated, skuFilter]);
 
@@ -153,6 +157,7 @@ export function WarehouseAllocate({ warehouse }: Props) {
     const target = (selectedRequest.sku ?? "").toUpperCase();
     if (!target) return set;
     for (const u of unallocated) {
+      if (isCrossdockClosedSku(u.line.sku)) continue;
       if (u.line.sku.toUpperCase() === target) set.add(u.cartonId + ":" + u.line.lineId);
     }
     return set;
@@ -390,7 +395,8 @@ export function WarehouseAllocate({ warehouse }: Props) {
             </CardTitle>
             <CardDescription className="text-xs">
               Each row is one SKU line inside a carton (or pallet). Match lines to requests — not
-              the whole carton at once unless it is single-SKU.
+              the whole carton at once unless it is single-SKU. Closed cross-dock cartons are
+              assigned to a client via Restock; SKUs are captured at putaway.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 max-h-[60vh] overflow-y-auto">
@@ -399,15 +405,20 @@ export function WarehouseAllocate({ warehouse }: Props) {
             ) : (
               filteredUnallocated.map((u) => {
                 const key = u.cartonId + ":" + u.line.lineId;
+                const closedCrossdock = isCrossdockClosedSku(u.line.sku);
                 const isMatch =
-                  selectedRequest && skuSuggestionsForSelectedRequest.has(key);
+                  !closedCrossdock &&
+                  selectedRequest &&
+                  skuSuggestionsForSelectedRequest.has(key);
                 const bucket = agingBucket(u.ageDays);
                 return (
                   <div
                     key={key}
                     className={cn(
                       "rounded-md border px-3 py-2 space-y-2",
-                      isMatch
+                      closedCrossdock
+                        ? "border-indigo-200 bg-indigo-50/40 dark:bg-indigo-950/20"
+                        : isMatch
                         ? "border-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/30"
                         : u.line.condition === "damaged"
                         ? "border-red-200 bg-red-50/30"
@@ -416,8 +427,19 @@ export function WarehouseAllocate({ warehouse }: Props) {
                   >
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono text-sm font-semibold">{u.line.sku}</span>
-                        <span className="text-sm">× {u.line.quantity}</span>
+                        {closedCrossdock ? (
+                          <>
+                            <Badge variant="outline" className="bg-indigo-100 border-indigo-300 text-indigo-900">
+                              Closed carton
+                            </Badge>
+                            <span className="font-mono text-sm font-semibold">{u.cartonCode}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-mono text-sm font-semibold">{u.line.sku}</span>
+                            <span className="text-sm">× {u.line.quantity}</span>
+                          </>
+                        )}
                         {u.line.condition === "damaged" ? (
                           <Badge variant="outline" className="bg-red-100 border-red-300 text-red-800">
                             DMG
@@ -438,12 +460,18 @@ export function WarehouseAllocate({ warehouse }: Props) {
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {u.cartonCode}
-                      {u.line.lot ? ` · Lot ${u.line.lot}` : ""}
-                      {u.line.expiry ? ` · Exp ${u.line.expiry.slice(0, 10)}` : ""}
+                      {closedCrossdock ? (
+                        <>Contents not opened — assign client, then putaway decides placement.</>
+                      ) : (
+                        <>
+                          {u.cartonCode}
+                          {u.line.lot ? ` · Lot ${u.line.lot}` : ""}
+                          {u.line.expiry ? ` · Exp ${u.line.expiry.slice(0, 10)}` : ""}
+                        </>
+                      )}
                     </p>
                     <div className="flex flex-wrap gap-2 pt-1">
-                      {selectedRequest ? (
+                      {!closedCrossdock && selectedRequest ? (
                         <Button
                           size="sm"
                           onClick={() => handleAllocateClick(u, selectedRequest)}
@@ -452,11 +480,11 @@ export function WarehouseAllocate({ warehouse }: Props) {
                           <CheckCircle2 className="h-3 w-3 mr-1" />
                           Allocate to {selectedRequest.clientDisplayName.split(" ")[0]}
                         </Button>
-                      ) : (
+                      ) : !closedCrossdock ? (
                         <span className="text-xs text-muted-foreground">
                           Select a request on the left to allocate.
                         </span>
-                      )}
+                      ) : null}
                       <Button
                         size="sm"
                         variant="outline"

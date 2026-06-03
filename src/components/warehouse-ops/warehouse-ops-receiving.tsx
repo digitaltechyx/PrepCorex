@@ -132,6 +132,10 @@ function newCarton(): CartonDraft {
   return { id: uid("ctn"), copies: "1", lines: [newLine()] };
 }
 
+function newCrossdockCarton(): CartonDraft {
+  return { id: uid("ctn"), copies: "1", lines: [] };
+}
+
 export function WarehouseOpsReceiving({ warehouse }: Props) {
   const [tab, setTab] = useState<"receive" | "correct">("receive");
   const [phase, setPhase] = useState<ReceivePhase>("hub");
@@ -293,6 +297,7 @@ function ReceiveForm({
   const supervisor = isOpsSupervisor(userProfile);
   const operatorName = userProfile?.name || userProfile?.email || user?.uid || null;
   const operatorId = user?.uid ?? null;
+  const isMinimalCrossdock = receiveMode === "crossdock" && type !== "loose";
 
   const [trackingNumber, setTrackingNumber] = useState(initialSnapshot?.trackingNumber ?? "");
   const [carrier, setCarrier] = useState<string>(initialSnapshot?.carrier ?? "");
@@ -300,9 +305,10 @@ function ReceiveForm({
     initialSnapshot?.carrierAutoDetected ?? false
   );
   const [notes, setNotes] = useState(initialSnapshot?.notes ?? "");
-  const [cartons, setCartons] = useState<CartonDraft[]>(
-    initialSnapshot?.cartons?.length ? initialSnapshot.cartons : [newCarton()]
-  );
+  const [cartons, setCartons] = useState<CartonDraft[]>(() => {
+    if (initialSnapshot?.cartons?.length) return initialSnapshot.cartons;
+    return isMinimalCrossdock ? [newCrossdockCarton()] : [newCarton()];
+  });
   const [saving, setSaving] = useState(false);
   const [undoing, setUndoing] = useState(false);
   const [quickScanCartonId, setQuickScanCartonId] = useState<string | null>(null);
@@ -353,12 +359,16 @@ function ReceiveForm({
   const showMultipleCartons = type === "carton" || type === "pallet";
   const showShipmentDetails = true; // visible for all 3, but compact
 
-  const totalLineCount = cartons.reduce((s, c) => s + c.lines.length, 0);
+  const totalLineCount = isMinimalCrossdock
+    ? 0
+    : cartons.reduce((s, c) => s + c.lines.length, 0);
   const totalCartonCount = cartons.reduce(
     (s, c) => s + Math.max(1, parseInt(c.copies, 10) || 1),
     0
   );
-  const totalUnitCount = cartons.reduce((sum, c) => {
+  const totalUnitCount = isMinimalCrossdock
+    ? totalCartonCount
+    : cartons.reduce((sum, c) => {
     const copies = Math.max(1, parseInt(c.copies, 10) || 1);
     const cartonUnits = c.lines.reduce((u, l) => {
       const good = Math.max(0, parseInt(l.goodQty, 10) || 0);
@@ -401,7 +411,7 @@ function ReceiveForm({
     );
   }
   function addCarton() {
-    setCartons((prev) => [...prev, newCarton()]);
+    setCartons((prev) => [...prev, isMinimalCrossdock ? newCrossdockCarton() : newCarton()]);
   }
   function duplicateCarton(cartonId: string) {
     setCartons((prev) => {
@@ -411,7 +421,9 @@ function ReceiveForm({
       const copy: CartonDraft = {
         ...src,
         id: uid("ctn"),
-        lines: src.lines.map((l) => ({ ...l, id: uid("ln") })),
+        lines: isMinimalCrossdock
+          ? []
+          : src.lines.map((l) => ({ ...l, id: uid("ln") })),
       };
       return [...prev.slice(0, idx + 1), copy, ...prev.slice(idx + 1)];
     });
@@ -446,29 +458,31 @@ function ReceiveForm({
     setTrackingNumber("");
     setCarrier("");
     setNotes("");
-    setCartons([newCarton()]);
+    setCartons([isMinimalCrossdock ? newCrossdockCarton() : newCarton()]);
   }
 
   async function handleReceive() {
-    for (const c of cartons) {
-      for (const l of c.lines) {
-        if (!l.sku.trim()) {
-          toast({
-            title: "Missing SKU",
-            description: "Every line needs a SKU.",
-            variant: "destructive",
-          });
-          return;
-        }
-        const good = Math.max(0, parseInt(l.goodQty, 10) || 0);
-        const dmg = Math.max(0, parseInt(l.damagedQty, 10) || 0);
-        if (good + dmg < 1) {
-          toast({
-            title: "Quantity required",
-            description: `SKU ${l.sku} needs at least 1 unit.`,
-            variant: "destructive",
-          });
-          return;
+    if (!isMinimalCrossdock) {
+      for (const c of cartons) {
+        for (const l of c.lines) {
+          if (!l.sku.trim()) {
+            toast({
+              title: "Missing SKU",
+              description: "Every line needs a SKU.",
+              variant: "destructive",
+            });
+            return;
+          }
+          const good = Math.max(0, parseInt(l.goodQty, 10) || 0);
+          const dmg = Math.max(0, parseInt(l.damagedQty, 10) || 0);
+          if (good + dmg < 1) {
+            toast({
+              title: "Quantity required",
+              description: `SKU ${l.sku} needs at least 1 unit.`,
+              variant: "destructive",
+            });
+            return;
+          }
         }
       }
     }
@@ -588,7 +602,7 @@ function ReceiveForm({
         description:
           type === "loose"
             ? `${created.length} label${created.length > 1 ? "s" : ""} printed.`
-            : `${created.length} CTN/PLT label${created.length > 1 ? "s" : ""} printed. Next: Allocate (per SKU line), then Putaway.`,
+            : `${created.length} CTN/PLT label${created.length > 1 ? "s" : ""} printed. Allocate client, then Putaway for placement.`,
       });
       resetForm();
     } catch (e) {
@@ -664,8 +678,8 @@ function ReceiveForm({
   };
   const subtitleByType: Record<ReceiveType, string> = {
     carton:
-      "Add one line per SKU in the carton. Product labels are scanned later at putaway — only carton labels print now.",
-    pallet: "All cartons below share one pallet label plus carton labels.",
+      "Closed cartons — CTN labels only. SKU/lot/expiry when you open at putaway.",
+    pallet: "Pallet + carton labels. Contents stay closed until putaway.",
     loose: "No master carton — unpackaged module (legacy path).",
   };
   const accentByType: Record<ReceiveType, string> = {
@@ -835,7 +849,14 @@ function ReceiveForm({
                 </CardHeader>
               ) : null}
               <CardContent className={cn("space-y-3", !showMultipleCartons && "pt-6")}>
-                {c.lines.map((line, lineIdx) => {
+                {isMinimalCrossdock ? (
+                  <p className="text-sm text-muted-foreground rounded-md border border-dashed bg-muted/30 px-3 py-2">
+                    Closed unit — no SKU entry at the dock. A CTN label prints; assign client in
+                    Allocate and choose placement at Putaway.
+                  </p>
+                ) : null}
+                {!isMinimalCrossdock
+                  ? c.lines.map((line, lineIdx) => {
                   const good = Math.max(0, parseInt(line.goodQty, 10) || 0);
                   const dmg = Math.max(0, parseInt(line.damagedQty, 10) || 0);
                   return (
@@ -943,8 +964,10 @@ function ReceiveForm({
                       ) : null}
                     </div>
                   );
-                })}
+                })
+                  : null}
                 <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
+                  {!isMinimalCrossdock ? (
                   <div className="flex gap-2">
                     <Button type="button" variant="outline" size="sm" onClick={() => addLine(c.id)}>
                       <Plus className="h-3 w-3 mr-1" />
@@ -960,8 +983,9 @@ function ReceiveForm({
                       Quick scan items
                     </Button>
                   </div>
+                  ) : <div />}
                   {showCopies ? (
-                    <div className="flex items-end gap-2">
+                    <div className="flex items-end gap-2 ml-auto">
                       <div className="space-y-1">
                         <Label className="text-xs">Copies of this carton</Label>
                         <Input
@@ -972,9 +996,11 @@ function ReceiveForm({
                           className="w-24"
                         />
                       </div>
+                      {!isMinimalCrossdock ? (
                       <span className="text-xs text-muted-foreground pb-2">
                         = {totalCopies * cartonUnits} units
                       </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -993,8 +1019,12 @@ function ReceiveForm({
                 {totalCartonCount} label{totalCartonCount === 1 ? "" : "s"}
               </Badge>
             ) : null}
-            <Badge variant="outline">{totalLineCount} line{totalLineCount === 1 ? "" : "s"}</Badge>
-            <Badge variant="outline">{totalUnitCount} units</Badge>
+            {!isMinimalCrossdock ? (
+              <>
+                <Badge variant="outline">{totalLineCount} line{totalLineCount === 1 ? "" : "s"}</Badge>
+                <Badge variant="outline">{totalUnitCount} units</Badge>
+              </>
+            ) : null}
             {hasAnyDamaged ? (
               <Badge variant="outline" className="bg-red-100 border-red-300 text-red-800">
                 Includes damaged → quarantine

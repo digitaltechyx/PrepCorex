@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont, type PDFImage } from "pdf-lib";
 import type { WarehouseCartonDoc } from "@/types";
 import { cartonBarcodeFromDoc } from "@/lib/warehouse-carton-barcode";
+import { isCrossdockClosedCarton } from "@/lib/warehouse-crossdock";
 import {
   cartonAccent,
   cartonAccentLight,
@@ -26,6 +27,7 @@ function drawCartonLabel(
   const borderW = h < 100 ? 3 : 4;
   const isMixed = !!carton.isMixed || (carton.lines && carton.lines.length > 1) || false;
   const isLoose = !!carton.isLoose;
+  const isClosed = isCrossdockClosedCarton(carton);
   const hasDamaged = !!carton.lines?.some((l) => l.condition === "damaged");
 
   const { bottom, innerX, innerW, innerH } = drawFramedLabel(
@@ -56,6 +58,8 @@ function drawCartonLabel(
     ? isMixed
       ? "LOOSE STOCK · MIXED"
       : "LOOSE STOCK"
+    : isClosed
+    ? "CROSS-DOCK · CLOSED"
     : isMixed
     ? "MIXED CARTON"
     : "CARTON";
@@ -104,7 +108,25 @@ function drawCartonLabel(
   const textW = halfW - 14;
   let ty = bodyBottom + bodyH - 10;
 
-  if (isMixed && carton.lines && carton.lines.length > 0) {
+  if (isClosed) {
+    page.drawText(pdfText("CONTENTS NOT OPENED"), {
+      x: textX,
+      y: ty,
+      size: innerW < 200 ? 8 : 9,
+      font: fontBold,
+      color: ink,
+      maxWidth: textW,
+    });
+    ty -= 12;
+    page.drawText(pdfText("Scan CTN at putaway"), {
+      x: textX,
+      y: ty,
+      size: 6.5,
+      font,
+      color: muted,
+      maxWidth: textW,
+    });
+  } else if (isMixed && carton.lines && carton.lines.length > 0) {
     page.drawText(pdfText(`LINES (${carton.lines.length})`), {
       x: textX,
       y: ty,

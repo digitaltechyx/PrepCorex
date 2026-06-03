@@ -18,6 +18,7 @@ import {
   isExpiryPast,
 } from "@/lib/warehouse-carton-states";
 import { resolveReceiveLot } from "@/lib/warehouse-receive-lot";
+import { buildClosedCrossdockLine, CROSSDOCK_CLOSED_SKU } from "@/lib/warehouse-crossdock";
 import type {
   WarehouseCartonDoc,
   WarehouseCartonLine,
@@ -164,6 +165,7 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
       data.putawayDisposition === "open_for_storage"
         ? data.putawayDisposition
         : null,
+    isClosedCrossdock: data.isClosedCrossdock === true,
     trackingNumber: data.trackingNumber != null ? String(data.trackingNumber) : null,
     carrier: data.carrier != null ? String(data.carrier) : null,
     notes: data.notes != null ? String(data.notes) : null,
@@ -247,6 +249,7 @@ export async function createWarehouseCarton(input: {
   isMixed?: boolean;
   isLoose?: boolean;
   receiveMode?: WarehouseReceiveMode | null;
+  isClosedCrossdock?: boolean;
   putawayDisposition?: WarehousePutawayDisposition | null;
   trackingNumber?: string | null;
   carrier?: string | null;
@@ -294,6 +297,7 @@ export async function createWarehouseCarton(input: {
     ...(input.isMixed != null ? { isMixed: !!input.isMixed } : {}),
     ...(input.isLoose != null ? { isLoose: !!input.isLoose } : {}),
     ...(input.receiveMode ? { receiveMode: input.receiveMode } : {}),
+    ...(input.isClosedCrossdock != null ? { isClosedCrossdock: !!input.isClosedCrossdock } : {}),
     ...(input.putawayDisposition ? { putawayDisposition: input.putawayDisposition } : {}),
     ...(input.trackingNumber !== undefined ? { trackingNumber: input.trackingNumber?.trim() || null } : {}),
     ...(input.carrier !== undefined ? { carrier: input.carrier?.trim() || null } : {}),
@@ -497,12 +501,19 @@ export async function createReceiveBatch(input: {
     const validLines = cfg.lines.filter(
       (l) => l.sku.trim() && Math.max(0, Math.floor(l.quantity)) >= 1
     );
-    if (validLines.length === 0) {
+    const useClosedCrossdock =
+      input.receiveMode === "crossdock" &&
+      !input.isLoose &&
+      validLines.length === 0;
+
+    if (validLines.length === 0 && !useClosedCrossdock) {
       throw new Error("Each carton must have at least one line with SKU and quantity ≥ 1.");
     }
 
     for (let copy = 0; copy < copies; copy++) {
-      const lines: WarehouseCartonLine[] = validLines.map((l, i) => {
+      const lines: WarehouseCartonLine[] = useClosedCrossdock
+        ? [buildClosedCrossdockLine()]
+        : validLines.map((l, i) => {
         const sku = l.sku.trim();
         const expiry = l.expiry?.trim().slice(0, 10) || null;
         const lot = resolveReceiveLot({ sku, expiry, lot: l.lot });
@@ -522,11 +533,19 @@ export async function createReceiveBatch(input: {
       });
 
       const totalQty = lines.reduce((s, l) => s + l.quantity, 0);
-      const isMixed = new Set(lines.map((l) => l.sku)).size > 1;
-      const rootSku = isMixed ? "MIXED" : lines[0].sku;
-      const rootLot = isMixed ? null : lines[0].lot ?? null;
-      const rootExpiry = isMixed ? null : lines[0].expiry ?? null;
-      const rootTitle = isMixed
+      const isMixed = useClosedCrossdock
+        ? false
+        : new Set(lines.map((l) => l.sku)).size > 1;
+      const rootSku = useClosedCrossdock
+        ? CROSSDOCK_CLOSED_SKU
+        : isMixed
+          ? "MIXED"
+          : lines[0].sku;
+      const rootLot = isMixed || useClosedCrossdock ? null : lines[0].lot ?? null;
+      const rootExpiry = isMixed || useClosedCrossdock ? null : lines[0].expiry ?? null;
+      const rootTitle = useClosedCrossdock
+        ? "Closed cross-dock carton"
+        : isMixed
         ? `Mixed — ${new Set(lines.map((l) => l.sku)).size} SKUs`
         : lines[0].productTitle ?? null;
 
@@ -543,6 +562,7 @@ export async function createReceiveBatch(input: {
         isMixed,
         isLoose: input.isLoose ?? false,
         receiveMode: input.receiveMode ?? null,
+        isClosedCrossdock: useClosedCrossdock,
         trackingNumber: cfg.trackingNumber ?? input.pallet?.trackingNumber ?? null,
         carrier: cfg.carrier ?? input.pallet?.carrier ?? null,
         notes: cfg.notes ?? null,
