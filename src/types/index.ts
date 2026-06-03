@@ -110,6 +110,15 @@ export type WarehouseCartonStatus =
 
 export type WarehousePalletStatus = "receiving" | "available" | "on_hold" | "dispatched";
 
+/** How stock entered the warehouse (receiving module). */
+export type WarehouseReceiveMode = "crossdock" | "unpackaged";
+
+/** Set at putaway: forward, hold closed in an area, or stow into bins. */
+export type WarehousePutawayDisposition =
+  | "forward"
+  | "keep_closed"
+  | "open_for_storage";
+
 /**
  * One SKU line inside a received carton. Single-SKU cartons have exactly one line.
  * Mixed cartons have N lines. Damaged units are recorded as their own line with
@@ -171,6 +180,10 @@ export interface WarehouseCartonDoc {
   isMixed?: boolean;
   /** True when this represents loose inventory (no physical carton). */
   isLoose?: boolean;
+  /** crossdock = closed carton/pallet; unpackaged = units without master carton. */
+  receiveMode?: WarehouseReceiveMode | null;
+  /** Chosen at putaway (forward / stage closed / open into bins). */
+  putawayDisposition?: WarehousePutawayDisposition | null;
   /** Carrier tracking number on the inbound box (for admin reconciliation later). */
   trackingNumber?: string | null;
   /** UPS / FedEx / USPS / DHL / Other */
@@ -210,6 +223,8 @@ export interface WarehousePalletDoc {
   photoUrl?: string | null;
   receivedBy?: string | null;
   stagingArea?: string | null;
+  receiveMode?: WarehouseReceiveMode | null;
+  putawayDisposition?: WarehousePutawayDisposition | null;
   receivedAt?: { seconds: number; nanoseconds: number } | Date;
   createdAt?: { seconds: number; nanoseconds: number } | Date;
   updatedAt?: { seconds: number; nanoseconds: number } | Date;

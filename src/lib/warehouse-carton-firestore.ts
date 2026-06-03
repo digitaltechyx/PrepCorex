@@ -23,6 +23,8 @@ import type {
   WarehouseCartonLine,
   WarehouseCartonStatus,
   WarehousePalletDoc,
+  WarehousePutawayDisposition,
+  WarehouseReceiveMode,
   WarehousePalletStatus,
 } from "@/types";
 
@@ -152,6 +154,16 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     lines: parseLines(data.lines),
     isMixed: data.isMixed === true,
     isLoose: data.isLoose === true,
+    receiveMode:
+      data.receiveMode === "crossdock" || data.receiveMode === "unpackaged"
+        ? data.receiveMode
+        : null,
+    putawayDisposition:
+      data.putawayDisposition === "forward" ||
+      data.putawayDisposition === "keep_closed" ||
+      data.putawayDisposition === "open_for_storage"
+        ? data.putawayDisposition
+        : null,
     trackingNumber: data.trackingNumber != null ? String(data.trackingNumber) : null,
     carrier: data.carrier != null ? String(data.carrier) : null,
     notes: data.notes != null ? String(data.notes) : null,
@@ -182,6 +194,16 @@ function docToPallet(id: string, data: Record<string, unknown>): WarehousePallet
     photoUrl: data.photoUrl != null ? String(data.photoUrl) : null,
     receivedBy: data.receivedBy != null ? String(data.receivedBy) : null,
     stagingArea: data.stagingArea != null ? String(data.stagingArea) : null,
+    receiveMode:
+      data.receiveMode === "crossdock" || data.receiveMode === "unpackaged"
+        ? data.receiveMode
+        : null,
+    putawayDisposition:
+      data.putawayDisposition === "forward" ||
+      data.putawayDisposition === "keep_closed" ||
+      data.putawayDisposition === "open_for_storage"
+        ? data.putawayDisposition
+        : null,
     receivedAt: data.receivedAt as WarehousePalletDoc["receivedAt"],
     createdAt: data.createdAt as WarehousePalletDoc["createdAt"],
     updatedAt: data.updatedAt as WarehousePalletDoc["updatedAt"],
@@ -224,6 +246,8 @@ export async function createWarehouseCarton(input: {
   lines?: WarehouseCartonLine[];
   isMixed?: boolean;
   isLoose?: boolean;
+  receiveMode?: WarehouseReceiveMode | null;
+  putawayDisposition?: WarehousePutawayDisposition | null;
   trackingNumber?: string | null;
   carrier?: string | null;
   notes?: string | null;
@@ -269,6 +293,8 @@ export async function createWarehouseCarton(input: {
     ...(linesPayload ? { lines: linesPayload } : {}),
     ...(input.isMixed != null ? { isMixed: !!input.isMixed } : {}),
     ...(input.isLoose != null ? { isLoose: !!input.isLoose } : {}),
+    ...(input.receiveMode ? { receiveMode: input.receiveMode } : {}),
+    ...(input.putawayDisposition ? { putawayDisposition: input.putawayDisposition } : {}),
     ...(input.trackingNumber !== undefined ? { trackingNumber: input.trackingNumber?.trim() || null } : {}),
     ...(input.carrier !== undefined ? { carrier: input.carrier?.trim() || null } : {}),
     ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
@@ -293,6 +319,8 @@ export async function createWarehousePallet(input: {
   photoUrl?: string | null;
   receivedBy?: string | null;
   stagingArea?: string | null;
+  receiveMode?: WarehouseReceiveMode | null;
+  putawayDisposition?: WarehousePutawayDisposition | null;
 }): Promise<string> {
   const warehouseId = input.warehouseId;
   const palletCode = input.palletCode?.trim() || (await generatePalletCode(warehouseId));
@@ -308,6 +336,8 @@ export async function createWarehousePallet(input: {
     ...(input.photoUrl !== undefined ? { photoUrl: input.photoUrl?.trim() || null } : {}),
     ...(input.receivedBy !== undefined ? { receivedBy: input.receivedBy?.trim() || null } : {}),
     ...(input.stagingArea !== undefined ? { stagingArea: input.stagingArea?.trim() || null } : {}),
+    ...(input.receiveMode ? { receiveMode: input.receiveMode } : {}),
+    ...(input.putawayDisposition ? { putawayDisposition: input.putawayDisposition } : {}),
     ...(input.status === "receiving" ? { receivedAt: serverTimestamp() } : {}),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -423,6 +453,7 @@ export async function createReceiveBatch(input: {
   };
   /** True when this batch represents loose inventory (not packed in cartons). */
   isLoose?: boolean;
+  receiveMode?: WarehouseReceiveMode | null;
   cartons: Array<{
     /** How many physical copies of this carton config to create. */
     copies: number;
@@ -456,6 +487,7 @@ export async function createReceiveBatch(input: {
       photoUrl: input.pallet.photoUrl ?? null,
       receivedBy: input.receivedBy ?? null,
       stagingArea: input.stagingArea ?? null,
+      receiveMode: input.receiveMode ?? null,
     });
   }
 
@@ -510,6 +542,7 @@ export async function createReceiveBatch(input: {
         lines,
         isMixed,
         isLoose: input.isLoose ?? false,
+        receiveMode: input.receiveMode ?? null,
         trackingNumber: cfg.trackingNumber ?? input.pallet?.trackingNumber ?? null,
         carrier: cfg.carrier ?? input.pallet?.carrier ?? null,
         notes: cfg.notes ?? null,

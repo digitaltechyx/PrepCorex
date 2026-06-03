@@ -322,7 +322,8 @@ export function WarehouseAllocate({ warehouse }: Props) {
               Open client requests
             </CardTitle>
             <CardDescription className="text-xs">
-              Click a request to highlight matching SKUs on the right.
+              Click a request to highlight matching SKUs on the right. One carton with many SKUs:
+              allocate each line separately to that client&apos;s requests.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 max-h-[60vh] overflow-y-auto">
@@ -388,7 +389,8 @@ export function WarehouseAllocate({ warehouse }: Props) {
               ) : null}
             </CardTitle>
             <CardDescription className="text-xs">
-              Cartons received but not yet matched to a client/request.
+              Each row is one SKU line inside a carton (or pallet). Match lines to requests — not
+              the whole carton at once unless it is single-SKU.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 max-h-[60vh] overflow-y-auto">

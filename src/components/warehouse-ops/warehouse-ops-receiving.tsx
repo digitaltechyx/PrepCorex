@@ -50,6 +50,7 @@ import {
   Boxes,
   ScanLine,
   RotateCcw,
+  ArrowRightLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { detectCarrier } from "@/lib/carrier-detect";
@@ -87,6 +88,7 @@ import {
 } from "@/lib/warehouse-receive-corrections";
 
 type ReceiveType = "carton" | "pallet" | "loose";
+type ReceivePhase = "hub" | "pick-package" | "form";
 
 type LineDraft = {
   id: string;
@@ -132,76 +134,98 @@ function newCarton(): CartonDraft {
 
 export function WarehouseOpsReceiving({ warehouse }: Props) {
   const [tab, setTab] = useState<"receive" | "correct">("receive");
+  const [phase, setPhase] = useState<ReceivePhase>("hub");
   const [type, setType] = useState<ReceiveType | null>(null);
   const [formRestore, setFormRestore] = useState<StoredReceiveFormSnapshot | null>(null);
   const [restoreKey, setRestoreKey] = useState(0);
 
-  if (!type) {
-    return (
-      <div className="max-w-3xl space-y-6">
-        <WarehouseOpsHeader title="Receiving" />
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "receive" | "correct")}>
-          <TabsList>
-            <TabsTrigger value="receive">Receive</TabsTrigger>
-            <TabsTrigger value="correct">Correct receive</TabsTrigger>
-          </TabsList>
-          <TabsContent value="receive" className="mt-4 space-y-4">
-            <p className="text-sm text-muted-foreground">
-              What are you receiving? Pick a type — each one has its own simple form.
-            </p>
-            <div className="grid gap-3 sm:grid-cols-3">
-          <TypePickerCard
-            color="orange"
-            icon={<Package className="h-8 w-8" />}
-            title="Carton"
-            description="One or more cartons. Each carton can hold one SKU or many."
-            onClick={() => setType("carton")}
-          />
-          <TypePickerCard
-            color="indigo"
-            icon={<Boxes className="h-8 w-8" />}
-            title="Pallet"
-            description="A pallet with cartons on it. Pallet label + carton labels."
-            onClick={() => setType("pallet")}
-          />
-          <TypePickerCard
-            color="emerald"
-            icon={<PackageOpen className="h-8 w-8" />}
-            title="Loose inventory"
-            description="No carton. Loose units in a bag, tote, or just on the dock."
-            onClick={() => setType("loose")}
-          />
-            </div>
-          </TabsContent>
-          <TabsContent value="correct" className="mt-4">
-            <WarehouseOpsReceiveCorrection warehouse={warehouse} />
-          </TabsContent>
-        </Tabs>
-      </div>
-    );
+  function startPackagePick() {
+    setPhase("pick-package");
+    setType(null);
+  }
+
+  function pickPackage(t: "carton" | "pallet") {
+    setType(t);
+    setPhase("form");
+  }
+
+  function backFromForm() {
+    if (type === "loose") {
+      setPhase("hub");
+      setType(null);
+    } else {
+      setPhase("pick-package");
+      setType(null);
+    }
   }
 
   return (
-    <div className="max-w-4xl space-y-4">
+    <div className="max-w-3xl space-y-6">
+      <WarehouseOpsHeader title="Receiving" />
       <Tabs value={tab} onValueChange={(v) => setTab(v as "receive" | "correct")}>
         <TabsList>
           <TabsTrigger value="receive">Receive</TabsTrigger>
           <TabsTrigger value="correct">Correct receive</TabsTrigger>
         </TabsList>
-        <TabsContent value="receive" className="mt-4">
-          <ReceiveForm
-            key={`receive-${type}-${restoreKey}`}
-            warehouse={warehouse}
-            type={type}
-            onBack={() => setType(null)}
-            initialSnapshot={formRestore}
-            onSnapshotConsumed={() => setFormRestore(null)}
-            onRestoreForm={(snap) => {
-              setFormRestore(snap);
-              setType(snap.type);
-              setRestoreKey((k) => k + 1);
-            }}
-          />
+        <TabsContent value="receive" className="mt-4 space-y-4">
+          {phase === "hub" ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Receive closed cartons or pallets for cross-dock. Print CTN/PLT labels only — match
+                SKUs to clients in Allocate, then Putaway decides forward, hold, or bins.
+              </p>
+              <TypePickerCard
+                color="indigo"
+                icon={<ArrowRightLeft className="h-8 w-8" />}
+                title="Cross-dock receiving"
+                description="Cartons and pallets. One mixed carton can hold many SKUs — allocate each line to the right client request."
+                onClick={startPackagePick}
+              />
+              <p className="text-xs text-muted-foreground">
+                Unpackaged unit receiving will be a separate module later.
+              </p>
+            </>
+          ) : phase === "pick-package" ? (
+            <>
+              <Button variant="ghost" size="sm" className="-ml-2" onClick={() => setPhase("hub")}>
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+              <p className="text-sm text-muted-foreground">What are you receiving?</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <TypePickerCard
+                  color="orange"
+                  icon={<Package className="h-8 w-8" />}
+                  title="Carton"
+                  description="One or more cartons. Each carton can hold one SKU or many."
+                  onClick={() => pickPackage("carton")}
+                />
+                <TypePickerCard
+                  color="indigo"
+                  icon={<Boxes className="h-8 w-8" />}
+                  title="Pallet"
+                  description="A pallet with cartons on it. Pallet label + carton labels."
+                  onClick={() => pickPackage("pallet")}
+                />
+              </div>
+            </>
+          ) : type ? (
+            <ReceiveForm
+              key={`receive-${type}-${restoreKey}`}
+              warehouse={warehouse}
+              type={type}
+              receiveMode={type === "loose" ? "unpackaged" : "crossdock"}
+              onBack={backFromForm}
+              initialSnapshot={formRestore}
+              onSnapshotConsumed={() => setFormRestore(null)}
+              onRestoreForm={(snap) => {
+                setFormRestore(snap);
+                setType(snap.type);
+                setPhase("form");
+                setRestoreKey((k) => k + 1);
+              }}
+            />
+          ) : null}
         </TabsContent>
         <TabsContent value="correct" className="mt-4">
           <WarehouseOpsReceiveCorrection warehouse={warehouse} />
@@ -250,6 +274,7 @@ function TypePickerCard({
 function ReceiveForm({
   warehouse,
   type,
+  receiveMode,
   onBack,
   initialSnapshot,
   onSnapshotConsumed,
@@ -257,6 +282,7 @@ function ReceiveForm({
 }: {
   warehouse: WarehouseDoc;
   type: ReceiveType;
+  receiveMode: "crossdock" | "unpackaged";
   onBack: () => void;
   initialSnapshot?: StoredReceiveFormSnapshot | null;
   onSnapshotConsumed?: () => void;
@@ -491,6 +517,7 @@ function ReceiveForm({
         warehouseId: warehouse.id,
         receivedBy: operatorName,
         stagingArea: "RCV-STAGE",
+        receiveMode,
         isLoose: type === "loose",
         pallet: useShipmentOnPallet
           ? {
@@ -557,8 +584,11 @@ function ReceiveForm({
       });
 
       toast({
-        title: type === "loose" ? "Loose stock received" : "Received",
-        description: `${created.length} label${created.length > 1 ? "s" : ""} printed. Stock parked in receiving staging.`,
+        title: type === "loose" ? "Unpackaged stock received" : "Cross-dock received",
+        description:
+          type === "loose"
+            ? `${created.length} label${created.length > 1 ? "s" : ""} printed.`
+            : `${created.length} CTN/PLT label${created.length > 1 ? "s" : ""} printed. Next: Allocate (per SKU line), then Putaway.`,
       });
       resetForm();
     } catch (e) {
@@ -628,14 +658,15 @@ function ReceiveForm({
     (!batchHasPutaway(lastBatch.cartons) || supervisor);
 
   const titleByType: Record<ReceiveType, string> = {
-    carton: "Receive cartons",
-    pallet: "Receive a pallet",
-    loose: "Receive loose inventory",
+    carton: "Cross-dock — cartons",
+    pallet: "Cross-dock — pallet",
+    loose: "Unpackaged receiving",
   };
   const subtitleByType: Record<ReceiveType, string> = {
-    carton: "Each carton can hold one SKU or many. Use “Copies” when you receive several identical cartons.",
-    pallet: "All cartons below will be wrapped under a single pallet label.",
-    loose: "No carton — units come loose in a bag, tote, or stacked. A small label will print so you can stow them.",
+    carton:
+      "Add one line per SKU in the carton. Product labels are scanned later at putaway — only carton labels print now.",
+    pallet: "All cartons below share one pallet label plus carton labels.",
+    loose: "No master carton — unpackaged module (legacy path).",
   };
   const accentByType: Record<ReceiveType, string> = {
     carton: "border-orange-300 bg-orange-600 hover:bg-orange-700",
@@ -648,9 +679,11 @@ function ReceiveForm({
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="sm" onClick={onBack}>
           <ArrowLeft className="h-4 w-4 mr-1" />
-          Change type
+          {type === "loose" ? "Back" : "Change carton / pallet"}
         </Button>
-        <Badge variant="outline" className="capitalize">{type}</Badge>
+        <Badge variant="outline" className="capitalize">
+          {receiveMode === "crossdock" ? "Cross-dock" : "Unpackaged"} · {type}
+        </Badge>
       </div>
       <WarehouseOpsHeader title={titleByType[type]} />
       <p className="text-sm text-muted-foreground -mt-2">{subtitleByType[type]}</p>
