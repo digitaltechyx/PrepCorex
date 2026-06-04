@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   query,
   runTransaction,
   serverTimestamp,
@@ -12,13 +13,23 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { encodeCartonBarcode, encodePalletBarcode, cartonBarcodeFromDoc } from "@/lib/warehouse-carton-barcode";
+import {
+  encodeCartonBarcode,
+  encodePalletBarcode,
+  cartonBarcodeFromDoc,
+  decodePalletBarcode,
+} from "@/lib/warehouse-carton-barcode";
 import {
   assertCartonStatusTransition,
   isExpiryPast,
 } from "@/lib/warehouse-carton-states";
 import { resolveReceiveLot } from "@/lib/warehouse-receive-lot";
-import { buildClosedCrossdockLine, CROSSDOCK_CLOSED_SKU } from "@/lib/warehouse-crossdock";
+import {
+  buildClosedCrossdockLine,
+  closedCrossdockProductTitle,
+  CROSSDOCK_CLOSED_SKU,
+  generateCrossdockReceiveLot,
+} from "@/lib/warehouse-crossdock";
 import type {
   WarehouseCartonDoc,
   WarehouseCartonLine,
@@ -147,6 +158,8 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     quantity: typeof data.quantity === "number" ? data.quantity : 0,
     status: (data.status as WarehouseCartonStatus) ?? "receiving",
     clientId: data.clientId != null ? String(data.clientId) : null,
+    receivedForClient:
+      data.receivedForClient != null ? String(data.receivedForClient) : null,
     binId: data.binId != null ? String(data.binId) : null,
     palletId: data.palletId != null ? String(data.palletId) : null,
     productTitle: data.productTitle != null ? String(data.productTitle) : null,
@@ -206,6 +219,11 @@ function docToPallet(id: string, data: Record<string, unknown>): WarehousePallet
       data.putawayDisposition === "open_for_storage"
         ? data.putawayDisposition
         : null,
+    isClosedCrossdock: data.isClosedCrossdock === true,
+    clientId: data.clientId != null ? String(data.clientId) : null,
+    receivedForClient:
+      data.receivedForClient != null ? String(data.receivedForClient) : null,
+    receiveLot: data.receiveLot != null ? String(data.receiveLot) : null,
     receivedAt: data.receivedAt as WarehousePalletDoc["receivedAt"],
     createdAt: data.createdAt as WarehousePalletDoc["createdAt"],
     updatedAt: data.updatedAt as WarehousePalletDoc["updatedAt"],
@@ -226,6 +244,40 @@ export async function listWarehousePallets(warehouseId: string): Promise<Warehou
     .sort((a, b) => b.palletCode.localeCompare(a.palletCode));
 }
 
+/** Find a pallet by its `palletCode` (e.g. PAL-2026-00007) or full QR payload. */
+export async function findPalletByCode(
+  warehouseId: string,
+  palletCodeRaw: string
+): Promise<WarehousePalletDoc | null> {
+  const decoded = decodePalletBarcode(palletCodeRaw.trim());
+  const palletCode = (decoded ?? palletCodeRaw).trim();
+  if (!palletCode) return null;
+  const snap = await getDocs(
+    query(
+      warehousePalletsCollectionRef(warehouseId),
+      where("palletCode", "==", palletCode),
+      limit(1)
+    )
+  );
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  return docToPallet(d.id, d.data() as Record<string, unknown>);
+}
+
+export async function palletHasChildCartons(
+  warehouseId: string,
+  palletId: string
+): Promise<boolean> {
+  const snap = await getDocs(
+    query(
+      warehouseCartonsCollectionRef(warehouseId),
+      where("palletId", "==", palletId),
+      limit(1)
+    )
+  );
+  return !snap.empty;
+}
+
 export async function countCartonsInBin(warehouseId: string, binId: string): Promise<number> {
   const q = query(warehouseCartonsCollectionRef(warehouseId), where("binId", "==", binId));
   const snap = await getDocs(q);
@@ -240,6 +292,7 @@ export async function createWarehouseCarton(input: {
   expiry?: string | null;
   status?: WarehouseCartonStatus;
   clientId?: string | null;
+  receivedForClient?: string | null;
   binId?: string | null;
   palletId?: string | null;
   productTitle?: string | null;
@@ -288,6 +341,9 @@ export async function createWarehouseCarton(input: {
     quantity,
     status,
     clientId: input.clientId?.trim() || null,
+    ...(input.receivedForClient !== undefined
+      ? { receivedForClient: input.receivedForClient?.trim() || null }
+      : {}),
     binId: input.binId?.trim() || null,
     palletId: input.palletId?.trim() || null,
     productTitle: input.productTitle?.trim() || null,
@@ -325,6 +381,10 @@ export async function createWarehousePallet(input: {
   stagingArea?: string | null;
   receiveMode?: WarehouseReceiveMode | null;
   putawayDisposition?: WarehousePutawayDisposition | null;
+  isClosedCrossdock?: boolean;
+  clientId?: string | null;
+  receivedForClient?: string | null;
+  receiveLot?: string | null;
 }): Promise<string> {
   const warehouseId = input.warehouseId;
   const palletCode = input.palletCode?.trim() || (await generatePalletCode(warehouseId));
@@ -342,6 +402,12 @@ export async function createWarehousePallet(input: {
     ...(input.stagingArea !== undefined ? { stagingArea: input.stagingArea?.trim() || null } : {}),
     ...(input.receiveMode ? { receiveMode: input.receiveMode } : {}),
     ...(input.putawayDisposition ? { putawayDisposition: input.putawayDisposition } : {}),
+    ...(input.isClosedCrossdock != null ? { isClosedCrossdock: !!input.isClosedCrossdock } : {}),
+    ...(input.clientId !== undefined ? { clientId: input.clientId?.trim() || null } : {}),
+    ...(input.receivedForClient !== undefined
+      ? { receivedForClient: input.receivedForClient?.trim() || null }
+      : {}),
+    ...(input.receiveLot !== undefined ? { receiveLot: input.receiveLot?.trim() || null } : {}),
     ...(input.status === "receiving" ? { receivedAt: serverTimestamp() } : {}),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -474,6 +540,9 @@ export async function createReceiveBatch(input: {
     carrier?: string | null;
     notes?: string | null;
     photoUrl?: string | null;
+    /** Cross-dock closed receive: assign client at dock (optional). */
+    clientId?: string | null;
+    clientDisplayName?: string | null;
   }>;
 }): Promise<{ palletId: string | null; cartonIds: string[] }> {
   if (!input.cartons || input.cartons.length === 0) {
@@ -511,8 +580,16 @@ export async function createReceiveBatch(input: {
     }
 
     for (let copy = 0; copy < copies; copy++) {
+      const crossdockLot = useClosedCrossdock ? generateCrossdockReceiveLot() : null;
+      const cfgClientId = cfg.clientId?.trim() || null;
       const lines: WarehouseCartonLine[] = useClosedCrossdock
-        ? [buildClosedCrossdockLine()]
+        ? [
+            buildClosedCrossdockLine({
+              lot: crossdockLot,
+              clientId: cfgClientId,
+              clientDisplayName: cfg.clientDisplayName ?? null,
+            }),
+          ]
         : validLines.map((l, i) => {
         const sku = l.sku.trim();
         const expiry = l.expiry?.trim().slice(0, 10) || null;
@@ -527,7 +604,7 @@ export async function createReceiveBatch(input: {
         condition: l.damaged ? "damaged" : "good",
         binId: null,
         allocationStatus: "unallocated",
-        clientId: null,
+        clientId: cfgClientId,
         inventoryRequestId: null,
       };
       });
@@ -541,10 +618,10 @@ export async function createReceiveBatch(input: {
         : isMixed
           ? "MIXED"
           : lines[0].sku;
-      const rootLot = isMixed || useClosedCrossdock ? null : lines[0].lot ?? null;
+      const rootLot = isMixed ? null : lines[0].lot ?? null;
       const rootExpiry = isMixed || useClosedCrossdock ? null : lines[0].expiry ?? null;
       const rootTitle = useClosedCrossdock
-        ? "Closed cross-dock carton"
+        ? closedCrossdockProductTitle(cfg.clientDisplayName)
         : isMixed
         ? `Mixed — ${new Set(lines.map((l) => l.sku)).size} SKUs`
         : lines[0].productTitle ?? null;
@@ -558,6 +635,8 @@ export async function createReceiveBatch(input: {
         productTitle: rootTitle,
         status: "received",
         palletId,
+        clientId: cfgClientId,
+        receivedForClient: cfg.clientDisplayName?.trim() || null,
         lines,
         isMixed,
         isLoose: input.isLoose ?? false,
@@ -605,6 +684,37 @@ export async function updateCartonLines(
     next.binId = options.binId ? String(options.binId) : null;
   }
   await updateDoc(ref, next);
+}
+
+/** Cross-dock pallet receive — PLT label only, no carton records. */
+export async function createCrossdockPalletReceive(input: {
+  warehouseId: string;
+  receivedBy?: string | null;
+  stagingArea?: string | null;
+  trackingNumber?: string | null;
+  carrier?: string | null;
+  notes?: string | null;
+  clientId?: string | null;
+  clientDisplayName?: string | null;
+  receiveLot?: string | null;
+}): Promise<{ palletId: string }> {
+  const lot = input.receiveLot?.trim() || generateCrossdockReceiveLot();
+  const display = input.clientDisplayName?.trim() || null;
+  const palletId = await createWarehousePallet({
+    warehouseId: input.warehouseId,
+    status: "receiving",
+    receiveMode: "crossdock",
+    isClosedCrossdock: true,
+    clientId: input.clientId?.trim() || null,
+    receivedForClient: display,
+    receiveLot: lot,
+    trackingNumber: input.trackingNumber ?? null,
+    carrier: input.carrier ?? null,
+    notes: input.notes ?? null,
+    receivedBy: input.receivedBy ?? null,
+    stagingArea: input.stagingArea ?? null,
+  });
+  return { palletId };
 }
 
 export { cartonBarcodeFromDoc };

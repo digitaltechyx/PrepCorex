@@ -16,18 +16,37 @@ export function isCrossdockClosedCarton(carton: WarehouseCartonDoc): boolean {
   return lines.length === 1 && isCrossdockClosedSku(lines[0]?.sku);
 }
 
-export function buildClosedCrossdockLine(): WarehouseCartonLine {
+/** `LOT-CRD` + receive date (YYYYMMDD) + 3-digit random, e.g. LOT-CRD20260603042 */
+export function generateCrossdockReceiveLot(at = new Date()): string {
+  const y = at.getFullYear();
+  const m = String(at.getMonth() + 1).padStart(2, "0");
+  const d = String(at.getDate()).padStart(2, "0");
+  const rnd = String(Math.floor(Math.random() * 1000)).padStart(3, "0");
+  return `LOT-CRD${y}${m}${d}${rnd}`;
+}
+
+export function closedCrossdockProductTitle(clientDisplayName?: string | null): string {
+  const name = String(clientDisplayName ?? "").trim();
+  return name ? `Closed cross-dock — ${name}` : CROSSDOCK_CLOSED_TITLE;
+}
+
+export function buildClosedCrossdockLine(input?: {
+  lot?: string | null;
+  clientId?: string | null;
+  clientDisplayName?: string | null;
+}): WarehouseCartonLine {
+  const clientId = input?.clientId?.trim() || null;
   return {
     lineId: "L1",
     sku: CROSSDOCK_CLOSED_SKU,
-    productTitle: CROSSDOCK_CLOSED_TITLE,
+    productTitle: closedCrossdockProductTitle(input?.clientDisplayName),
     quantity: 1,
-    lot: null,
+    lot: input?.lot?.trim() || null,
     expiry: null,
     condition: "good",
     binId: null,
-    allocationStatus: "unallocated",
-    clientId: null,
+    allocationStatus: clientId ? "allocated" : "unallocated",
+    clientId,
     inventoryRequestId: null,
   };
 }

@@ -262,7 +262,13 @@ export async function applyPutawayAssignments(
     allStowed && !splitAcrossBins ? stowedLines[0].binId ?? null : null;
 
   const batch = writeBatch(db);
+  const dispositionPatch =
+    carton.receiveMode === "crossdock" && !carton.putawayDisposition
+      ? { putawayDisposition: "open_for_storage" as const }
+      : {};
+
   batch.update(warehouseCartonDocRef(warehouseId, cartonId), {
+    ...dispositionPatch,
     lines: nextLines.map((l) => ({
       lineId: l.lineId,
       sku: l.sku,
@@ -341,6 +347,8 @@ function docToCartonShallow(id: string, data: Record<string, unknown>): Warehous
     quantity: typeof data.quantity === "number" ? data.quantity : 0,
     status: (data.status as WarehouseCartonDoc["status"]) ?? "receiving",
     clientId: data.clientId != null ? String(data.clientId) : null,
+    receivedForClient:
+      data.receivedForClient != null ? String(data.receivedForClient) : null,
     binId: data.binId != null ? String(data.binId) : null,
     palletId: data.palletId != null ? String(data.palletId) : null,
     productTitle: data.productTitle != null ? String(data.productTitle) : null,
@@ -355,6 +363,17 @@ function docToCartonShallow(id: string, data: Record<string, unknown>): Warehous
     photoUrl: data.photoUrl != null ? String(data.photoUrl) : null,
     receivedBy: data.receivedBy != null ? String(data.receivedBy) : null,
     stagingArea: data.stagingArea != null ? String(data.stagingArea) : null,
+    receiveMode:
+      data.receiveMode === "crossdock" || data.receiveMode === "unpackaged"
+        ? data.receiveMode
+        : null,
+    isClosedCrossdock: data.isClosedCrossdock === true,
+    putawayDisposition:
+      data.putawayDisposition === "forward" ||
+      data.putawayDisposition === "keep_closed" ||
+      data.putawayDisposition === "open_for_storage"
+        ? data.putawayDisposition
+        : null,
     receivedAt: data.receivedAt as WarehouseCartonDoc["receivedAt"],
     createdAt: data.createdAt as WarehouseCartonDoc["createdAt"],
     updatedAt: data.updatedAt as WarehouseCartonDoc["updatedAt"],

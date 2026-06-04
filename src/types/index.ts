@@ -161,6 +161,8 @@ export interface WarehouseCartonDoc {
   status: WarehouseCartonStatus;
   /** PrepCorex client (3PL) when stock is client-owned */
   clientId?: string | null;
+  /** Display name when client was typed at receive (no system user). */
+  receivedForClient?: string | null;
   /** Current bin doc id under this warehouse */
   binId?: string | null;
   /** Optional pallet grouping */
@@ -227,6 +229,14 @@ export interface WarehousePalletDoc {
   stagingArea?: string | null;
   receiveMode?: WarehouseReceiveMode | null;
   putawayDisposition?: WarehousePutawayDisposition | null;
+  /** Cross-dock pallet received closed — contents unknown until putaway. */
+  isClosedCrossdock?: boolean;
+  /** Client when known at receive (optional). */
+  clientId?: string | null;
+  /** Display name when client typed manually (no system user). */
+  receivedForClient?: string | null;
+  /** Auto lot at cross-dock receive, e.g. LOT-CRD20260603042 */
+  receiveLot?: string | null;
   receivedAt?: { seconds: number; nanoseconds: number } | Date;
   createdAt?: { seconds: number; nanoseconds: number } | Date;
   updatedAt?: { seconds: number; nanoseconds: number } | Date;

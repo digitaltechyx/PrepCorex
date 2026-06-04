@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   serverTimestamp,
@@ -12,8 +13,12 @@ import {
   assertCartonStatusTransition,
   canTransitionCartonStatus,
 } from "@/lib/warehouse-carton-states";
-import { warehouseCartonDocRef } from "@/lib/warehouse-carton-firestore";
-import type { WarehouseCartonDoc, WarehouseCartonLine } from "@/types";
+import {
+  palletHasChildCartons,
+  warehouseCartonDocRef,
+  warehousePalletDocRef,
+} from "@/lib/warehouse-carton-firestore";
+import type { WarehouseCartonDoc, WarehouseCartonLine, WarehousePalletDoc } from "@/types";
 
 const WAREHOUSES = "warehouses";
 
@@ -129,6 +134,8 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     quantity: typeof data.quantity === "number" ? data.quantity : 0,
     status: (data.status as WarehouseCartonDoc["status"]) ?? "receiving",
     clientId: data.clientId != null ? String(data.clientId) : null,
+    receivedForClient:
+      data.receivedForClient != null ? String(data.receivedForClient) : null,
     binId: data.binId != null ? String(data.binId) : null,
     palletId: data.palletId != null ? String(data.palletId) : null,
     productTitle: data.productTitle != null ? String(data.productTitle) : null,
@@ -339,6 +346,179 @@ export async function correctReceivedCarton(input: {
   return updated;
 }
 
+export function palletHasPutaway(pallet: WarehousePalletDoc): boolean {
+  return !!pallet.binId || !!pallet.putawayDisposition;
+}
+
+export function canVoidPallet(pallet: WarehousePalletDoc, supervisor: boolean): boolean {
+  if (pallet.status === "dispatched") return false;
+  if (supervisor) return true;
+  return pallet.status === "receiving" && !palletHasPutaway(pallet);
+}
+
+export function canEditReceivedPallet(pallet: WarehousePalletDoc, supervisor: boolean): boolean {
+  if (pallet.status === "dispatched") return false;
+  if (supervisor) return true;
+  return pallet.status === "receiving" && !palletHasPutaway(pallet);
+}
+
+export async function getWarehousePallet(
+  warehouseId: string,
+  palletId: string
+): Promise<WarehousePalletDoc | null> {
+  const snap = await getDoc(warehousePalletDocRef(warehouseId, palletId));
+  if (!snap.exists()) return null;
+  const data = snap.data() as Record<string, unknown>;
+  return {
+    id: snap.id,
+    palletCode: String(data.palletCode ?? ""),
+    status: (data.status as WarehousePalletDoc["status"]) ?? "receiving",
+    binId: data.binId != null ? String(data.binId) : null,
+    barcode: String(data.barcode ?? ""),
+    trackingNumber: data.trackingNumber != null ? String(data.trackingNumber) : null,
+    carrier: data.carrier != null ? String(data.carrier) : null,
+    notes: data.notes != null ? String(data.notes) : null,
+    photoUrl: data.photoUrl != null ? String(data.photoUrl) : null,
+    receivedBy: data.receivedBy != null ? String(data.receivedBy) : null,
+    stagingArea: data.stagingArea != null ? String(data.stagingArea) : null,
+    receiveMode:
+      data.receiveMode === "crossdock" || data.receiveMode === "unpackaged"
+        ? data.receiveMode
+        : null,
+    putawayDisposition:
+      data.putawayDisposition === "forward" ||
+      data.putawayDisposition === "keep_closed" ||
+      data.putawayDisposition === "open_for_storage"
+        ? data.putawayDisposition
+        : null,
+    isClosedCrossdock: data.isClosedCrossdock === true,
+    clientId: data.clientId != null ? String(data.clientId) : null,
+    receivedForClient:
+      data.receivedForClient != null ? String(data.receivedForClient) : null,
+    receiveLot: data.receiveLot != null ? String(data.receiveLot) : null,
+    receivedAt: data.receivedAt as WarehousePalletDoc["receivedAt"],
+    createdAt: data.createdAt as WarehousePalletDoc["createdAt"],
+    updatedAt: data.updatedAt as WarehousePalletDoc["updatedAt"],
+  };
+}
+
+export async function correctReceivedPallet(input: {
+  warehouseId: string;
+  palletId: string;
+  trackingNumber?: string | null;
+  carrier?: string | null;
+  notes?: string | null;
+  clientId?: string | null;
+  receivedForClient?: string | null;
+  receiveLot?: string | null;
+  operatorId?: string | null;
+  supervisorOverride: boolean;
+  correctionReason?: string | null;
+}): Promise<WarehousePalletDoc> {
+  const ref = warehousePalletDocRef(input.warehouseId, input.palletId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Pallet not found.");
+  const pallet = await getWarehousePallet(input.warehouseId, input.palletId);
+  if (!pallet) throw new Error("Pallet not found.");
+
+  if (!canEditReceivedPallet(pallet, input.supervisorOverride)) {
+    if (palletHasPutaway(pallet)) {
+      throw new Error("Pallet was put away. Supervisor override is required to edit.");
+    }
+    throw new Error(`Cannot edit pallet in status "${pallet.status}".`);
+  }
+
+  const hadPutaway = palletHasPutaway(pallet);
+  if (hadPutaway && input.supervisorOverride && !input.correctionReason?.trim()) {
+    throw new Error("Correction reason is required after putaway.");
+  }
+
+  const batch = writeBatch(db);
+  batch.update(ref, {
+    ...(input.trackingNumber !== undefined
+      ? { trackingNumber: input.trackingNumber?.trim() || null }
+      : {}),
+    ...(input.carrier !== undefined ? { carrier: input.carrier?.trim() || null } : {}),
+    ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+    ...(input.clientId !== undefined ? { clientId: input.clientId?.trim() || null } : {}),
+    ...(input.receivedForClient !== undefined
+      ? { receivedForClient: input.receivedForClient?.trim() || null }
+      : {}),
+    ...(input.receiveLot !== undefined
+      ? { receiveLot: input.receiveLot?.trim() || null }
+      : {}),
+    ...(hadPutaway && input.supervisorOverride
+      ? { binId: null, putawayDisposition: null }
+      : {}),
+    updatedAt: serverTimestamp(),
+  });
+
+  const eventsRef = collection(db, WAREHOUSES, input.warehouseId, "movementEvents");
+  batch.set(doc(eventsRef), {
+    type: "receive_correct",
+    palletId: input.palletId,
+    palletCode: pallet.palletCode,
+    reason: input.correctionReason?.trim() || null,
+    supervisorOverride: input.supervisorOverride,
+    resetPutaway: hadPutaway && input.supervisorOverride,
+    operatorId: input.operatorId ?? null,
+    at: serverTimestamp(),
+  });
+
+  await batch.commit();
+  const updated = await getWarehousePallet(input.warehouseId, input.palletId);
+  if (!updated) throw new Error("Pallet not found after update.");
+  return updated;
+}
+
+export type VoidPalletResult = {
+  voided: boolean;
+  reason?: string;
+};
+
+/** Remove a mistaken pallet receive (PLT-only). Blocked when cartons still reference the pallet. */
+export async function voidWarehousePallet(input: {
+  warehouseId: string;
+  palletId: string;
+  reason?: string | null;
+  operatorId?: string | null;
+  supervisorOverride: boolean;
+}): Promise<VoidPalletResult> {
+  const pallet = await getWarehousePallet(input.warehouseId, input.palletId);
+  if (!pallet) return { voided: false, reason: "Pallet not found." };
+
+  if (await palletHasChildCartons(input.warehouseId, input.palletId)) {
+    return {
+      voided: false,
+      reason: "Cartons are still linked to this pallet — void those cartons first.",
+    };
+  }
+
+  if (!canVoidPallet(pallet, input.supervisorOverride)) {
+    return {
+      voided: false,
+      reason: palletHasPutaway(pallet)
+        ? "Already put away — supervisor override required."
+        : `Cannot void pallet in status "${pallet.status}".`,
+    };
+  }
+
+  const eventsRef = collection(db, WAREHOUSES, input.warehouseId, "movementEvents");
+  const batch = writeBatch(db);
+  batch.set(doc(eventsRef), {
+    type: "void_receive",
+    palletId: input.palletId,
+    palletCode: pallet.palletCode,
+    reason: input.reason?.trim() || null,
+    supervisorOverride: input.supervisorOverride,
+    operatorId: input.operatorId ?? null,
+    at: serverTimestamp(),
+  });
+  await batch.commit();
+  await deleteDoc(warehousePalletDocRef(input.warehouseId, input.palletId));
+  return { voided: true };
+}
+
 /** Session storage key for undo-last-batch + form restore. */
 export function lastReceiveBatchStorageKey(warehouseId: string): string {
   return `psf_last_receive_batch_${warehouseId}`;
@@ -353,6 +533,9 @@ export type StoredReceiveFormSnapshot = {
   cartons: Array<{
     id: string;
     copies: string;
+    clientId?: string;
+    clientLabel?: string;
+    crossdockLot?: string;
     lines: Array<{
       id: string;
       sku: string;
@@ -363,6 +546,12 @@ export type StoredReceiveFormSnapshot = {
       expiry: string;
     }>;
   }>;
+  palletClientId?: string;
+  palletClientLabel?: string;
+  palletCrossdockLot?: string;
+  /** Loose inventory — default client for all cartons in the batch */
+  shipmentClientId?: string;
+  shipmentClientLabel?: string;
 };
 
 export type StoredLastReceiveBatch = {

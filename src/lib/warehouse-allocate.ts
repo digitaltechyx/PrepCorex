@@ -29,6 +29,9 @@ export type UnallocatedLine = {
   cartonId: string;
   cartonCode: string;
   palletId: string | null;
+  /** Client captured at receive (carton root), before line allocation */
+  cartonClientId: string | null;
+  cartonClientLabel: string | null;
   line: WarehouseCartonLine;
   binId: string | null;
   binPath: string | null;
@@ -150,6 +153,8 @@ export async function loadAllocateData(
         cartonId: c.id,
         cartonCode: c.cartonCode,
         palletId: c.palletId ?? null,
+        cartonClientId: c.clientId ?? null,
+        cartonClientLabel: c.receivedForClient?.trim() || null,
         line: l,
         binId: l.binId ?? null,
         binPath: l.binId ? binPath.get(l.binId) ?? null : null,

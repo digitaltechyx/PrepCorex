@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont, type PDFIm
 import type { WarehousePalletDoc } from "@/types";
 import { encodePalletBarcode } from "@/lib/warehouse-carton-barcode";
 import {
+  drawFieldRow,
   drawFramedLabel,
   ink,
   muted,
@@ -52,7 +53,10 @@ function drawPalletLabel(
     font: fontBold,
     color: rgb(1, 1, 1),
   });
-  page.drawText(pdfText("Mixed SKU · move as unit"), {
+  const subheader = pallet.isClosedCrossdock
+    ? "CROSS-DOCK · CLOSED"
+    : "Mixed SKU · move as unit";
+  page.drawText(pdfText(subheader), {
     x: innerX + 52,
     y: headerBottom + (headerH - 6) / 2,
     size: 5.5,
@@ -61,19 +65,64 @@ function drawPalletLabel(
     maxWidth: innerW - 64,
   });
 
-  // Body: centered QR on tinted panel
+  const bodyBottom = bottom + footerH;
+  const bodyTop = bodyBottom + bodyH;
+  const clientLine =
+    pallet.isClosedCrossdock &&
+    (pallet.receivedForClient?.trim() ||
+      (pallet.clientId ? `Client ${pallet.clientId.slice(0, 8)}` : null));
+  const lotLine = pallet.isClosedCrossdock && pallet.receiveLot?.trim();
+  const textBandH =
+    clientLine && lotLine ? 36 : clientLine || lotLine ? 22 : 0;
+  const qrBodyH = bodyH - textBandH;
+
   page.drawRectangle({
     x: innerX,
-    y: bottom + footerH,
+    y: bodyBottom,
     width: innerW,
     height: bodyH,
     color: palletAccentLight,
   });
 
+  if (textBandH > 0) {
+    const textTop = bodyTop - textBandH;
+    page.drawRectangle({
+      x: innerX,
+      y: textTop,
+      width: innerW,
+      height: textBandH,
+      color: rgb(1, 1, 1),
+    });
+    const infoSize = 6;
+    if (clientLine) {
+      page.drawText(pdfText(String(clientLine).slice(0, 40)), {
+        x: innerX + 6,
+        y: lotLine ? textTop + textBandH - 12 : textTop + (textBandH - infoSize) / 2,
+        size: infoSize,
+        font,
+        color: ink,
+        maxWidth: innerW - 12,
+      });
+    }
+    if (lotLine) {
+      drawFieldRow(
+        page,
+        innerX + 6,
+        textTop + 4,
+        "LOT",
+        lotLine,
+        font,
+        fontBold,
+        innerW - 12,
+        6.5
+      );
+    }
+  }
+
   const qrPad = 8;
-  const qrSide = Math.min(innerW - qrPad * 2, bodyH - qrPad * 2);
+  const qrSide = Math.min(innerW - qrPad * 2, qrBodyH - qrPad * 2);
   const qx = innerX + (innerW - qrSide) / 2;
-  const qy = bottom + footerH + (bodyH - qrSide) / 2;
+  const qy = bodyBottom + (qrBodyH - qrSide) / 2;
   page.drawRectangle({
     x: qx - 4,
     y: qy - 4,

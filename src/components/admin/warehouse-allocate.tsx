@@ -133,13 +133,18 @@ export function WarehouseAllocate({ warehouse }: Props) {
   const filteredUnallocated = useMemo(() => {
     const skuQ = skuFilter.trim().toUpperCase();
     return unallocated.filter((u) => {
+      if (clientFilter) {
+        const matchesClient =
+          u.cartonClientId === clientFilter || u.line.clientId === clientFilter;
+        if (!matchesClient) return false;
+      }
       if (!skuQ) return true;
       const inSku = u.line.sku.toUpperCase().includes(skuQ);
       const inCode = u.cartonCode.toUpperCase().includes(skuQ);
       if (isCrossdockClosedSku(u.line.sku)) return inCode || skuQ === "CLOSED";
       return inSku;
     });
-  }, [unallocated, skuFilter]);
+  }, [unallocated, skuFilter, clientFilter]);
 
   const filteredRequests = useMemo(() => {
     return requests.filter((r) => {
@@ -406,6 +411,20 @@ export function WarehouseAllocate({ warehouse }: Props) {
               filteredUnallocated.map((u) => {
                 const key = u.cartonId + ":" + u.line.lineId;
                 const closedCrossdock = isCrossdockClosedSku(u.line.sku);
+                const closedClient = closedCrossdock && u.line.clientId
+                  ? clientById.get(u.line.clientId)
+                  : null;
+                const closedClientLabel =
+                  closedCrossdock && !closedClient && u.line.productTitle
+                    ? u.line.productTitle.replace(/^Closed cross-dock — /i, "").trim()
+                    : null;
+                const receiveClient = !closedCrossdock && u.cartonClientId
+                  ? clientById.get(u.cartonClientId)
+                  : null;
+                const receiveClientLabel =
+                  !closedCrossdock && !receiveClient && u.cartonClientLabel
+                    ? u.cartonClientLabel
+                    : null;
                 const isMatch =
                   !closedCrossdock &&
                   selectedRequest &&
@@ -461,9 +480,28 @@ export function WarehouseAllocate({ warehouse }: Props) {
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {closedCrossdock ? (
-                        <>Contents not opened — assign client, then putaway decides placement.</>
+                        closedClient || closedClientLabel ? (
+                          <>
+                            Client:{" "}
+                            {closedClient
+                              ? closedClient.name || closedClient.email
+                              : closedClientLabel}
+                            {u.line.lot ? ` · Lot ${u.line.lot}` : ""} — putaway next
+                          </>
+                        ) : (
+                          <>Contents not opened — assign client, then putaway decides placement.</>
+                        )
                       ) : (
                         <>
+                          {receiveClient || receiveClientLabel ? (
+                            <>
+                              Client at receive:{" "}
+                              {receiveClient
+                                ? receiveClient.name || receiveClient.email
+                                : receiveClientLabel}
+                              {" · "}
+                            </>
+                          ) : null}
                           {u.cartonCode}
                           {u.line.lot ? ` · Lot ${u.line.lot}` : ""}
                           {u.line.expiry ? ` · Exp ${u.line.expiry.slice(0, 10)}` : ""}
@@ -485,16 +523,18 @@ export function WarehouseAllocate({ warehouse }: Props) {
                           Select a request on the left to allocate.
                         </span>
                       ) : null}
+                      {closedCrossdock && (closedClient || closedClientLabel) ? null : (
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => {
                           setRestockTarget(u);
-                          setRestockClient("");
+                          setRestockClient(u.cartonClientId ?? "");
                         }}
                       >
                         Restock to client…
                       </Button>
+                      )}
                     </div>
                   </div>
                 );

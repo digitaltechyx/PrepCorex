@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,24 +27,34 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { isOpsSupervisor } from "@/lib/warehouse-ops-permissions";
-import { findCartonByCode } from "@/lib/warehouse-putaway";
+import { resolveScan } from "@/lib/warehouse-putaway";
+import { findPalletByCode } from "@/lib/warehouse-carton-firestore";
+import { generateCrossdockReceiveLot } from "@/lib/warehouse-crossdock";
 import {
   canEditReceivedCarton,
+  canEditReceivedPallet,
   canVoidCarton,
+  canVoidPallet,
   cartonHasPutaway,
   cartonToLineDrafts,
   correctReceivedCarton,
+  correctReceivedPallet,
   lineDraftsToReceiveInput,
+  palletHasPutaway,
   voidWarehouseCartons,
+  voidWarehousePallet,
 } from "@/lib/warehouse-receive-corrections";
 import { CARTON_STATUS_LABELS } from "@/lib/warehouse-carton-states";
 import {
   buildWarehouseCartonLabelsPdf,
   downloadUint8ArrayAsFile,
 } from "@/lib/warehouse-carton-label-pdf";
+import { buildWarehousePalletLabelsPdf } from "@/lib/warehouse-pallet-label-pdf";
+import { CrossdockClientCombobox } from "@/components/warehouse-ops/crossdock-client-combobox";
 import { ScanLookupPopover } from "@/components/warehouse-ops/scan-lookup-popover";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
-import type { WarehouseCartonDoc, WarehouseDoc } from "@/types";
+import { useCollection } from "@/hooks/use-collection";
+import type { UserProfile, WarehouseCartonDoc, WarehouseDoc, WarehousePalletDoc } from "@/types";
 import {
   AlertTriangle,
   Loader2,
@@ -92,9 +102,24 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
   const supervisor = isOpsSupervisor(userProfile);
   const operatorId = user?.uid ?? null;
 
+  const { data: allUsers } = useCollection<UserProfile>("users");
+  const clients = useMemo(
+    () =>
+      allUsers
+        .filter((u) => u.role === "user" || (u.roles ?? []).includes("user"))
+        .sort((a, b) =>
+          (a.name || a.email || a.uid).localeCompare(b.name || b.email || b.uid)
+        ),
+    [allUsers]
+  );
+
   const [scan, setScan] = useState("");
   const [resolving, setResolving] = useState(false);
   const [carton, setCarton] = useState<WarehouseCartonDoc | null>(null);
+  const [pallet, setPallet] = useState<WarehousePalletDoc | null>(null);
+  const [palletClientId, setPalletClientId] = useState("");
+  const [palletClientLabel, setPalletClientLabel] = useState("");
+  const [palletReceiveLot, setPalletReceiveLot] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([newLine()]);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [carrier, setCarrier] = useState("");
@@ -107,12 +132,31 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
   const voidable = carton ? canVoidCarton(carton, supervisor) : false;
   const hasPutaway = carton ? cartonHasPutaway(carton) : false;
 
+  const palletEditable = pallet ? canEditReceivedPallet(pallet, supervisor) : false;
+  const palletVoidable = pallet ? canVoidPallet(pallet, supervisor) : false;
+  const palletPutaway = pallet ? palletHasPutaway(pallet) : false;
+
   function loadCartonIntoForm(c: WarehouseCartonDoc) {
+    setPallet(null);
     setCarton(c);
     setLines(cartonToLineDrafts(c));
     setTrackingNumber(c.trackingNumber ?? "");
     setCarrier(c.carrier ?? "");
     setNotes(c.notes ?? "");
+    setVoidReason("");
+    setCorrectionReason("");
+  }
+
+  function loadPalletIntoForm(p: WarehousePalletDoc) {
+    setCarton(null);
+    setLines([newLine()]);
+    setPallet(p);
+    setTrackingNumber(p.trackingNumber ?? "");
+    setCarrier(p.carrier ?? "");
+    setNotes(p.notes ?? "");
+    setPalletClientId(p.clientId ?? "");
+    setPalletClientLabel(p.receivedForClient ?? "");
+    setPalletReceiveLot(p.receiveLot ?? "");
     setVoidReason("");
     setCorrectionReason("");
   }
@@ -123,26 +167,44 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
     if (raw != null) setScan(raw);
     setResolving(true);
     try {
-      const found = await findCartonByCode(warehouse.id, code);
-      if (!found) {
-        toast({
-          title: "Not found",
-          description: "No carton matches that code in this warehouse.",
-          variant: "destructive",
-        });
-        setCarton(null);
+      const resolved = await resolveScan(warehouse.id, code);
+      if (resolved.kind === "carton") {
+        const found = resolved.carton;
+        if (found.status === "voided") {
+          toast({
+            title: "Carton voided",
+            description: `${found.cartonCode} was voided and cannot be edited.`,
+            variant: "destructive",
+          });
+          setCarton(null);
+          setPallet(null);
+          return;
+        }
+        loadCartonIntoForm(found);
         return;
       }
-      if (found.status === "voided") {
-        toast({
-          title: "Carton voided",
-          description: `${found.cartonCode} was voided and cannot be edited.`,
-          variant: "destructive",
-        });
-        setCarton(null);
+      if (resolved.kind === "pallet") {
+        const found = await findPalletByCode(warehouse.id, resolved.palletCode);
+        if (!found) {
+          toast({
+            title: "Not found",
+            description: `No pallet ${resolved.palletCode} in this warehouse.`,
+            variant: "destructive",
+          });
+          setCarton(null);
+          setPallet(null);
+          return;
+        }
+        loadPalletIntoForm(found);
         return;
       }
-      loadCartonIntoForm(found);
+      toast({
+        title: "Not found",
+        description: "No carton (CTN) or pallet (PAL) matches that code in this warehouse.",
+        variant: "destructive",
+      });
+      setCarton(null);
+      setPallet(null);
     } catch (e) {
       toast({
         title: "Lookup failed",
@@ -269,6 +331,98 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
     }
   }
 
+  async function handlePalletSave() {
+    if (!pallet) return;
+    if (palletPutaway && supervisor && !correctionReason.trim()) {
+      toast({
+        title: "Reason required",
+        description: "Supervisors must enter a correction reason after putaway.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await correctReceivedPallet({
+        warehouseId: warehouse.id,
+        palletId: pallet.id,
+        trackingNumber: trackingNumber.trim() || null,
+        carrier: carrier.trim() || null,
+        notes: notes.trim() || null,
+        clientId: palletClientId.trim() || null,
+        receivedForClient: palletClientLabel.trim() || null,
+        receiveLot: palletReceiveLot.trim() || null,
+        operatorId,
+        supervisorOverride: supervisor,
+        correctionReason: correctionReason.trim() || null,
+      });
+      loadPalletIntoForm(updated);
+      toast({
+        title: "Pallet updated",
+        description: `${updated.palletCode} saved.`,
+      });
+    } catch (e) {
+      toast({
+        title: "Save failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handlePalletVoid() {
+    if (!pallet) return;
+    setSaving(true);
+    try {
+      const res = await voidWarehousePallet({
+        warehouseId: warehouse.id,
+        palletId: pallet.id,
+        reason: voidReason.trim() || "Voided at dock",
+        operatorId,
+        supervisorOverride: supervisor,
+      });
+      if (!res.voided) {
+        throw new Error(res.reason ?? "Could not void pallet.");
+      }
+      toast({
+        title: "Pallet removed",
+        description: `${pallet.palletCode} was deleted from receiving.`,
+      });
+      setPallet(null);
+      setScan("");
+    } catch (e) {
+      toast({
+        title: "Void failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handlePalletReprint() {
+    if (!pallet) return;
+    setSaving(true);
+    try {
+      const pdf = await buildWarehousePalletLabelsPdf({
+        title: `${warehouse.code} — ${pallet.palletCode}`,
+        pallets: [pallet],
+      });
+      downloadUint8ArrayAsFile(pdf, `${pallet.palletCode}-reprint.pdf`);
+    } catch (e) {
+      toast({
+        title: "Print failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="max-w-4xl space-y-4">
       {supervisor ? (
@@ -278,7 +432,8 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Scan a carton label (CTN-…) to fix lines or void a mistake. Changes are only allowed before putaway unless you have supervisor access.
+          Scan a carton (CTN) or cross-dock pallet (PAL) label to fix details or void a mistake.
+          Changes are only allowed before putaway unless you have supervisor access.
         </p>
       )}
 
@@ -286,10 +441,10 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
             <ScanLine className="h-4 w-4" />
-            Scan carton
+            Scan label
           </CardTitle>
           <CardDescription className="text-xs">
-            Enter CTN code or scan the carton QR label.
+            Enter CTN or PAL code, or scan the carton / pallet QR label.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex gap-2">
@@ -297,7 +452,7 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
             value={scan}
             onChange={(e) => setScan(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && void handleLookup()}
-            placeholder="CTN-2026-00042"
+            placeholder="CTN-2026-00042 or PAL-2026-00007"
             className="font-mono"
           />
           <ScanCameraButton onScan={(v) => void handleLookup(v)} />
@@ -534,6 +689,165 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction onClick={() => void handleVoid()}>
                         Void carton
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </CardContent>
+            </Card>
+          ) : null}
+        </>
+      ) : null}
+
+      {pallet ? (
+        <>
+          <Card className="border-indigo-200/80">
+            <CardHeader className="pb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="text-base font-mono">{pallet.palletCode}</CardTitle>
+                <Badge variant="outline" className="border-indigo-300 text-indigo-900">
+                  {pallet.isClosedCrossdock ? "Cross-dock · closed" : "Pallet"} · {pallet.status}
+                </Badge>
+              </div>
+              {palletPutaway ? (
+                <CardDescription className="text-xs flex items-center gap-1 text-amber-800">
+                  <AlertTriangle className="h-3 w-3" />
+                  Putaway started — {supervisor ? "supervisor can still correct" : "editing blocked"}
+                </CardDescription>
+              ) : null}
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Tracking #</Label>
+                  <Input
+                    value={trackingNumber}
+                    onChange={(e) => setTrackingNumber(e.target.value)}
+                    disabled={!palletEditable}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Carrier</Label>
+                  <Input
+                    value={carrier}
+                    onChange={(e) => setCarrier(e.target.value)}
+                    disabled={!palletEditable}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Notes</Label>
+                <Textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                  disabled={!palletEditable}
+                />
+              </div>
+              {pallet.isClosedCrossdock ? (
+                <div className="space-y-3 rounded-md border border-dashed border-indigo-200 bg-indigo-50/30 px-3 py-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Client name (optional)</Label>
+                    <CrossdockClientCombobox
+                      clients={clients}
+                      clientId={palletClientId}
+                      clientLabel={palletClientLabel}
+                      onChange={({ clientId, clientLabel }) => {
+                        setPalletClientId(clientId);
+                        setPalletClientLabel(clientLabel);
+                      }}
+                      disabled={!palletEditable}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Receive lot</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={palletReceiveLot}
+                        onChange={(e) => setPalletReceiveLot(e.target.value)}
+                        className="font-mono text-sm flex-1"
+                        disabled={!palletEditable}
+                      />
+                      {palletEditable ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => setPalletReceiveLot(generateCrossdockReceiveLot())}
+                        >
+                          New lot
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {palletPutaway && supervisor ? (
+                <div className="space-y-1">
+                  <Label className="text-xs">Correction reason (required)</Label>
+                  <Input
+                    value={correctionReason}
+                    onChange={(e) => setCorrectionReason(e.target.value)}
+                    placeholder="Why are you changing this after putaway?"
+                  />
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2 pt-2">
+                {palletEditable ? (
+                  <Button type="button" onClick={() => void handlePalletSave()} disabled={saving}>
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                    Save changes
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handlePalletReprint()}
+                  disabled={saving}
+                >
+                  <Printer className="h-4 w-4 mr-1" />
+                  Reprint label
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {palletVoidable ? (
+            <Card className="border-red-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base text-red-800">Void this pallet</CardTitle>
+                <CardDescription className="text-xs">
+                  Removes the pallet record (use when the PLT label was created by mistake).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Reason</Label>
+                  <Input
+                    value={voidReason}
+                    onChange={(e) => setVoidReason(e.target.value)}
+                    placeholder="Wrong pallet, duplicate label, etc."
+                  />
+                </div>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button type="button" variant="destructive" disabled={saving}>
+                      Void {pallet.palletCode}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Void pallet?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {pallet.palletCode} will be deleted from this warehouse. Cartons linked to
+                        this pallet must be voided first.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => void handlePalletVoid()}>
+                        Void pallet
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>

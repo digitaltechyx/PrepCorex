@@ -118,6 +118,21 @@ function drawCartonLabel(
       maxWidth: textW,
     });
     ty -= 12;
+    if (carton.productTitle?.includes("—")) {
+      page.drawText(pdfText(carton.productTitle.slice(0, 48)), {
+        x: textX,
+        y: ty,
+        size: 6.5,
+        font,
+        color: ink,
+        maxWidth: textW,
+      });
+      ty -= 10;
+    }
+    if (carton.lot) {
+      drawFieldRow(page, textX, ty - 10, "LOT", carton.lot, font, fontBold, textW, 7);
+      ty -= 22;
+    }
     page.drawText(pdfText("Scan CTN at putaway"), {
       x: textX,
       y: ty,
