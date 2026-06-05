@@ -16,6 +16,7 @@ export function sanitizePdfWinAnsi(text: string): string {
     .replace(/[\u2018\u2019\u2032]/g, "'")
     .replace(/[\u201C\u201D\u2033]/g, '"')
     .replace(/[\u2026]/g, "...")
+    .replace(/[\u2192\u2190\u2194]/g, "->")
     .replace(/[\u00A0]/g, " ")
     .replace(/[^\t\n\r\x20-\x7E\xA0-\xFF]/g, "?");
 }

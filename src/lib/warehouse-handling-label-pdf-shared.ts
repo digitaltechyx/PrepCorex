@@ -18,6 +18,10 @@ export const cartonAccentLight = rgb(0.99, 0.94, 0.88);
 export const palletAccent = rgb(0.39, 0.4, 0.95);
 export const palletAccentLight = rgb(0.94, 0.93, 0.99);
 
+/** Package / polybag — emerald */
+export const packageAccent = rgb(0.02, 0.59, 0.41);
+export const packageAccentLight = rgb(0.92, 0.98, 0.95);
+
 export async function qrPngBytes(payload: string, size = 200): Promise<Uint8Array> {
   const dataUrl = await QRCode.toDataURL(payload, {
     width: size,
@@ -119,5 +123,27 @@ export function drawFramedLabel(
     innerY: bottom + borderW,
     innerW: w - borderW * 2,
     innerH: h - borderW * 2,
+  };
+}
+
+/** 4×6" thermal label (portrait). 72 pt per inch — one label per PDF page. */
+export const THERMAL_4X6_PT = {
+  width: 4 * 72,
+  height: 6 * 72,
+  margin: 4,
+} as const;
+
+export function thermal4x6PageSize(): [number, number] {
+  return [THERMAL_4X6_PT.width, THERMAL_4X6_PT.height];
+}
+
+/** Printable area inside the 4×6 page (small margin avoids printer clipping). */
+export function thermal4x6LabelBox(): { x: number; yTop: number; w: number; h: number } {
+  const { width, height, margin } = THERMAL_4X6_PT;
+  return {
+    x: margin,
+    yTop: height - margin,
+    w: width - margin * 2,
+    h: height - margin * 2,
   };
 }

@@ -17,6 +17,7 @@ import { warehouseBinsCollectionRef } from "@/lib/warehouse-firestore";
 import {
   decodeCartonBarcode,
   decodePalletBarcode,
+  decodePackageBarcode,
 } from "@/lib/warehouse-carton-barcode";
 import type {
   WarehouseBinDoc,
@@ -50,10 +51,12 @@ export async function findCartonByCode(
 ): Promise<WarehouseCartonDoc | null> {
   const cartonCode = cartonCodeRaw.trim();
   if (!cartonCode) return null;
+  const decodedPkg = decodePackageBarcode(cartonCode);
+  const code = decodedPkg ?? cartonCode;
   const snap = await getDocs(
     query(
       warehouseCartonsCollectionRef(warehouseId),
-      where("cartonCode", "==", cartonCode),
+      where("cartonCode", "==", code),
       limit(1)
     )
   );
@@ -83,11 +86,22 @@ export async function resolveScan(
   const pal = decodePalletBarcode(value);
   if (pal) return { kind: "pallet", palletCode: pal };
 
+  const pkg = decodePackageBarcode(value);
+  if (pkg) {
+    const carton = await findCartonByCode(warehouseId, pkg);
+    if (carton) return { kind: "carton", carton };
+  }
+
   const direct = await findCartonByCode(warehouseId, value);
   if (direct) return { kind: "carton", carton: direct };
 
   if (/^PAL-\d{4}-\d+$/i.test(value)) {
     return { kind: "pallet", palletCode: value };
+  }
+
+  if (/^PKG-\d{4}-\d+$/i.test(value)) {
+    const carton = await findCartonByCode(warehouseId, value);
+    if (carton) return { kind: "carton", carton };
   }
 
   return { kind: "none" };
@@ -357,6 +371,7 @@ function docToCartonShallow(id: string, data: Record<string, unknown>): Warehous
     lines: lines && lines.length > 0 ? lines : undefined,
     isMixed: data.isMixed === true,
     isLoose: data.isLoose === true,
+    isPackage: data.isPackage === true,
     trackingNumber: data.trackingNumber != null ? String(data.trackingNumber) : null,
     carrier: data.carrier != null ? String(data.carrier) : null,
     notes: data.notes != null ? String(data.notes) : null,

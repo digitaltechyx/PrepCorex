@@ -36,6 +36,7 @@ import {
   downloadUint8ArrayAsFile,
 } from "@/lib/warehouse-carton-label-pdf";
 import { buildWarehousePalletLabelsPdf } from "@/lib/warehouse-pallet-label-pdf";
+import { buildWarehousePackageLabelsPdf } from "@/lib/warehouse-package-label-pdf";
 import {
   Loader2,
   Plus,
@@ -93,7 +94,7 @@ import {
 } from "@/lib/warehouse-receive-corrections";
 
 type ReceiveType = "carton" | "pallet" | "loose";
-/** crossdock = closed labels only; loose = open, count SKUs at dock */
+/** crossdock = closed labels only; loose module = open receiving at dock */
 type ReceiveModule = "crossdock" | "loose";
 type ReceivePhase = "hub" | "pick-package" | "form";
 
@@ -156,7 +157,8 @@ function newCrossdockCarton(): CartonDraft {
 }
 
 function moduleFromSnapshot(snap: StoredReceiveFormSnapshot): ReceiveModule {
-  if (snap.type === "loose") return "loose";
+  if (snap.type === "loose" && !snap.cartons.some((c) => c.crossdockLot)) return "loose";
+  if (snap.type === "loose" && snap.cartons.some((c) => c.crossdockLot)) return "crossdock";
   if (snap.palletCrossdockLot) return "crossdock";
   if (snap.cartons.some((c) => c.crossdockLot)) return "crossdock";
   return "loose";
@@ -188,7 +190,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   }
 
   function backFromForm() {
-    if (type === "loose") {
+    if (type === "loose" && module === "loose") {
       setPhase("hub");
       setModule(null);
       setType(null);
@@ -211,19 +213,19 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
             <>
               <p className="text-sm text-muted-foreground">
                 Choose how this inbound is handled at the dock. Cross-dock stays closed until
-                putaway; loose inventory is opened and counted here.
+                putaway; open receiving is counted and entered here.
               </p>
               <TypePickerCard
                 color="indigo"
                 icon={<ArrowRightLeft className="h-8 w-8" />}
                 title="Cross-dock receiving"
-                description="Closed cartons or pallets — CTN/PLT labels only. SKUs and clients at allocate / putaway."
+                description="Closed cartons, pallets, or polybags — CTN/PLT labels only. SKUs and clients at allocate / putaway."
                 onClick={() => startModule("crossdock")}
               />
               <TypePickerCard
                 color="emerald"
                 icon={<PackageOpen className="h-8 w-8" />}
-                title="Loose inventory receiving"
+                title="Open receiving"
                 description="Open and count at the dock — cartons, pallets with cartons inside, or polybags / totes."
                 onClick={() => startModule("loose")}
               />
@@ -250,6 +252,13 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   description="Closed pallet — one PLT label. Cartons inside are not listed at the dock."
                   onClick={() => pickPackage("pallet")}
                 />
+                <TypePickerCard
+                  color="emerald"
+                  icon={<PackageOpen className="h-8 w-8" />}
+                  title="Package / polybag"
+                  description="Closed bag or small pack — PKG label. No SKU at the dock."
+                  onClick={() => pickPackage("loose")}
+                />
               </div>
             </>
           ) : phase === "pick-package" && module === "loose" ? (
@@ -259,7 +268,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                 Back
               </Button>
               <p className="text-sm text-muted-foreground">
-                Loose inventory — open, inspect, and enter SKUs at the dock.
+                Open receiving — open, inspect, and enter SKUs at the dock.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <TypePickerCard
@@ -280,7 +289,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   color="emerald"
                   icon={<PackageOpen className="h-8 w-8" />}
                   title="Packages / polybags"
-                  description="Small bags or totes with no master carton — one batch of SKUs, loose stock label."
+                  description="Small bags or totes with no master carton — one batch of SKUs, open receiving label."
                   onClick={() => pickPackage("loose")}
                 />
               </div>
@@ -376,8 +385,10 @@ function ReceiveForm({
   const supervisor = isOpsSupervisor(userProfile);
   const operatorName = userProfile?.name || userProfile?.email || user?.uid || null;
   const operatorId = user?.uid ?? null;
-  const isCrossdockCarton = receiveMode === "crossdock" && type === "carton";
-  const isCrossdockPalletOnly = receiveMode === "crossdock" && type === "pallet";
+  const isCrossdockCarton = receiveModule === "crossdock" && type === "carton";
+  const isCrossdockPackage = receiveModule === "crossdock" && type === "loose";
+  const isCrossdockClosedUnit = isCrossdockCarton || isCrossdockPackage;
+  const isCrossdockPalletOnly = receiveModule === "crossdock" && type === "pallet";
 
   const { data: allUsers } = useCollection<UserProfile>("users");
   const clients = useMemo(
@@ -413,7 +424,7 @@ function ReceiveForm({
     if (isCrossdockPalletOnly) return [];
     if (initialSnapshot?.cartons?.length) {
       return initialSnapshot.cartons.map((c) =>
-        isCrossdockCarton
+        isCrossdockClosedUnit
           ? {
               ...c,
               clientId: c.clientId ?? "",
@@ -423,7 +434,7 @@ function ReceiveForm({
           : c
       );
     }
-    return isCrossdockCarton ? [newCrossdockCarton()] : [newCarton()];
+    return isCrossdockClosedUnit ? [newCrossdockCarton()] : [newCarton()];
   });
   const [saving, setSaving] = useState(false);
   const [undoing, setUndoing] = useState(false);
@@ -492,19 +503,22 @@ function ReceiveForm({
   }, [warehouse.id]);
 
   // Loose / polybag: one virtual carton for all lines. Pallet loose: many cartons on one PLT.
-  const showCopies = type === "carton" && receiveModule === "loose";
+  const showCopies =
+    (type === "carton" && receiveModule === "loose") || isCrossdockPackage;
   const showMultipleCartons =
-    type === "carton" || (receiveModule === "loose" && type === "pallet");
+    type === "carton" ||
+    (receiveModule === "loose" && type === "pallet") ||
+    isCrossdockClosedUnit;
   const showShipmentDetails = true; // visible for all 3, but compact
 
-  const totalLineCount = isCrossdockCarton
+  const totalLineCount = isCrossdockClosedUnit
     ? 0
     : cartons.reduce((s, c) => s + c.lines.length, 0);
   const totalCartonCount = cartons.reduce(
     (s, c) => s + Math.max(1, parseInt(c.copies, 10) || 1),
     0
   );
-  const totalUnitCount = isCrossdockCarton
+  const totalUnitCount = isCrossdockClosedUnit
     ? totalCartonCount
     : cartons.reduce((sum, c) => {
     const copies = Math.max(1, parseInt(c.copies, 10) || 1);
@@ -549,7 +563,7 @@ function ReceiveForm({
     );
   }
   function addCarton() {
-    setCartons((prev) => [...prev, isCrossdockCarton ? newCrossdockCarton() : newCarton()]);
+    setCartons((prev) => [...prev, isCrossdockClosedUnit ? newCrossdockCarton() : newCarton()]);
   }
   function duplicateCarton(cartonId: string) {
     setCartons((prev) => {
@@ -559,10 +573,10 @@ function ReceiveForm({
       const copy: CartonDraft = {
         ...src,
         id: uid("ctn"),
-        lines: isCrossdockCarton ? [] : src.lines.map((l) => ({ ...l, id: uid("ln") })),
+        lines: isCrossdockClosedUnit ? [] : src.lines.map((l) => ({ ...l, id: uid("ln") })),
         clientId: src.clientId,
         clientLabel: src.clientLabel,
-        crossdockLot: isCrossdockCarton ? generateCrossdockReceiveLot() : src.crossdockLot,
+        crossdockLot: isCrossdockClosedUnit ? generateCrossdockReceiveLot() : src.crossdockLot,
       };
       return [...prev.slice(0, idx + 1), copy, ...prev.slice(idx + 1)];
     });
@@ -606,7 +620,7 @@ function ReceiveForm({
         crossdockLot: generateCrossdockReceiveLot(),
       });
     } else {
-      setCartons([isCrossdockCarton ? newCrossdockCarton() : newCarton()]);
+      setCartons([isCrossdockClosedUnit ? newCrossdockCarton() : newCarton()]);
     }
   }
 
@@ -698,7 +712,7 @@ function ReceiveForm({
       return;
     }
 
-    if (!isCrossdockCarton) {
+    if (!isCrossdockClosedUnit) {
       for (const c of cartons) {
         for (const l of c.lines) {
           if (!l.sku.trim()) {
@@ -760,7 +774,7 @@ function ReceiveForm({
           }
         }
         const client =
-          isCrossdockCarton || receiveModule === "loose" ? resolveCartonClient(c) : null;
+          isCrossdockClosedUnit || receiveModule === "loose" ? resolveCartonClient(c) : null;
         return {
           copies,
           lines: flatLines,
@@ -779,7 +793,8 @@ function ReceiveForm({
         receivedBy: operatorName,
         stagingArea: "RCV-STAGE",
         receiveMode,
-        isLoose: type === "loose",
+        isLoose: type === "loose" && receiveModule === "loose",
+        isPackage: isCrossdockPackage,
         pallet: useShipmentOnPallet
           ? {
               trackingNumber: trackingNumber.trim() || null,
@@ -806,14 +821,28 @@ function ReceiveForm({
       const createdPallet = palletId ? allPallets.find((p) => p.id === palletId) : null;
 
       if (created.length > 0) {
-        const cartonPdf = await buildWarehouseCartonLabelsPdf({
-          title: `${warehouse.code} — ${created.length} label${created.length > 1 ? "s" : ""}`,
-          cartons: created,
-        });
-        downloadUint8ArrayAsFile(
-          cartonPdf,
-          `${type}-labels-${created[0].cartonCode}-${created.length}.pdf`
-        );
+        const packageLabels = created.filter((c) => c.isPackage);
+        const cartonLabels = created.filter((c) => !c.isPackage);
+        if (packageLabels.length > 0) {
+          const packagePdf = await buildWarehousePackageLabelsPdf({
+            title: `${warehouse.code} — ${packageLabels.length} PKG label${packageLabels.length > 1 ? "s" : ""}`,
+            packages: packageLabels,
+          });
+          downloadUint8ArrayAsFile(
+            packagePdf,
+            `pkg-labels-${packageLabels[0].cartonCode}-${packageLabels.length}.pdf`
+          );
+        }
+        if (cartonLabels.length > 0) {
+          const cartonPdf = await buildWarehouseCartonLabelsPdf({
+            title: `${warehouse.code} — ${cartonLabels.length} label${cartonLabels.length > 1 ? "s" : ""}`,
+            cartons: cartonLabels,
+          });
+          downloadUint8ArrayAsFile(
+            cartonPdf,
+            `${type}-labels-${cartonLabels[0].cartonCode}-${cartonLabels.length}.pdf`
+          );
+        }
       }
       if (createdPallet) {
         const palletPdf = await buildWarehousePalletLabelsPdf({
@@ -851,9 +880,14 @@ function ReceiveForm({
       });
 
       toast({
-        title: type === "loose" ? "Unpackaged stock received" : "Cross-dock received",
-        description:
-          type === "loose"
+        title: isCrossdockPackage
+          ? "Cross-dock packages received"
+          : receiveModule === "loose"
+          ? "Open receiving complete"
+          : "Cross-dock received",
+        description: isCrossdockPackage
+          ? `${totalCartonCount} PKG label${totalCartonCount === 1 ? "" : "s"} printed. Allocate client, then Putaway.`
+          : type === "loose"
             ? `${created.length} label${created.length > 1 ? "s" : ""} printed.`
             : `${created.length} CTN/PLT label${created.length > 1 ? "s" : ""} printed. Allocate client, then Putaway for placement.`,
       });
@@ -929,14 +963,14 @@ function ReceiveForm({
   const titleByType: Record<ReceiveType, string> =
     receiveModule === "loose"
       ? {
-          carton: "Loose inventory — cartons",
-          pallet: "Loose inventory — pallet",
-          loose: "Loose inventory — packages",
+          carton: "Open receiving — cartons",
+          pallet: "Open receiving — pallet",
+          loose: "Open receiving — packages",
         }
       : {
           carton: "Cross-dock — cartons",
           pallet: "Cross-dock — pallet",
-          loose: "Unpackaged receiving",
+          loose: "Cross-dock — packages",
         };
   const subtitleByType: Record<ReceiveType, string> =
     receiveModule === "loose"
@@ -946,13 +980,14 @@ function ReceiveForm({
           pallet:
             "One pallet label plus a CTN label per carton — enter SKUs inside each carton.",
           loose:
-            "Polybags, totes, or loose units — no master carton. Prints a LOOSE STOCK scan label.",
+            "Polybags, totes, or open units — no master carton. Prints an OPEN RECEIVING scan label.",
         }
       : {
           carton:
             "Closed cartons — CTN labels only. SKU/lot/expiry when you open at putaway.",
           pallet: "One PLT label only — do not count cartons inside. Putaway later.",
-          loose: "No master carton — unpackaged module (legacy path).",
+          loose:
+            "Closed polybags or small packs — PKG labels only. Open and count SKUs at putaway.",
         };
   const accentByType: Record<ReceiveType, string> = {
     carton: "border-orange-300 bg-orange-600 hover:bg-orange-700",
@@ -965,10 +1000,10 @@ function ReceiveForm({
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="sm" onClick={onBack}>
           <ArrowLeft className="h-4 w-4 mr-1" />
-          {type === "loose" ? "Back" : "Change package type"}
+          {type === "loose" && receiveModule === "loose" ? "Back" : "Change package type"}
         </Button>
         <Badge variant="outline" className="capitalize">
-          {receiveModule === "crossdock" ? "Cross-dock" : "Loose inventory"} · {type}
+          {receiveModule === "crossdock" ? "Cross-dock" : "Open receiving"} · {type}
         </Badge>
       </div>
       <WarehouseOpsHeader title={titleByType[type]} />
@@ -1096,7 +1131,7 @@ function ReceiveForm({
                       </Button>
                     </div>
                     <p className="text-[10px] text-muted-foreground">
-                      Format: LOT-CRD + receive date + random (e.g. LOT-CRD20260603042)
+                      Format: LOT-XDOCK + receive date + random (e.g. LOT-XDOCK20260603042)
                     </p>
                   </div>
                 </div>
@@ -1134,11 +1169,16 @@ function ReceiveForm({
         {showMultipleCartons ? (
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">
-              {type === "pallet" ? "Cartons on this pallet" : "Cartons"} ({cartons.length})
+              {type === "pallet"
+                ? "Cartons on this pallet"
+                : isCrossdockPackage
+                ? "Packages"
+                : "Cartons"}{" "}
+              ({cartons.length})
             </h2>
             <Button type="button" variant="outline" size="sm" onClick={addCarton}>
               <Plus className="h-4 w-4 mr-1" />
-              Add another carton
+              {isCrossdockPackage ? "Add another package" : "Add another carton"}
             </Button>
           </div>
         ) : null}
@@ -1152,8 +1192,12 @@ function ReceiveForm({
           }, 0);
           const hasDamaged = c.lines.some((l) => (parseInt(l.damagedQty, 10) || 0) > 0);
           const headerLabel =
-            type === "loose"
-              ? "Loose lines"
+            type === "loose" && receiveModule === "loose"
+              ? "SKU lines"
+              : isCrossdockPackage
+              ? showMultipleCartons
+                ? `Package #${idx + 1}`
+                : "Closed package"
               : showMultipleCartons
               ? `Carton #${idx + 1}`
               : "Items";
@@ -1181,13 +1225,13 @@ function ReceiveForm({
                       ) : null}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      {type === "carton" ? (
+                      {type === "carton" || isCrossdockPackage ? (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           onClick={() => duplicateCarton(c.id)}
-                          title="Duplicate this carton"
+                          title="Duplicate this unit"
                         >
                           <Copy className="h-4 w-4" />
                         </Button>
@@ -1207,11 +1251,12 @@ function ReceiveForm({
                 </CardHeader>
               ) : null}
               <CardContent className={cn("space-y-3", !showMultipleCartons && "pt-6")}>
-                {isCrossdockCarton ? (
+                {isCrossdockClosedUnit ? (
                   <div className="space-y-3 rounded-md border border-dashed border-indigo-200 bg-indigo-50/30 px-3 py-3">
                     <p className="text-sm text-muted-foreground">
-                      Closed unit — no SKU at the dock. Lot always prints on the label; client
-                      is optional. Putaway chooses forward, hold, or bins.
+                      {isCrossdockPackage
+                        ? "Closed polybag or small pack — no SKU at the dock. Lot prints on the label; client is optional."
+                        : "Closed unit — no SKU at the dock. Lot always prints on the label; client is optional. Putaway chooses forward, hold, or bins."}
                     </p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-1 sm:col-span-2">
@@ -1237,7 +1282,7 @@ function ReceiveForm({
                           className="font-mono text-xs bg-muted/50"
                         />
                         <p className="text-[10px] text-muted-foreground">
-                          Format: LOT-CRD + date + random (new lot per carton copy)
+                          Format: LOT-XDOCK + date + random (new lot per carton copy)
                         </p>
                       </div>
                     </div>
@@ -1258,7 +1303,7 @@ function ReceiveForm({
                     </p>
                   </div>
                 ) : null}
-                {!isCrossdockCarton
+                {!isCrossdockClosedUnit
                   ? c.lines.map((line, lineIdx) => {
                   const good = Math.max(0, parseInt(line.goodQty, 10) || 0);
                   const dmg = Math.max(0, parseInt(line.damagedQty, 10) || 0);
@@ -1370,7 +1415,7 @@ function ReceiveForm({
                 })
                   : null}
                 <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
-                  {!isCrossdockCarton ? (
+                  {!isCrossdockClosedUnit ? (
                   <div className="flex gap-2">
                     <Button type="button" variant="outline" size="sm" onClick={() => addLine(c.id)}>
                       <Plus className="h-3 w-3 mr-1" />
@@ -1390,7 +1435,9 @@ function ReceiveForm({
                   {showCopies ? (
                     <div className="flex items-end gap-2 ml-auto">
                       <div className="space-y-1">
-                        <Label className="text-xs">Copies of this carton</Label>
+                        <Label className="text-xs">
+                          {isCrossdockPackage ? "Copies of this package" : "Copies of this carton"}
+                        </Label>
                         <Input
                           type="number"
                           min={1}
@@ -1399,7 +1446,7 @@ function ReceiveForm({
                           className="w-24"
                         />
                       </div>
-                      {!isCrossdockCarton ? (
+                      {!isCrossdockClosedUnit ? (
                       <span className="text-xs text-muted-foreground pb-2">
                         = {totalCopies * cartonUnits} units
                       </span>
@@ -1420,12 +1467,12 @@ function ReceiveForm({
             {type === "pallet" ? (
               <Badge className="bg-indigo-600">1 pallet label</Badge>
             ) : null}
-            {type === "carton" ? (
+            {type === "carton" || isCrossdockPackage ? (
               <Badge variant="outline">
                 {totalCartonCount} label{totalCartonCount === 1 ? "" : "s"}
               </Badge>
             ) : null}
-            {!isCrossdockCarton ? (
+            {!isCrossdockClosedUnit ? (
               <>
                 <Badge variant="outline">{totalLineCount} line{totalLineCount === 1 ? "" : "s"}</Badge>
                 <Badge variant="outline">{totalUnitCount} units</Badge>
@@ -1462,7 +1509,11 @@ function ReceiveForm({
           if (quickScanCartonId) applyQuickScanLines(quickScanCartonId, scanned);
           setQuickScanCartonId(null);
         }}
-        title={type === "loose" ? "Quick scan loose items" : "Quick scan items in this carton"}
+        title={
+          type === "loose" && receiveModule === "loose"
+            ? "Quick scan items"
+            : "Quick scan items in this carton"
+        }
       />
 
       {lastBatch ? (
@@ -1501,8 +1552,10 @@ function ReceiveForm({
                 >
                   <span>{c.cartonCode}</span>
                   <span className="text-xs text-muted-foreground">
-                    {c.isLoose
-                      ? `Loose · ${c.lines?.length ?? 0} line${(c.lines?.length ?? 0) === 1 ? "" : "s"} · ${c.quantity}u`
+                    {c.isPackage
+                      ? "PKG · closed cross-dock"
+                      : c.isLoose
+                      ? `Open · ${c.lines?.length ?? 0} line${(c.lines?.length ?? 0) === 1 ? "" : "s"} · ${c.quantity}u`
                       : c.isMixed
                       ? `Mixed · ${c.lines?.length ?? 0} SKUs · ${c.quantity}u`
                       : `${c.sku} × ${c.quantity}`}

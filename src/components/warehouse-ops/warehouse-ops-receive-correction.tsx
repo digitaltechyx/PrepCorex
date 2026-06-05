@@ -50,6 +50,7 @@ import {
   downloadUint8ArrayAsFile,
 } from "@/lib/warehouse-carton-label-pdf";
 import { buildWarehousePalletLabelsPdf } from "@/lib/warehouse-pallet-label-pdf";
+import { buildWarehousePackageLabelsPdf } from "@/lib/warehouse-package-label-pdf";
 import { CrossdockClientCombobox } from "@/components/warehouse-ops/crossdock-client-combobox";
 import { ScanLookupPopover } from "@/components/warehouse-ops/scan-lookup-popover";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
@@ -200,7 +201,7 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
       }
       toast({
         title: "Not found",
-        description: "No carton (CTN) or pallet (PAL) matches that code in this warehouse.",
+        description: "No carton (CTN), package (PKG), or pallet (PAL) matches that code in this warehouse.",
         variant: "destructive",
       });
       setCarton(null);
@@ -315,11 +316,19 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
     if (!carton) return;
     setSaving(true);
     try {
-      const pdf = await buildWarehouseCartonLabelsPdf({
-        title: `${warehouse.code} — ${carton.cartonCode}`,
-        cartons: [carton],
-      });
-      downloadUint8ArrayAsFile(pdf, `${carton.cartonCode}-reprint.pdf`);
+      if (carton.isPackage) {
+        const pdf = await buildWarehousePackageLabelsPdf({
+          title: `${warehouse.code} — ${carton.cartonCode}`,
+          packages: [carton],
+        });
+        downloadUint8ArrayAsFile(pdf, `${carton.cartonCode}-reprint.pdf`);
+      } else {
+        const pdf = await buildWarehouseCartonLabelsPdf({
+          title: `${warehouse.code} — ${carton.cartonCode}`,
+          cartons: [carton],
+        });
+        downloadUint8ArrayAsFile(pdf, `${carton.cartonCode}-reprint.pdf`);
+      }
     } catch (e) {
       toast({
         title: "Print failed",
@@ -432,7 +441,7 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Scan a carton (CTN) or cross-dock pallet (PAL) label to fix details or void a mistake.
+          Scan a carton (CTN), package (PKG), or cross-dock pallet (PAL) label to fix details or void a mistake.
           Changes are only allowed before putaway unless you have supervisor access.
         </p>
       )}
@@ -444,7 +453,7 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
             Scan label
           </CardTitle>
           <CardDescription className="text-xs">
-            Enter CTN or PAL code, or scan the carton / pallet QR label.
+            Enter CTN, PKG, or PAL code, or scan the label QR.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex gap-2">
@@ -452,7 +461,7 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
             value={scan}
             onChange={(e) => setScan(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && void handleLookup()}
-            placeholder="CTN-2026-00042 or PAL-2026-00007"
+            placeholder="CTN-2026-00042, PKG-2026-00001, or PAL-2026-00007"
             className="font-mono"
           />
           <ScanCameraButton onScan={(v) => void handleLookup(v)} />
@@ -468,7 +477,14 @@ export function WarehouseOpsReceiveCorrection({ warehouse }: Props) {
             <CardHeader className="pb-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle className="text-base font-mono">{carton.cartonCode}</CardTitle>
-                <Badge variant="outline">{CARTON_STATUS_LABELS[carton.status]}</Badge>
+                <div className="flex gap-2">
+                  {carton.isPackage ? (
+                    <Badge variant="outline" className="bg-emerald-100 border-emerald-300 text-emerald-800">
+                      Package
+                    </Badge>
+                  ) : null}
+                  <Badge variant="outline">{CARTON_STATUS_LABELS[carton.status]}</Badge>
+                </div>
               </div>
               {hasPutaway ? (
                 <CardDescription className="text-xs flex items-center gap-1 text-amber-800">

@@ -72,6 +72,10 @@ export function encodePalletBarcode(palletCode: string): string {
   return `${PREFIX}|PAL=${encodeSegment(palletCode.trim())}`;
 }
 
+export function encodePackageBarcode(packageCode: string): string {
+  return `${PREFIX}|PKG=${encodeSegment(packageCode.trim())}`;
+}
+
 export function decodePalletBarcode(payload: string): string | null {
   const raw = String(payload ?? "").trim();
   if (!raw) return null;
@@ -88,7 +92,31 @@ export function decodePalletBarcode(payload: string): string | null {
   return null;
 }
 
-export function cartonBarcodeFromDoc(carton: Pick<WarehouseCartonDoc, "cartonCode" | "sku" | "lot" | "expiry" | "quantity">): string {
+export function decodePackageBarcode(payload: string): string | null {
+  const raw = String(payload ?? "").trim();
+  if (!raw) return null;
+  if (raw.startsWith(`${PREFIX}|`)) {
+    for (const chunk of raw.split("|")) {
+      const eq = chunk.indexOf("=");
+      if (eq <= 0) continue;
+      if (chunk.slice(0, eq).trim().toUpperCase() === "PKG") {
+        return chunk.slice(eq + 1).trim();
+      }
+    }
+  }
+  if (/^PKG-\d{4}-\d+$/i.test(raw)) return raw;
+  return null;
+}
+
+export function cartonBarcodeFromDoc(
+  carton: Pick<WarehouseCartonDoc, "cartonCode" | "sku" | "lot" | "expiry" | "quantity" | "isPackage" | "barcode">
+): string {
+  if (carton.isPackage) {
+    return encodePackageBarcode(carton.cartonCode);
+  }
+  if (carton.barcode?.includes("|PKG=")) {
+    return carton.barcode;
+  }
   return encodeCartonBarcode({
     cartonCode: carton.cartonCode,
     sku: carton.sku,

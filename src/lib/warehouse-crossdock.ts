@@ -16,13 +16,13 @@ export function isCrossdockClosedCarton(carton: WarehouseCartonDoc): boolean {
   return lines.length === 1 && isCrossdockClosedSku(lines[0]?.sku);
 }
 
-/** `LOT-CRD` + receive date (YYYYMMDD) + 3-digit random, e.g. LOT-CRD20260603042 */
+/** `LOT-XDOCK` + receive date (YYYYMMDD) + 3-digit random, e.g. LOT-XDOCK20260603042 */
 export function generateCrossdockReceiveLot(at = new Date()): string {
   const y = at.getFullYear();
   const m = String(at.getMonth() + 1).padStart(2, "0");
   const d = String(at.getDate()).padStart(2, "0");
   const rnd = String(Math.floor(Math.random() * 1000)).padStart(3, "0");
-  return `LOT-CRD${y}${m}${d}${rnd}`;
+  return `LOT-XDOCK${y}${m}${d}${rnd}`;
 }
 
 export function closedCrossdockProductTitle(clientDisplayName?: string | null): string {

@@ -523,7 +523,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
               Scan carton to putaway
             </CardTitle>
             <CardDescription className="text-xs">
-              Scan CTN-… from receiving staging. Cross-dock units: choose forward, keep
+              Scan CTN-… or PKG-… from receiving staging. Cross-dock units: choose forward, keep
               closed (area), or open for storage (bins). Standard cartons: scan destination
               bins per SKU line.
             </CardDescription>
@@ -534,7 +534,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
                 ref={cartonInputRef}
                 value={cartonScan}
                 onChange={(e) => setCartonScan(e.target.value)}
-                placeholder="Camera or type CTN-…"
+                placeholder="Camera or type CTN-… or PKG-…"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleResolveCarton();
                 }}
@@ -706,7 +706,9 @@ function CartonPutawayPanel({
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="space-y-1">
               <CardTitle className="text-base flex items-center gap-2">
-                {carton.isLoose ? (
+                {carton.isPackage ? (
+                  <PackageOpen className="h-4 w-4 text-emerald-600" />
+                ) : carton.isLoose ? (
                   <PackageOpen className="h-4 w-4 text-emerald-600" />
                 ) : (
                   <Package className="h-4 w-4 text-orange-600" />
@@ -714,8 +716,10 @@ function CartonPutawayPanel({
                 {carton.cartonCode}
               </CardTitle>
               <CardDescription className="text-xs">
-                {carton.isLoose
-                  ? `Loose stock · ${carton.lines?.length ?? 0} line${(carton.lines?.length ?? 0) === 1 ? "" : "s"} · ${carton.quantity}u`
+                {carton.isPackage
+                  ? "Closed cross-dock package · contents counted at putaway"
+                  : carton.isLoose
+                  ? `Open receiving · ${carton.lines?.length ?? 0} line${(carton.lines?.length ?? 0) === 1 ? "" : "s"} · ${carton.quantity}u`
                   : isMixed
                   ? `Mixed carton · ${carton.lines?.length ?? 0} lines`
                   : `Single SKU · ${carton.sku} × ${carton.quantity}`}
@@ -723,9 +727,14 @@ function CartonPutawayPanel({
               </CardDescription>
             </div>
             <div className="flex gap-2 flex-wrap">
-              {carton.isLoose ? (
+              {carton.isPackage ? (
                 <Badge variant="outline" className="bg-emerald-100 border-emerald-300 text-emerald-800">
-                  <PackageOpen className="h-3 w-3 mr-1" /> Loose
+                  <PackageOpen className="h-3 w-3 mr-1" /> Package
+                </Badge>
+              ) : null}
+              {carton.isLoose && !carton.isPackage ? (
+                <Badge variant="outline" className="bg-emerald-100 border-emerald-300 text-emerald-800">
+                  <PackageOpen className="h-3 w-3 mr-1" /> Open
                 </Badge>
               ) : null}
               {isMixed ? (

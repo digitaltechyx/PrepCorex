@@ -180,8 +180,10 @@ export interface WarehouseCartonDoc {
   lines?: WarehouseCartonLine[];
   /** True when `lines.length > 1` (more than one distinct SKU). */
   isMixed?: boolean;
-  /** True when this represents loose inventory (no physical carton). */
+  /** True when received via open receiving (SKUs entered at dock). */
   isLoose?: boolean;
+  /** True when this is a cross-dock polybag/small pack (PKG code, not CTN). */
+  isPackage?: boolean;
   /** crossdock = closed carton/pallet; unpackaged = units without master carton. */
   receiveMode?: WarehouseReceiveMode | null;
   /** True when received closed — no SKU manifest until putaway opens it. */
@@ -235,7 +237,7 @@ export interface WarehousePalletDoc {
   clientId?: string | null;
   /** Display name when client typed manually (no system user). */
   receivedForClient?: string | null;
-  /** Auto lot at cross-dock receive, e.g. LOT-CRD20260603042 */
+  /** Auto lot at cross-dock receive, e.g. LOT-XDOCK20260603042 */
   receiveLot?: string | null;
   receivedAt?: { seconds: number; nanoseconds: number } | Date;
   createdAt?: { seconds: number; nanoseconds: number } | Date;

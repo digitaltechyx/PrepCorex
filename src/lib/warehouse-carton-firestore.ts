@@ -16,6 +16,7 @@ import { db } from "@/lib/firebase";
 import {
   encodeCartonBarcode,
   encodePalletBarcode,
+  encodePackageBarcode,
   cartonBarcodeFromDoc,
   decodePalletBarcode,
 } from "@/lib/warehouse-carton-barcode";
@@ -66,7 +67,7 @@ function counterDocRef(warehouseId: string) {
 
 async function nextLabelSequence(
   warehouseId: string,
-  field: "cartonSeq" | "palletSeq"
+  field: "cartonSeq" | "palletSeq" | "packageSeq"
 ): Promise<number> {
   const ref = counterDocRef(warehouseId);
   return runTransaction(db, async (tx) => {
@@ -102,6 +103,12 @@ export async function generatePalletCode(warehouseId: string): Promise<string> {
   const seq = await nextLabelSequence(warehouseId, "palletSeq");
   const year = new Date().getFullYear();
   return `PAL-${year}-${String(seq).padStart(5, "0")}`;
+}
+
+export async function generatePackageCode(warehouseId: string): Promise<string> {
+  const seq = await nextLabelSequence(warehouseId, "packageSeq");
+  const year = new Date().getFullYear();
+  return `PKG-${year}-${String(seq).padStart(5, "0")}`;
 }
 
 function parseLines(raw: unknown): WarehouseCartonLine[] | undefined {
@@ -168,6 +175,7 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     lines: parseLines(data.lines),
     isMixed: data.isMixed === true,
     isLoose: data.isLoose === true,
+    isPackage: data.isPackage === true,
     receiveMode:
       data.receiveMode === "crossdock" || data.receiveMode === "unpackaged"
         ? data.receiveMode
@@ -301,6 +309,7 @@ export async function createWarehouseCarton(input: {
   lines?: WarehouseCartonLine[];
   isMixed?: boolean;
   isLoose?: boolean;
+  isPackage?: boolean;
   receiveMode?: WarehouseReceiveMode | null;
   isClosedCrossdock?: boolean;
   putawayDisposition?: WarehousePutawayDisposition | null;
@@ -312,7 +321,11 @@ export async function createWarehouseCarton(input: {
   stagingArea?: string | null;
 }): Promise<string> {
   const warehouseId = input.warehouseId;
-  const cartonCode = input.cartonCode?.trim() || (await generateCartonCode(warehouseId));
+  const cartonCode =
+    input.cartonCode?.trim() ||
+    (input.isPackage
+      ? await generatePackageCode(warehouseId)
+      : await generateCartonCode(warehouseId));
   const sku = input.sku.trim();
   if (!sku) throw new Error("SKU is required.");
   const quantity = Math.max(0, Math.floor(input.quantity));
@@ -323,13 +336,15 @@ export async function createWarehouseCarton(input: {
     status = "expired";
   }
 
-  const barcode = encodeCartonBarcode({
-    cartonCode,
-    sku,
-    lot: input.lot,
-    expiry: input.expiry,
-    quantity,
-  });
+  const barcode = input.isPackage
+    ? encodePackageBarcode(cartonCode)
+    : encodeCartonBarcode({
+        cartonCode,
+        sku,
+        lot: input.lot,
+        expiry: input.expiry,
+        quantity,
+      });
 
   const linesPayload = input.lines && input.lines.length > 0 ? input.lines.map(lineToFirestore) : null;
 
@@ -352,6 +367,7 @@ export async function createWarehouseCarton(input: {
     ...(linesPayload ? { lines: linesPayload } : {}),
     ...(input.isMixed != null ? { isMixed: !!input.isMixed } : {}),
     ...(input.isLoose != null ? { isLoose: !!input.isLoose } : {}),
+    ...(input.isPackage != null ? { isPackage: !!input.isPackage } : {}),
     ...(input.receiveMode ? { receiveMode: input.receiveMode } : {}),
     ...(input.isClosedCrossdock != null ? { isClosedCrossdock: !!input.isClosedCrossdock } : {}),
     ...(input.putawayDisposition ? { putawayDisposition: input.putawayDisposition } : {}),
@@ -521,8 +537,10 @@ export async function createReceiveBatch(input: {
     notes?: string | null;
     photoUrl?: string | null;
   };
-  /** True when this batch represents loose inventory (not packed in cartons). */
+  /** True when this batch is open receiving (SKUs counted at dock). */
   isLoose?: boolean;
+  /** True when receiving closed cross-dock packages (PKG labels). */
+  isPackage?: boolean;
   receiveMode?: WarehouseReceiveMode | null;
   cartons: Array<{
     /** How many physical copies of this carton config to create. */
@@ -571,9 +589,7 @@ export async function createReceiveBatch(input: {
       (l) => l.sku.trim() && Math.max(0, Math.floor(l.quantity)) >= 1
     );
     const useClosedCrossdock =
-      input.receiveMode === "crossdock" &&
-      !input.isLoose &&
-      validLines.length === 0;
+      input.receiveMode === "crossdock" && validLines.length === 0;
 
     if (validLines.length === 0 && !useClosedCrossdock) {
       throw new Error("Each carton must have at least one line with SKU and quantity ≥ 1.");
@@ -640,6 +656,7 @@ export async function createReceiveBatch(input: {
         lines,
         isMixed,
         isLoose: input.isLoose ?? false,
+        isPackage: input.isPackage ?? false,
         receiveMode: input.receiveMode ?? null,
         isClosedCrossdock: useClosedCrossdock,
         trackingNumber: cfg.trackingNumber ?? input.pallet?.trackingNumber ?? null,

@@ -11,7 +11,34 @@ import {
   muted,
   pdfText,
   qrPngBytes,
+  thermal4x6LabelBox,
+  thermal4x6PageSize,
 } from "@/lib/warehouse-handling-label-pdf-shared";
+
+function mixedCartonSkuCount(carton: WarehouseCartonDoc): number {
+  const lines = carton.lines ?? [];
+  return new Set(lines.map((l) => l.sku.trim()).filter(Boolean)).size;
+}
+
+function mixedCartonDamagedQty(carton: WarehouseCartonDoc): number {
+  return (carton.lines ?? [])
+    .filter((l) => l.condition === "damaged")
+    .reduce((sum, l) => sum + Math.max(0, l.quantity), 0);
+}
+
+function resolveCartonLotLabel(carton: WarehouseCartonDoc): string | null {
+  if (carton.lot?.trim()) return carton.lot.trim();
+  const lots = [
+    ...new Set(
+      (carton.lines ?? [])
+        .map((l) => l.lot?.trim())
+        .filter((lot): lot is string => !!lot)
+    ),
+  ];
+  if (lots.length === 0) return null;
+  if (lots.length === 1) return lots[0];
+  return `MULTI (${lots.length} lots)`;
+}
 
 function drawCartonLabel(
   page: PDFPage,
@@ -56,8 +83,8 @@ function drawCartonLabel(
   });
   const headerLabel = isLoose
     ? isMixed
-      ? "LOOSE STOCK · MIXED"
-      : "LOOSE STOCK"
+      ? "OPEN RECEIVING · MIXED"
+      : "OPEN RECEIVING"
     : isClosed
     ? "CROSS-DOCK · CLOSED"
     : isMixed
@@ -142,6 +169,49 @@ function drawCartonLabel(
       maxWidth: textW,
     });
   } else if (isMixed && carton.lines && carton.lines.length > 0) {
+    const skuCount = mixedCartonSkuCount(carton);
+    const damagedQty = mixedCartonDamagedQty(carton);
+    const lotLabel = resolveCartonLotLabel(carton);
+
+    drawFieldRow(
+      page,
+      textX,
+      ty - 10,
+      "SKUS",
+      String(skuCount),
+      font,
+      fontBold,
+      textW,
+      8
+    );
+    ty -= 22;
+
+    if (lotLabel) {
+      drawFieldRow(page, textX, ty - 10, "LOT", lotLabel, font, fontBold, textW, 6.5);
+      ty -= 20;
+    }
+
+    if (damagedQty > 0) {
+      page.drawText(pdfText(`DAMAGED QTY: ${damagedQty}`), {
+        x: textX,
+        y: ty,
+        size: 6.5,
+        font: fontBold,
+        color: rgb(0.7, 0.15, 0.15),
+        maxWidth: textW,
+      });
+      ty -= 9;
+      page.drawText(pdfText("Contains damaged units"), {
+        x: textX,
+        y: ty,
+        size: 5,
+        font,
+        color: rgb(0.7, 0.15, 0.15),
+        maxWidth: textW,
+      });
+      ty -= 10;
+    }
+
     page.drawText(pdfText(`LINES (${carton.lines.length})`), {
       x: textX,
       y: ty,
@@ -150,13 +220,13 @@ function drawCartonLabel(
       color: muted,
     });
     ty -= 9;
-    const lineSize = innerW < 200 ? 6.5 : 7.5;
+    const lineSize = innerW < 200 ? 6 : 6.5;
     const lineHeight = lineSize + 2;
     const maxLines = Math.floor((ty - bodyBottom - 4) / lineHeight);
     const shown = carton.lines.slice(0, maxLines);
     for (const line of shown) {
       const tag = line.condition === "damaged" ? " (DMG)" : "";
-      const text = pdfText(`${line.sku} × ${line.quantity}${tag}`);
+      const text = pdfText(`${line.sku} x ${line.quantity}${tag}`);
       page.drawText(text, {
         x: textX,
         y: ty,
@@ -194,10 +264,36 @@ function drawCartonLabel(
     if (carton.lot) {
       drawFieldRow(page, textX, ty - 10, "LOT", carton.lot, font, fontBold, textW, 7);
       ty -= 22;
+    } else {
+      const lotLabel = resolveCartonLotLabel(carton);
+      if (lotLabel) {
+        drawFieldRow(page, textX, ty - 10, "LOT", lotLabel, font, fontBold, textW, 7);
+        ty -= 22;
+      }
     }
     if (carton.expiry) {
       drawFieldRow(page, textX, ty - 10, "EXP", carton.expiry.slice(0, 10), font, fontBold, textW, 7);
       ty -= 22;
+    }
+    const damagedQty = mixedCartonDamagedQty(carton);
+    if (damagedQty > 0) {
+      page.drawText(pdfText(`DAMAGED QTY: ${damagedQty}`), {
+        x: textX,
+        y: ty,
+        size: 6.5,
+        font: fontBold,
+        color: rgb(0.7, 0.15, 0.15),
+        maxWidth: textW,
+      });
+      ty -= 9;
+      page.drawText(pdfText("Contains damaged units"), {
+        x: textX,
+        y: ty,
+        size: 5,
+        font,
+        color: rgb(0.7, 0.15, 0.15),
+        maxWidth: textW,
+      });
     }
   }
 
@@ -233,7 +329,7 @@ function drawCartonLabel(
   });
 
   if (hasDamaged) {
-    const badgeText = "DAMAGED → QUARANTINE";
+    const badgeText = pdfText("DAMAGED -> QUARANTINE");
     const badgeSize = 6;
     const badgeW = fontBold.widthOfTextAtSize(badgeText, badgeSize) + 10;
     const badgeH = 12;
@@ -246,7 +342,7 @@ function drawCartonLabel(
       height: badgeH,
       color: rgb(0.85, 0.18, 0.18),
     });
-    page.drawText(pdfText(badgeText), {
+    page.drawText(badgeText, {
       x: bx + 5,
       y: by + (badgeH - badgeSize) / 2,
       size: badgeSize,
@@ -275,66 +371,13 @@ export async function buildWarehouseCartonLabelsPdf(options: {
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  const pageW = 612;
-  const pageH = 792;
-  const margin = 24;
-  const headerBand = 44;
-  /** ~4" × 2.75" landscape sticker */
-  const LABEL_ASPECT = 4 / 2.75;
-  const gutter = 8;
-  const cols = 2;
-
-  const usableW = pageW - 2 * margin - gutter * (cols - 1);
-  const labelW = usableW / cols;
-  const labelH = labelW / LABEL_ASPECT;
-  const usableH = pageH - 2 * margin - headerBand;
-  const rows = Math.max(1, Math.floor((usableH + gutter) / (labelH + gutter)));
-  const gridH = rows * labelH + (rows - 1) * gutter;
-  const gridTopOffset = Math.max(0, (usableH - gridH) / 2);
-  const row0Top = pageH - margin - headerBand - gridTopOffset;
-
-  let page = pdf.addPage([pageW, pageH]);
-  let idxOnPage = 0;
-
-  const drawHeader = (p: PDFPage) => {
-    p.drawText(pdfText(options.title), {
-      x: margin,
-      y: pageH - margin - 14,
-      size: 11,
-      font: fontBold,
-      color: ink,
-    });
-    p.drawText(
-      pdfText("Carton labels (orange) — scan at receiving, putaway, pick. QR encodes SKU, lot, expiry, qty, carton ID."),
-      {
-        x: margin,
-        y: pageH - margin - 28,
-        size: 6.5,
-        font,
-        color: muted,
-      }
-    );
-  };
-
-  drawHeader(page);
-
-  for (let i = 0; i < list.length; i++) {
-    if (idxOnPage >= cols * rows) {
-      page = pdf.addPage([pageW, pageH]);
-      idxOnPage = 0;
-      drawHeader(page);
-    }
-    const col = idxOnPage % cols;
-    const row = Math.floor(idxOnPage / cols);
-    const x0 = margin + col * (labelW + gutter);
-    const yTop = row0Top - row * (labelH + gutter);
-
-    const carton = list[i];
+  for (const carton of list) {
+    const page = pdf.addPage(thermal4x6PageSize());
+    const { x, yTop, w, h } = thermal4x6LabelBox();
     const payload = carton.barcode || cartonBarcodeFromDoc(carton);
-    const png = await qrPngBytes(payload, 240);
+    const png = await qrPngBytes(payload, 320);
     const img = await pdf.embedPng(png);
-    drawCartonLabel(page, x0, yTop, labelW, labelH, carton, font, fontBold, img);
-    idxOnPage += 1;
+    drawCartonLabel(page, x, yTop, w, h, carton, font, fontBold, img);
   }
 
   return pdf.save();

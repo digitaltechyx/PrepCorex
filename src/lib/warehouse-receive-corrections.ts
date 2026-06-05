@@ -145,6 +145,7 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     lines,
     isMixed: data.isMixed === true,
     isLoose: data.isLoose === true,
+    isPackage: data.isPackage === true,
     trackingNumber: data.trackingNumber != null ? String(data.trackingNumber) : null,
     carrier: data.carrier != null ? String(data.carrier) : null,
     notes: data.notes != null ? String(data.notes) : null,
@@ -549,7 +550,7 @@ export type StoredReceiveFormSnapshot = {
   palletClientId?: string;
   palletClientLabel?: string;
   palletCrossdockLot?: string;
-  /** Loose inventory — default client for all cartons in the batch */
+  /** Open receiving — default client for all cartons in the batch */
   shipmentClientId?: string;
   shipmentClientLabel?: string;
 };

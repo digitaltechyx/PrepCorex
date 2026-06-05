@@ -1,26 +1,26 @@
 import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont, type PDFImage } from "pdf-lib";
-import type { WarehousePalletDoc } from "@/types";
-import { encodePalletBarcode } from "@/lib/warehouse-carton-barcode";
+import type { WarehouseCartonDoc } from "@/types";
+import { encodePackageBarcode } from "@/lib/warehouse-carton-barcode";
 import {
   drawFieldRow,
   drawFramedLabel,
   ink,
   muted,
-  palletAccent,
-  palletAccentLight,
+  packageAccent,
+  packageAccentLight,
   pdfText,
   qrPngBytes,
   thermal4x6LabelBox,
   thermal4x6PageSize,
 } from "@/lib/warehouse-handling-label-pdf-shared";
 
-function drawPalletLabel(
+function drawPackageLabel(
   page: PDFPage,
   xLeft: number,
   yTop: number,
   w: number,
   h: number,
-  pallet: WarehousePalletDoc,
+  pkg: WarehouseCartonDoc,
   font: PDFFont,
   fontBold: PDFFont,
   img: PDFImage
@@ -32,7 +32,7 @@ function drawPalletLabel(
     yTop,
     w,
     h,
-    palletAccent,
+    packageAccent,
     borderW
   );
 
@@ -46,44 +46,36 @@ function drawPalletLabel(
     y: headerBottom,
     width: innerW,
     height: headerH,
-    color: palletAccent,
+    color: packageAccent,
   });
-  page.drawText(pdfText("PALLET"), {
+  page.drawText(pdfText("PACKAGE"), {
     x: innerX + 6,
     y: headerBottom + (headerH - 8) / 2,
     size: 8,
     font: fontBold,
     color: rgb(1, 1, 1),
   });
-  const subheader = pallet.isClosedCrossdock
-    ? "CROSS-DOCK · CLOSED"
-    : "Mixed SKU · move as unit";
-  page.drawText(pdfText(subheader), {
-    x: innerX + 52,
+  page.drawText(pdfText("CROSS-DOCK · CLOSED"), {
+    x: innerX + 58,
     y: headerBottom + (headerH - 6) / 2,
     size: 5.5,
     font,
     color: rgb(1, 1, 1),
-    maxWidth: innerW - 64,
+    maxWidth: innerW - 70,
   });
 
   const bodyBottom = bottom + footerH;
   const bodyTop = bodyBottom + bodyH;
-  const isClosed = !!pallet.isClosedCrossdock;
-  const contentsLine = isClosed ? "Contents not opened" : null;
+  const contentsLine = "Contents not opened";
   const clientLine =
-    isClosed &&
-    (pallet.receivedForClient?.trim() ||
-      (pallet.clientId ? `Client ${pallet.clientId.slice(0, 8)}` : null));
-  const lotLine = isClosed && pallet.receiveLot?.trim();
-  let textBandH = 0;
-  if (contentsLine || clientLine || lotLine) {
-    textBandH = 6;
-    if (contentsLine) textBandH += 12;
-    if (clientLine) textBandH += 10;
-    if (lotLine) textBandH += 18;
-    textBandH = Math.max(textBandH, 22);
-  }
+    pkg.receivedForClient?.trim() ||
+    (pkg.clientId ? `Client ${pkg.clientId.slice(0, 8)}` : null);
+  const lotLine = pkg.lot?.trim() || pkg.lines?.[0]?.lot?.trim() || null;
+  let textBandH = 6;
+  textBandH += 12;
+  if (clientLine) textBandH += 10;
+  if (lotLine) textBandH += 18;
+  textBandH = Math.max(textBandH, 22);
   const qrBodyH = bodyH - textBandH;
 
   page.drawRectangle({
@@ -91,7 +83,7 @@ function drawPalletLabel(
     y: bodyBottom,
     width: innerW,
     height: bodyH,
-    color: palletAccentLight,
+    color: packageAccentLight,
   });
 
   if (textBandH > 0) {
@@ -105,17 +97,15 @@ function drawPalletLabel(
     });
     let ty = textTop + textBandH - 8;
     const infoSize = 6;
-    if (contentsLine) {
-      page.drawText(pdfText(contentsLine.toUpperCase()), {
-        x: innerX + 6,
-        y: ty - 8,
-        size: 6.5,
-        font: fontBold,
-        color: ink,
-        maxWidth: innerW - 12,
-      });
-      ty -= 12;
-    }
+    page.drawText(pdfText(contentsLine.toUpperCase()), {
+      x: innerX + 6,
+      y: ty - 8,
+      size: 6.5,
+      font: fontBold,
+      color: ink,
+      maxWidth: innerW - 12,
+    });
+    ty -= 12;
     if (clientLine) {
       page.drawText(pdfText(String(clientLine).slice(0, 40)), {
         x: innerX + 6,
@@ -155,7 +145,6 @@ function drawPalletLabel(
   });
   page.drawImage(img, { x: qx, y: qy, width: qrSide, height: qrSide });
 
-  // Footer: large pallet ID
   page.drawRectangle({
     x: innerX,
     y: bottom,
@@ -171,7 +160,7 @@ function drawPalletLabel(
   });
 
   const codeSize = innerW < 180 ? 11 : 13;
-  const codeText = pdfText(pallet.palletCode);
+  const codeText = pdfText(pkg.cartonCode);
   const codeW = fontBold.widthOfTextAtSize(codeText, codeSize);
   page.drawText(codeText, {
     x: innerX + (innerW - codeW) / 2,
@@ -180,7 +169,7 @@ function drawPalletLabel(
     font: fontBold,
     color: ink,
   });
-  page.drawText(pdfText("Scan pallet + bin at putaway"), {
+  page.drawText(pdfText("Scan package + bin at putaway"), {
     x: innerX + 6,
     y: bottom + 6,
     size: 5,
@@ -190,24 +179,24 @@ function drawPalletLabel(
   });
 }
 
-export async function buildWarehousePalletLabelsPdf(options: {
+export async function buildWarehousePackageLabelsPdf(options: {
   title: string;
-  pallets: WarehousePalletDoc[];
+  packages: WarehouseCartonDoc[];
 }): Promise<Uint8Array> {
-  const list = [...options.pallets].filter((p) => p.palletCode);
-  if (list.length === 0) throw new Error("No pallets to print.");
+  const list = [...options.packages].filter((p) => p.cartonCode && p.isPackage);
+  if (list.length === 0) throw new Error("No packages to print.");
 
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  for (const pallet of list) {
+  for (const pkg of list) {
     const page = pdf.addPage(thermal4x6PageSize());
     const { x, yTop, w, h } = thermal4x6LabelBox();
-    const payload = pallet.barcode || encodePalletBarcode(pallet.palletCode);
+    const payload = pkg.barcode || encodePackageBarcode(pkg.cartonCode);
     const png = await qrPngBytes(payload, 320);
     const img = await pdf.embedPng(png);
-    drawPalletLabel(page, x, yTop, w, h, pallet, font, fontBold, img);
+    drawPackageLabel(page, x, yTop, w, h, pkg, font, fontBold, img);
   }
 
   return pdf.save();
