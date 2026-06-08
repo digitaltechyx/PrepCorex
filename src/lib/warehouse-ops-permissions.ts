@@ -106,6 +106,12 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       feature: "ops_putaway",
       description: "Scan carton → scan bin",
     },
+    {
+      title: "Internal move",
+      href: "/warehouse-ops/move",
+      feature: "ops_move",
+      description: "Source bin → SKU qty → dest bin",
+    },
   ];
   return items.filter((item) => hasFeature(userProfile, item.feature));
 }

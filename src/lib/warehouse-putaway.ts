@@ -19,6 +19,12 @@ import {
   decodePalletBarcode,
   decodePackageBarcode,
 } from "@/lib/warehouse-carton-barcode";
+import {
+  applyPutawayAssignmentsToLines,
+  linesToFirestorePayload,
+  rollCartonBinStateFromLines,
+  type PutawayAssignment,
+} from "@/lib/warehouse-carton-line-utils";
 import type {
   WarehouseBinDoc,
   WarehouseCartonDoc,
@@ -237,43 +243,27 @@ export function validateLineToBin(
  *   - some lines have binId → stowed_partial
  *   - none have binId → unchanged
  */
+export type { PutawayAssignment } from "@/lib/warehouse-carton-line-utils";
+
 export async function applyPutawayAssignments(
   warehouseId: string,
   cartonId: string,
   carton: WarehouseCartonDoc,
-  assignments: Array<{ lineId: string; binId: string; binPath: string }>,
+  assignments: PutawayAssignment[],
   options?: { operatorId?: string | null }
 ): Promise<{ status: WarehouseCartonDoc["status"]; allStowed: boolean; splitAcrossBins: boolean }> {
   if (!carton.lines || carton.lines.length === 0) {
     throw new Error("This carton has no lines — cannot putaway.");
   }
 
-  const byId = new Map(assignments.map((a) => [a.lineId, a]));
-  const nextLines = carton.lines.map((l) => {
-    const a = byId.get(l.lineId);
-    if (!a) return l;
-    return { ...l, binId: a.binId };
-  });
+  const { nextLines, applied } = applyPutawayAssignmentsToLines(carton.lines, assignments);
 
   const stowedLines = nextLines.filter((l) => l.binId);
   const allStowed = stowedLines.length === nextLines.length;
-  const someStowed = stowedLines.length > 0;
   const distinctBins = new Set(stowedLines.map((l) => l.binId));
   const splitAcrossBins = distinctBins.size > 1;
 
-  let nextStatus: WarehouseCartonDoc["status"] = carton.status;
-  if (allStowed) {
-    if (splitAcrossBins && carton.isMixed) {
-      nextStatus = "split";
-    } else {
-      nextStatus = "stowed";
-    }
-  } else if (someStowed) {
-    nextStatus = "stowed_partial";
-  }
-
-  const rootBinId =
-    allStowed && !splitAcrossBins ? stowedLines[0].binId ?? null : null;
+  const { status: nextStatus, binId: rootBinId } = rollCartonBinStateFromLines(carton, nextLines);
 
   const batch = writeBatch(db);
   const dispositionPatch =
@@ -283,36 +273,23 @@ export async function applyPutawayAssignments(
 
   batch.update(warehouseCartonDocRef(warehouseId, cartonId), {
     ...dispositionPatch,
-    lines: nextLines.map((l) => ({
-      lineId: l.lineId,
-      sku: l.sku,
-      productTitle: l.productTitle ?? null,
-      quantity: l.quantity,
-      lot: l.lot ?? null,
-      expiry: l.expiry ? l.expiry.slice(0, 10) : null,
-      condition: l.condition,
-      binId: l.binId ?? null,
-      allocationStatus: l.allocationStatus ?? "unallocated",
-      clientId: l.clientId ?? null,
-      inventoryRequestId: l.inventoryRequestId ?? null,
-    })),
+    lines: linesToFirestorePayload(nextLines),
     status: nextStatus,
     binId: rootBinId,
     updatedAt: serverTimestamp(),
   });
 
-  // Movement event log (immutable audit trail).
-  for (const a of assignments) {
+  for (const a of applied) {
     const eventsRef = collection(db, WAREHOUSES, warehouseId, "movementEvents");
     const ref = doc(eventsRef);
-    const line = carton.lines.find((l) => l.lineId === a.lineId);
+    const line = nextLines.find((l) => l.lineId === a.lineId);
     batch.set(ref, {
       type: "putaway",
       cartonId,
       cartonCode: carton.cartonCode,
       lineId: a.lineId,
       sku: line?.sku ?? null,
-      quantity: line?.quantity ?? null,
+      quantity: a.quantity,
       condition: line?.condition ?? null,
       toBinId: a.binId,
       toBinPath: a.binPath,
@@ -323,7 +300,11 @@ export async function applyPutawayAssignments(
 
   await batch.commit();
 
-  return { status: nextStatus, allStowed, splitAcrossBins };
+  return {
+    status: nextStatus as WarehouseCartonDoc["status"],
+    allStowed,
+    splitAcrossBins,
+  };
 }
 
 function docToCartonShallow(id: string, data: Record<string, unknown>): WarehouseCartonDoc {

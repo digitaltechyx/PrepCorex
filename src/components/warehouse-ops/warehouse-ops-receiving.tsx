@@ -289,7 +289,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   color="emerald"
                   icon={<PackageOpen className="h-8 w-8" />}
                   title="Packages / polybags"
-                  description="Small bags or totes with no master carton — one batch of SKUs, open receiving label."
+                  description="Small bags or totes — one PKG label with full SKU manifest. Scan PKG at putaway."
                   onClick={() => pickPackage("loose")}
                 />
               </div>
@@ -794,7 +794,7 @@ function ReceiveForm({
         stagingArea: "RCV-STAGE",
         receiveMode,
         isLoose: type === "loose" && receiveModule === "loose",
-        isPackage: isCrossdockPackage,
+        isPackage: type === "loose",
         pallet: useShipmentOnPallet
           ? {
               trackingNumber: trackingNumber.trim() || null,
@@ -980,7 +980,7 @@ function ReceiveForm({
           pallet:
             "One pallet label plus a CTN label per carton — enter SKUs inside each carton.",
           loose:
-            "Polybags, totes, or open units — no master carton. Prints an OPEN RECEIVING scan label.",
+            "Polybags, totes, or open units — PKG label with full SKU manifest. Scan PKG at putaway.",
         }
       : {
           carton:

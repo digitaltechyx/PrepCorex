@@ -286,6 +286,20 @@ export async function palletHasChildCartons(
   return !snap.empty;
 }
 
+/** All cartons linked to a pallet (open-receiving manifest at putaway). */
+export async function listCartonsByPalletId(
+  warehouseId: string,
+  palletId: string
+): Promise<WarehouseCartonDoc[]> {
+  const snap = await getDocs(
+    query(warehouseCartonsCollectionRef(warehouseId), where("palletId", "==", palletId))
+  );
+  return snap.docs
+    .map((d) => docToCarton(d.id, d.data() as Record<string, unknown>))
+    .filter((c) => c.status !== "voided")
+    .sort((a, b) => a.cartonCode.localeCompare(b.cartonCode));
+}
+
 export async function countCartonsInBin(warehouseId: string, binId: string): Promise<number> {
   const q = query(warehouseCartonsCollectionRef(warehouseId), where("binId", "==", binId));
   const snap = await getDocs(q);
