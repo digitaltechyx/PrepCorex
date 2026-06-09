@@ -4,7 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
-import type { UserProfile, InventoryItem, ShipmentRequest, InventoryRequest, ProductReturn, DisposeRequest } from "@/types";
+import type {
+  UserProfile,
+  ShipmentRequest,
+  InventoryRequest,
+  ProductReturn,
+  DisposeRequest,
+  InboundTrackingEntry,
+} from "@/types";
+import { summarizeInboundTrackings } from "@/lib/inbound-tracking";
 import { db } from "@/lib/firebase";
 import { collection, collectionGroup, getDocs, query } from "firebase/firestore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +49,8 @@ type NotificationRow = {
   createdAtMs: number;
   title: string;
   subtitle?: string;
+  /** Inventory requests only — inbound carrier tracking from client inventory. */
+  inboundTrackings?: InboundTrackingEntry[];
 };
 
 function normStatus(v: any): string {
@@ -115,6 +125,46 @@ function statusBadgeClass(status: string): string {
     case "paid": return "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-700";
     default: return "bg-muted text-muted-foreground border-border";
   }
+}
+
+const TRACKING_STATUS_CLASS: Record<
+  ReturnType<typeof summarizeInboundTrackings>["variant"],
+  string
+> = {
+  none: "bg-slate-100 text-slate-600 border-slate-200",
+  pending: "bg-amber-50 text-amber-800 border-amber-200",
+  transit: "bg-blue-50 text-blue-800 border-blue-200",
+  delivered: "bg-emerald-50 text-emerald-800 border-emerald-200",
+  error: "bg-red-50 text-red-800 border-red-200",
+  unknown: "bg-slate-100 text-slate-600 border-slate-200",
+};
+
+function InventoryRequestTrackingLines({ trackings }: { trackings: InboundTrackingEntry[] }) {
+  if (!trackings.length) return null;
+  return (
+    <div className="flex flex-col gap-1.5 w-full">
+      {trackings.map((t) => {
+        const summary = summarizeInboundTrackings([t]);
+        return (
+          <div
+            key={t.id || t.trackingNumber}
+            className="flex flex-wrap items-center gap-2 text-xs"
+          >
+            <span className="font-mono text-foreground">{t.trackingNumber}</span>
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-[10px] font-medium",
+                TRACKING_STATUS_CLASS[summary.variant]
+              )}
+            >
+              {summary.label}
+            </Badge>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function typeIcon(type: NotificationType) {
@@ -306,6 +356,9 @@ export default function AdminNotificationsPage() {
                 createdAtMs: dateMs,
                 title: `Inventory Request • ${String(productName).substring(0, 50)}`,
                 subtitle: `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
+                inboundTrackings: Array.isArray((data as any).inboundTrackings)
+                  ? ((data as any).inboundTrackings as InboundTrackingEntry[])
+                  : undefined,
               };
             });
             setInventoryRequests(rows);
@@ -327,6 +380,9 @@ export default function AdminNotificationsPage() {
                   createdAtMs: dateMs,
                   title: `Inventory Request • ${String(productName).substring(0, 50)}`,
                   subtitle: `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
+                  inboundTrackings: Array.isArray((data as any).inboundTrackings)
+                    ? ((data as any).inboundTrackings as InboundTrackingEntry[])
+                    : undefined,
                 };
                 return row;
               });
@@ -528,6 +584,9 @@ export default function AdminNotificationsPage() {
                 </span>
                 {r.subtitle && <span className="w-full sm:w-auto">{r.subtitle}</span>}
               </div>
+              {r.type === "inventory_request" && (r.inboundTrackings?.length ?? 0) > 0 ? (
+                <InventoryRequestTrackingLines trackings={r.inboundTrackings!} />
+              ) : null}
             </div>
             {!isProcessComplete(r.type, r.status) && (
               <Button
