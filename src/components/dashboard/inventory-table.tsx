@@ -95,6 +95,34 @@ function formatReceivingDate(date: InventoryItem["receivingDate"]) {
   return "N/A";
 }
 
+function formatDateTime(date: unknown) {
+  if (!date) return null;
+  let d: Date | null = null;
+  if (typeof date === "string") {
+    const parsed = new Date(date);
+    if (!Number.isNaN(parsed.getTime())) d = parsed;
+  } else if (typeof date === "object" && date !== null && "seconds" in (date as any)) {
+    const sec = Number((date as any).seconds);
+    if (Number.isFinite(sec)) d = new Date(sec * 1000);
+  } else if (date instanceof Date && !Number.isNaN(date.getTime())) {
+    d = date;
+  }
+  return d ? format(d, "MMM d, yyyy 'at' h:mm a") : null;
+}
+
+function getRemarksPhotoAt(...sources: unknown[]): unknown {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    const s = source as Record<string, unknown>;
+    if (s.approvedAt) return s.approvedAt;
+    if (s.receivingDate) return s.receivingDate;
+    if (s.requestedAt) return s.requestedAt;
+    if (s.addDate) return s.addDate;
+    if (s.dateAdded) return s.dateAdded;
+  }
+  return undefined;
+}
+
 function formatOptionalDate(date: unknown) {
   if (!date) return "N/A";
   if (typeof date === "string") {
@@ -254,6 +282,7 @@ export function InventoryTable({
   const itemsPerPage = 10;
   const [selectedRemarks, setSelectedRemarks] = useState<string>("");
   const [selectedImageUrls, setSelectedImageUrls] = useState<string[]>([]);
+  const [selectedPhotosAt, setSelectedPhotosAt] = useState<string | null>(null);
   const [isRemarksDialogOpen, setIsRemarksDialogOpen] = useState(false);
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [previewImageUrl, setPreviewImageUrl] = useState("");
@@ -339,16 +368,20 @@ export function InventoryTable({
   const pendingCount = inventoryRequests.filter(req => req.status === "pending").length;
   const rejectedCount = inventoryRequests.filter(req => req.status === "rejected").length;
 
-  const handleRemarksClick = (remarks: string, imageUrls?: string | string[]) => {
+  const handleRemarksClick = (
+    remarks: string,
+    imageUrls?: string | string[],
+    photoAt?: unknown
+  ) => {
     setSelectedRemarks(remarks);
-    // Handle both old single imageUrl and new imageUrls array
     if (Array.isArray(imageUrls)) {
       setSelectedImageUrls(imageUrls);
-    } else if (typeof imageUrls === 'string') {
+    } else if (typeof imageUrls === "string") {
       setSelectedImageUrls([imageUrls]);
     } else {
       setSelectedImageUrls([]);
     }
+    setSelectedPhotosAt(formatDateTime(photoAt));
     setIsRemarksDialogOpen(true);
   };
 
@@ -467,6 +500,7 @@ export function InventoryTable({
         requestId: req.id,
         requestData: req,
         inboundTrackings: (req as InventoryRequest & { inboundTrackings?: InboundTrackingEntry[] }).inboundTrackings,
+        remarksPhotoAt: getRemarksPhotoAt(req),
       }));
 
     // Convert rejected requests to display format
@@ -493,6 +527,7 @@ export function InventoryTable({
         requestId: req.id,
         requestData: req, // Store full request data
         imageUrls: getImageUrls(req as any),
+        remarksPhotoAt: getRemarksPhotoAt(req),
       }));
 
     // Convert approved inventory items - get remarks from inventory item OR approved request
@@ -540,6 +575,7 @@ export function InventoryTable({
           (item as InventoryItem).inboundTrackings ??
           (matchingRequest as { inboundTrackings?: InboundTrackingEntry[] } | undefined)?.inboundTrackings,
         sourceRequestId: (item as any).sourceRequestId,
+        remarksPhotoAt: getRemarksPhotoAt(item, matchingRequest),
       };
     });
 
@@ -722,15 +758,27 @@ export function InventoryTable({
                     {item.receivingDate && (
                       <div className="text-xs text-muted-foreground mt-0.5">Receiving: {formatReceivingDate(item.receivingDate)}</div>
                     )}
-                    {item.remarks && item.remarks.trim() && (
+                    {((item.remarks && item.remarks.trim()) ||
+                      ((item as any).imageUrls?.length ?? 0) > 0 ||
+                      (item as any).imageUrl) && (
                       <div className="mt-1">
                         <Button
                           variant="ghost"
                           size="sm"
                           className="h-auto p-0 text-left justify-start text-xs"
-                          onClick={() => handleRemarksClick(item.remarks || "", (item as any).imageUrls || (item as any).imageUrl)}
+                          onClick={() =>
+                            handleRemarksClick(
+                              item.remarks || "",
+                              (item as any).imageUrls || (item as any).imageUrl,
+                              (item as any).remarksPhotoAt
+                            )
+                          }
                         >
-                          <span className="text-blue-600 italic">{item.remarks}</span>
+                          {item.remarks && item.remarks.trim() ? (
+                            <span className="text-blue-600 italic">{item.remarks}</span>
+                          ) : (
+                            <span className="text-blue-600">View photos</span>
+                          )}
                           <Eye className="h-3 w-3 ml-1 inline-block align-middle" />
                         </Button>
                       </div>
@@ -956,14 +1004,26 @@ export function InventoryTable({
                       {formatReceivingDate(item.receivingDate)}
                     </TableCell>
                     <TableCell className="hidden lg:table-cell max-w-[180px]">
-                      {item.remarks && item.remarks.trim() ? (
+                      {(item.remarks && item.remarks.trim()) ||
+                      ((item as any).imageUrls?.length ?? 0) > 0 ||
+                      (item as any).imageUrl ? (
                         <Button
                           variant="ghost"
                           size="sm"
                           className="h-auto p-1 text-left justify-start w-full max-w-[180px] truncate"
-                          onClick={() => handleRemarksClick(item.remarks || "", (item as any).imageUrls || (item as any).imageUrl)}
+                          onClick={() =>
+                            handleRemarksClick(
+                              item.remarks || "",
+                              (item as any).imageUrls || (item as any).imageUrl,
+                              (item as any).remarksPhotoAt
+                            )
+                          }
                         >
-                          <span className="truncate text-xs">{item.remarks}</span>
+                          <span className="truncate text-xs">
+                            {item.remarks && item.remarks.trim()
+                              ? item.remarks
+                              : "View photos"}
+                          </span>
                           <Eye className="h-3 w-3 ml-1 flex-shrink-0" />
                         </Button>
                       ) : (
@@ -1135,9 +1195,14 @@ export function InventoryTable({
           <div className="mt-4 overflow-y-auto max-h-[60vh] space-y-4">
             {selectedImageUrls.length > 0 && (
               <div className="bg-gray-50 p-4 rounded-lg">
-                <p className="text-sm font-semibold mb-2">
+                <p className="text-sm font-semibold">
                   Inventory Pictures ({selectedImageUrls.length})
                 </p>
+                {selectedPhotosAt && (
+                  <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+                    {selectedPhotosAt}
+                  </p>
+                )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {selectedImageUrls.map((url, index) => (
                     <div key={index} className="relative">
