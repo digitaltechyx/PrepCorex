@@ -257,6 +257,7 @@ export function ShipmentRequestsManagement({
   ).length;
   const confirmedCount = requests.filter(req => req.status === "confirmed").length;
   const rejectedCount = requests.filter(req => req.status === "rejected").length;
+  const cancelledCount = requests.filter(req => req.status === "cancelled").length;
 
   // Helper function to remove undefined values from objects (Firestore doesn't allow undefined)
   const removeUndefined = (obj: any): any => {
@@ -895,6 +896,7 @@ export function ShipmentRequestsManagement({
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="confirmed">Confirmed</SelectItem>
             <SelectItem value="rejected">Rejected</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -956,6 +958,8 @@ export function ShipmentRequestsManagement({
                             ? "default"
                             : request.status === "rejected"
                             ? "destructive"
+                            : request.status === "cancelled"
+                            ? "secondary"
                             : "secondary"
                         }
                       >
@@ -976,6 +980,12 @@ export function ShipmentRequestsManagement({
                         <span className="text-muted-foreground text-sm">
                           {request.status === "confirmed"
                             ? `Confirmed ${request.confirmedAt ? formatDate(request.confirmedAt) : ""}`
+                            : request.status === "cancelled"
+                            ? `Cancelled ${(request as any).cancelledAt ? formatDate((request as any).cancelledAt) : ""}${
+                                (request as any).cancellationReason
+                                  ? ` — ${(request as any).cancellationReason}`
+                                  : ""
+                              }`
                             : `Rejected ${request.rejectedAt ? formatDate(request.rejectedAt) : ""}`}
                         </span>
                       )}

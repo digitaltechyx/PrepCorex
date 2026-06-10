@@ -410,12 +410,16 @@ export interface InventoryRequest {
   addDate?: { seconds: number; nanoseconds: number } | string;
   requestedAt?: { seconds: number; nanoseconds: number } | string;
   receivingDate?: { seconds: number; nanoseconds: number } | string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "cancelled";
   requestedBy?: string;
   approvedBy?: string;
   approvedAt?: { seconds: number; nanoseconds: number } | string;
   rejectedBy?: string;
   rejectedAt?: { seconds: number; nanoseconds: number } | string;
+  cancelledBy?: string;
+  cancelledAt?: { seconds: number; nanoseconds: number } | string;
+  /** Required when the client cancels a pending inbound request. */
+  cancellationReason?: string;
   rejectionReason?: string;
   remarks?: string;
   imageUrl?: string;
@@ -436,6 +440,26 @@ export interface InboundTrackingEntry {
   lastStatusDetails?: string | null;
   lastCheckedAt?: { seconds: number; nanoseconds: number } | string | Date;
   lastError?: string | null;
+}
+
+/** User outbound shipment request (stored under users/{uid}/shipmentRequests). */
+export interface ShipmentRequest {
+  id: string;
+  date?: { seconds: number; nanoseconds: number } | string;
+  requestedAt?: { seconds: number; nanoseconds: number } | string;
+  status?: "pending" | "awaiting_label_upload" | "confirmed" | "rejected" | "cancelled";
+  shipTo?: string;
+  service?: string;
+  productType?: string;
+  remarks?: string;
+  rejectionReason?: string;
+  shipments: Array<Record<string, unknown>>;
+  confirmedAt?: { seconds: number; nanoseconds: number } | string;
+  rejectedAt?: { seconds: number; nanoseconds: number } | string;
+  cancelledAt?: { seconds: number; nanoseconds: number } | string;
+  cancelledBy?: string;
+  /** Required when the client cancels a pending outbound request. */
+  cancellationReason?: string;
 }
 
 export interface ShipmentProductItem {
