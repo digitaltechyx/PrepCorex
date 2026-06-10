@@ -4,6 +4,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { WarehouseOpsMove } from "@/components/warehouse-ops/warehouse-ops-move";
+import { WarehouseOpsAreaMove } from "@/components/warehouse-ops/warehouse-ops-area-move";
+import { WarehouseOpsAreaToAreaMove } from "@/components/warehouse-ops/warehouse-ops-area-to-area-move";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWarehouseOps } from "@/components/warehouse-ops/warehouse-ops-provider";
 import { hasFeature } from "@/lib/permissions";
 import { useAuth } from "@/hooks/use-auth";
@@ -33,5 +36,25 @@ export default function WarehouseOpsMovePage() {
     );
   }
 
-  return <WarehouseOpsMove warehouse={selectedWarehouse} />;
+  return (
+    <div className="space-y-4">
+      <WarehouseOpsHeader title="Internal move" />
+      <Tabs defaultValue="bin-bin" className="w-full">
+        <TabsList className="grid w-full max-w-lg grid-cols-3">
+          <TabsTrigger value="bin-bin">Bin → bin</TabsTrigger>
+          <TabsTrigger value="bin-area">Bin → area</TabsTrigger>
+          <TabsTrigger value="area-area">Area → area</TabsTrigger>
+        </TabsList>
+        <TabsContent value="bin-bin" className="mt-4">
+          <WarehouseOpsMove warehouse={selectedWarehouse} hideHeader />
+        </TabsContent>
+        <TabsContent value="bin-area" className="mt-4">
+          <WarehouseOpsAreaMove warehouse={selectedWarehouse} />
+        </TabsContent>
+        <TabsContent value="area-area" className="mt-4">
+          <WarehouseOpsAreaToAreaMove warehouse={selectedWarehouse} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
 }

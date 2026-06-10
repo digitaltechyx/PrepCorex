@@ -134,6 +134,7 @@ function parseLines(raw: unknown): WarehouseCartonLine[] | undefined {
           : "unallocated",
       clientId: obj.clientId != null ? String(obj.clientId) : null,
       inventoryRequestId: obj.inventoryRequestId != null ? String(obj.inventoryRequestId) : null,
+      stagingArea: obj.stagingArea != null ? String(obj.stagingArea) : null,
     });
   }
   return out.length > 0 ? out : undefined;
@@ -149,6 +150,7 @@ function lineToFirestore(line: WarehouseCartonLine): Record<string, unknown> {
     expiry: line.expiry ? line.expiry.slice(0, 10) : null,
     condition: line.condition,
     binId: line.binId ?? null,
+    stagingArea: line.stagingArea ?? null,
     allocationStatus: line.allocationStatus ?? "unallocated",
     clientId: line.clientId ?? null,
     inventoryRequestId: line.inventoryRequestId ?? null,

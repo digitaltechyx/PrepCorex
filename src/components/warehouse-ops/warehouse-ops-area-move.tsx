@@ -12,32 +12,41 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
-import type { WarehouseBinDoc, WarehouseDoc } from "@/types";
+import type { WarehouseAreaDoc, WarehouseBinDoc, WarehouseDoc } from "@/types";
 import { classifyBin } from "@/lib/warehouse-putaway";
 import {
   aggregateBinSkuStock,
-  applyBinSkuMove,
   findBinByPath,
   inspectBinContents,
   listCartonsInBin,
   type BinSkuStockRow,
 } from "@/lib/warehouse-internal-move";
 import {
+  applyBinSkuToAreaMove,
+  formatAreaOption,
+  loadActiveWarehouseAreas,
+} from "@/lib/warehouse-area-move";
+import {
   ArrowLeft,
-  ArrowRightLeft,
   CheckCircle2,
   ChevronRight,
   Loader2,
+  MapPin,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Props = {
   warehouse: WarehouseDoc;
-  hideHeader?: boolean;
 };
 
 type ResolvedBin = {
@@ -45,20 +54,20 @@ type ResolvedBin = {
   contents: { skus: string[]; hasDamaged: boolean; cartonCount: number };
 };
 
-export function WarehouseOpsMove({ warehouse, hideHeader }: Props) {
+export function WarehouseOpsAreaMove({ warehouse }: Props) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
 
   const [sourceScan, setSourceScan] = useState("");
-  const [destScan, setDestScan] = useState("");
   const [sourceBin, setSourceBin] = useState<ResolvedBin | null>(null);
-  const [destBin, setDestBin] = useState<ResolvedBin | null>(null);
   const [stockRows, setStockRows] = useState<BinSkuStockRow[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [moveQty, setMoveQty] = useState("");
+  const [areas, setAreas] = useState<WarehouseAreaDoc[]>([]);
+  const [destAreaId, setDestAreaId] = useState("");
   const [loadingSource, setLoadingSource] = useState(false);
-  const [loadingDest, setLoadingDest] = useState(false);
+  const [loadingAreas, setLoadingAreas] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const sourceInputRef = useRef<HTMLInputElement | null>(null);
@@ -66,36 +75,50 @@ export function WarehouseOpsMove({ warehouse, hideHeader }: Props) {
     sourceInputRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingAreas(true);
+    void loadActiveWarehouseAreas(warehouse.id)
+      .then((list) => {
+        if (!cancelled) setAreas(list);
+      })
+      .catch(() => {
+        if (!cancelled) setAreas([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAreas(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouse.id]);
+
   const selectedRow = useMemo(
     () => stockRows.find((r) => r.key === selectedKey) ?? null,
     [stockRows, selectedKey]
   );
 
+  const destArea = useMemo(
+    () => areas.find((a) => a.id === destAreaId) ?? null,
+    [areas, destAreaId]
+  );
+
   const qtyNum = parseInt(moveQty, 10) || 0;
   const canConfirm =
     sourceBin &&
-    destBin &&
     selectedRow &&
+    destArea &&
     qtyNum >= 1 &&
-    qtyNum <= selectedRow.quantity &&
-    sourceBin.bin.id !== destBin.bin.id;
+    qtyNum <= selectedRow.quantity;
 
   function resetAll() {
     setSourceScan("");
-    setDestScan("");
     setSourceBin(null);
-    setDestBin(null);
     setStockRows([]);
     setSelectedKey(null);
     setMoveQty("");
+    setDestAreaId("");
     setTimeout(() => sourceInputRef.current?.focus(), 50);
-  }
-
-  async function resolveBin(path: string): Promise<ResolvedBin | null> {
-    const bin = await findBinByPath(warehouse.id, path);
-    if (!bin) return null;
-    const contents = await inspectBinContents(warehouse.id, bin.id);
-    return { bin, contents };
   }
 
   async function handleResolveSource(pathOverride?: string) {
@@ -104,21 +127,21 @@ export function WarehouseOpsMove({ warehouse, hideHeader }: Props) {
     if (pathOverride != null) setSourceScan(pathOverride);
     setLoadingSource(true);
     try {
-      const resolved = await resolveBin(v);
-      if (!resolved) {
+      const bin = await findBinByPath(warehouse.id, v);
+      if (!bin) {
         toast({ title: "Bin not found", variant: "destructive" });
         setSourceBin(null);
         setStockRows([]);
         return;
       }
-      setSourceBin(resolved);
-      const occupants = await listCartonsInBin(warehouse.id, resolved.bin.id);
+      const contents = await inspectBinContents(warehouse.id, bin.id);
+      setSourceBin({ bin, contents });
+      const occupants = await listCartonsInBin(warehouse.id, bin.id);
       const rows = aggregateBinSkuStock(occupants);
       setStockRows(rows);
       setSelectedKey(null);
       setMoveQty("");
-      setDestBin(null);
-      setDestScan("");
+      setDestAreaId("");
     } catch (e) {
       toast({
         title: "Lookup failed",
@@ -130,54 +153,21 @@ export function WarehouseOpsMove({ warehouse, hideHeader }: Props) {
     }
   }
 
-  async function handleResolveDest(pathOverride?: string) {
-    const v = (pathOverride ?? destScan).trim();
-    if (!v) return;
-    if (pathOverride != null) setDestScan(pathOverride);
-    setLoadingDest(true);
-    try {
-      const resolved = await resolveBin(v);
-      if (!resolved) {
-        toast({ title: "Bin not found", variant: "destructive" });
-        setDestBin(null);
-        return;
-      }
-      if (sourceBin && resolved.bin.id === sourceBin.bin.id) {
-        toast({
-          title: "Same bin",
-          description: "Choose a different destination.",
-          variant: "destructive",
-        });
-        setDestBin(null);
-        return;
-      }
-      setDestBin(resolved);
-    } catch (e) {
-      toast({
-        title: "Lookup failed",
-        description: e instanceof Error ? e.message : "Unknown error",
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingDest(false);
-    }
-  }
-
   function pickRow(row: BinSkuStockRow) {
     setSelectedKey(row.key);
     setMoveQty(String(row.quantity));
   }
 
   async function handleConfirm() {
-    if (!canConfirm || !sourceBin || !destBin || !selectedRow) return;
+    if (!canConfirm || !sourceBin || !selectedRow || !destArea) return;
     setSaving(true);
     try {
-      const result = await applyBinSkuMove({
+      const result = await applyBinSkuToAreaMove({
         warehouseId: warehouse.id,
         sourceBinId: sourceBin.bin.id,
         sourceBinPath: sourceBin.bin.path,
-        destBinId: destBin.bin.id,
-        destBinPath: destBin.bin.path,
+        sourceAreaCode: sourceBin.bin.area,
+        destAreaId: destArea.id,
         sku: selectedRow.sku,
         lot: selectedRow.lot,
         condition: selectedRow.condition,
@@ -185,12 +175,11 @@ export function WarehouseOpsMove({ warehouse, hideHeader }: Props) {
         operatorId,
       });
       toast({
-        title: "Move complete",
-        description: `${result.movedQty} × ${selectedRow.sku} → ${destBin.bin.path}`,
+        title: "Moved to area",
+        description: `${result.movedQty} × ${selectedRow.sku} → Area ${result.destAreaCode}`,
       });
       await handleResolveSource(sourceBin.bin.path);
-      setDestBin(null);
-      setDestScan("");
+      setDestAreaId("");
       setSelectedKey(null);
       setMoveQty("");
     } catch (e) {
@@ -206,17 +195,15 @@ export function WarehouseOpsMove({ warehouse, hideHeader }: Props) {
 
   return (
     <div className="max-w-4xl space-y-6">
-      {!hideHeader ? <WarehouseOpsHeader title="Internal move" /> : null}
-
-      <Card className="border-violet-200/60 bg-violet-50/20">
+      <Card className="border-amber-200/60 bg-amber-50/20">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
-            <ArrowRightLeft className="h-4 w-4 text-violet-600" />
-            Bin → bin (SKU qty)
+            <MapPin className="h-4 w-4 text-amber-600" />
+            Bin → area (SKU qty)
           </CardTitle>
           <CardDescription className="text-xs">
-            Scan source bin, pick SKU and quantity, scan destination bin. No carton scan — stock
-            moves by SKU + lot in the bin.
+            Scan a storage bin, pick SKU and quantity, then choose a destination area (quarantine,
+            damaged, returns, etc.). No destination bin — stock sits in the area floor.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -269,7 +256,7 @@ export function WarehouseOpsMove({ warehouse, hideHeader }: Props) {
                 className={cn(
                   "w-full text-left rounded-lg border px-3 py-2 transition-colors",
                   selectedKey === row.key
-                    ? "border-violet-400 bg-violet-50"
+                    ? "border-amber-400 bg-amber-50"
                     : "hover:bg-muted/50"
                 )}
               >
@@ -317,33 +304,44 @@ export function WarehouseOpsMove({ warehouse, hideHeader }: Props) {
         )}
       >
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Step 3 — Destination bin</CardTitle>
+          <CardTitle className="text-sm">Step 3 — Destination area</CardTitle>
+          <CardDescription className="text-xs">
+            Choose the area where stock should sit (no bin scan).
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Input
-              value={destScan}
-              onChange={(e) => setDestScan(e.target.value)}
-              placeholder="Scan destination bin"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void handleResolveDest();
-              }}
-            />
-            <ScanCameraButton
-              onScan={(text) => void handleResolveDest(text)}
-              scannerTitle="Scan destination bin"
-              scannerDescription="Scan where stock should land."
-            />
-            <Button onClick={() => void handleResolveDest()} disabled={loadingDest}>
-              {loadingDest ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
-            </Button>
-          </div>
-          {destBin ? <BinChip resolved={destBin} label="To" /> : null}
-          {canConfirm ? (
+          {loadingAreas ? (
+            <p className="text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading areas…
+            </p>
+          ) : areas.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No active areas in this warehouse. Ask admin to create areas first.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <Label className="text-xs">Area</Label>
+              <Select value={destAreaId} onValueChange={setDestAreaId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select destination area" />
+                </SelectTrigger>
+                <SelectContent>
+                  {areas.map((area) => (
+                    <SelectItem key={area.id} value={area.id}>
+                      {formatAreaOption(area)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {canConfirm && destArea ? (
             <div className="flex items-start gap-1 rounded bg-green-50 text-green-800 border border-green-200 px-2 py-1 text-xs">
               <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
               <span>
-                Move {qtyNum} × {selectedRow?.sku} from {sourceBin?.bin.path} → {destBin.bin.path}
+                Move {qtyNum} × {selectedRow?.sku} from {sourceBin?.bin.path} → Area{" "}
+                {destArea.code}
               </span>
             </div>
           ) : null}
@@ -357,7 +355,7 @@ export function WarehouseOpsMove({ warehouse, hideHeader }: Props) {
         </Button>
         <Button
           size="lg"
-          className="bg-violet-600 hover:bg-violet-700"
+          className="bg-amber-600 hover:bg-amber-700"
           disabled={!canConfirm || saving}
           onClick={() => void handleConfirm()}
         >
@@ -365,7 +363,7 @@ export function WarehouseOpsMove({ warehouse, hideHeader }: Props) {
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <>
-              Confirm move
+              Move to area
               <ChevronRight className="h-4 w-4 ml-1" />
             </>
           )}
@@ -381,6 +379,7 @@ function BinChip({ resolved, label }: { resolved: ResolvedBin; label: string }) 
     <div className="rounded border bg-background px-3 py-2 text-xs flex flex-wrap items-center gap-2">
       <Badge variant="outline">{label}</Badge>
       <span className="font-mono font-semibold">{resolved.bin.path}</span>
+      <span className="text-muted-foreground">Area {resolved.bin.area}</span>
       <span className="text-muted-foreground">
         {resolved.contents.skus.length
           ? resolved.contents.skus.slice(0, 3).join(", ")
@@ -388,7 +387,7 @@ function BinChip({ resolved, label }: { resolved: ResolvedBin; label: string }) 
       </span>
       {kind === "quarantine" ? (
         <Badge variant="outline" className="bg-amber-100">
-          Quarantine
+          Quarantine bin
         </Badge>
       ) : null}
     </div>

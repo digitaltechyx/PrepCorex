@@ -136,6 +136,8 @@ export interface WarehouseCartonLine {
   condition: "good" | "damaged";
   /** Set once this line has been put away. null = still in receiving staging. */
   binId?: string | null;
+  /** Floor area code when `binId` is null (line-level; falls back to carton `stagingArea`). */
+  stagingArea?: string | null;
   /** Allocation state for this specific line. */
   allocationStatus?: "unallocated" | "allocated" | "picked";
   /** When admin allocates this line to a client/request. */

@@ -189,7 +189,7 @@ export function aggregateBinSkuStock(occupants: CartonBinOccupancy[]): BinSkuSto
   });
 }
 
-function sortSourcesFefo(
+export function sortSourcesFefo(
   sources: Array<{ carton: WarehouseCartonDoc; line: WarehouseCartonLine }>
 ): Array<{ carton: WarehouseCartonDoc; line: WarehouseCartonLine }> {
   return [...sources].sort((a, b) => {

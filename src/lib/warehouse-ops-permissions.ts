@@ -110,7 +110,7 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       title: "Internal move",
       href: "/warehouse-ops/move",
       feature: "ops_move",
-      description: "Source bin → SKU qty → dest bin",
+      description: "Bin → bin, bin → area, or area → area",
     },
   ];
   return items.filter((item) => hasFeature(userProfile, item.feature));
