@@ -24,7 +24,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Search, Filter, ListFilter, X, Eye, Clock, XCircle } from "lucide-react";
+import { Search, Filter, ListFilter, X, Eye, Clock, XCircle, Trash2 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
@@ -53,11 +55,12 @@ function formatRestockDate(restockedAt: RestockHistory["restockedAt"]) {
   return "N/A";
   }
 
-type ShippedRowStatus = "Pending" | "Shipped" | "Rejected";
+type ShippedRowStatus = "Pending" | "Shipped" | "Rejected" | "Cancelled";
 
 const STATUS_FILTER_ALL = "all";
 const STATUS_URL_PENDING = "pending";
 const STATUS_URL_SHIPPED = "shipped";
+const STATUS_URL_CANCELLED = "cancelled";
 
 const DATE_FILTER_KEYS = new Set(["all", "today", "week", "month", "year"]);
 
@@ -69,12 +72,13 @@ function rowMatchesStatusFilter(
   const s = (item.status || "") as ShippedRowStatus;
   if (statusFilter === STATUS_URL_PENDING) return s === "Pending";
   if (statusFilter === STATUS_URL_SHIPPED) return s === "Shipped";
+  if (statusFilter === STATUS_URL_CANCELLED) return s === "Cancelled";
   return true;
 }
 
 export function ShippedTable({ data, inventory }: { data: ShippedItem[], inventory: InventoryItem[] }) {
   const searchParams = useSearchParams();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState<string>("all");
@@ -83,6 +87,9 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
   const [selectedUploadRequest, setSelectedUploadRequest] = useState<ShipmentRequest | null>(null);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [isUploadingLabel, setIsUploadingLabel] = useState(false);
+  const [cancellingRequest, setCancellingRequest] = useState<ShipmentRequest | null>(null);
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [isCancelling, setIsCancelling] = useState(false);
 
   useEffect(() => {
     const raw = searchParams.get("status")?.toLowerCase();
@@ -149,6 +156,54 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     (req) => req.status === "pending" || req.status === "awaiting_label_upload"
   ).length;
   const rejectedCount = pendingShipmentRequests.filter(req => req.status?.toLowerCase() === "rejected").length;
+  const cancelledCount = pendingShipmentRequests.filter(req => req.status === "cancelled").length;
+
+  const handleCancelShipmentRequest = async () => {
+    if (!cancellingRequest?.id || !userProfile?.uid) return;
+    if (cancellingRequest.status !== "pending") {
+      toast({
+        variant: "destructive",
+        title: "Cannot cancel",
+        description: "Only pending outbound requests can be cancelled.",
+      });
+      setCancellingRequest(null);
+      return;
+    }
+
+    const reason = cancellationReason.trim();
+    if (!reason) {
+      toast({
+        variant: "destructive",
+        title: "Reason required",
+        description: "Please tell us why you are cancelling this request.",
+      });
+      return;
+    }
+
+    setIsCancelling(true);
+    try {
+      await updateDoc(doc(db, `users/${userProfile.uid}/shipmentRequests`, cancellingRequest.id), {
+        status: "cancelled",
+        cancelledAt: Timestamp.now(),
+        cancelledBy: user?.uid || userProfile.uid,
+        cancellationReason: reason,
+      });
+      toast({
+        title: "Request cancelled",
+        description: "Your outbound shipment request was cancelled.",
+      });
+      setCancellingRequest(null);
+      setCancellationReason("");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to cancel shipment request.",
+      });
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   const handleRemarksClick = (remarks: string) => {
     setSelectedRemarks(remarks);
@@ -252,7 +307,12 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
   // Combine shipped items, pending, and rejected shipment requests into one list
   const combinedData = useMemo(() => {
     // Helper function to convert a single shipment from request to display format
-    const convertShipmentToDisplay = (req: ShipmentRequest, shipment: any, status: "Pending" | "Rejected", index: number) => {
+    const convertShipmentToDisplay = (
+      req: ShipmentRequest,
+      shipment: any,
+      status: "Pending" | "Rejected" | "Cancelled",
+      index: number
+    ) => {
       const inventoryItem = inventory.find(item => item.id === shipment.productId);
       const productUnits = (shipment.quantity || 0) * (shipment.packOf || 1);
       
@@ -267,14 +327,20 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         shipTo: req.shipTo || "",
         service: req.service || "FBA/WFS/TFS",
         productType: req.productType || "Standard",
-        remarks: status === "Rejected" ? ((req as any).rejectionReason || req.remarks || "") : (req.remarks || ""),
-        status: status as "Pending" | "Shipped" | "Rejected",
+        remarks:
+          status === "Rejected"
+            ? ((req as any).rejectionReason || req.remarks || "")
+            : status === "Cancelled"
+              ? ((req as any).cancellationReason || req.remarks || "")
+              : (req.remarks || ""),
+        status: status as ShippedRowStatus,
         isRequest: true,
         requestId: req.id,
         requestStatus: req.status || "pending",
         rawRequest: req,
         createdAt: req.requestedAt,
         additionalServices: shipment.selectedAdditionalServices || (req as any).additionalServices,
+        canCancelRequest: status === "Pending" && (req.status || "pending") === "pending" && index === 0,
       };
     };
 
@@ -295,6 +361,15 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
       .forEach(req => {
         req.shipments.forEach((shipment, index) => {
           rejectedItems.push(convertShipmentToDisplay(req, shipment, "Rejected", index));
+        });
+      });
+
+    const cancelledItems: any[] = [];
+    pendingShipmentRequests
+      .filter(req => req.status === "cancelled")
+      .forEach(req => {
+        req.shipments.forEach((shipment, index) => {
+          cancelledItems.push(convertShipmentToDisplay(req, shipment, "Cancelled", index));
         });
       });
 
@@ -329,7 +404,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     });
 
     // Combine and sort (most recent first)
-    const allItems = [...pendingItems, ...rejectedItems, ...shippedItems];
+    const allItems = [...pendingItems, ...rejectedItems, ...cancelledItems, ...shippedItems];
 
     const sortedItems = allItems.sort((a, b) => {
       const aCreated = a.createdAt
@@ -417,6 +492,11 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                   ({rejectedCount} Rejected)
                 </span>
               )}
+              {cancelledCount > 0 && (
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  ({cancelledCount} Cancelled)
+                </span>
+              )}
             </CardTitle>
             <CardDescription className="text-xs sm:text-sm">
               Details of products that have been shipped.
@@ -473,6 +553,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                   <SelectItem value={STATUS_FILTER_ALL}>All statuses</SelectItem>
                   <SelectItem value={STATUS_URL_PENDING}>Pending</SelectItem>
                   <SelectItem value={STATUS_URL_SHIPPED}>Shipped</SelectItem>
+                  <SelectItem value={STATUS_URL_CANCELLED}>Cancelled</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -577,8 +658,27 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                       <XCircle className="h-3 w-3" />
                       Rejected
                     </Badge>
+                  ) : (item as any).status === "Cancelled" ? (
+                    <Badge variant="secondary" className="flex items-center gap-1 w-fit mt-1">
+                      <Trash2 className="h-3 w-3" />
+                      Cancelled
+                    </Badge>
                   ) : (
                     <Badge variant="default" className="w-fit mt-1">Shipped</Badge>
+                  )}
+                  {(item as any).canCancelRequest && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 h-7 text-xs text-destructive border-destructive/40 hover:text-destructive"
+                      onClick={() => {
+                        setCancellingRequest((item as any).rawRequest as ShipmentRequest);
+                        setCancellationReason("");
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      Cancel request
+                    </Button>
                   )}
                   {(item as any).isRequest && (item as any).requestStatus === "awaiting_label_upload" && (
                     <Button
@@ -820,8 +920,27 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                             <XCircle className="h-3 w-3" />
                             Rejected
                           </Badge>
+                        ) : (item as any).status === "Cancelled" ? (
+                          <Badge variant="secondary" className="flex items-center gap-1 w-fit">
+                            <Trash2 className="h-3 w-3" />
+                            Cancelled
+                          </Badge>
                         ) : (
                           <Badge variant="default" className="w-fit">Shipped</Badge>
+                        )}
+                        {(item as any).canCancelRequest && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="mt-1 h-7 px-2 text-xs text-destructive hover:text-destructive"
+                            onClick={() => {
+                              setCancellingRequest((item as any).rawRequest as ShipmentRequest);
+                              setCancellationReason("");
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            Cancel
+                          </Button>
                         )}
                       </TableCell>
                 </TableRow>
@@ -1002,6 +1121,59 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                 <p className="text-sm text-muted-foreground">No additional services available</p>
               )}
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={cancellingRequest !== null}
+        onOpenChange={(open) => {
+          if (!open && !isCancelling) {
+            setCancellingRequest(null);
+            setCancellationReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel outbound request?</DialogTitle>
+            <DialogDescription>
+              This will mark your pending shipment request as cancelled. You cannot undo this action.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="outbound-cancellation-reason">
+              Why are you cancelling? <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="outbound-cancellation-reason"
+              value={cancellationReason}
+              onChange={(e) => setCancellationReason(e.target.value)}
+              placeholder="e.g. wrong products selected, shipment no longer needed, incorrect ship-to address..."
+              rows={4}
+              maxLength={500}
+              disabled={isCancelling}
+            />
+            <p className="text-xs text-muted-foreground">{cancellationReason.length}/500</p>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              disabled={isCancelling}
+              onClick={() => {
+                setCancellingRequest(null);
+                setCancellationReason("");
+              }}
+            >
+              Keep request
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isCancelling || !cancellationReason.trim()}
+              onClick={() => void handleCancelShipmentRequest()}
+            >
+              {isCancelling ? "Cancelling..." : "Cancel request"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

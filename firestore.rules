@@ -133,6 +133,40 @@ service cloud.firestore {
       allow list: if signedIn();
     }
 
+    // Client inbound/outbound requests — users may cancel pending with a reason
+    match /users/{userId}/inventoryRequests/{requestId} {
+      allow read: if isSelf(userId) || isAdminOrSubAdmin();
+      allow create: if isSelf(userId);
+      allow update: if isAdminOrSubAdmin() || (
+        isSelf(userId) &&
+        resource.data.status == 'pending' &&
+        request.resource.data.status == 'cancelled' &&
+        request.resource.data.cancellationReason is string &&
+        request.resource.data.cancellationReason.size() > 0 &&
+        request.resource.data.cancellationReason.size() <= 500
+      );
+      allow delete: if isAdminOrSubAdmin();
+    }
+
+    match /users/{userId}/shipmentRequests/{requestId} {
+      allow read: if isSelf(userId) || isAdminOrSubAdmin();
+      allow create: if isSelf(userId);
+      allow update: if isAdminOrSubAdmin() || (
+        isSelf(userId) &&
+        resource.data.status == 'pending' &&
+        request.resource.data.status == 'cancelled' &&
+        request.resource.data.cancellationReason is string &&
+        request.resource.data.cancellationReason.size() > 0 &&
+        request.resource.data.cancellationReason.size() <= 500
+      );
+      allow delete: if isAdminOrSubAdmin();
+    }
+
+    match /users/{userId}/inventory/{itemId} {
+      allow read: if isSelf(userId) || isAdminOrSubAdmin();
+      allow write: if isSelf(userId) || isAdminOrSubAdmin();
+    }
+
     // ---- ALL USER SUBCOLLECTIONS (inventory, invoices, requests, logs, pricing, etc.) ----
     match /users/{userId}/{document=**} {
       allow read, write: if isSelfOrAdmin(userId);

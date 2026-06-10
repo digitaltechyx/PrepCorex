@@ -253,6 +253,7 @@ export function InventoryRequestsManagement({
   const pendingCount = requests.filter(req => req.status === "pending").length;
   const approvedCount = requests.filter(req => req.status === "approved").length;
   const rejectedCount = requests.filter(req => req.status === "rejected").length;
+  const cancelledCount = requests.filter(req => req.status === "cancelled").length;
 
   const getCurrentLocation = (request: InventoryRequest): string => {
     const requestSku = String((request as any).sku || "").trim().toLowerCase();
@@ -268,6 +269,14 @@ export function InventoryRequestsManagement({
 
   const handleApprove = async (request: InventoryRequest, receivingDate: Date, status: "In Stock" | "Out of Stock", remarks?: string, editedQuantity?: number, editedProductName?: string, editedSku?: string, imageUrls?: string[]) => {
     if (!selectedUser || !adminProfile) return;
+    if (request.status !== "pending") {
+      toast({
+        variant: "destructive",
+        title: "Request unavailable",
+        description: "This request is no longer pending and cannot be approved.",
+      });
+      return;
+    }
 
     setIsProcessing(true);
     try {
@@ -656,6 +665,7 @@ export function InventoryRequestsManagement({
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -755,6 +765,8 @@ export function InventoryRequestsManagement({
                               ? "default"
                               : request.status === "rejected"
                               ? "destructive"
+                              : request.status === "cancelled"
+                              ? "secondary"
                               : "secondary"
                           }
                         >
@@ -763,7 +775,11 @@ export function InventoryRequestsManagement({
                               <Clock className="h-3 w-3" />
                               Pending
                             </span>
-                          ) : request.status}
+                          ) : request.status === "cancelled" ? (
+                            "Cancelled"
+                          ) : (
+                            request.status
+                          )}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -780,6 +796,12 @@ export function InventoryRequestsManagement({
                           <span className="text-muted-foreground text-sm">
                             {request.status === "approved"
                               ? `Approved ${request.approvedAt ? formatDate(request.approvedAt) : ""}`
+                              : request.status === "cancelled"
+                              ? `Cancelled ${(request as any).cancelledAt ? formatDate((request as any).cancelledAt) : ""}${
+                                  (request as any).cancellationReason
+                                    ? ` — ${(request as any).cancellationReason}`
+                                    : ""
+                                }`
                               : `Rejected ${request.rejectedAt ? formatDate(request.rejectedAt) : ""}`}
                           </span>
                         )}

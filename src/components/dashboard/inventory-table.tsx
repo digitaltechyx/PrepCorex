@@ -23,6 +23,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { InventoryHistoryDialog } from "@/components/inventory/inventory-history-dialog";
 import { AddInboundTrackingDialog } from "@/components/inventory/add-inbound-tracking-dialog";
 import { InboundTrackingDetailDialog } from "@/components/inventory/inbound-tracking-detail-dialog";
@@ -292,6 +294,9 @@ export function InventoryTable({
   const [editProductName, setEditProductName] = useState("");
   const [editQuantity, setEditQuantity] = useState(0);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [cancellingRequest, setCancellingRequest] = useState<InventoryRequest | null>(null);
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [isCancelling, setIsCancelling] = useState(false);
   const [historyItem, setHistoryItem] = useState<InventoryItem | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [trackingDialog, setTrackingDialog] = useState<{
@@ -367,6 +372,7 @@ export function InventoryTable({
 
   const pendingCount = inventoryRequests.filter(req => req.status === "pending").length;
   const rejectedCount = inventoryRequests.filter(req => req.status === "rejected").length;
+  const cancelledCount = inventoryRequests.filter(req => req.status === "cancelled").length;
 
   const handleRemarksClick = (
     remarks: string,
@@ -405,9 +411,65 @@ export function InventoryTable({
   const [editRetailIdentifier, setEditRetailIdentifier] = useState("");
   const [editExpiryDate, setEditExpiryDate] = useState("");
 
+  const handleCancelRequest = async () => {
+    if (!cancellingRequest?.id || !effectiveUserId) return;
+    if (cancellingRequest.status !== "pending") {
+      toast({
+        variant: "destructive",
+        title: "Cannot cancel",
+        description: "Only pending requests can be cancelled.",
+      });
+      setCancellingRequest(null);
+      return;
+    }
+
+    const reason = cancellationReason.trim();
+    if (!reason) {
+      toast({
+        variant: "destructive",
+        title: "Reason required",
+        description: "Please tell us why you are cancelling this request.",
+      });
+      return;
+    }
+
+    setIsCancelling(true);
+    try {
+      const requestRef = doc(db, `users/${effectiveUserId}/inventoryRequests`, cancellingRequest.id);
+      await updateDoc(requestRef, {
+        status: "cancelled",
+        cancelledAt: Timestamp.now(),
+        cancelledBy: user?.uid || effectiveUserId,
+        cancellationReason: reason,
+      });
+      toast({
+        title: "Request cancelled",
+        description: "Your inbound request was cancelled.",
+      });
+      setCancellingRequest(null);
+      setCancellationReason("");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to cancel request.",
+      });
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
   const handleUpdateRequest = async () => {
     if (!editingRequest || !effectiveUserId) return;
-    
+    if (editingRequest.status !== "pending") {
+      toast({
+        variant: "destructive",
+        title: "Cannot edit",
+        description: "Only pending requests can be edited.",
+      });
+      return;
+    }
+
     if (!editProductName.trim()) {
       toast({
         variant: "destructive",
@@ -530,6 +592,32 @@ export function InventoryTable({
         remarksPhotoAt: getRemarksPhotoAt(req),
       }));
 
+    const cancelledItems = inventoryRequests
+      .filter(req => req.status === "cancelled")
+      .map(req => ({
+        id: `request-${req.id}`,
+        productName: req.productName,
+        sku: (req as any).sku || "",
+        variantLabel: (req as any).variantLabel,
+        color: (req as any).color,
+        size: (req as any).size,
+        productEntryMode: (req as any).productEntryMode,
+        retailIdentifier: (req as any).retailIdentifier,
+        expiryDate: (req as any).expiryDate,
+        quantity: req.quantity,
+        dateAdded: req.addDate,
+        receivingDate: undefined,
+        status: "Cancelled" as "Pending" | "In Stock" | "Out of Stock" | "Rejected" | "Cancelled",
+        inventoryType: req.inventoryType,
+        requestedBy: req.requestedBy,
+        remarks: (req as any).cancellationReason || req.remarks,
+        imageUrls: getImageUrls(req as any),
+        isRequest: true,
+        requestId: req.id,
+        requestData: req,
+        remarksPhotoAt: getRemarksPhotoAt(req),
+      }));
+
     // Convert approved inventory items - get remarks from inventory item OR approved request
     const inventoryItems = data.map(item => {
       // Try to find matching approved request to get remarks
@@ -580,7 +668,7 @@ export function InventoryTable({
     });
 
     // Combine and sort
-    return [...pendingItems, ...rejectedItems, ...inventoryItems];
+    return [...pendingItems, ...rejectedItems, ...cancelledItems, ...inventoryItems];
   }, [data, inventoryRequests]);
 
   // Filtered and sorted inventory data (newest first)
@@ -603,6 +691,7 @@ export function InventoryTable({
         (statusFilter === "In Stock" && row.status === "In Stock") ||
         (statusFilter === "Out of Stock" && row.status === "Out of Stock") ||
         (statusFilter === "Rejected" && row.status === "Rejected") ||
+        (statusFilter === "Cancelled" && row.status === "Cancelled") ||
         (statusFilter === LOW_STOCK_STATUS_VALUE && rowIsLowStock(row));
       return matchesSearch && matchesStatus;
     });
@@ -643,6 +732,12 @@ export function InventoryTable({
                 <Badge variant="destructive" className="flex items-center gap-1">
                   <X className="h-3 w-3" />
                   {rejectedCount} Rejected
+                </Badge>
+              )}
+              {cancelledCount > 0 && (
+                <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground">
+                  <Trash2 className="h-3 w-3" />
+                  {cancelledCount} Cancelled
                 </Badge>
               )}
             </div>
@@ -691,6 +786,7 @@ export function InventoryTable({
                 <SelectItem value="In Stock">In Stock</SelectItem>
                 <SelectItem value="Out of Stock">Out of Stock</SelectItem>
                 <SelectItem value="Rejected">Rejected</SelectItem>
+                <SelectItem value="Cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -728,14 +824,29 @@ export function InventoryTable({
                         {item.productName}
                       </div>
                       {(item as any).isRequest && (item as any).requestData && item.status === "Pending" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-auto p-1"
-                          onClick={() => handleEditClick((item as any).requestData)}
-                        >
-                          <Edit className="h-3 w-3" />
-                        </Button>
+                        <div className="flex items-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto p-1"
+                            onClick={() => handleEditClick((item as any).requestData)}
+                            title="Edit request"
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto p-1 text-destructive hover:text-destructive"
+                            onClick={() => {
+                              setCancellingRequest((item as any).requestData);
+                              setCancellationReason("");
+                            }}
+                            title="Cancel request"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       )}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">SKU: {(item as any).sku || "N/A"}</div>
@@ -801,14 +912,16 @@ export function InventoryTable({
                     variant={
                       item.status === "Pending" ? "outline" :
                       item.status === "Rejected" ? "destructive" :
+                      item.status === "Cancelled" ? "secondary" :
                       item.status === "In Stock" ? "secondary" : "destructive"
                     }
                     className="text-[10px] px-2 py-1"
                   >
                     {item.status === "Pending" ? "Pending Approval" :
-                     item.status === "Rejected" ? "Rejected" : item.status}
+                     item.status === "Rejected" ? "Rejected" :
+                     item.status === "Cancelled" ? "Cancelled" : item.status}
                   </Badge>
-                  {item.status !== "Rejected" && (
+                  {item.status !== "Rejected" && item.status !== "Cancelled" && (
                     <InboundTrackingStatusCell
                       trackings={(item as any).inboundTrackings}
                       canAddTracking={canAddInboundTracking(item as any, inventoryRequests)}
@@ -946,15 +1059,30 @@ export function InventoryTable({
                           >
                             {item.productName}
                           </span>
-                          {(item as any).isRequest && (item as any).requestData && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-auto p-1"
-                              onClick={() => handleEditClick((item as any).requestData)}
-                            >
-                              <Edit className="h-3 w-3" />
-                            </Button>
+                          {(item as any).isRequest && (item as any).requestData && item.status === "Pending" && (
+                            <div className="inline-flex items-center">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto p-1"
+                                onClick={() => handleEditClick((item as any).requestData)}
+                                title="Edit request"
+                              >
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto p-1 text-destructive hover:text-destructive"
+                                onClick={() => {
+                                  setCancellingRequest((item as any).requestData);
+                                  setCancellationReason("");
+                                }}
+                                title="Cancel request"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
                           )}
                         </div>
                         {(item as any).variantLabel && (
@@ -1035,16 +1163,18 @@ export function InventoryTable({
                         variant={
                           item.status === "Pending" ? "outline" :
                           item.status === "Rejected" ? "destructive" :
+                          item.status === "Cancelled" ? "secondary" :
                           item.status === "In Stock" ? "secondary" : "destructive"
                         }
                         className="text-xs px-2 py-1"
                       >
                         {item.status === "Pending" ? "Pending Approval" :
-                         item.status === "Rejected" ? "Rejected" : item.status}
+                         item.status === "Rejected" ? "Rejected" :
+                         item.status === "Cancelled" ? "Cancelled" : item.status}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-center whitespace-nowrap">
-                      {item.status !== "Rejected" ? (
+                      {item.status !== "Rejected" && item.status !== "Cancelled" ? (
                         <InboundTrackingStatusCell
                           trackings={(item as any).inboundTrackings}
                           canAddTracking={canAddInboundTracking(item as any, inventoryRequests)}
@@ -1222,6 +1352,61 @@ export function InventoryTable({
                 {selectedRemarks || "No remarks available"}
               </p>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={cancellingRequest !== null}
+        onOpenChange={(open) => {
+          if (!open && !isCancelling) {
+            setCancellingRequest(null);
+            setCancellationReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel inbound request?</DialogTitle>
+            <DialogDescription>
+              This will mark your pending request for{" "}
+              <strong>{cancellingRequest?.productName || "this product"}</strong> as cancelled.
+              You cannot undo this action.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="inbound-cancellation-reason">
+              Why are you cancelling? <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="inbound-cancellation-reason"
+              value={cancellationReason}
+              onChange={(e) => setCancellationReason(e.target.value)}
+              placeholder="e.g. wrong quantity, ordered by mistake, no longer shipping this product..."
+              rows={4}
+              maxLength={500}
+              disabled={isCancelling}
+            />
+            <p className="text-xs text-muted-foreground">{cancellationReason.length}/500</p>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              disabled={isCancelling}
+              onClick={() => {
+                setCancellingRequest(null);
+                setCancellationReason("");
+              }}
+            >
+              Keep request
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isCancelling || !cancellationReason.trim()}
+              onClick={() => void handleCancelRequest()}
+            >
+              {isCancelling ? "Cancelling..." : "Cancel request"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -53,6 +53,12 @@ type NotificationRow = {
   inboundTrackings?: InboundTrackingEntry[];
 };
 
+function cancelReasonSubtitle(reason: unknown, fallback: string): string {
+  const text = typeof reason === "string" ? reason.trim() : "";
+  if (!text) return fallback;
+  return `Reason: ${text.length > 80 ? `${text.slice(0, 80)}…` : text}`;
+}
+
 function normStatus(v: any): string {
   return String(v || "")
     .trim()
@@ -183,7 +189,7 @@ function isProcessComplete(type: NotificationType, status: string): boolean {
     case "shipment_request":
       return ["confirmed", "closed", "rejected", "cancelled", "paid"].includes(s);
     case "inventory_request":
-      return ["approved", "rejected"].includes(s);
+      return ["approved", "rejected", "cancelled"].includes(s);
     case "product_return":
       return ["confirmed", "closed", "rejected", "cancelled"].includes(s);
     case "dispose_request":
@@ -306,7 +312,13 @@ export default function AdminNotificationsPage() {
                 status: String((data as any).status || ""),
                 createdAtMs: dateMs,
                 title: `Shipment Request • ${shipTo ? shipTo.substring(0, 40) : "N/A"}`,
-                subtitle: `Items: ${(data as any).shipments?.length ?? 0}`,
+                subtitle:
+                  String((data as any).status || "").toLowerCase() === "cancelled"
+                    ? cancelReasonSubtitle(
+                        (data as any).cancellationReason,
+                        `Items: ${(data as any).shipments?.length ?? 0}`
+                      )
+                    : `Items: ${(data as any).shipments?.length ?? 0}`,
               };
             });
             setShipmentRequests(rows);
@@ -328,7 +340,13 @@ export default function AdminNotificationsPage() {
                   status: String((data as any).status || ""),
                   createdAtMs: dateMs,
                   title: `Shipment Request • ${shipTo ? shipTo.substring(0, 40) : "N/A"}`,
-                  subtitle: `Items: ${(data as any).shipments?.length ?? 0}`,
+                  subtitle:
+                    String((data as any).status || "").toLowerCase() === "cancelled"
+                      ? cancelReasonSubtitle(
+                          (data as any).cancellationReason,
+                          `Items: ${(data as any).shipments?.length ?? 0}`
+                        )
+                      : `Items: ${(data as any).shipments?.length ?? 0}`,
                 };
                 return row;
               });
@@ -355,7 +373,13 @@ export default function AdminNotificationsPage() {
                 status: String((data as any).status || ""),
                 createdAtMs: dateMs,
                 title: `Inventory Request • ${String(productName).substring(0, 50)}`,
-                subtitle: `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
+                subtitle:
+                  String((data as any).status || "").toLowerCase() === "cancelled"
+                    ? cancelReasonSubtitle(
+                        (data as any).cancellationReason,
+                        `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`
+                      )
+                    : `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
                 inboundTrackings: Array.isArray((data as any).inboundTrackings)
                   ? ((data as any).inboundTrackings as InboundTrackingEntry[])
                   : undefined,
@@ -379,7 +403,13 @@ export default function AdminNotificationsPage() {
                   status: String((data as any).status || ""),
                   createdAtMs: dateMs,
                   title: `Inventory Request • ${String(productName).substring(0, 50)}`,
-                  subtitle: `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
+                  subtitle:
+                    String((data as any).status || "").toLowerCase() === "cancelled"
+                      ? cancelReasonSubtitle(
+                          (data as any).cancellationReason,
+                          `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`
+                        )
+                      : `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
                   inboundTrackings: Array.isArray((data as any).inboundTrackings)
                     ? ((data as any).inboundTrackings as InboundTrackingEntry[])
                     : undefined,
