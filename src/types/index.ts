@@ -462,6 +462,11 @@ export interface ShipmentRequest {
   cancelledBy?: string;
   /** Required when the client cancels a pending outbound request. */
   cancellationReason?: string;
+  /** Warehouse floor pick after admin confirms outbound. */
+  warehousePickStatus?: "ready" | "picking" | "picked";
+  warehousePickedAt?: { seconds: number; nanoseconds: number } | string;
+  warehousePickedBy?: string | null;
+  warehouseId?: string | null;
 }
 
 export interface ShipmentProductItem {

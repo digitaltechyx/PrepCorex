@@ -7,7 +7,7 @@ export const OPS_FEATURES_CONFIG: { value: UserFeature; label: string; descripti
   { value: "ops_view_expected_inbound", label: "Expected inbound", description: "See client inventory requests on receiving" },
   { value: "ops_putaway", label: "Putaway", description: "Scan carton to storage bin" },
   { value: "ops_move", label: "Internal move", description: "Bin-to-bin moves" },
-  { value: "ops_pick", label: "Pick", description: "Outbound picking (future)" },
+  { value: "ops_pick", label: "Pick", description: "Outbound order picking (FEFO)" },
   { value: "ops_pack", label: "Pack", description: "Pack and verify (future)" },
   { value: "ops_count", label: "Cycle count", description: "Inventory counts (future)" },
   {
@@ -29,6 +29,11 @@ export const OPS_FEATURE_PRESETS: { id: string; label: string; features: UserFea
     features: ["ops_dashboard", "ops_putaway", "ops_move"],
   },
   {
+    id: "picker",
+    label: "Picker",
+    features: ["ops_dashboard", "ops_pick"],
+  },
+  {
     id: "supervisor",
     label: "Floor supervisor",
     features: [
@@ -37,6 +42,7 @@ export const OPS_FEATURE_PRESETS: { id: string; label: string; features: UserFea
       "ops_view_expected_inbound",
       "ops_putaway",
       "ops_move",
+      "ops_pick",
       "ops_supervisor",
     ],
   },
@@ -111,6 +117,12 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       href: "/warehouse-ops/move",
       feature: "ops_move",
       description: "Bin → bin, bin → area, or area → area",
+    },
+    {
+      title: "Pick",
+      href: "/warehouse-ops/pick",
+      feature: "ops_pick",
+      description: "Scan bin → carton for outbound",
     },
   ];
   return items.filter((item) => hasFeature(userProfile, item.feature));
