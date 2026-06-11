@@ -34,6 +34,7 @@ import {
   inspectBinContents,
   validateLineToBin,
 } from "@/lib/warehouse-putaway";
+import { sortCartonLineSourcesFefoFifo } from "@/lib/warehouse-stock-sort";
 
 const WAREHOUSES = "warehouses";
 
@@ -189,15 +190,11 @@ export function aggregateBinSkuStock(occupants: CartonBinOccupancy[]): BinSkuSto
   });
 }
 
+/** FEFO when line has expiry; FIFO by receive date when it does not. */
 export function sortSourcesFefo(
   sources: Array<{ carton: WarehouseCartonDoc; line: WarehouseCartonLine }>
 ): Array<{ carton: WarehouseCartonDoc; line: WarehouseCartonLine }> {
-  return [...sources].sort((a, b) => {
-    const ea = a.line.expiry ?? "9999-99-99";
-    const eb = b.line.expiry ?? "9999-99-99";
-    if (ea !== eb) return ea.localeCompare(eb);
-    return a.carton.cartonCode.localeCompare(b.carton.cartonCode);
-  });
+  return sortCartonLineSourcesFefoFifo(sources);
 }
 
 /** Move SKU qty from source bin to destination bin (splits carton lines as needed). */

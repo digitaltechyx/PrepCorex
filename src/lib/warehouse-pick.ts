@@ -22,6 +22,12 @@ import {
   nextCartonLineId,
   rollCartonBinStateFromLines,
 } from "@/lib/warehouse-carton-line-utils";
+import {
+  cartonReceivedIso,
+  compareFlatStockFefoFifo,
+  comparePickStepWalkOrder,
+  dateFromFirestore,
+} from "@/lib/warehouse-stock-sort";
 import type {
   UserProfile,
   WarehouseCartonDoc,
@@ -40,7 +46,7 @@ const PICKABLE_CARTON_STATUSES: WarehouseCartonStatus[] = [
   "reserved",
 ];
 
-export type WarehousePickStatus = "ready" | "picking" | "picked";
+export type WarehousePickStatus = "ready" | "picking" | "picked" | "skipped";
 
 export type OutboundPickLine = {
   sku: string;
@@ -73,6 +79,8 @@ export type PickTaskStep = {
   cartonCode: string;
   lineId: string;
   sequence: number;
+  /** For FIFO when line has no expiry. */
+  receivedAtIso: string;
 };
 
 export type PickPlan = {
@@ -98,20 +106,8 @@ type PickSource = {
   cartonId: string;
   cartonCode: string;
   lineId: string;
+  receivedAtIso: string;
 };
-
-function dateFromTs(ts: unknown): Date | null {
-  if (!ts) return null;
-  if (ts instanceof Date) return ts;
-  if (typeof ts === "object" && ts && "seconds" in (ts as Record<string, unknown>)) {
-    return new Date((ts as { seconds: number }).seconds * 1000);
-  }
-  if (typeof ts === "string") {
-    const d = new Date(ts);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-  return null;
-}
 
 function clientMatchesWarehouse(client: UserProfile, warehouse: WarehouseDoc): boolean {
   const linked = String(warehouse.linkedLocationId ?? "").trim();
@@ -156,7 +152,9 @@ async function loadClientProductMap(
 
 function pickStatusFromRequest(data: Record<string, unknown>): WarehousePickStatus {
   const raw = data.warehousePickStatus;
-  if (raw === "picking" || raw === "picked" || raw === "ready") return raw;
+  if (raw === "picking" || raw === "picked" || raw === "ready" || raw === "skipped") {
+    return raw;
+  }
   return "ready";
 }
 
@@ -231,32 +229,49 @@ function collectPickSources(
         cartonId: carton.id,
         cartonCode: carton.cartonCode,
         lineId: line.lineId,
+        receivedAtIso: cartonReceivedIso(carton),
       });
     }
   }
   return out;
 }
 
-function sortSourcesFefoThenBin(sources: PickSource[]): PickSource[] {
-  return [...sources].sort((a, b) => {
-    const ea = a.expiry ?? "9999-99-99";
-    const eb = b.expiry ?? "9999-99-99";
-    if (ea !== eb) return ea.localeCompare(eb);
-    const binCmp = a.binPath.localeCompare(b.binPath);
-    if (binCmp !== 0) return binCmp;
-    return a.cartonCode.localeCompare(b.cartonCode);
-  });
+function sortSourcesFefoFifo(sources: PickSource[]): PickSource[] {
+  return [...sources].sort((a, b) =>
+    compareFlatStockFefoFifo(
+      {
+        expiry: a.expiry,
+        receivedAtIso: a.receivedAtIso,
+        cartonCode: a.cartonCode,
+        binPath: a.binPath,
+      },
+      {
+        expiry: b.expiry,
+        receivedAtIso: b.receivedAtIso,
+        cartonCode: b.cartonCode,
+        binPath: b.binPath,
+      }
+    )
+  );
 }
 
 function sortStepsWalkOrder(steps: PickTaskStep[]): PickTaskStep[] {
-  return [...steps].sort((a, b) => {
-    const binCmp = a.binPath.localeCompare(b.binPath);
-    if (binCmp !== 0) return binCmp;
-    const ea = a.expiry ?? "9999-99-99";
-    const eb = b.expiry ?? "9999-99-99";
-    if (ea !== eb) return ea.localeCompare(eb);
-    return a.cartonCode.localeCompare(b.cartonCode);
-  });
+  return [...steps].sort((a, b) =>
+    comparePickStepWalkOrder(
+      {
+        expiry: a.expiry,
+        receivedAtIso: a.receivedAtIso,
+        cartonCode: a.cartonCode,
+        binPath: a.binPath,
+      },
+      {
+        expiry: b.expiry,
+        receivedAtIso: b.receivedAtIso,
+        cartonCode: b.cartonCode,
+        binPath: b.binPath,
+      }
+    )
+  );
 }
 
 async function orderLinesFromRequest(
@@ -337,7 +352,7 @@ export async function loadOutboundPickQueue(input: {
     if (!eligible.has(clientUserId)) continue;
 
     const pickStatus = pickStatusFromRequest(data);
-    if (pickStatus === "picked") continue;
+    if (pickStatus === "picked" || pickStatus === "skipped") continue;
 
     const lines = await orderLinesFromRequest(clientUserId, data);
     if (lines.length === 0) continue;
@@ -347,7 +362,7 @@ export async function loadOutboundPickQueue(input: {
       clientUserId,
       clientDisplayName: displayClient(clientById.get(clientUserId), clientUserId),
       shipTo: data.shipTo != null ? String(data.shipTo) : undefined,
-      confirmedAt: dateFromTs(data.confirmedAt),
+      confirmedAt: dateFromFirestore(data.confirmedAt),
       warehousePickStatus: pickStatus,
       lines,
     });
@@ -370,9 +385,7 @@ export async function buildPickPlan(
     getBinPathMap(warehouse.id),
   ]);
 
-  const pool = sortSourcesFefoThenBin(
-    collectPickSources(cartons, binPath, order.clientUserId)
-  );
+  const pool = sortSourcesFefoFifo(collectPickSources(cartons, binPath, order.clientUserId));
   const consumed = new Map<string, number>();
   const steps: PickTaskStep[] = [];
   const shortfalls: PickPlan["shortfalls"] = [];
@@ -404,6 +417,7 @@ export async function buildPickPlan(
         cartonCode: source.cartonCode,
         lineId: source.lineId,
         sequence: 0,
+        receivedAtIso: source.receivedAtIso,
       });
       remaining -= take;
       planned += take;
@@ -497,6 +511,26 @@ export async function markPickOrderStatus(input: {
     payload.warehousePickedBy = input.operatorId ?? null;
   }
   await updateDoc(ref, payload);
+}
+
+/** Remove a confirmed order from the pick queue without floor picking (legacy / test cleanup). */
+export async function skipPickOrder(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+  warehouseId: string;
+  reason?: string;
+  operatorId?: string | null;
+}): Promise<void> {
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  await updateDoc(ref, {
+    warehousePickStatus: "skipped",
+    warehousePickSkipReason:
+      input.reason?.trim() || "Removed from pick queue — no warehouse floor pick",
+    warehousePickSkippedAt: serverTimestamp(),
+    warehousePickSkippedBy: input.operatorId ?? null,
+    warehouseId: input.warehouseId,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 /** Scan bin + carton and commit one pick step. */

@@ -463,9 +463,12 @@ export interface ShipmentRequest {
   /** Required when the client cancels a pending outbound request. */
   cancellationReason?: string;
   /** Warehouse floor pick after admin confirms outbound. */
-  warehousePickStatus?: "ready" | "picking" | "picked";
+  warehousePickStatus?: "ready" | "picking" | "picked" | "skipped";
   warehousePickedAt?: { seconds: number; nanoseconds: number } | string;
   warehousePickedBy?: string | null;
+  warehousePickSkippedAt?: { seconds: number; nanoseconds: number } | string;
+  warehousePickSkippedBy?: string | null;
+  warehousePickSkipReason?: string | null;
   warehouseId?: string | null;
 }
 

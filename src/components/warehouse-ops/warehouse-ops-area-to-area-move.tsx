@@ -478,7 +478,7 @@ export function WarehouseOpsAreaToAreaMove({ warehouse }: Props) {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Step 2 — SKU & quantity</CardTitle>
             <CardDescription className="text-xs">
-              Tap a row for partial SKU moves (FEFO).
+              Tap a row for partial SKU moves (FEFO / FIFO).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

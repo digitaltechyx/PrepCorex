@@ -13,6 +13,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
@@ -24,17 +35,21 @@ import {
   buildPickPlan,
   loadOutboundPickQueue,
   markPickOrderStatus,
+  skipPickOrder,
   type OutboundPickOrder,
   type PickPlan,
   type PickTaskStep,
 } from "@/lib/warehouse-pick";
+import { isOpsSupervisor } from "@/lib/warehouse-ops-permissions";
 import type { UserProfile, WarehouseDoc } from "@/types";
 import {
+  AlertCircle,
   ArrowLeft,
   CheckCircle2,
   ClipboardList,
   Loader2,
   Package,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +61,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
+  const canDismissFromQueue = isOpsSupervisor(userProfile);
 
   const { data: allUsers } = useCollection<UserProfile>("users");
   const clients = useMemo(
@@ -67,6 +83,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   const [saving, setSaving] = useState(false);
   const [resolvingBin, setResolvingBin] = useState(false);
   const [resolvingCarton, setResolvingCarton] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
 
   const binInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -151,6 +168,70 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     setResolvedCartonId(null);
     setPickQty("");
     void loadQueue();
+  }
+
+  async function handleSkipOrder(
+    order: OutboundPickOrder,
+    reason = "Legacy test data — no barcode warehouse stock"
+  ) {
+    if (!canDismissFromQueue) return;
+    setDismissing(true);
+    try {
+      await skipPickOrder({
+        clientUserId: order.clientUserId,
+        shipmentRequestId: order.id,
+        warehouseId: warehouse.id,
+        reason,
+        operatorId,
+      });
+      toast({
+        title: "Removed from pick queue",
+        description: `${order.clientDisplayName} — order will not appear on Pick.`,
+      });
+      if (selectedOrder?.id === order.id) {
+        resetToQueue();
+      } else {
+        void loadQueue();
+      }
+    } catch (e) {
+      toast({
+        title: "Could not remove",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setDismissing(false);
+    }
+  }
+
+  async function handleSkipAllInQueue() {
+    if (!canDismissFromQueue || orders.length === 0) return;
+    setDismissing(true);
+    try {
+      for (const order of orders) {
+        await skipPickOrder({
+          clientUserId: order.clientUserId,
+          shipmentRequestId: order.id,
+          warehouseId: warehouse.id,
+          reason: "Legacy test data — bulk cleared from pick queue",
+          operatorId,
+        });
+      }
+      toast({
+        title: "Queue cleared",
+        description: `${orders.length} order(s) removed from pick.`,
+      });
+      resetToQueue();
+    } catch (e) {
+      toast({
+        title: "Clear failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+      void loadQueue();
+    } finally {
+      setDismissing(false);
+    }
   }
 
   useEffect(() => {
@@ -277,14 +358,52 @@ export function WarehouseOpsPick({ warehouse }: Props) {
             </CardTitle>
             <CardDescription className="text-xs">
               Confirmed client shipment requests. Select an order, then scan bin → carton for each
-              step (FEFO, walk order by bin path).
+              step (FEFO if expiry on line, else FIFO by receive date; walk order by bin).
             </CardDescription>
           </CardHeader>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Orders to pick</CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="text-sm">Orders to pick</CardTitle>
+              {canDismissFromQueue && orders.length > 0 ? (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      disabled={dismissing}
+                    >
+                      Clear all ({orders.length})
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Clear entire pick queue?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Removes {orders.length} confirmed order(s) from the pick screen without
+                        floor picking. Use for legacy test data that was fulfilled before barcode
+                        scanning. Shipment requests stay confirmed in admin.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => void handleSkipAllInQueue()}>
+                        Clear queue
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : null}
+            </div>
+            {canDismissFromQueue ? (
+              <CardDescription className="text-xs">
+                Supervisor: use ✕ on a row or Clear all to remove legacy orders with no bin stock.
+              </CardDescription>
+            ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
             {loadingQueue ? (
@@ -299,29 +418,46 @@ export function WarehouseOpsPick({ warehouse }: Props) {
             ) : (
               <div className="space-y-2">
                 {orders.map((order) => (
-                  <button
+                  <div
                     key={`${order.clientUserId}:${order.id}`}
-                    type="button"
-                    onClick={() => void selectOrder(order)}
-                    className="w-full text-left rounded-lg border px-3 py-3 hover:bg-muted/50 transition-colors"
+                    className="flex gap-1 rounded-lg border overflow-hidden"
                   >
-                    <div className="flex justify-between gap-2 items-start">
-                      <div>
-                        <p className="font-semibold text-sm">{order.clientDisplayName}</p>
-                        {order.shipTo ? (
-                          <p className="text-xs text-muted-foreground mt-0.5">{order.shipTo}</p>
-                        ) : null}
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {order.lines
-                            .map((l) => `${l.quantityUnits}× ${l.sku}`)
-                            .join(" · ")}
-                        </p>
+                    <button
+                      type="button"
+                      onClick={() => void selectOrder(order)}
+                      className="flex-1 text-left px-3 py-3 hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex justify-between gap-2 items-start">
+                        <div>
+                          <p className="font-semibold text-sm">{order.clientDisplayName}</p>
+                          {order.shipTo ? (
+                            <p className="text-xs text-muted-foreground mt-0.5">{order.shipTo}</p>
+                          ) : null}
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {order.lines
+                              .map((l) => `${l.quantityUnits}× ${l.sku}`)
+                              .join(" · ")}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 capitalize">
+                          {order.warehousePickStatus}
+                        </Badge>
                       </div>
-                      <Badge variant="outline" className="shrink-0 capitalize">
-                        {order.warehousePickStatus}
-                      </Badge>
-                    </div>
-                  </button>
+                    </button>
+                    {canDismissFromQueue ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 rounded-none border-l h-auto"
+                        disabled={dismissing}
+                        title="Remove from pick queue"
+                        onClick={() => void handleSkipOrder(order)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
                 ))}
               </div>
             )}
@@ -378,13 +514,54 @@ export function WarehouseOpsPick({ warehouse }: Props) {
               </p>
             ))}
             <p className="pt-1 text-muted-foreground">
-              Put away or allocate stock, or ask a supervisor before partial ship.
+              Put away stock to pick this order, or remove it from the queue if it is legacy test
+              data.
             </p>
+            {canDismissFromQueue && selectedOrder ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                disabled={dismissing}
+                onClick={() => void handleSkipOrder(selectedOrder)}
+              >
+                Remove from pick queue
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}
 
-      {!loadingPlan && plan && plan.steps.length === 0 ? (
+      {!loadingPlan && plan && plan.steps.length === 0 && plan.shortfalls.length > 0 ? (
+        <Card>
+          <CardContent className="py-6 text-center space-y-3">
+            <AlertCircle className="h-10 w-10 text-amber-600 mx-auto" />
+            <p className="font-semibold">Cannot pick — no stock in bins</p>
+            <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+              Nothing was marked as picked. This order stays on the queue until you put away stock
+              or remove it (supervisor).
+            </p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              <Button type="button" variant="outline" onClick={resetToQueue}>
+                Back to queue
+              </Button>
+              {canDismissFromQueue && selectedOrder ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={dismissing}
+                  onClick={() => void handleSkipOrder(selectedOrder)}
+                >
+                  Remove from queue
+                </Button>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {!loadingPlan && plan && plan.steps.length === 0 && plan.shortfalls.length === 0 ? (
         <Card>
           <CardContent className="py-6 text-center space-y-3">
             <CheckCircle2 className="h-10 w-10 text-emerald-600 mx-auto" />
@@ -408,7 +585,11 @@ export function WarehouseOpsPick({ warehouse }: Props) {
               <CardDescription className="text-xs font-mono">
                 {currentStep.sku} · {currentStep.quantity} units
                 {currentStep.lot ? ` · Lot ${currentStep.lot}` : ""}
-                {currentStep.expiry ? ` · Exp ${currentStep.expiry.slice(0, 10)}` : ""}
+                {currentStep.expiry
+                  ? ` · Exp ${currentStep.expiry.slice(0, 10)}`
+                  : currentStep.receivedAtIso
+                    ? ` · Rcv ${currentStep.receivedAtIso.slice(0, 10)} (FIFO)`
+                    : ""}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">

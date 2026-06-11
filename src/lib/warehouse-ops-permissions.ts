@@ -7,7 +7,7 @@ export const OPS_FEATURES_CONFIG: { value: UserFeature; label: string; descripti
   { value: "ops_view_expected_inbound", label: "Expected inbound", description: "See client inventory requests on receiving" },
   { value: "ops_putaway", label: "Putaway", description: "Scan carton to storage bin" },
   { value: "ops_move", label: "Internal move", description: "Bin-to-bin moves" },
-  { value: "ops_pick", label: "Pick", description: "Outbound order picking (FEFO)" },
+  { value: "ops_pick", label: "Pick", description: "Outbound picking (FEFO / FIFO)" },
   { value: "ops_pack", label: "Pack", description: "Pack and verify (future)" },
   { value: "ops_count", label: "Cycle count", description: "Inventory counts (future)" },
   {
