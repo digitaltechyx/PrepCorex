@@ -29,6 +29,10 @@ import { InventoryHistoryDialog } from "@/components/inventory/inventory-history
 import { AddInboundTrackingDialog } from "@/components/inventory/add-inbound-tracking-dialog";
 import { InboundTrackingDetailDialog } from "@/components/inventory/inbound-tracking-detail-dialog";
 import { InboundTrackingStatusCell } from "@/components/inventory/inbound-tracking-status-cell";
+import {
+  InventoryClosedRequestsSheet,
+  type ClosedRequestMode,
+} from "@/components/inventory/inventory-closed-requests-sheet";
 import type { InboundTrackingEntry } from "@/types";
 import { format } from "date-fns";
 import { AddInventoryRequestForm } from "./add-inventory-request-form";
@@ -307,6 +311,7 @@ export function InventoryTable({
     productName: string;
     trackings: InboundTrackingEntry[];
   } | null>(null);
+  const [closedRequestsSheet, setClosedRequestsSheet] = useState<ClosedRequestMode | null>(null);
   const { toast } = useToast();
 
   function canAddInboundTracking(
@@ -565,59 +570,6 @@ export function InventoryTable({
         remarksPhotoAt: getRemarksPhotoAt(req),
       }));
 
-    // Convert rejected requests to display format
-    const rejectedItems = inventoryRequests
-      .filter(req => req.status === "rejected")
-      .map(req => ({
-        id: `request-${req.id}`,
-        productName: req.productName,
-        sku: (req as any).sku || "",
-        variantLabel: (req as any).variantLabel,
-        color: (req as any).color,
-        size: (req as any).size,
-        productEntryMode: (req as any).productEntryMode,
-        retailIdentifier: (req as any).retailIdentifier,
-        expiryDate: (req as any).expiryDate,
-        quantity: req.quantity,
-        dateAdded: req.addDate,
-        receivingDate: undefined,
-        status: "Rejected" as "Pending" | "In Stock" | "Out of Stock" | "Rejected",
-        inventoryType: req.inventoryType,
-        requestedBy: req.requestedBy,
-        remarks: req.rejectionReason || req.remarks, // Show rejection reason as remarks
-        isRequest: true,
-        requestId: req.id,
-        requestData: req, // Store full request data
-        imageUrls: getImageUrls(req as any),
-        remarksPhotoAt: getRemarksPhotoAt(req),
-      }));
-
-    const cancelledItems = inventoryRequests
-      .filter(req => req.status === "cancelled")
-      .map(req => ({
-        id: `request-${req.id}`,
-        productName: req.productName,
-        sku: (req as any).sku || "",
-        variantLabel: (req as any).variantLabel,
-        color: (req as any).color,
-        size: (req as any).size,
-        productEntryMode: (req as any).productEntryMode,
-        retailIdentifier: (req as any).retailIdentifier,
-        expiryDate: (req as any).expiryDate,
-        quantity: req.quantity,
-        dateAdded: req.addDate,
-        receivingDate: undefined,
-        status: "Cancelled" as "Pending" | "In Stock" | "Out of Stock" | "Rejected" | "Cancelled",
-        inventoryType: req.inventoryType,
-        requestedBy: req.requestedBy,
-        remarks: (req as any).cancellationReason || req.remarks,
-        imageUrls: getImageUrls(req as any),
-        isRequest: true,
-        requestId: req.id,
-        requestData: req,
-        remarksPhotoAt: getRemarksPhotoAt(req),
-      }));
-
     // Convert approved inventory items - get remarks from inventory item OR approved request
     const inventoryItems = data.map(item => {
       // Try to find matching approved request to get remarks
@@ -667,8 +619,8 @@ export function InventoryTable({
       };
     });
 
-    // Combine and sort
-    return [...pendingItems, ...rejectedItems, ...cancelledItems, ...inventoryItems];
+    // Combine active inventory only — rejected/cancelled open in side panel via badges
+    return [...pendingItems, ...inventoryItems];
   }, [data, inventoryRequests]);
 
   // Filtered and sorted inventory data (newest first)
@@ -690,8 +642,6 @@ export function InventoryTable({
         (statusFilter === "Pending" && row.status === "Pending") ||
         (statusFilter === "In Stock" && row.status === "In Stock") ||
         (statusFilter === "Out of Stock" && row.status === "Out of Stock") ||
-        (statusFilter === "Rejected" && row.status === "Rejected") ||
-        (statusFilter === "Cancelled" && row.status === "Cancelled") ||
         (statusFilter === LOW_STOCK_STATUS_VALUE && rowIsLowStock(row));
       return matchesSearch && matchesStatus;
     });
@@ -729,16 +679,28 @@ export function InventoryTable({
                 </Badge>
               )}
               {rejectedCount > 0 && (
-                <Badge variant="destructive" className="flex items-center gap-1">
-                  <X className="h-3 w-3" />
-                  {rejectedCount} Rejected
-                </Badge>
+                <button
+                  type="button"
+                  onClick={() => setClosedRequestsSheet("rejected")}
+                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <Badge variant="destructive" className="flex items-center gap-1 cursor-pointer hover:opacity-90">
+                    <X className="h-3 w-3" />
+                    {rejectedCount} Rejected
+                  </Badge>
+                </button>
               )}
               {cancelledCount > 0 && (
-                <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground">
-                  <Trash2 className="h-3 w-3" />
-                  {cancelledCount} Cancelled
-                </Badge>
+                <button
+                  type="button"
+                  onClick={() => setClosedRequestsSheet("cancelled")}
+                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground cursor-pointer hover:bg-muted/80">
+                    <Trash2 className="h-3 w-3" />
+                    {cancelledCount} Cancelled
+                  </Badge>
+                </button>
               )}
             </div>
             <AddInventoryRequestForm
@@ -785,8 +747,6 @@ export function InventoryTable({
                 <SelectItem value="Pending">Pending</SelectItem>
                 <SelectItem value="In Stock">In Stock</SelectItem>
                 <SelectItem value="Out of Stock">Out of Stock</SelectItem>
-                <SelectItem value="Rejected">Rejected</SelectItem>
-                <SelectItem value="Cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1544,6 +1504,23 @@ export function InventoryTable({
         }}
         productName={trackingDetail?.productName ?? ""}
         trackings={trackingDetail?.trackings}
+      />
+
+      <InventoryClosedRequestsSheet
+        mode="rejected"
+        open={closedRequestsSheet === "rejected"}
+        onOpenChange={(open) => {
+          if (!open) setClosedRequestsSheet((prev) => (prev === "rejected" ? null : prev));
+        }}
+        requests={inventoryRequests}
+      />
+      <InventoryClosedRequestsSheet
+        mode="cancelled"
+        open={closedRequestsSheet === "cancelled"}
+        onOpenChange={(open) => {
+          if (!open) setClosedRequestsSheet((prev) => (prev === "cancelled" ? null : prev));
+        }}
+        requests={inventoryRequests}
       />
     </Card>
   );
