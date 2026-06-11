@@ -8,7 +8,7 @@ export const OPS_FEATURES_CONFIG: { value: UserFeature; label: string; descripti
   { value: "ops_putaway", label: "Putaway", description: "Scan carton to storage bin" },
   { value: "ops_move", label: "Internal move", description: "Bin-to-bin moves" },
   { value: "ops_pick", label: "Pick", description: "Outbound picking (FEFO / FIFO)" },
-  { value: "ops_pack", label: "Pack", description: "Pack and verify (future)" },
+  { value: "ops_pack", label: "Pack", description: "Verify picked stock and mark ready to dispatch" },
   { value: "ops_count", label: "Cycle count", description: "Inventory counts (future)" },
   {
     value: "ops_supervisor",
@@ -34,6 +34,11 @@ export const OPS_FEATURE_PRESETS: { id: string; label: string; features: UserFea
     features: ["ops_dashboard", "ops_pick"],
   },
   {
+    id: "packer",
+    label: "Packer",
+    features: ["ops_dashboard", "ops_pack"],
+  },
+  {
     id: "supervisor",
     label: "Floor supervisor",
     features: [
@@ -43,6 +48,7 @@ export const OPS_FEATURE_PRESETS: { id: string; label: string; features: UserFea
       "ops_putaway",
       "ops_move",
       "ops_pick",
+      "ops_pack",
       "ops_supervisor",
     ],
   },
@@ -123,6 +129,18 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       href: "/warehouse-ops/pick",
       feature: "ops_pick",
       description: "Scan bin → carton for outbound",
+    },
+    {
+      title: "Pack",
+      href: "/warehouse-ops/pack",
+      feature: "ops_pack",
+      description: "Verify PKG/CTN or confirm loose units",
+    },
+    {
+      title: "Dispatch",
+      href: "/warehouse-ops/dispatch",
+      feature: "ops_pack",
+      description: "Orders ready for carrier pickup",
     },
   ];
   return items.filter((item) => hasFeature(userProfile, item.feature));

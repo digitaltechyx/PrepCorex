@@ -470,6 +470,11 @@ export interface ShipmentRequest {
   warehousePickSkippedBy?: string | null;
   warehousePickSkipReason?: string | null;
   warehouseId?: string | null;
+  /** Warehouse floor pack after pick. */
+  warehousePackStatus?: "pending" | "packing" | "ready_to_dispatch";
+  warehousePackVerifiedKeys?: string[];
+  warehouseReadyToDispatchAt?: { seconds: number; nanoseconds: number } | string;
+  warehousePackedBy?: string | null;
 }
 
 export interface ShipmentProductItem {

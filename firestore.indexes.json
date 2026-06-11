@@ -33,6 +33,14 @@
       "collectionGroup": "inboundTrackingIndex",
       "queryScope": "COLLECTION",
       "fields": [{ "fieldPath": "lastCheckedAt", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "movementEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "shipmentRequestId", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
