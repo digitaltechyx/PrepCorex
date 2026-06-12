@@ -18,6 +18,13 @@ import {
 import { warehouseCartonDocRef } from "@/lib/warehouse-carton-firestore";
 import { getWarehouseCarton } from "@/lib/warehouse-receive-corrections";
 import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
+import {
+  courierScansMatch,
+  normalizeCourierScan,
+  shipFromForRequest,
+  shipToForRequest,
+  trackingMatchesOrder,
+} from "@/lib/warehouse-courier-label";
 import type {
   OutboundPickLine,
   OutboundPickOrder,
@@ -33,6 +40,8 @@ import type {
 const WAREHOUSES = "warehouses";
 
 export type WarehousePackStatus = "pending" | "packing" | "ready_to_dispatch";
+
+export type WarehouseDispatchStatus = "ready" | "dispatched";
 
 export type PackVerifyMode = "scan_pkg" | "scan_ctn" | "confirm";
 
@@ -55,11 +64,16 @@ export type PackPlan = {
   items: PackPlanItem[];
   verifiedKeys: string[];
   readyToComplete: boolean;
+  courierTracking: string | null;
+  courierVerified: boolean;
 };
 
 export type OutboundPackOrder = OutboundPickOrder & {
   warehousePackStatus: WarehousePackStatus;
+  warehouseDispatchStatus?: WarehouseDispatchStatus;
   readyToDispatchAt?: Date | null;
+  courierTracking?: string | null;
+  shipFrom?: string;
 };
 
 type PickMovementEvent = {
@@ -144,6 +158,16 @@ async function orderLinesFromRequest(
     });
   }
   return lines;
+}
+
+function dispatchStatusFromRequest(data: Record<string, unknown>): WarehouseDispatchStatus {
+  return data.warehouseDispatchStatus === "dispatched" ? "dispatched" : "ready";
+}
+
+function courierTrackingFromRequest(data: Record<string, unknown>): string | null {
+  const raw = data.warehouseCourierTracking;
+  if (raw == null || String(raw).trim() === "") return null;
+  return String(raw).trim();
 }
 
 function verifiedKeysFromRequest(data: Record<string, unknown>): string[] {
@@ -295,17 +319,21 @@ function toOutboundPackOrder(
   clientUserId: string,
   data: Record<string, unknown>,
   clientById: Map<string, UserProfile>,
-  lines: OutboundPickLine[]
+  lines: OutboundPickLine[],
+  warehouse?: WarehouseDoc
 ): OutboundPackOrder {
   return {
     id,
     clientUserId,
     clientDisplayName: displayClient(clientById.get(clientUserId), clientUserId),
-    shipTo: data.shipTo != null ? String(data.shipTo) : undefined,
+    shipTo: shipToForRequest(data) || undefined,
+    shipFrom: warehouse ? shipFromForRequest(data, warehouse) : undefined,
     confirmedAt: dateFromFirestore(data.confirmedAt),
     readyToDispatchAt: dateFromFirestore(data.warehouseReadyToDispatchAt),
     warehousePickStatus: pickStatusFromRequest(data),
     warehousePackStatus: packStatusFromRequest(data),
+    warehouseDispatchStatus: dispatchStatusFromRequest(data),
+    courierTracking: courierTrackingFromRequest(data),
     lines,
   };
 }
@@ -326,7 +354,7 @@ export async function loadOutboundPackQueue(input: {
     const lines = await orderLinesFromRequest(d.clientUserId, d.data);
     if (lines.length === 0) continue;
 
-    orders.push(toOutboundPackOrder(d.id, d.clientUserId, d.data, clientById, lines));
+    orders.push(toOutboundPackOrder(d.id, d.clientUserId, d.data, clientById, lines, input.warehouse));
   }
 
   orders.sort((a, b) => {
@@ -337,7 +365,7 @@ export async function loadOutboundPackQueue(input: {
   return orders;
 }
 
-/** Orders marked ready to dispatch (dispatch tab — list only). */
+/** Orders marked ready to dispatch (awaiting carrier handoff scan). */
 export async function loadDispatchQueue(input: {
   warehouse: WarehouseDoc;
   clients: UserProfile[];
@@ -348,11 +376,12 @@ export async function loadDispatchQueue(input: {
 
   for (const d of raw) {
     if (packStatusFromRequest(d.data) !== "ready_to_dispatch") continue;
+    if (dispatchStatusFromRequest(d.data) === "dispatched") continue;
 
     const lines = await orderLinesFromRequest(d.clientUserId, d.data);
     if (lines.length === 0) continue;
 
-    orders.push(toOutboundPackOrder(d.id, d.clientUserId, d.data, clientById, lines));
+    orders.push(toOutboundPackOrder(d.id, d.clientUserId, d.data, clientById, lines, input.warehouse));
   }
 
   orders.sort((a, b) => {
@@ -450,11 +479,17 @@ export async function buildPackPlan(
   const readyToComplete =
     items.length > 0 && items.every((i) => verifiedKeys.includes(i.itemKey));
 
+  const courierTracking = reqSnap.exists()
+    ? courierTrackingFromRequest(reqSnap.data() as Record<string, unknown>)
+    : null;
+
   return {
     order,
     items,
     verifiedKeys,
     readyToComplete,
+    courierTracking,
+    courierVerified: Boolean(courierTracking),
   };
 }
 
@@ -516,6 +551,72 @@ export async function verifyPackScan(input: {
   });
 }
 
+export type CourierLabelBindResult = {
+  normalizedTracking: string;
+  shipTo: string;
+  shipFrom: string;
+};
+
+/** Scan courier label at pack bench — binds tracking to order before ready to dispatch. */
+export async function bindCourierLabelAtPack(input: {
+  warehouse: WarehouseDoc;
+  clientUserId: string;
+  shipmentRequestId: string;
+  scannedValue: string;
+  operatorId?: string | null;
+}): Promise<CourierLabelBindResult> {
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Order not found.");
+
+  const data = snap.data() as Record<string, unknown>;
+  if (pickStatusFromRequest(data) !== "picked") {
+    throw new Error("Order is not fully picked.");
+  }
+  if (packStatusFromRequest(data) === "ready_to_dispatch") {
+    throw new Error("Order is already ready to dispatch.");
+  }
+
+  const lines = await orderLinesFromRequest(input.clientUserId, data);
+  const order: OutboundPackOrder = {
+    id: input.shipmentRequestId,
+    clientUserId: input.clientUserId,
+    clientDisplayName: "",
+    warehousePickStatus: "picked",
+    warehousePackStatus: packStatusFromRequest(data),
+    lines,
+    confirmedAt: dateFromFirestore(data.confirmedAt),
+  };
+
+  const plan = await buildPackPlan(input.warehouse, order);
+  if (!plan.readyToComplete) {
+    throw new Error("Verify all picked stock before scanning the courier label.");
+  }
+
+  const scanned = String(input.scannedValue ?? "").trim();
+  if (!scanned) throw new Error("Scan the courier label barcode.");
+
+  if (!trackingMatchesOrder(scanned, data)) {
+    throw new Error("This tracking number does not match this order.");
+  }
+
+  const normalized = normalizeCourierScan(scanned);
+
+  await updateDoc(ref, {
+    warehouseCourierTracking: normalized,
+    warehousePackCourierVerifiedAt: serverTimestamp(),
+    warehousePackStatus: "packing",
+    warehouseId: input.warehouse.id,
+    updatedAt: serverTimestamp(),
+  });
+
+  return {
+    normalizedTracking: normalized,
+    shipTo: shipToForRequest(data),
+    shipFrom: shipFromForRequest(data, input.warehouse),
+  };
+}
+
 function removeDispatchedLines(
   lines: WarehouseCartonLine[],
   lineIds: Set<string>
@@ -563,6 +664,11 @@ export async function completePackReadyToDispatch(input: {
   }
   if (!plan.readyToComplete) {
     throw new Error("Verify all pack lines before marking ready to dispatch.");
+  }
+
+  const courierTracking = courierTrackingFromRequest(data);
+  if (!courierTracking) {
+    throw new Error("Scan the courier label before marking ready to dispatch.");
   }
 
   const events = await loadPickEventsForOrder(input.warehouseId, input.shipmentRequestId);
@@ -621,11 +727,84 @@ export async function completePackReadyToDispatch(input: {
 
   batch.update(ref, {
     warehousePackStatus: "ready_to_dispatch",
+    warehouseDispatchStatus: "ready",
     warehouseReadyToDispatchAt: serverTimestamp(),
     warehousePackedBy: input.operatorId ?? null,
     warehousePackVerifiedKeys: plan.verifiedKeys,
+    warehouseCourierTracking: courierTracking,
     warehouseId: input.warehouseId,
     updatedAt: serverTimestamp(),
+  });
+
+  await batch.commit();
+}
+
+/** Find a ready order in the dispatch queue by courier label scan. */
+export async function resolveDispatchOrderByScan(input: {
+  warehouse: WarehouseDoc;
+  clients: UserProfile[];
+  scannedValue: string;
+}): Promise<OutboundPackOrder | null> {
+  const scanned = String(input.scannedValue ?? "").trim();
+  if (!scanned) return null;
+
+  const queue = await loadDispatchQueue({
+    warehouse: input.warehouse,
+    clients: input.clients,
+  });
+
+  return (
+    queue.find(
+      (o) => o.courierTracking && courierScansMatch(scanned, o.courierTracking)
+    ) ?? null
+  );
+}
+
+/** Confirm carrier handoff — scan must match the label bound at pack. */
+export async function completeDispatchHandoff(input: {
+  warehouseId: string;
+  clientUserId: string;
+  shipmentRequestId: string;
+  scannedValue: string;
+  operatorId?: string | null;
+}): Promise<void> {
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Order not found.");
+
+  const data = snap.data() as Record<string, unknown>;
+  if (packStatusFromRequest(data) !== "ready_to_dispatch") {
+    throw new Error("Order is not ready to dispatch.");
+  }
+  if (dispatchStatusFromRequest(data) === "dispatched") {
+    throw new Error("Order was already dispatched.");
+  }
+
+  const stored = courierTrackingFromRequest(data);
+  if (!stored) {
+    throw new Error("No courier label on file — re-pack this order.");
+  }
+  if (!courierScansMatch(input.scannedValue, stored)) {
+    throw new Error("Wrong parcel — label does not match this order.");
+  }
+
+  const batch = writeBatch(db);
+
+  batch.update(ref, {
+    warehouseDispatchStatus: "dispatched",
+    warehouseDispatchedAt: serverTimestamp(),
+    warehouseDispatchedBy: input.operatorId ?? null,
+    updatedAt: serverTimestamp(),
+  });
+
+  const eventsRef = collection(db, WAREHOUSES, input.warehouseId, "movementEvents");
+  batch.set(doc(eventsRef), {
+    type: "dispatched",
+    shipmentRequestId: input.shipmentRequestId,
+    clientUserId: input.clientUserId,
+    courierTracking: stored,
+    operatorId: input.operatorId ?? null,
+    at: serverTimestamp(),
   });
 
   await batch.commit();

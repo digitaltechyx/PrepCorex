@@ -133,14 +133,16 @@ If a needed lot is short → supervisor decides: substitute lot, partial ship, o
 
 1. Packer opens the order at the packing bench.
 2. App shows expected items.
-3. Packer scans each carton/unit before sealing.
+3. Packer scans each carton/unit (PKG/CTN) or confirms loose units on screen.
 4. App verifies completeness.
-5. App generates the carrier label (existing labels module).
-6. Packer attaches it.
-7. Order moves to **dispatch area**.
-8. Truck collection — final scan moves carton(s) out of inventory officially.
+5. Packer attaches the carrier label (existing labels module).
+6. **Packer scans the courier label barcode** — app shows ship-from / ship-to and binds tracking to the order.
+7. Packer taps **Ready to dispatch** — warehouse carton stock decrements; order enters the dispatch queue.
+8. At dispatch staging, worker **scans the courier label again**.
+9. App confirms **correct parcel** (or rejects wrong label).
+10. Worker confirms **Dispatched** — order leaves the queue (carrier handoff logged).
 
-Stock is decremented from the exact carton (which knows its `sku`, `lot`, `expiry`, `bin`).
+Stock is decremented at step 7 from the exact carton (which knows its `sku`, `lot`, `expiry`, `bin`).
 
 ---
 

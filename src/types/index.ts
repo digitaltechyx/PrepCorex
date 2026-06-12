@@ -475,6 +475,13 @@ export interface ShipmentRequest {
   warehousePackVerifiedKeys?: string[];
   warehouseReadyToDispatchAt?: { seconds: number; nanoseconds: number } | string;
   warehousePackedBy?: string | null;
+  /** Courier label tracking scanned at pack bench before ready to dispatch. */
+  warehouseCourierTracking?: string | null;
+  warehousePackCourierVerifiedAt?: { seconds: number; nanoseconds: number } | string;
+  /** Dispatch handoff after carrier pickup scan. */
+  warehouseDispatchStatus?: "ready" | "dispatched";
+  warehouseDispatchedAt?: { seconds: number; nanoseconds: number } | string;
+  warehouseDispatchedBy?: string | null;
 }
 
 export interface ShipmentProductItem {

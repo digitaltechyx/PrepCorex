@@ -21,6 +21,7 @@ import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-hea
 import { resolveScan } from "@/lib/warehouse-putaway";
 import {
   buildPackPlan,
+  bindCourierLabelAtPack,
   completePackReadyToDispatch,
   loadOutboundPackQueue,
   markPackItemVerified,
@@ -63,10 +64,18 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const [loadingPlan, setLoadingPlan] = useState(false);
 
   const [labelScan, setLabelScan] = useState("");
+  const [courierScan, setCourierScan] = useState("");
+  const [courierPreview, setCourierPreview] = useState<{
+    tracking: string;
+    shipFrom: string;
+    shipTo: string;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [resolving, setResolving] = useState(false);
+  const [courierResolving, setCourierResolving] = useState(false);
 
   const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const courierScanInputRef = useRef<HTMLInputElement | null>(null);
 
   const verifiedSet = useMemo(
     () => new Set(plan?.verifiedKeys ?? []),
@@ -117,6 +126,8 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   async function selectOrder(order: OutboundPackOrder) {
     setSelectedOrder(order);
     setLabelScan("");
+    setCourierScan("");
+    setCourierPreview(null);
     await refreshPlan(order);
   }
 
@@ -124,6 +135,8 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     setSelectedOrder(null);
     setPlan(null);
     setLabelScan("");
+    setCourierScan("");
+    setCourierPreview(null);
     void loadQueue();
   }
 
@@ -197,8 +210,51 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     }
   }
 
+  async function handleCourierScanSubmit(raw?: string) {
+    const value = (raw ?? courierScan).trim();
+    if (!value || !selectedOrder || !plan?.readyToComplete) return;
+
+    setCourierResolving(true);
+    try {
+      const result = await bindCourierLabelAtPack({
+        warehouse,
+        clientUserId: selectedOrder.clientUserId,
+        shipmentRequestId: selectedOrder.id,
+        scannedValue: value,
+        operatorId,
+      });
+      setCourierScan("");
+      setCourierPreview({
+        tracking: result.normalizedTracking,
+        shipFrom: result.shipFrom,
+        shipTo: result.shipTo,
+      });
+      setPlan((prev) =>
+        prev
+          ? { ...prev, courierTracking: result.normalizedTracking, courierVerified: true }
+          : prev
+      );
+      setSelectedOrder((prev) =>
+        prev ? { ...prev, courierTracking: result.normalizedTracking } : prev
+      );
+      toast({
+        title: "Courier label verified",
+        description: result.normalizedTracking,
+      });
+    } catch (e) {
+      toast({
+        title: "Courier scan failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setCourierResolving(false);
+      courierScanInputRef.current?.focus();
+    }
+  }
+
   async function handleReadyToDispatch() {
-    if (!selectedOrder || !plan?.readyToComplete) return;
+    if (!selectedOrder || !plan?.readyToComplete || !plan.courierVerified) return;
     setSaving(true);
     try {
       await completePackReadyToDispatch({
@@ -224,10 +280,14 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   }
 
   useEffect(() => {
+    if (plan?.readyToComplete && !plan.courierVerified) {
+      courierScanInputRef.current?.focus();
+      return;
+    }
     if (nextItem && nextItem.verifyMode !== "confirm") {
       scanInputRef.current?.focus();
     }
-  }, [nextItem]);
+  }, [nextItem, plan?.readyToComplete, plan?.courierVerified]);
 
   function verifyModeLabel(mode: PackPlanItem["verifyMode"]): string {
     if (mode === "scan_pkg") return "Scan PKG";
@@ -246,8 +306,8 @@ export function WarehouseOpsPack({ warehouse }: Props) {
               Pack bench
             </CardTitle>
             <CardDescription className="text-xs">
-              Picked orders only. Scan PKG/CTN labels or confirm loose units, attach courier
-              label, then mark ready to dispatch (stock decrements at that step).
+              Picked orders only. Scan PKG/CTN or confirm loose units, attach courier label,
+              scan courier barcode, then mark ready to dispatch.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -439,36 +499,112 @@ export function WarehouseOpsPack({ warehouse }: Props) {
           ) : null}
 
           {plan.readyToComplete ? (
-            <Card className="border-emerald-300/60">
-              <CardContent className="py-4 space-y-3">
-                <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
-                  <CheckCircle2 className="h-5 w-5" />
-                  <p className="font-semibold text-sm">All lines verified</p>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Attach the courier label, then confirm ready to dispatch. Warehouse carton stock
-                  will be decremented.
-                </p>
-                <Button
-                  type="button"
-                  className="w-full bg-emerald-600 hover:bg-emerald-700"
-                  disabled={saving}
-                  onClick={() => void handleReadyToDispatch()}
-                >
-                  {saving ? (
+            <>
+              <Card className="border-blue-300/60">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <ScanLine className="h-4 w-4" />
+                    Scan courier label
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Attach the carrier label, then scan its tracking barcode.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {!plan.courierVerified ? (
                     <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Saving…
+                      <div className="space-y-1.5">
+                        <Label htmlFor="courier-label-scan" className="text-xs">
+                          Courier label scan
+                        </Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="courier-label-scan"
+                            ref={courierScanInputRef}
+                            value={courierScan}
+                            onChange={(e) => setCourierScan(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void handleCourierScanSubmit();
+                            }}
+                            placeholder="Scan tracking barcode…"
+                            className="font-mono"
+                            disabled={courierResolving || saving}
+                          />
+                          <ScanCameraButton
+                            onScan={(v) => {
+                              setCourierScan(v);
+                              void handleCourierScanSubmit(v);
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        className="w-full"
+                        disabled={!courierScan.trim() || courierResolving || saving}
+                        onClick={() => void handleCourierScanSubmit()}
+                      >
+                        {courierResolving ? "Checking…" : "Verify courier label"}
+                      </Button>
                     </>
                   ) : (
-                    <>
-                      <Truck className="h-4 w-4 mr-2" />
-                      Ready to dispatch
-                    </>
+                    <div className="rounded-lg border bg-muted/30 px-3 py-3 space-y-2 text-sm">
+                      <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                        <CheckCircle2 className="h-4 w-4 shrink-0" />
+                        <span className="font-medium font-mono">
+                          {plan.courierTracking ?? courierPreview?.tracking}
+                        </span>
+                      </div>
+                      {courierPreview?.shipFrom || selectedOrder.shipFrom ? (
+                        <p className="text-xs">
+                          <span className="text-muted-foreground">From: </span>
+                          {courierPreview?.shipFrom ?? selectedOrder.shipFrom}
+                        </p>
+                      ) : null}
+                      {courierPreview?.shipTo || selectedOrder.shipTo ? (
+                        <p className="text-xs">
+                          <span className="text-muted-foreground">To: </span>
+                          {courierPreview?.shipTo ?? selectedOrder.shipTo}
+                        </p>
+                      ) : null}
+                    </div>
                   )}
-                </Button>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+
+              {plan.courierVerified ? (
+                <Card className="border-emerald-300/60">
+                  <CardContent className="py-4 space-y-3">
+                    <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                      <CheckCircle2 className="h-5 w-5" />
+                      <p className="font-semibold text-sm">Ready to stage for dispatch</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Confirm to decrement warehouse stock and send this order to the dispatch
+                      queue.
+                    </p>
+                    <Button
+                      type="button"
+                      className="w-full bg-emerald-600 hover:bg-emerald-700"
+                      disabled={saving}
+                      onClick={() => void handleReadyToDispatch()}
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Saving…
+                        </>
+                      ) : (
+                        <>
+                          <Truck className="h-4 w-4 mr-2" />
+                          Ready to dispatch
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : null}
+            </>
           ) : null}
         </>
       ) : null}
