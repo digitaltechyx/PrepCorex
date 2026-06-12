@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import type { InventoryItem, InventoryRequest } from "@/types";
 import {
@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History } from "lucide-react";
+import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History, PackageX } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { InventoryHistoryDialog } from "@/components/inventory/inventory-history-dialog";
@@ -33,6 +33,10 @@ import {
   InventoryClosedRequestsSheet,
   type ClosedRequestMode,
 } from "@/components/inventory/inventory-closed-requests-sheet";
+import {
+  InventoryOutOfStockSheet,
+  type OutOfStockInventoryRow,
+} from "@/components/inventory/inventory-out-of-stock-sheet";
 import type { InboundTrackingEntry } from "@/types";
 import { format } from "date-fns";
 import { AddInventoryRequestForm } from "./add-inventory-request-form";
@@ -50,6 +54,12 @@ import { doc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { formatInboundQuantityDisplay } from "@/lib/inventory-qty-display";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function formatRowQuantity(item: {
   quantity?: number;
@@ -59,14 +69,17 @@ function formatRowQuantity(item: {
   status?: string;
   requestData?: { quantity?: number; requestedQuantity?: number; receivedQuantity?: number; status?: string };
 }): string {
+  if (!item.isRequest) {
+    const q = Number(item.quantity);
+    return String(Number.isFinite(q) ? q : 0);
+  }
+
   const status =
-    item.isRequest && item.status === "Pending"
+    item.status === "Pending"
       ? "pending"
-      : item.isRequest && item.status === "Rejected"
+      : item.status === "Rejected"
         ? "rejected"
-        : item.isRequest
-          ? String(item.requestData?.status || item.status || "pending").toLowerCase()
-          : "approved";
+        : String(item.requestData?.status || item.status || "pending").toLowerCase();
   return formatInboundQuantityDisplay({
     quantity: item.quantity,
     requestedQuantity:
@@ -75,7 +88,7 @@ function formatRowQuantity(item: {
       item.requestData?.quantity ??
       item.quantity,
     receivedQuantity: item.receivedQuantity ?? item.requestData?.receivedQuantity,
-    isRequest: item.isRequest && status === "pending",
+    isRequest: status === "pending",
     status,
   });
 }
@@ -245,6 +258,90 @@ const lowStockRowCardClass =
 const lowStockTextClass = "text-red-700 dark:text-red-400";
 const lowStockQtyClass = "text-red-800 dark:text-red-300";
 
+/** Fallback when layout has not measured yet. */
+const PRODUCT_NAME_EXPAND_AT = 28;
+
+function InventoryProductName({
+  name,
+  textClassName,
+  onViewFull,
+}: {
+  name: string;
+  textClassName?: string;
+  onViewFull: (fullName: string) => void;
+}) {
+  const label = name.trim() || "—";
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [isTruncated, setIsTruncated] = useState(label.length > PRODUCT_NAME_EXPAND_AT);
+
+  useEffect(() => {
+    const el = textRef.current;
+    if (!el) return;
+
+    const checkTruncation = () => {
+      const clamped = el.scrollHeight > el.clientHeight + 1;
+      const overflowX = el.scrollWidth > el.clientWidth + 1;
+      setIsTruncated(
+        clamped || overflowX || label.length > PRODUCT_NAME_EXPAND_AT
+      );
+    };
+
+    checkTruncation();
+    const raf = requestAnimationFrame(checkTruncation);
+    const ro = new ResizeObserver(checkTruncation);
+    ro.observe(el);
+    window.addEventListener("resize", checkTruncation);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      window.removeEventListener("resize", checkTruncation);
+    };
+  }, [label]);
+
+  const nameText = (
+    <span
+      ref={textRef}
+      className={cn("line-clamp-2 break-words text-sm font-medium leading-snug", textClassName)}
+    >
+      {label}
+    </span>
+  );
+
+  return (
+    <div className="flex items-start gap-0.5 min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-hidden">
+        {isTruncated ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="w-full text-left cursor-default rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {nameText}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-sm whitespace-pre-wrap text-xs">
+              {label}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          nameText
+        )}
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-auto shrink-0 flex-none p-0.5 text-blue-600 hover:text-blue-700"
+        title="View full product name"
+        onClick={() => onViewFull(label)}
+      >
+        <Eye className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+}
+
 export type AdminInventoryActions = {
   onRestock?: (item: InventoryItem) => void;
   onDispose?: (item: InventoryItem) => void;
@@ -312,6 +409,8 @@ export function InventoryTable({
     trackings: InboundTrackingEntry[];
   } | null>(null);
   const [closedRequestsSheet, setClosedRequestsSheet] = useState<ClosedRequestMode | null>(null);
+  const [outOfStockSheetOpen, setOutOfStockSheetOpen] = useState(false);
+  const [productNamePreview, setProductNamePreview] = useState<string | null>(null);
   const { toast } = useToast();
 
   function canAddInboundTracking(
@@ -378,6 +477,7 @@ export function InventoryTable({
   const pendingCount = inventoryRequests.filter(req => req.status === "pending").length;
   const rejectedCount = inventoryRequests.filter(req => req.status === "rejected").length;
   const cancelledCount = inventoryRequests.filter(req => req.status === "cancelled").length;
+  const outOfStockCount = data.filter((item) => item.status === "Out of Stock").length;
 
   const handleRemarksClick = (
     remarks: string,
@@ -538,7 +638,7 @@ export function InventoryTable({
   };
 
   // Combine inventory items and pending/rejected requests into one list
-  const combinedData = useMemo(() => {
+  const combinedInventory = useMemo(() => {
     // Get approved requests to match with inventory items for remarks
     const approvedRequests = inventoryRequests.filter(req => req.status === "approved");
     
@@ -619,9 +719,30 @@ export function InventoryTable({
       };
     });
 
-    // Combine active inventory only — rejected/cancelled open in side panel via badges
-    return [...pendingItems, ...inventoryItems];
+    // Combine active inventory only — rejected/cancelled/OOS open in side panels via badges
+    const activeInventoryItems = inventoryItems.filter((item) => item.status !== "Out of Stock");
+    return { combined: [...pendingItems, ...activeInventoryItems], outOfStockItems: inventoryItems.filter((item) => item.status === "Out of Stock") };
   }, [data, inventoryRequests]);
+
+  const combinedData = combinedInventory.combined;
+  const outOfStockRows: OutOfStockInventoryRow[] = useMemo(
+    () =>
+      combinedInventory.outOfStockItems.map((item) => ({
+        id: item.id,
+        productName: item.productName,
+        sku: (item as any).sku,
+        variantLabel: (item as any).variantLabel,
+        retailIdentifier: (item as any).retailIdentifier,
+        expiryDate: (item as any).expiryDate,
+        quantity: item.quantity,
+        dateAdded: item.dateAdded,
+        receivingDate: item.receivingDate,
+        remarks: item.remarks,
+        imageUrls: (item as any).imageUrls,
+        source: (item as any).source,
+      })),
+    [combinedInventory.outOfStockItems]
+  );
 
   // Filtered and sorted inventory data (newest first)
   const filteredData = useMemo(() => {
@@ -641,7 +762,6 @@ export function InventoryTable({
         statusFilter === "all" ||
         (statusFilter === "Pending" && row.status === "Pending") ||
         (statusFilter === "In Stock" && row.status === "In Stock") ||
-        (statusFilter === "Out of Stock" && row.status === "Out of Stock") ||
         (statusFilter === LOW_STOCK_STATUS_VALUE && rowIsLowStock(row));
       return matchesSearch && matchesStatus;
     });
@@ -661,6 +781,7 @@ export function InventoryTable({
   }, [searchTerm, statusFilter]);
 
   return (
+    <TooltipProvider delayDuration={200}>
     <Card className="w-full">
       <CardHeader className="pb-2 sm:pb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -699,6 +820,18 @@ export function InventoryTable({
                   <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground cursor-pointer hover:bg-muted/80">
                     <Trash2 className="h-3 w-3" />
                     {cancelledCount} Cancelled
+                  </Badge>
+                </button>
+              )}
+              {outOfStockCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setOutOfStockSheetOpen(true)}
+                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <Badge variant="secondary" className="flex items-center gap-1 cursor-pointer hover:opacity-90">
+                    <PackageX className="h-3 w-3" />
+                    {outOfStockCount} Out of stock
                   </Badge>
                 </button>
               )}
@@ -746,7 +879,6 @@ export function InventoryTable({
                 <SelectItem value={LOW_STOCK_STATUS_VALUE}>Low stock (qty 1–10)</SelectItem>
                 <SelectItem value="Pending">Pending</SelectItem>
                 <SelectItem value="In Stock">In Stock</SelectItem>
-                <SelectItem value="Out of Stock">Out of Stock</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -769,22 +901,22 @@ export function InventoryTable({
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       <InventoryAvatar
                         item={item as any}
-                        className="h-10 w-10"
+                        className="h-10 w-10 shrink-0"
                         onImageClick={handleImagePreview}
                       />
-                      <div
-                        className={cn(
-                          "font-semibold text-sm",
+                      <InventoryProductName
+                        name={item.productName}
+                        textClassName={cn(
+                          "font-semibold",
                           isLowStockVisual && lowStockTextClass
                         )}
-                      >
-                        {item.productName}
-                      </div>
+                        onViewFull={setProductNamePreview}
+                      />
                       {(item as any).isRequest && (item as any).requestData && item.status === "Pending" && (
-                        <div className="flex items-center">
+                        <div className="flex shrink-0 items-center">
                           <Button
                             variant="ghost"
                             size="sm"
@@ -973,7 +1105,7 @@ export function InventoryTable({
           <Table containerClassName="overflow-x-auto overflow-y-hidden mouse-h-scroll">
             <TableHeader>
               <TableRow>
-                <TableHead className="text-xs sm:text-sm">Product</TableHead>
+                <TableHead className="text-xs sm:text-sm w-[280px] max-w-[280px]">Product</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">SKU</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden lg:table-cell">Identifier</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden xl:table-cell">Expiry</TableHead>
@@ -1003,24 +1135,21 @@ export function InventoryTable({
                    isLowStockVisual && lowStockRowCardClass
                  )}
                >
-                    <TableCell className="font-medium max-w-32 sm:max-w-none truncate whitespace-nowrap">
-                      <div className="flex flex-col sm:block">
-                        <div className="flex items-center gap-2">
+                    <TableCell className="font-medium w-[280px] max-w-[280px] align-top overflow-visible">
+                      <div className="flex flex-col sm:block min-w-0">
+                        <div className="flex items-start gap-2 min-w-0">
                           <InventoryAvatar
                             item={item as any}
-                            className="h-8 w-8"
+                            className="h-8 w-8 shrink-0"
                             onImageClick={handleImagePreview}
                           />
-                          <span
-                            className={cn(
-                              "font-medium",
-                              isLowStockVisual && lowStockTextClass
-                            )}
-                          >
-                            {item.productName}
-                          </span>
+                          <InventoryProductName
+                            name={item.productName}
+                            textClassName={isLowStockVisual ? lowStockTextClass : undefined}
+                            onViewFull={setProductNamePreview}
+                          />
                           {(item as any).isRequest && (item as any).requestData && item.status === "Pending" && (
-                            <div className="inline-flex items-center">
+                            <div className="inline-flex shrink-0 items-center">
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1522,7 +1651,25 @@ export function InventoryTable({
         }}
         requests={inventoryRequests}
       />
+      <InventoryOutOfStockSheet
+        open={outOfStockSheetOpen}
+        onOpenChange={setOutOfStockSheetOpen}
+        items={outOfStockRows}
+      />
+
+      <Dialog
+        open={productNamePreview !== null}
+        onOpenChange={(open) => !open && setProductNamePreview(null)}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Product name</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm whitespace-pre-wrap break-words">{productNamePreview}</p>
+        </DialogContent>
+      </Dialog>
     </Card>
+    </TooltipProvider>
   );
 }
 
