@@ -139,10 +139,11 @@ If a needed lot is short → supervisor decides: substitute lot, partial ship, o
 6. **Packer scans the courier label barcode** — app shows ship-from / ship-to and binds tracking to the order.
 7. Packer taps **Ready to dispatch** — warehouse carton stock decrements; order enters the dispatch queue.
 8. At dispatch staging, worker **scans the courier label again**.
-9. App confirms **correct parcel** (or rejects wrong label).
-10. Worker confirms **Dispatched** — order leaves the queue (carrier handoff logged).
+9. Worker completes **QC** (package / carton / pallet — good or not good).
+10. **Good** → confirm dispatched; order leaves the queue.
+11. **Not good** → remarks required → order returns to **pack** (warehouse stock restored) → repack and ready to dispatch again.
 
-Stock is decremented at step 7 from the exact carton (which knows its `sku`, `lot`, `expiry`, `bin`).
+Stock is decremented at step 7 from the exact carton (which knows its `sku`, `lot`, `expiry`, `bin`). Stock is **restored** if dispatch QC fails at step 11.
 
 ---
 
@@ -180,20 +181,24 @@ These states ensure the picker app never shows non-pickable stock.
 
 ## Part 8 — Cycle counts (regular checks)
 
-Three styles, all run from the same scan flow:
+**Implemented (v1):** Spot count tasks in **Warehouse Ops → Cycle count** (`ops_count`).
 
-1. **ABC count** — high-value SKUs counted weekly, mid monthly, low quarterly.
-2. **Random spot count** — system suggests a few bins per day to count.
-3. **Full physical** — periodic full warehouse count.
+Three styles (ABC + full physical planned for a later release):
+
+1. **ABC count** — high-value SKUs counted weekly, mid monthly, low quarterly. *(planned)*
+2. **Random spot count** — supervisor creates a task; system picks N bins with stock, or bins are added manually. *(v1)*
+3. **Full physical** — periodic full warehouse count. *(planned)*
 
 Worker flow for each count:
 
 1. Open count task.
-2. Scan bin QR.
+2. Scan bin QR (must be on the task).
 3. App shows expected cartons in that bin.
 4. Worker scans cartons present.
-5. Enters quantity.
-6. Variance is calculated automatically with reason category.
+5. Enters quantity per SKU line (defaults to expected).
+6. Variance is calculated automatically; worker picks a reason category when qty differs.
+
+Supervisor creates spot counts (random or manual bin list). Stock is **not** auto-adjusted — variances are logged on the task and as `cycle_count` movement events; supervisor adjustments remain Part 9.
 
 ---
 

@@ -9,7 +9,7 @@ export const OPS_FEATURES_CONFIG: { value: UserFeature; label: string; descripti
   { value: "ops_move", label: "Internal move", description: "Bin-to-bin moves" },
   { value: "ops_pick", label: "Pick", description: "Outbound picking (FEFO / FIFO)" },
   { value: "ops_pack", label: "Pack", description: "Verify picked stock and mark ready to dispatch" },
-  { value: "ops_count", label: "Cycle count", description: "Inventory counts (future)" },
+  { value: "ops_count", label: "Cycle count", description: "Spot / ABC inventory counts" },
   {
     value: "ops_supervisor",
     label: "Supervisor overrides",
@@ -49,6 +49,7 @@ export const OPS_FEATURE_PRESETS: { id: string; label: string; features: UserFea
       "ops_move",
       "ops_pick",
       "ops_pack",
+      "ops_count",
       "ops_supervisor",
     ],
   },
@@ -141,6 +142,12 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       href: "/warehouse-ops/dispatch",
       feature: "ops_pack",
       description: "Orders ready for carrier pickup",
+    },
+    {
+      title: "Cycle count",
+      href: "/warehouse-ops/cycle-count",
+      feature: "ops_count",
+      description: "Scan bin → verify cartons → count qty",
     },
   ];
   return items.filter((item) => hasFeature(userProfile, item.feature));

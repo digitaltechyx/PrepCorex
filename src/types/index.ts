@@ -246,6 +246,79 @@ export interface WarehousePalletDoc {
   updatedAt?: { seconds: number; nanoseconds: number } | Date;
 }
 
+/** Cycle count style — see `docs/BARCODE_SCANNING/03_WAREHOUSE_WORKFLOW_V2.md` Part 8. */
+export type WarehouseCycleCountType = "spot" | "abc" | "full" | "quick";
+
+export type WarehouseCycleCountTaskStatus =
+  | "open"
+  | "in_progress"
+  | "completed"
+  | "cancelled";
+
+export type WarehouseCycleCountVarianceReason =
+  | "miscount"
+  | "damaged_not_recorded"
+  | "found_stock"
+  | "missing_stock"
+  | "mislabeled"
+  | "other";
+
+export interface WarehouseCycleCountExpectedLine {
+  key: string;
+  sku: string;
+  lot: string | null;
+  expiry: string | null;
+  condition: "good" | "damaged";
+  productTitle: string | null;
+  expectedQty: number;
+  cartonIds: string[];
+  cartonCodes: string[];
+}
+
+export interface WarehouseCycleCountCountedLine {
+  key: string;
+  sku: string;
+  lot: string | null;
+  condition: "good" | "damaged";
+  expectedQty: number;
+  countedQty: number;
+  variance: number;
+  varianceReason?: WarehouseCycleCountVarianceReason | null;
+  varianceNotes?: string | null;
+}
+
+export interface WarehouseCycleCountBinResult {
+  binId: string;
+  binPath: string;
+  expectedLines: WarehouseCycleCountExpectedLine[];
+  scannedCartonIds: string[];
+  scannedCartonCodes: string[];
+  countedLines: WarehouseCycleCountCountedLine[];
+  hasVariance: boolean;
+  submittedAt?: { seconds: number; nanoseconds: number } | Date;
+  submittedBy?: string | null;
+  notes?: string | null;
+}
+
+/** `warehouses/{id}/cycleCountTasks/{taskId}` */
+export interface WarehouseCycleCountTaskDoc {
+  id: string;
+  warehouseId: string;
+  type: WarehouseCycleCountType;
+  status: WarehouseCycleCountTaskStatus;
+  title: string;
+  binIds: string[];
+  binPaths: string[];
+  completedBinIds: string[];
+  binResults: WarehouseCycleCountBinResult[];
+  createdBy?: string | null;
+  createdAt?: { seconds: number; nanoseconds: number } | Date;
+  startedAt?: { seconds: number; nanoseconds: number } | Date;
+  completedAt?: { seconds: number; nanoseconds: number } | Date;
+  cancelledAt?: { seconds: number; nanoseconds: number } | Date;
+  notes?: string | null;
+}
+
 export type UserFeature =
   | "view_dashboard"
   | "view_inventory"
@@ -482,6 +555,20 @@ export interface ShipmentRequest {
   warehouseDispatchStatus?: "ready" | "dispatched";
   warehouseDispatchedAt?: { seconds: number; nanoseconds: number } | string;
   warehouseDispatchedBy?: string | null;
+  /** Dispatch QC — package / carton / pallet condition before handoff. */
+  warehouseQcUnitType?: "package" | "carton" | "pallet" | null;
+  warehouseQcCondition?: "good" | "not_good" | null;
+  warehouseQcRemarks?: string | null;
+  warehouseQcPassedAt?: { seconds: number; nanoseconds: number } | string;
+  warehouseQcPassedBy?: string | null;
+  warehouseQcFailedAt?: { seconds: number; nanoseconds: number } | string;
+  warehouseQcFailedBy?: string | null;
+  /** Lines removed at ready-to-dispatch — restored if dispatch QC fails. */
+  warehousePackStockSnapshot?: Array<{
+    cartonId: string;
+    cartonCode: string;
+    removedLines: Array<Record<string, unknown>>;
+  }>;
 }
 
 export interface ShipmentProductItem {

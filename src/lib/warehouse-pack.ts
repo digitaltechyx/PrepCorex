@@ -1,6 +1,7 @@
 import {
   collection,
   collectionGroup,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -43,6 +44,16 @@ export type WarehousePackStatus = "pending" | "packing" | "ready_to_dispatch";
 
 export type WarehouseDispatchStatus = "ready" | "dispatched";
 
+export type WarehouseQcUnitType = "package" | "carton" | "pallet";
+
+export type WarehouseQcCondition = "good" | "not_good";
+
+export type PackStockSnapshotEntry = {
+  cartonId: string;
+  cartonCode: string;
+  removedLines: WarehouseCartonLine[];
+};
+
 export type PackVerifyMode = "scan_pkg" | "scan_ctn" | "confirm";
 
 export type PackPlanItem = {
@@ -74,6 +85,9 @@ export type OutboundPackOrder = OutboundPickOrder & {
   readyToDispatchAt?: Date | null;
   courierTracking?: string | null;
   shipFrom?: string;
+  qcRemarks?: string;
+  qcFailedAt?: Date | null;
+  defaultQcUnitType?: WarehouseQcUnitType;
 };
 
 type PickMovementEvent = {
@@ -168,6 +182,111 @@ function courierTrackingFromRequest(data: Record<string, unknown>): string | nul
   const raw = data.warehouseCourierTracking;
   if (raw == null || String(raw).trim() === "") return null;
   return String(raw).trim();
+}
+
+export function inferQcUnitTypeFromRequest(
+  data: Record<string, unknown>
+): WarehouseQcUnitType {
+  const st = String(data.shipmentType ?? "").toLowerCase();
+  if (st === "pallet") return "pallet";
+  if (st === "box") return "carton";
+  return "package";
+}
+
+function lineFromFirestoreSnapshot(raw: Record<string, unknown>): WarehouseCartonLine {
+  return {
+    lineId: String(raw.lineId ?? ""),
+    sku: String(raw.sku ?? ""),
+    productTitle: raw.productTitle != null ? String(raw.productTitle) : undefined,
+    quantity: Math.max(0, Math.floor(Number(raw.quantity) || 0)),
+    lot: raw.lot != null ? String(raw.lot) : null,
+    expiry: raw.expiry != null ? String(raw.expiry) : null,
+    condition: raw.condition === "damaged" ? "damaged" : "good",
+    binId: raw.binId != null ? String(raw.binId) : null,
+    stagingArea: raw.stagingArea != null ? String(raw.stagingArea) : null,
+    allocationStatus:
+      raw.allocationStatus === "picked" ||
+      raw.allocationStatus === "allocated" ||
+      raw.allocationStatus === "unallocated"
+        ? (raw.allocationStatus as WarehouseCartonLine["allocationStatus"])
+        : "picked",
+    clientId: raw.clientId != null ? String(raw.clientId) : null,
+    inventoryRequestId:
+      raw.inventoryRequestId != null ? String(raw.inventoryRequestId) : null,
+  };
+}
+
+function packStockSnapshotFromRequest(
+  data: Record<string, unknown>
+): PackStockSnapshotEntry[] {
+  const raw = data.warehousePackStockSnapshot;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const e = entry as Record<string, unknown>;
+      const removed = Array.isArray(e.removedLines)
+        ? (e.removedLines as Record<string, unknown>[]).map(lineFromFirestoreSnapshot)
+        : [];
+      const cartonId = String(e.cartonId ?? "").trim();
+      if (!cartonId || removed.length === 0) return null;
+      return {
+        cartonId,
+        cartonCode: String(e.cartonCode ?? ""),
+        removedLines: removed,
+      } satisfies PackStockSnapshotEntry;
+    })
+    .filter((x): x is PackStockSnapshotEntry => x != null);
+}
+
+async function restorePackStockFromSnapshot(input: {
+  warehouseId: string;
+  clientUserId: string;
+  shipmentRequestId: string;
+  snapshot: PackStockSnapshotEntry[];
+  operatorId?: string | null;
+  batch: ReturnType<typeof writeBatch>;
+}): Promise<void> {
+  for (const entry of input.snapshot) {
+    const carton = await getWarehouseCarton(input.warehouseId, entry.cartonId);
+    if (!carton) continue;
+
+    const current = cartonLines(carton);
+    const existingIds = new Set(current.map((l) => l.lineId));
+    const toRestore = entry.removedLines.filter((l) => l.lineId && !existingIds.has(l.lineId));
+    if (toRestore.length === 0) continue;
+
+    const merged = [...current, ...toRestore];
+    const { status, binId } = rollCartonBinStateFromLines(carton, merged);
+
+    const payload: Record<string, unknown> = {
+      lines: linesToFirestorePayload(merged),
+      updatedAt: serverTimestamp(),
+      status,
+      binId,
+    };
+
+    if (!carton.isMixed && merged.length === 1) {
+      payload.quantity = merged[0].quantity;
+      payload.sku = merged[0].sku;
+    } else {
+      payload.quantity = sumLineQty(merged);
+    }
+
+    input.batch.update(warehouseCartonDocRef(input.warehouseId, entry.cartonId), payload);
+
+    const eventsRef = collection(db, WAREHOUSES, input.warehouseId, "movementEvents");
+    input.batch.set(doc(eventsRef), {
+      type: "dispatch_qc_return",
+      shipmentRequestId: input.shipmentRequestId,
+      clientUserId: input.clientUserId,
+      cartonId: entry.cartonId,
+      cartonCode: entry.cartonCode || carton.cartonCode,
+      lineIds: toRestore.map((l) => l.lineId),
+      operatorId: input.operatorId ?? null,
+      at: serverTimestamp(),
+    });
+  }
 }
 
 function verifiedKeysFromRequest(data: Record<string, unknown>): string[] {
@@ -334,6 +453,9 @@ function toOutboundPackOrder(
     warehousePackStatus: packStatusFromRequest(data),
     warehouseDispatchStatus: dispatchStatusFromRequest(data),
     courierTracking: courierTrackingFromRequest(data),
+    qcRemarks: data.warehouseQcRemarks != null ? String(data.warehouseQcRemarks) : undefined,
+    qcFailedAt: dateFromFirestore(data.warehouseQcFailedAt),
+    defaultQcUnitType: inferQcUnitTypeFromRequest(data),
     lines,
   };
 }
@@ -358,6 +480,9 @@ export async function loadOutboundPackQueue(input: {
   }
 
   orders.sort((a, b) => {
+    const aFailed = a.qcFailedAt ? 1 : 0;
+    const bFailed = b.qcFailedAt ? 1 : 0;
+    if (aFailed !== bFailed) return bFailed - aFailed;
     const ta = a.confirmedAt?.getTime() ?? 0;
     const tb = b.confirmedAt?.getTime() ?? 0;
     return ta - tb;
@@ -681,12 +806,22 @@ export async function completePackReadyToDispatch(input: {
   }
 
   const batch = writeBatch(db);
+  const stockSnapshot: PackStockSnapshotEntry[] = [];
 
   for (const [cartonId, lineIds] of byCarton) {
     const carton = await getWarehouseCarton(input.warehouseId, cartonId);
     if (!carton) continue;
 
     const baseLines = cartonLines(carton);
+    const removedLines = baseLines.filter((l) => lineIds.has(l.lineId));
+    if (removedLines.length > 0) {
+      stockSnapshot.push({
+        cartonId,
+        cartonCode: carton.cartonCode,
+        removedLines,
+      });
+    }
+
     const nextLines = removeDispatchedLines(baseLines, lineIds);
     const { status, binId } = rollCartonBinStateFromLines(carton, nextLines);
 
@@ -732,6 +867,15 @@ export async function completePackReadyToDispatch(input: {
     warehousePackedBy: input.operatorId ?? null,
     warehousePackVerifiedKeys: plan.verifiedKeys,
     warehouseCourierTracking: courierTracking,
+    warehousePackStockSnapshot: stockSnapshot.map((s) => ({
+      cartonId: s.cartonId,
+      cartonCode: s.cartonCode,
+      removedLines: linesToFirestorePayload(s.removedLines),
+    })),
+    warehouseQcRemarks: deleteField(),
+    warehouseQcFailedAt: deleteField(),
+    warehouseQcFailedBy: deleteField(),
+    warehouseQcCondition: deleteField(),
     warehouseId: input.warehouseId,
     updatedAt: serverTimestamp(),
   });
@@ -760,12 +904,13 @@ export async function resolveDispatchOrderByScan(input: {
   );
 }
 
-/** Confirm carrier handoff — scan must match the label bound at pack. */
+/** Confirm carrier handoff after dispatch QC passes. */
 export async function completeDispatchHandoff(input: {
   warehouseId: string;
   clientUserId: string;
   shipmentRequestId: string;
   scannedValue: string;
+  qcUnitType: WarehouseQcUnitType;
   operatorId?: string | null;
 }): Promise<void> {
   const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
@@ -794,6 +939,11 @@ export async function completeDispatchHandoff(input: {
     warehouseDispatchStatus: "dispatched",
     warehouseDispatchedAt: serverTimestamp(),
     warehouseDispatchedBy: input.operatorId ?? null,
+    warehouseQcUnitType: input.qcUnitType,
+    warehouseQcCondition: "good",
+    warehouseQcPassedAt: serverTimestamp(),
+    warehouseQcPassedBy: input.operatorId ?? null,
+    warehousePackStockSnapshot: deleteField(),
     updatedAt: serverTimestamp(),
   });
 
@@ -803,8 +953,81 @@ export async function completeDispatchHandoff(input: {
     shipmentRequestId: input.shipmentRequestId,
     clientUserId: input.clientUserId,
     courierTracking: stored,
+    qcUnitType: input.qcUnitType,
+    qcCondition: "good",
     operatorId: input.operatorId ?? null,
     at: serverTimestamp(),
+  });
+
+  await batch.commit();
+}
+
+/** Dispatch QC failed — restore warehouse stock and return order to pack. */
+export async function returnToPackFromDispatchQc(input: {
+  warehouseId: string;
+  clientUserId: string;
+  shipmentRequestId: string;
+  scannedValue: string;
+  qcUnitType: WarehouseQcUnitType;
+  remarks: string;
+  operatorId?: string | null;
+}): Promise<void> {
+  const remarks = input.remarks.trim();
+  if (!remarks) throw new Error("Remarks are required when condition is not good.");
+
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Order not found.");
+
+  const data = snap.data() as Record<string, unknown>;
+  if (packStatusFromRequest(data) !== "ready_to_dispatch") {
+    throw new Error("Order is not ready to dispatch.");
+  }
+  if (dispatchStatusFromRequest(data) === "dispatched") {
+    throw new Error("Order was already dispatched.");
+  }
+
+  const stored = courierTrackingFromRequest(data);
+  if (!stored) {
+    throw new Error("No courier label on file — re-pack this order.");
+  }
+  if (!courierScansMatch(input.scannedValue, stored)) {
+    throw new Error("Wrong parcel — label does not match this order.");
+  }
+
+  const snapshot = packStockSnapshotFromRequest(data);
+  if (snapshot.length === 0) {
+    throw new Error("No pack stock snapshot — contact a supervisor.");
+  }
+
+  const batch = writeBatch(db);
+
+  await restorePackStockFromSnapshot({
+    warehouseId: input.warehouseId,
+    clientUserId: input.clientUserId,
+    shipmentRequestId: input.shipmentRequestId,
+    snapshot,
+    operatorId: input.operatorId,
+    batch,
+  });
+
+  batch.update(ref, {
+    warehousePackStatus: "packing",
+    warehouseDispatchStatus: deleteField(),
+    warehouseReadyToDispatchAt: deleteField(),
+    warehousePackedBy: deleteField(),
+    warehousePackVerifiedKeys: [],
+    warehouseCourierTracking: deleteField(),
+    warehousePackCourierVerifiedAt: deleteField(),
+    warehousePackStockSnapshot: deleteField(),
+    warehouseQcUnitType: input.qcUnitType,
+    warehouseQcCondition: "not_good",
+    warehouseQcRemarks: remarks,
+    warehouseQcFailedAt: serverTimestamp(),
+    warehouseQcFailedBy: input.operatorId ?? null,
+    warehouseQcPassedAt: deleteField(),
+    warehouseQcPassedBy: deleteField(),
+    updatedAt: serverTimestamp(),
   });
 
   await batch.commit();

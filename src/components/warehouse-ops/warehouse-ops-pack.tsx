@@ -39,6 +39,7 @@ import {
   Package,
   ScanLine,
   Truck,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -338,6 +339,11 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                     <div className="flex justify-between gap-2 items-start">
                       <div>
                         <p className="font-semibold text-sm">{order.clientDisplayName}</p>
+                        {order.qcRemarks ? (
+                          <p className="text-xs text-red-600 dark:text-red-400 mt-0.5 line-clamp-2">
+                            QC: {order.qcRemarks}
+                          </p>
+                        ) : null}
                         {order.shipTo ? (
                           <p className="text-xs text-muted-foreground mt-0.5">{order.shipTo}</p>
                         ) : null}
@@ -348,7 +354,11 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                         </p>
                       </div>
                       <Badge variant="outline" className="shrink-0 capitalize">
-                        {order.warehousePackStatus === "packing" ? "packing" : "picked"}
+                        {order.qcFailedAt
+                          ? "QC failed"
+                          : order.warehousePackStatus === "packing"
+                            ? "packing"
+                            : "picked"}
                       </Badge>
                     </div>
                   </button>
@@ -380,6 +390,17 @@ export function WarehouseOpsPack({ warehouse }: Props) {
             {selectedOrder.lines.map((l) => `${l.quantityUnits}× ${l.sku}`).join(" · ")}
           </CardDescription>
         </CardHeader>
+        {selectedOrder.qcRemarks ? (
+          <CardContent className="pt-0">
+            <div className="flex gap-2 rounded-lg border border-red-300/60 bg-red-50/80 dark:bg-red-950/20 px-3 py-2 text-sm text-red-800 dark:text-red-300">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-xs">Returned from dispatch QC</p>
+                <p className="text-xs mt-0.5 whitespace-pre-wrap">{selectedOrder.qcRemarks}</p>
+              </div>
+            </div>
+          </CardContent>
+        ) : null}
       </Card>
 
       {loadingPlan ? (

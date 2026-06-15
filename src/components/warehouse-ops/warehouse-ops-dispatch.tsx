@@ -13,6 +13,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
@@ -22,7 +30,10 @@ import {
   completeDispatchHandoff,
   loadDispatchQueue,
   resolveDispatchOrderByScan,
+  returnToPackFromDispatchQc,
   type OutboundPackOrder,
+  type WarehouseQcCondition,
+  type WarehouseQcUnitType,
 } from "@/lib/warehouse-pack";
 import type { UserProfile, WarehouseDoc } from "@/types";
 import { CheckCircle2, Loader2, Package, ScanLine, Truck, XCircle } from "lucide-react";
@@ -57,6 +68,9 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   const [lastScanValue, setLastScanValue] = useState("");
   const [scanError, setScanError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [qcUnitType, setQcUnitType] = useState<WarehouseQcUnitType>("package");
+  const [qcCondition, setQcCondition] = useState<WarehouseQcCondition | null>(null);
+  const [qcRemarks, setQcRemarks] = useState("");
 
   const scanInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -113,6 +127,9 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
       setMatchedOrder(order);
       setLastScanValue(value);
       setScanValue("");
+      setQcUnitType(order.defaultQcUnitType ?? "package");
+      setQcCondition(null);
+      setQcRemarks("");
       toast({
         title: "Correct parcel",
         description: order.clientDisplayName,
@@ -128,7 +145,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   }
 
   async function handleConfirmDispatch() {
-    if (!matchedOrder || !lastScanValue) return;
+    if (!matchedOrder || !lastScanValue || qcCondition !== "good") return;
 
     setConfirming(true);
     try {
@@ -137,6 +154,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
         clientUserId: matchedOrder.clientUserId,
         shipmentRequestId: matchedOrder.id,
         scannedValue: lastScanValue,
+        qcUnitType,
         operatorId,
       });
       toast({
@@ -146,10 +164,48 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
       setMatchedOrder(null);
       setLastScanValue("");
       setScanError(null);
+      setQcCondition(null);
+      setQcRemarks("");
       void loadQueue();
     } catch (e) {
       toast({
         title: "Could not confirm dispatch",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setConfirming(false);
+      scanInputRef.current?.focus();
+    }
+  }
+
+  async function handleReturnToPack() {
+    if (!matchedOrder || !lastScanValue || qcCondition !== "not_good") return;
+
+    setConfirming(true);
+    try {
+      await returnToPackFromDispatchQc({
+        warehouseId: warehouse.id,
+        clientUserId: matchedOrder.clientUserId,
+        shipmentRequestId: matchedOrder.id,
+        scannedValue: lastScanValue,
+        qcUnitType,
+        remarks: qcRemarks,
+        operatorId,
+      });
+      toast({
+        title: "Returned to pack",
+        description: `${matchedOrder.clientDisplayName} — warehouse stock restored.`,
+      });
+      setMatchedOrder(null);
+      setLastScanValue("");
+      setScanError(null);
+      setQcCondition(null);
+      setQcRemarks("");
+      void loadQueue();
+    } catch (e) {
+      toast({
+        title: "Could not return to pack",
         description: e instanceof Error ? e.message : "Unknown error",
         variant: "destructive",
       });
@@ -164,6 +220,8 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
     setLastScanValue("");
     setScanError(null);
     setScanValue("");
+    setQcCondition(null);
+    setQcRemarks("");
     scanInputRef.current?.focus();
   }
 
@@ -177,8 +235,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
             Carrier handoff
           </CardTitle>
           <CardDescription className="text-xs">
-            Scan the courier label on each parcel. The system confirms it matches a packed order
-            before you mark it dispatched.
+            Scan the courier label, complete quality check, then dispatch or return to pack.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -261,6 +318,72 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                   {matchedOrder.lines.map((l) => `${l.quantityUnits}× ${l.sku}`).join(" · ")}
                 </p>
               </div>
+
+              <div className="space-y-3 border-t pt-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Quality check
+                </p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Unit type</Label>
+                  <Select
+                    value={qcUnitType}
+                    onValueChange={(v) => setQcUnitType(v as WarehouseQcUnitType)}
+                    disabled={confirming}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="package">Package</SelectItem>
+                      <SelectItem value="carton">Carton</SelectItem>
+                      <SelectItem value="pallet">Pallet</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Condition</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={qcCondition === "good" ? "default" : "outline"}
+                      className={cn(
+                        qcCondition === "good" && "bg-emerald-600 hover:bg-emerald-700"
+                      )}
+                      disabled={confirming}
+                      onClick={() => setQcCondition("good")}
+                    >
+                      Good
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={qcCondition === "not_good" ? "default" : "outline"}
+                      className={cn(
+                        qcCondition === "not_good" && "bg-red-600 hover:bg-red-700"
+                      )}
+                      disabled={confirming}
+                      onClick={() => setQcCondition("not_good")}
+                    >
+                      Not good
+                    </Button>
+                  </div>
+                </div>
+                {qcCondition === "not_good" ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="qc-remarks" className="text-xs">
+                      Remarks (required)
+                    </Label>
+                    <Textarea
+                      id="qc-remarks"
+                      value={qcRemarks}
+                      onChange={(e) => setQcRemarks(e.target.value)}
+                      placeholder="Describe the issue — damaged carton, wrong label, etc."
+                      rows={3}
+                      disabled={confirming}
+                    />
+                  </div>
+                ) : null}
+              </div>
+
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -271,21 +394,43 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                 >
                   Scan another
                 </Button>
-                <Button
-                  type="button"
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                  disabled={confirming}
-                  onClick={() => void handleConfirmDispatch()}
-                >
-                  {confirming ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                      Saving…
-                    </>
-                  ) : (
-                    "Confirm dispatched"
-                  )}
-                </Button>
+                {qcCondition === "good" ? (
+                  <Button
+                    type="button"
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                    disabled={confirming}
+                    onClick={() => void handleConfirmDispatch()}
+                  >
+                    {confirming ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        Saving…
+                      </>
+                    ) : (
+                      "Confirm dispatched"
+                    )}
+                  </Button>
+                ) : qcCondition === "not_good" ? (
+                  <Button
+                    type="button"
+                    className="flex-1 bg-red-600 hover:bg-red-700"
+                    disabled={confirming || !qcRemarks.trim()}
+                    onClick={() => void handleReturnToPack()}
+                  >
+                    {confirming ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        Saving…
+                      </>
+                    ) : (
+                      "Return to pack"
+                    )}
+                  </Button>
+                ) : (
+                  <Button type="button" className="flex-1" disabled>
+                    Select condition
+                  </Button>
+                )}
               </div>
             </div>
           ) : null}

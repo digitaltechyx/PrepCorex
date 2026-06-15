@@ -286,6 +286,11 @@ service cloud.firestore {
         allow create: if isAdminOrSubAdmin() || isWarehouseOperator();
         allow update, delete: if isAdminOrSubAdmin();
       }
+      match /cycleCountTasks/{taskId} {
+        allow read: if signedIn();
+        allow create, update: if isAdminOrSubAdmin() || isWarehouseOperator();
+        allow delete: if isAdminOrSubAdmin();
+      }
     }
 
     // Carton / pallet ID sequences (Phase 2) — one doc per warehouse
