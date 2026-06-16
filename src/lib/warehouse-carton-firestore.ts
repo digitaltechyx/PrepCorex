@@ -134,6 +134,7 @@ function parseLines(raw: unknown): WarehouseCartonLine[] | undefined {
           : "unallocated",
       clientId: obj.clientId != null ? String(obj.clientId) : null,
       inventoryRequestId: obj.inventoryRequestId != null ? String(obj.inventoryRequestId) : null,
+      productReturnId: obj.productReturnId != null ? String(obj.productReturnId) : null,
       stagingArea: obj.stagingArea != null ? String(obj.stagingArea) : null,
     });
   }
@@ -154,6 +155,7 @@ function lineToFirestore(line: WarehouseCartonLine): Record<string, unknown> {
     allocationStatus: line.allocationStatus ?? "unallocated",
     clientId: line.clientId ?? null,
     inventoryRequestId: line.inventoryRequestId ?? null,
+    productReturnId: line.productReturnId ?? null,
   };
 }
 
@@ -173,6 +175,7 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     palletId: data.palletId != null ? String(data.palletId) : null,
     productTitle: data.productTitle != null ? String(data.productTitle) : null,
     inventoryRequestId: data.inventoryRequestId != null ? String(data.inventoryRequestId) : null,
+    productReturnId: data.productReturnId != null ? String(data.productReturnId) : null,
     barcode: String(data.barcode ?? ""),
     lines: parseLines(data.lines),
     isMixed: data.isMixed === true,
@@ -321,6 +324,7 @@ export async function createWarehouseCarton(input: {
   palletId?: string | null;
   productTitle?: string | null;
   inventoryRequestId?: string | null;
+  productReturnId?: string | null;
   cartonCode?: string;
   lines?: WarehouseCartonLine[];
   isMixed?: boolean;
@@ -379,6 +383,7 @@ export async function createWarehouseCarton(input: {
     palletId: input.palletId?.trim() || null,
     productTitle: input.productTitle?.trim() || null,
     inventoryRequestId: input.inventoryRequestId?.trim() || null,
+    productReturnId: input.productReturnId?.trim() || null,
     barcode,
     ...(linesPayload ? { lines: linesPayload } : {}),
     ...(input.isMixed != null ? { isMixed: !!input.isMixed } : {}),

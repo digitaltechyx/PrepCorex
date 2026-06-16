@@ -143,6 +143,8 @@ export interface WarehouseCartonLine {
   /** When admin allocates this line to a client/request. */
   clientId?: string | null;
   inventoryRequestId?: string | null;
+  /** Linked client product return (RMA) when received as a return. */
+  productReturnId?: string | null;
 }
 
 /** Physical carton (WHAT) — `warehouses/{id}/cartons/{cartonId}`. */
@@ -172,6 +174,8 @@ export interface WarehouseCartonDoc {
   productTitle?: string | null;
   /** Client user uid when received against an inventory request */
   inventoryRequestId?: string | null;
+  /** Client product return doc id when received as RMA */
+  productReturnId?: string | null;
   /** Encoded on printed label QR */
   barcode: string;
   /**
@@ -358,6 +362,7 @@ export type UserFeature =
   | "ops_pick"
   | "ops_pack"
   | "ops_count"
+  | "ops_returns"
   | "ops_supervisor"
   | "ops_view_expected_inbound";
 
@@ -773,6 +778,8 @@ export interface ProductReturn {
   closedAt?: { seconds: number; nanoseconds: number } | string;
   shipments?: Array<Record<string, unknown>>;
   quantityUpdates?: Array<Record<string, unknown>>;
+  /** Carrier tracking while return shipment is in transit to warehouse. */
+  returnTrackings?: InboundTrackingEntry[];
 }
 
 /** User-initiated dispose request (user selects product, quantity, reason; admin approves or rejects). */

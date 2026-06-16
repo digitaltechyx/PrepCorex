@@ -84,6 +84,10 @@ import { useCollection } from "@/hooks/use-collection";
 import type { UserProfile } from "@/types";
 import { generateCrossdockReceiveLot } from "@/lib/warehouse-crossdock";
 import { CrossdockClientCombobox } from "@/components/warehouse-ops/crossdock-client-combobox";
+import { WarehouseOpsDockIntake } from "@/components/warehouse-ops/warehouse-ops-dock-intake";
+import { WarehouseOpsReturnReceive } from "@/components/warehouse-ops/warehouse-ops-return-receive";
+import type { InboundRequestRow } from "@/lib/warehouse-inbound-requests";
+import type { ReturnRequestRow } from "@/lib/warehouse-returns";
 import {
   batchHasPutaway,
   clearStoredLastBatch,
@@ -96,7 +100,7 @@ import {
 type ReceiveType = "carton" | "pallet" | "loose";
 /** crossdock = closed labels only; loose module = open receiving at dock */
 type ReceiveModule = "crossdock" | "loose";
-type ReceivePhase = "hub" | "pick-package" | "form";
+type ReceivePhase = "dock-intake" | "return-receive" | "hub" | "pick-package" | "form";
 
 type LineDraft = {
   id: string;
@@ -165,12 +169,24 @@ function moduleFromSnapshot(snap: StoredReceiveFormSnapshot): ReceiveModule {
 }
 
 export function WarehouseOpsReceiving({ warehouse }: Props) {
+  const { toast } = useToast();
+  const { data: allUsers } = useCollection<UserProfile>("users");
+  const clients = useMemo(
+    () =>
+      allUsers.filter(
+        (u) => u.role === "user" || (u.roles ?? []).includes("user")
+      ),
+    [allUsers]
+  );
+
   const [tab, setTab] = useState<"receive" | "correct">("receive");
-  const [phase, setPhase] = useState<ReceivePhase>("hub");
+  const [phase, setPhase] = useState<ReceivePhase>("dock-intake");
   const [module, setModule] = useState<ReceiveModule | null>(null);
   const [type, setType] = useState<ReceiveType | null>(null);
   const [formRestore, setFormRestore] = useState<StoredReceiveFormSnapshot | null>(null);
   const [restoreKey, setRestoreKey] = useState(0);
+  const [selectedReturn, setSelectedReturn] = useState<ReturnRequestRow | null>(null);
+  const [dockTracking, setDockTracking] = useState("");
 
   function startModule(m: ReceiveModule) {
     setModule(m);
@@ -187,6 +203,33 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
     setPhase("hub");
     setModule(null);
     setType(null);
+  }
+
+  function handleDockInbound(row: InboundRequestRow, tracking: string) {
+    toast({
+      title: "Inbound selected",
+      description: `${row.clientDisplayName} — ${row.productName}. Continue with open or cross-dock receive.`,
+    });
+    setDockTracking(tracking);
+    setSelectedReturn(null);
+    setPhase("hub");
+  }
+
+  function handleDockReturn(row: ReturnRequestRow, tracking: string) {
+    setSelectedReturn(row);
+    setDockTracking(tracking);
+    setPhase("return-receive");
+  }
+
+  function handleDockWalkIn(tracking: string) {
+    setDockTracking(tracking);
+    setSelectedReturn(null);
+    setPhase("hub");
+  }
+
+  function backToDockIntake() {
+    setSelectedReturn(null);
+    setPhase("dock-intake");
   }
 
   function backFromForm() {
@@ -209,12 +252,40 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
           <TabsTrigger value="correct">Correct receive</TabsTrigger>
         </TabsList>
         <TabsContent value="receive" className="mt-4 space-y-4">
-          {phase === "hub" ? (
+          {phase === "dock-intake" ? (
+            <WarehouseOpsDockIntake
+              warehouse={warehouse}
+              clients={clients}
+              onInbound={handleDockInbound}
+              onReturn={handleDockReturn}
+              onWalkIn={handleDockWalkIn}
+              onSkip={() => setPhase("hub")}
+            />
+          ) : phase === "return-receive" && selectedReturn ? (
+            <WarehouseOpsReturnReceive
+              warehouse={warehouse}
+              returnRow={selectedReturn}
+              tracking={dockTracking}
+              onBack={backToDockIntake}
+              onDone={backToDockIntake}
+            />
+          ) : phase === "hub" ? (
             <>
-              <p className="text-sm text-muted-foreground">
-                Choose how this inbound is handled at the dock. Cross-dock stays closed until
-                putaway; open receiving is counted and entered here.
-              </p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">
+                  Choose how this inbound is handled at the dock. Cross-dock stays closed until
+                  putaway; open receiving is counted and entered here.
+                </p>
+                <Button variant="ghost" size="sm" onClick={backToDockIntake}>
+                  <ScanLine className="h-4 w-4 mr-1" />
+                  Dock scan
+                </Button>
+              </div>
+              {dockTracking ? (
+                <p className="text-xs font-mono text-muted-foreground">
+                  Tracking: {dockTracking}
+                </p>
+              ) : null}
               <TypePickerCard
                 color="indigo"
                 icon={<ArrowRightLeft className="h-8 w-8" />}

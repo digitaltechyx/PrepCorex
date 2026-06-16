@@ -160,6 +160,14 @@ service cloud.firestore {
       allow delete: if isAdminOrSubAdmin();
     }
 
+    // Ops floor staff: read/update client return requests for dock intake + QC
+    match /users/{userId}/productReturns/{returnId} {
+      allow read: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
+      allow create: if isSelf(userId);
+      allow update: if isAdminOrSubAdmin() || isWarehouseOperator() || isSelf(userId);
+      allow delete: if isAdminOrSubAdmin();
+    }
+
     match /users/{userId}/shipmentRequests/{requestId} {
       allow read: if isSelf(userId) || isAdminOrSubAdmin();
       allow create: if isSelf(userId);

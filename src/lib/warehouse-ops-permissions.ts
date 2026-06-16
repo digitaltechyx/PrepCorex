@@ -11,6 +11,11 @@ export const OPS_FEATURES_CONFIG: { value: UserFeature; label: string; descripti
   { value: "ops_pack", label: "Pack", description: "Verify picked stock and mark ready to dispatch" },
   { value: "ops_count", label: "Cycle count", description: "Spot / ABC inventory counts" },
   {
+    value: "ops_returns",
+    label: "Return QC",
+    description: "Inspect quarantine returns — restock, damaged, or dispose",
+  },
+  {
     value: "ops_supervisor",
     label: "Supervisor overrides",
     description: "Void/edit receives after putaway; undo restricted batches",
@@ -21,7 +26,7 @@ export const OPS_FEATURE_PRESETS: { id: string; label: string; features: UserFea
   {
     id: "receiver",
     label: "Receiver",
-    features: ["ops_dashboard", "ops_receive", "ops_view_expected_inbound"],
+    features: ["ops_dashboard", "ops_receive", "ops_view_expected_inbound", "ops_returns"],
   },
   {
     id: "putaway",
@@ -50,6 +55,7 @@ export const OPS_FEATURE_PRESETS: { id: string; label: string; features: UserFea
       "ops_pick",
       "ops_pack",
       "ops_count",
+      "ops_returns",
       "ops_supervisor",
     ],
   },
@@ -62,6 +68,7 @@ const OPS_MENU_FEATURES: UserFeature[] = [
   "ops_pick",
   "ops_pack",
   "ops_count",
+  "ops_returns",
 ];
 
 export function hasWarehouseOpsAccess(userProfile: UserProfile | null | undefined): boolean {
@@ -148,6 +155,12 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       href: "/warehouse-ops/cycle-count",
       feature: "ops_count",
       description: "Scan bin → verify cartons → count qty",
+    },
+    {
+      title: "Return QC",
+      href: "/warehouse-ops/return-qc",
+      feature: "ops_returns",
+      description: "Quarantine returns — restock, damaged, or dispose",
     },
   ];
   return items.filter((item) => hasFeature(userProfile, item.feature));

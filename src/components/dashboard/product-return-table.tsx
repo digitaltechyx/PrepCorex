@@ -15,7 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Eye, Clock, CheckCircle, XCircle, Package, Truck } from "lucide-react";
+import { Search, Eye, Clock, CheckCircle, XCircle, Package, Truck, Plus } from "lucide-react";
 import { format } from "date-fns";
 import {
   Dialog,
@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AddReturnTrackingDialog } from "@/components/inventory/add-return-tracking-dialog";
 
 function formatDate(date: ProductReturn["createdAt"]) {
   if (!date) return "N/A";
@@ -70,6 +71,7 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
   const setStatusFilter = onStatusFilterChange ?? setInternalStatusFilter;
   const [selectedReturn, setSelectedReturn] = useState<ProductReturn | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [trackingDialogOpen, setTrackingDialogOpen] = useState(false);
 
   const { data: returns, loading } = useCollection<ProductReturn>(
     userProfile ? `users/${userProfile.uid}/productReturns` : ""
@@ -327,6 +329,47 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                   </div>
                 </div>
 
+                {/* Return tracking for dock match */}
+                {(selectedReturn.status === "approved" || selectedReturn.status === "in_progress") && (
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="text-sm font-medium">Return shipment tracking</div>
+                      {userProfile ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setTrackingDialogOpen(true)}
+                        >
+                          <Plus className="h-3.5 w-3.5 mr-1" />
+                          Add tracking
+                        </Button>
+                      ) : null}
+                    </div>
+                    {(selectedReturn.returnTrackings ?? []).length > 0 ? (
+                      <div className="space-y-2">
+                        {selectedReturn.returnTrackings!.map((t) => (
+                          <div
+                            key={t.id}
+                            className="flex items-center justify-between rounded-md border px-3 py-2 text-sm font-mono"
+                          >
+                            <span>{t.trackingNumber}</span>
+                            {t.carrier ? (
+                              <span className="text-xs text-muted-foreground uppercase">
+                                {t.carrier}
+                              </span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Add carrier tracking so warehouse can match your parcel at the dock.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* User Remarks */}
                 {selectedReturn.userRemarks && (
                   <div>
@@ -540,6 +583,18 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
           )}
         </DialogContent>
       </Dialog>
+
+      {selectedReturn && userProfile ? (
+        <AddReturnTrackingDialog
+          open={trackingDialogOpen}
+          onOpenChange={setTrackingDialogOpen}
+          userId={userProfile.uid}
+          returnId={selectedReturn.id}
+          productName={
+            selectedReturn.productName || selectedReturn.newProductName || "Product return"
+          }
+        />
+      ) : null}
     </div>
   );
 }
