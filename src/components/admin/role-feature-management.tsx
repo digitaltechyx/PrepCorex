@@ -27,6 +27,7 @@ import type { UserProfile, UserRole, UserFeature, WarehouseDoc } from "@/types";
 import { OPS_FEATURES_CONFIG, OPS_FEATURE_PRESETS } from "@/lib/warehouse-ops-permissions";
 import { getUserRoles, getDefaultFeaturesForRole } from "@/lib/permissions";
 import { generateUniqueReferralCode } from "@/lib/commission-utils";
+import { generateClientId } from "@/lib/client-id";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { normalizeUserLocationIds } from "@/lib/user-locations";
 import {
@@ -311,6 +312,9 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
           merged.add(defaultWarehouseId);
         }
         updateData.locations = Array.from(merged);
+        if (!user.clientId?.trim()) {
+          updateData.clientId = await generateClientId();
+        }
       }
 
       await updateDoc(doc(db, "users", user.uid), updateData);
@@ -367,6 +371,9 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
         assignedUserIds: [],
         locations: Array.from(locationSet),
       };
+      if (!user.clientId?.trim()) {
+        updateData.clientId = await generateClientId();
+      }
       await updateDoc(doc(db, "users", user.uid), updateData);
       setSelectedRoles(["user"]);
       setSelectedFeatures(defaultFeatures);
