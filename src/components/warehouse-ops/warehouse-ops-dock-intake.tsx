@@ -200,7 +200,7 @@ export function WarehouseOpsDockIntake({
         <OpenListCard
           title="Open inbound (no scan)"
           icon={<Package className="h-4 w-4" />}
-          empty="No open inbound requests."
+          empty="No open inbound requests awaiting dock receive."
           rows={inboundOpen.slice(0, 8)}
           renderRow={(row) => (
             <button

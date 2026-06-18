@@ -13,6 +13,25 @@ export type InboundRequestRow = InventoryRequest & {
   remainingQty: number;
 };
 
+function requestKey(clientUserId: string, requestId: string): string {
+  return `${clientUserId}:${requestId}`;
+}
+
+/** Requests already fulfilled when admin approved and added client inventory (legacy path). */
+async function loadAdminFulfilledRequestKeys(clientUserIds: string[]): Promise<Set<string>> {
+  const keys = new Set<string>();
+  await Promise.all(
+    clientUserIds.map(async (uid) => {
+      const snap = await getDocs(collection(db, "users", uid, "inventory"));
+      for (const d of snap.docs) {
+        const sourceRequestId = (d.data() as { sourceRequestId?: string }).sourceRequestId?.trim();
+        if (sourceRequestId) keys.add(requestKey(uid, sourceRequestId));
+      }
+    })
+  );
+  return keys;
+}
+
 function userIdFromDocPath(path: string): string {
   const parts = path.split("/");
   const idx = parts.indexOf("users");
@@ -105,6 +124,7 @@ export async function loadInboundRequestQueue(input: {
   }
 
   const cartonMap = await cartonQtyByInventoryRequestId(warehouse.id);
+  const adminFulfilledKeys = await loadAdminFulfilledRequestKeys(Array.from(eligibleClientIds));
 
   const rows: InboundRequestRow[] = [];
   for (const d of docs) {
@@ -117,6 +137,16 @@ export async function loadInboundRequestQueue(input: {
     const expectedQty = expectedQuantity({ ...data, id: d.id });
     const cartonReceivedQty = cartonMap.get(d.id) ?? 0;
     const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
+
+    // Admin approve already added stock to client inventory — not awaiting dock receive
+    // unless warehouse has started receiving against this request (cartons linked).
+    if (
+      data.status === "approved" &&
+      adminFulfilledKeys.has(requestKey(clientUserId, d.id)) &&
+      cartonReceivedQty === 0
+    ) {
+      continue;
+    }
 
     rows.push({
       ...data,
