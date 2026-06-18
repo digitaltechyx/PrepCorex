@@ -574,6 +574,8 @@ export async function createReceiveBatch(input: {
       expiry?: string | null;
       /** When true, this line is recorded as damaged → quarantine candidate. */
       damaged?: boolean;
+      inventoryRequestId?: string | null;
+      clientId?: string | null;
     }>;
     trackingNumber?: string | null;
     carrier?: string | null;
@@ -582,6 +584,8 @@ export async function createReceiveBatch(input: {
     /** Cross-dock closed receive: assign client at dock (optional). */
     clientId?: string | null;
     clientDisplayName?: string | null;
+    /** Link received stock to client inventory request (dock receive against request). */
+    inventoryRequestId?: string | null;
   }>;
 }): Promise<{ palletId: string | null; cartonIds: string[] }> {
   if (!input.cartons || input.cartons.length === 0) {
@@ -619,18 +623,22 @@ export async function createReceiveBatch(input: {
     for (let copy = 0; copy < copies; copy++) {
       const crossdockLot = useClosedCrossdock ? generateCrossdockReceiveLot() : null;
       const cfgClientId = cfg.clientId?.trim() || null;
+      const cfgRequestId = cfg.inventoryRequestId?.trim() || null;
       const lines: WarehouseCartonLine[] = useClosedCrossdock
         ? [
             buildClosedCrossdockLine({
               lot: crossdockLot,
               clientId: cfgClientId,
               clientDisplayName: cfg.clientDisplayName ?? null,
+              inventoryRequestId: cfgRequestId,
             }),
           ]
         : validLines.map((l, i) => {
         const sku = l.sku.trim();
         const expiry = l.expiry?.trim().slice(0, 10) || null;
         const lot = resolveReceiveLot({ sku, expiry, lot: l.lot });
+        const lineRequestId = l.inventoryRequestId?.trim() || cfgRequestId || null;
+        const lineClientId = l.clientId?.trim() || cfgClientId || null;
         return {
         lineId: `L${i + 1}`,
         sku,
@@ -640,11 +648,30 @@ export async function createReceiveBatch(input: {
         expiry,
         condition: l.damaged ? "damaged" : "good",
         binId: null,
-        allocationStatus: "unallocated",
-        clientId: cfgClientId,
-        inventoryRequestId: null,
+        allocationStatus: lineRequestId || lineClientId ? "allocated" : "unallocated",
+        clientId: lineClientId,
+        inventoryRequestId: lineRequestId,
       };
       });
+
+      const distinctLineClients = new Set(
+        lines.map((l) => l.clientId?.trim()).filter(Boolean) as string[]
+      );
+      const distinctLineRequests = new Set(
+        lines.map((l) => l.inventoryRequestId?.trim()).filter(Boolean) as string[]
+      );
+      const rootClientId =
+        distinctLineClients.size === 1
+          ? [...distinctLineClients][0]
+          : distinctLineClients.size === 0
+            ? cfgClientId
+            : null;
+      const rootRequestId =
+        distinctLineRequests.size === 1
+          ? [...distinctLineRequests][0]
+          : distinctLineRequests.size === 0
+            ? cfgRequestId
+            : null;
 
       const totalQty = lines.reduce((s, l) => s + l.quantity, 0);
       const isMixed = useClosedCrossdock
@@ -672,8 +699,9 @@ export async function createReceiveBatch(input: {
         productTitle: rootTitle,
         status: "received",
         palletId,
-        clientId: cfgClientId,
+        clientId: rootClientId,
         receivedForClient: cfg.clientDisplayName?.trim() || null,
+        inventoryRequestId: rootRequestId,
         lines,
         isMixed,
         isLoose: input.isLoose ?? false,

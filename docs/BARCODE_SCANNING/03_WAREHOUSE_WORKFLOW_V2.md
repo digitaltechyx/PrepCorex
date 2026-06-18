@@ -154,15 +154,16 @@ Stock is decremented at step 7 from the exact carton (which knows its `sku`, `lo
 1. Returned package arrives at the **same receiving dock** as inbound freight.
 2. Worker scans the **carrier tracking number** (not a PrepCorex label — returns rarely have one).
 3. System checks **inbound requests first**, then **open RMAs** (`returnTrackings` on the product return, or legacy shipment tracking on the request).
-4. **Inbound match** → continue normal receive (cross-dock or open).
+4. **Inbound match** → continue receive with client + product prefilled; worker scans SKU and qty; carton lines stamp `inventoryRequestId` (no admin allocate needed for normal inbound).
 5. **Return match** → receive return flow: enter SKU + qty, print CTN label, carton goes to **returns staging** with status `quarantine` (not pickable).
 6. **No match** → walk-in receive (unallocated) or pick from open inbound/return lists without a scan.
-7. Client can add **return tracking numbers** on approved RMAs so dock staff can match parcels.
-8. **Return QC** screen lists quarantine return cartons. Inspector chooses:
+7. Client can add **inbound tracking numbers** on inventory requests so dock staff can match parcels.
+8. Client can add **return tracking numbers** on approved RMAs so dock staff can match parcels.
+9. **Return QC** screen lists quarantine return cartons. Inspector chooses:
    - **Restock** → scan storage bin → carton becomes `available`.
    - **Damaged** → `damaged` status, damaged staging area.
    - **Dispose** → `closed`, removed from active stock.
-9. Movement log records receive, QC, and bin assignment with user + timestamp.
+10. Movement log records receive, QC, and bin assignment with user + timestamp.
 
 ---
 

@@ -34,8 +34,10 @@ export function buildClosedCrossdockLine(input?: {
   lot?: string | null;
   clientId?: string | null;
   clientDisplayName?: string | null;
+  inventoryRequestId?: string | null;
 }): WarehouseCartonLine {
   const clientId = input?.clientId?.trim() || null;
+  const inventoryRequestId = input?.inventoryRequestId?.trim() || null;
   return {
     lineId: "L1",
     sku: CROSSDOCK_CLOSED_SKU,
@@ -45,8 +47,8 @@ export function buildClosedCrossdockLine(input?: {
     expiry: null,
     condition: "good",
     binId: null,
-    allocationStatus: clientId ? "allocated" : "unallocated",
+    allocationStatus: clientId || inventoryRequestId ? "allocated" : "unallocated",
     clientId,
-    inventoryRequestId: null,
+    inventoryRequestId,
   };
 }
