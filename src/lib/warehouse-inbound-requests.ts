@@ -1,5 +1,6 @@
 import { collection, collectionGroup, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { isActiveWarehouseCarton } from "@/lib/warehouse-carton-states";
 import { listWarehouseCartons } from "@/lib/warehouse-carton-firestore";
 import type { InventoryRequest, UserProfile, WarehouseDoc } from "@/types";
 
@@ -14,7 +15,7 @@ export type InboundRequestRow = InventoryRequest & {
 };
 
 /** Requests already fulfilled when admin approved and added client inventory (legacy path). */
-async function loadClientInventoryByUser(
+export async function loadClientInventoryByUser(
   clientUserIds: string[]
 ): Promise<Map<string, Array<Record<string, unknown>>>> {
   const map = new Map<string, Array<Record<string, unknown>>>();
@@ -23,14 +24,14 @@ async function loadClientInventoryByUser(
       const snap = await getDocs(collection(db, "users", uid, "inventory"));
       map.set(
         uid,
-        snap.docs.map((d) => d.data() as Record<string, unknown>)
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
       );
     })
   );
   return map;
 }
 
-function isAdminLegacyFulfilled(input: {
+export function isLegacyAdminFulfilledInboundRequest(input: {
   clientUserId: string;
   requestId: string;
   req: Omit<InventoryRequest, "id">;
@@ -129,6 +130,7 @@ export async function cartonQtyByInventoryRequestId(
   const cartons = await listWarehouseCartons(warehouseId);
   const map = new Map<string, number>();
   for (const c of cartons) {
+    if (!isActiveWarehouseCarton(c)) continue;
     if (Array.isArray(c.lines) && c.lines.length > 0) {
       for (const l of c.lines) {
         const rid = (l.inventoryRequestId ?? "").trim();
@@ -198,7 +200,7 @@ export async function loadInboundRequestQueue(input: {
     const cartonReceivedQty = cartonMap.get(d.id) ?? 0;
     const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
 
-    const legacyFulfilled = isAdminLegacyFulfilled({
+    const legacyFulfilled = isLegacyAdminFulfilledInboundRequest({
       clientUserId,
       requestId: d.id,
       req: data,

@@ -10,10 +10,22 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { isActiveWarehouseCarton } from "@/lib/warehouse-carton-states";
 import {
   listWarehouseCartons,
   warehouseCartonDocRef,
 } from "@/lib/warehouse-carton-firestore";
+import { isCrossdockClosedSku } from "@/lib/warehouse-crossdock";
+import {
+  loadClientInventoryByUser,
+  isLegacyAdminFulfilledInboundRequest,
+} from "@/lib/warehouse-inbound-requests";
+import {
+  describeProductLineLocation,
+  locationKindMatchesStage,
+  matchesProductSearchQuery,
+  type ProductLocationKind,
+} from "@/lib/warehouse-product-location";
 import type {
   InventoryRequest,
   UserProfile,
@@ -21,12 +33,6 @@ import type {
   WarehouseCartonLine,
   WarehouseDoc,
 } from "@/types";
-import {
-  describeProductLineLocation,
-  locationKindMatchesStage,
-  matchesProductSearchQuery,
-  type ProductLocationKind,
-} from "@/lib/warehouse-product-location";
 
 const WAREHOUSES = "warehouses";
 
@@ -130,7 +136,7 @@ export async function loadAllocateData(
   const unallocatedLines: UnallocatedLine[] = [];
 
   for (const c of cartons) {
-    if (c.status === "closed") continue;
+    if (!isActiveWarehouseCarton(c)) continue;
     const lines = c.lines && c.lines.length > 0
       ? c.lines
       : [
@@ -180,10 +186,42 @@ export async function loadAllocateData(
   return { unallocatedLines, allCartons: cartons, binPathById: binPath };
 }
 
+function unallocatedLineMatchesRequest(
+  req: OpenInventoryRequest,
+  line: UnallocatedLine
+): boolean {
+  const clientId = req.clientUserId;
+  const lineClient = line.line.clientId ?? line.cartonClientId;
+  if (lineClient && lineClient !== clientId) return false;
+  if (isCrossdockClosedSku(line.line.sku)) return false;
+
+  const reqSku = (req.sku ?? "").trim().toUpperCase();
+  const lineSku = line.line.sku.trim().toUpperCase();
+  if (reqSku) return lineSku === reqSku;
+
+  const reqName = (req.productName ?? "").trim().toUpperCase();
+  if (!reqName) return false;
+  const lineTitle = (line.line.productTitle ?? "").trim().toUpperCase();
+  return lineTitle.includes(reqName) || reqName.includes(lineTitle);
+}
+
+function restockTargetStillInCatalog(input: {
+  clientUserId: string;
+  productId?: string | null;
+  inventoryByUser: Map<string, Array<Record<string, unknown>>>;
+}): boolean {
+  const pid = input.productId?.trim();
+  if (!pid) return true;
+  const inv = input.inventoryByUser.get(input.clientUserId) ?? [];
+  return inv.some((row) => String(row.id ?? "") === pid);
+}
+
 /** Load all open inventory requests across all clients tied to this warehouse. */
 export async function loadOpenRequests(input: {
   warehouse: WarehouseDoc;
   clients: UserProfile[];
+  /** When set, only list requests that have stock to allocate or are already partially allocated. */
+  unallocatedLines?: UnallocatedLine[];
 }): Promise<OpenInventoryRequest[]> {
   const { warehouse, clients } = input;
   const clientById = new Map(clients.map((c) => [c.uid, c]));
@@ -196,12 +234,13 @@ export async function loadOpenRequests(input: {
     data: () => Omit<InventoryRequest, "id">;
     ref: { path: string };
   };
+  const statuses = ["approved"];
   let docs: RequestDoc[] = [];
   try {
     const snap = await getDocs(
       query(
         collectionGroup(db, "inventoryRequests"),
-        where("status", "in", ["pending", "approved"])
+        where("status", "in", statuses)
       )
     );
     docs = snap.docs as unknown as RequestDoc[];
@@ -212,7 +251,7 @@ export async function loadOpenRequests(input: {
         getDocs(
           query(
             collection(db, `users/${uid}/inventoryRequests`),
-            where("status", "in", ["pending", "approved"])
+            where("status", "in", statuses)
           )
         )
       )
@@ -220,13 +259,16 @@ export async function loadOpenRequests(input: {
     docs = perUserSnaps.flatMap((s) => s.docs as unknown as RequestDoc[]);
   }
 
-  // Aggregate allocations from cartons
+  const inventoryByUser = await loadClientInventoryByUser(Array.from(eligibleClientIds));
+
+  // Aggregate allocations from active cartons only (voided/closed excluded).
   const cartons = await listWarehouseCartons(warehouse.id);
   const allocByReq = new Map<
     string,
     Array<{ cartonId: string; cartonCode: string; lineId: string; sku: string; quantity: number }>
   >();
   for (const c of cartons) {
+    if (!isActiveWarehouseCarton(c)) continue;
     const lines = c.lines ?? [];
     for (const l of lines) {
       if (l.allocationStatus === "allocated" && l.inventoryRequestId) {
@@ -247,13 +289,33 @@ export async function loadOpenRequests(input: {
   for (const d of docs) {
     const data = d.data() as Omit<InventoryRequest, "id">;
     if (data.inventoryType && data.inventoryType !== "product") continue;
+    if (data.status !== "approved") continue;
+    if (data.fulfillmentStatus === "closed") continue;
     const clientUserId = userIdFromDocPath(d.ref.path);
     if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;
+
+    const legacyFulfilled = isLegacyAdminFulfilledInboundRequest({
+      clientUserId,
+      requestId: d.id,
+      req: data,
+      inventoryByUser,
+    });
+    if (legacyFulfilled) continue;
+    if (
+      !restockTargetStillInCatalog({
+        clientUserId,
+        productId: data.productId,
+        inventoryByUser,
+      })
+    ) {
+      continue;
+    }
 
     const expectedQty = expectedQuantity({ ...data, id: d.id });
     const allocations = allocByReq.get(d.id) ?? [];
     const allocatedQty = allocations.reduce((s, a) => s + a.quantity, 0);
     const remainingQty = Math.max(0, expectedQty - allocatedQty);
+    if (remainingQty <= 0) continue;
 
     rows.push({
       ...data,
@@ -268,18 +330,18 @@ export async function loadOpenRequests(input: {
     });
   }
 
-  rows.sort((a, b) => {
-    if (a.remainingQty > 0 !== b.remainingQty > 0) {
-      return a.remainingQty > 0 ? -1 : 1;
-    }
-    if (a.status !== b.status) {
-      if (a.status === "pending") return -1;
-      if (b.status === "pending") return 1;
-    }
+  const unallocated = input.unallocatedLines ?? [];
+  const actionable = rows.filter(
+    (r) =>
+      r.allocatedQty > 0 ||
+      unallocated.some((line) => unallocatedLineMatchesRequest(r, line))
+  );
+
+  actionable.sort((a, b) => {
     return a.clientDisplayName.localeCompare(b.clientDisplayName);
   });
 
-  return rows;
+  return actionable;
 }
 
 /**
@@ -465,7 +527,7 @@ export async function searchInventory(
   const locationStage = filters.locationStage ?? "all";
 
   for (const c of cartons) {
-    if (c.status === "closed") continue;
+    if (!isActiveWarehouseCarton(c)) continue;
     if (ccQ && !c.cartonCode.toUpperCase().includes(ccQ)) continue;
     const receivedAt = dateFromTs(c.receivedAt) ?? dateFromTs(c.createdAt);
     const lines = c.lines && c.lines.length > 0

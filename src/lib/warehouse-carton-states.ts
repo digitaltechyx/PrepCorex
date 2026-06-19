@@ -1,4 +1,4 @@
-import type { WarehouseCartonStatus } from "@/types";
+import type { WarehouseCartonDoc, WarehouseCartonStatus } from "@/types";
 
 /** Whether pickers may allocate this carton (FEFO etc. applied elsewhere). */
 export function isCartonPickable(status: WarehouseCartonStatus): boolean {
@@ -51,6 +51,19 @@ export function assertCartonStatusTransition(
   if (!canTransitionCartonStatus(from, to)) {
     throw new Error(`Cannot change carton status from "${from}" to "${to}".`);
   }
+}
+
+/** Cartons that should appear in ops queues (allocate, locate, dock qty). */
+export function isActiveWarehouseCartonStatus(status: WarehouseCartonStatus): boolean {
+  return status !== "voided" && status !== "closed";
+}
+
+/** Doc-level check (status + voidedAt stamp from void receive). */
+export function isActiveWarehouseCarton(
+  carton: Pick<WarehouseCartonDoc, "status" | "voidedAt">
+): boolean {
+  if (carton.voidedAt) return false;
+  return isActiveWarehouseCartonStatus(carton.status);
 }
 
 /** True when expiry date (YYYY-MM-DD) is strictly before today (local). */

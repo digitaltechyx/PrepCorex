@@ -105,10 +105,12 @@ export function WarehouseAllocate({ warehouse }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [data, reqs] = await Promise.all([
-        loadAllocateData(warehouse),
-        loadOpenRequests({ warehouse, clients }),
-      ]);
+      const data = await loadAllocateData(warehouse);
+      const reqs = await loadOpenRequests({
+        warehouse,
+        clients,
+        unallocatedLines: data.unallocatedLines,
+      });
       setUnallocated(data.unallocatedLines);
       setRequests(reqs);
       setSelectedRequest((prev) =>
