@@ -88,14 +88,18 @@ export function getAssignedWarehouseIds(userProfile: UserProfile | null | undefi
   return ids.map((id) => String(id).trim()).filter(Boolean);
 }
 
-/** Warehouses this user may select in ops UI (admin: all active). */
+/** Warehouses this user may select in ops UI (admin/sub_admin: all active). */
 export function filterWarehousesForOpsUser(
   userProfile: UserProfile | null | undefined,
   warehouses: WarehouseDoc[]
 ): WarehouseDoc[] {
   const active = warehouses.filter((w) => w.active !== false);
-  if (!userProfile || hasRole(userProfile, "admin")) return active;
+  if (!userProfile) return [];
+  if (hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin")) return active;
+
   const allowed = new Set(getAssignedWarehouseIds(userProfile));
+  // Supervisors without an explicit list can work any active warehouse (e.g. admin testing floor).
+  if (allowed.size === 0 && isOpsSupervisor(userProfile)) return active;
   if (allowed.size === 0) return [];
   return active.filter((w) => allowed.has(w.id));
 }

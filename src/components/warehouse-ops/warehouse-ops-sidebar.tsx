@@ -2,98 +2,173 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Package, Home, LogOut, Shield } from "lucide-react";
+import {
+  Archive,
+  Box,
+  ClipboardList,
+  Home,
+  Move,
+  Package,
+  PackagePlus,
+  RotateCcw,
+  Search,
+  ShoppingCart,
+  Truck,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
-import { auth } from "@/lib/firebase";
-import { signOut } from "firebase/auth";
-import { useRouter } from "next/navigation";
 import { getOpsNavItems, isOpsSupervisor } from "@/lib/warehouse-ops-permissions";
-import { hasRole } from "@/lib/permissions";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from "@/components/ui/sidebar";
+import { Shield } from "lucide-react";
+
+const NAV_ICONS: Record<string, LucideIcon> = {
+  "/warehouse-ops": Home,
+  "/warehouse-ops/locate": Search,
+  "/warehouse-ops/receiving": PackagePlus,
+  "/warehouse-ops/putaway": Archive,
+  "/warehouse-ops/move": Move,
+  "/warehouse-ops/pick": ShoppingCart,
+  "/warehouse-ops/pack": Box,
+  "/warehouse-ops/dispatch": Truck,
+  "/warehouse-ops/cycle-count": ClipboardList,
+  "/warehouse-ops/return-qc": RotateCcw,
+};
+
+type NavGroup = "overview" | "inbound" | "floor" | "outbound" | "quality";
+
+const NAV_GROUP: Record<string, NavGroup> = {
+  "/warehouse-ops": "overview",
+  "/warehouse-ops/locate": "overview",
+  "/warehouse-ops/receiving": "inbound",
+  "/warehouse-ops/putaway": "inbound",
+  "/warehouse-ops/move": "floor",
+  "/warehouse-ops/pick": "outbound",
+  "/warehouse-ops/pack": "outbound",
+  "/warehouse-ops/dispatch": "outbound",
+  "/warehouse-ops/cycle-count": "quality",
+  "/warehouse-ops/return-qc": "quality",
+};
+
+const GROUP_ORDER: NavGroup[] = ["overview", "inbound", "floor", "outbound", "quality"];
+
+const GROUP_LABELS: Record<NavGroup, string> = {
+  overview: "Overview",
+  inbound: "Inbound",
+  floor: "Floor",
+  outbound: "Outbound",
+  quality: "Quality",
+};
 
 export function WarehouseOpsSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const { userProfile } = useAuth();
+  const { setOpenMobile, isMobile } = useSidebar();
   const navItems = getOpsNavItems(userProfile);
+  const supervisor = isOpsSupervisor(userProfile);
+
+  const grouped = GROUP_ORDER.map((group) => ({
+    group,
+    label: GROUP_LABELS[group],
+    items: navItems.filter((item) => NAV_GROUP[item.href] === group),
+  })).filter((g) => g.items.length > 0);
 
   return (
-    <aside className="flex w-full sm:w-56 flex-col border-r bg-gradient-to-b from-orange-50/80 to-background dark:from-orange-950/20 shrink-0">
-      <div className="p-4 border-b">
-        <div className="flex items-center gap-2">
-          <Package className="h-6 w-6 text-orange-600" />
-          <div>
-            <p className="font-semibold text-sm">Warehouse Ops</p>
-            <p className="text-xs text-muted-foreground">PrepCorex floor</p>
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-orange-200/40 dark:border-orange-900/30"
+    >
+      <SidebarHeader className="border-b border-orange-200/30 dark:border-orange-900/20 p-3">
+        <Link
+          href="/warehouse-ops"
+          className="flex items-center gap-2 rounded-lg px-1 py-0.5"
+          onClick={() => isMobile && setOpenMobile(false)}
+        >
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-sm">
+            <Package className="h-5 w-5" />
           </div>
-        </div>
-        {isOpsSupervisor(userProfile) ? (
-          <Badge variant="secondary" className="mt-2 text-xs gap-1">
+          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+            <p className="truncate text-sm font-bold leading-tight">Warehouse Ops</p>
+            <p className="truncate text-[11px] text-muted-foreground">PrepCorex floor</p>
+          </div>
+        </Link>
+        {supervisor ? (
+          <Badge
+            variant="secondary"
+            className="mt-2 w-fit gap-1 text-[10px] group-data-[collapsible=icon]:hidden"
+          >
             <Shield className="h-3 w-3" />
             Supervisor
           </Badge>
         ) : null}
-      </div>
-      <nav className="flex-1 p-2 space-y-1">
-        {navItems.map((item) => {
-          const active =
-            item.href === "/warehouse-ops"
-              ? pathname === "/warehouse-ops"
-              : pathname?.startsWith(item.href);
-          const content = (
-            <span
-              className={cn(
-                "flex flex-col rounded-lg px-3 py-2.5 text-sm transition-colors",
-                active
-                  ? "bg-orange-600 text-white"
-                  : "text-foreground hover:bg-muted",
-                item.disabled && "opacity-50 pointer-events-none"
-              )}
-            >
-              <span className="font-medium">{item.title}</span>
-              {item.description ? (
-                <span
-                  className={cn(
-                    "text-xs mt-0.5",
-                    active ? "text-orange-100" : "text-muted-foreground"
-                  )}
-                >
-                  {item.description}
-                </span>
-              ) : null}
-            </span>
-          );
-          if (item.disabled) {
-            return <div key={item.href}>{content}</div>;
-          }
-          return (
-            <Link key={item.href} href={item.href}>
-              {content}
-            </Link>
-          );
-        })}
-      </nav>
-      <div className="p-3 border-t space-y-2">
-        {hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin") ? (
-          <Button variant="outline" size="sm" className="w-full" asChild>
-            <Link href="/admin/dashboard">Admin dashboard</Link>
-          </Button>
-        ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start text-muted-foreground"
-          onClick={async () => {
-            await signOut(auth);
-            router.replace("/login");
-          }}
-        >
-          <LogOut className="h-4 w-4 mr-2" />
-          Sign out
-        </Button>
-      </div>
-    </aside>
+      </SidebarHeader>
+
+      <SidebarContent className="gap-0 py-2">
+        {grouped.map(({ group, label, items }) => (
+          <SidebarGroup key={group}>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider text-muted-foreground/80">
+              {label}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {items.map((item) => {
+                  const Icon = NAV_ICONS[item.href] ?? Package;
+                  const active =
+                    item.href === "/warehouse-ops"
+                      ? pathname === "/warehouse-ops"
+                      : pathname?.startsWith(item.href);
+                  return (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton
+                        asChild={!item.disabled}
+                        isActive={active}
+                        disabled={item.disabled}
+                        tooltip={item.title}
+                        className={cn(
+                          active &&
+                            "bg-orange-600 text-white hover:bg-orange-600 hover:text-white data-[active=true]:bg-orange-600"
+                        )}
+                      >
+                        {item.disabled ? (
+                          <span className="flex items-center gap-2 opacity-50">
+                            <Icon className="h-4 w-4 shrink-0" />
+                            <span className="truncate">{item.title}</span>
+                          </span>
+                        ) : (
+                          <Link
+                            href={item.href}
+                            onClick={() => isMobile && setOpenMobile(false)}
+                          >
+                            <Icon className="h-4 w-4 shrink-0" />
+                            <span className="truncate">{item.title}</span>
+                          </Link>
+                        )}
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
+      </SidebarContent>
+
+      <SidebarFooter className="border-t border-orange-200/30 p-2 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+        Scan-first · Mobile ready
+      </SidebarFooter>
+    </Sidebar>
   );
 }
