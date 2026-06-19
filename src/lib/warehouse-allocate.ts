@@ -21,6 +21,12 @@ import type {
   WarehouseCartonLine,
   WarehouseDoc,
 } from "@/types";
+import {
+  describeProductLineLocation,
+  locationKindMatchesStage,
+  matchesProductSearchQuery,
+  type ProductLocationKind,
+} from "@/lib/warehouse-product-location";
 
 const WAREHOUSES = "warehouses";
 
@@ -411,6 +417,8 @@ export function agingBucket(days: number | null): AgingBucket {
 }
 
 export type InventorySearchFilters = {
+  /** Matches SKU, product title, carton code, bin path, or location label. */
+  query?: string;
   sku?: string;
   clientId?: string;
   cartonCode?: string;
@@ -418,6 +426,7 @@ export type InventorySearchFilters = {
   binPath?: string;
   condition?: "good" | "damaged" | "all";
   status?: "unallocated" | "allocated" | "picked" | "any";
+  locationStage?: "all" | "receiving" | "bin" | "area" | "picked" | "quarantine" | "pack";
 };
 
 export type InventorySearchRow = {
@@ -427,7 +436,11 @@ export type InventorySearchRow = {
   cartonStatus: WarehouseCartonDoc["status"];
   palletId: string | null;
   line: WarehouseCartonLine;
+  productTitle: string | null;
   binPath: string | null;
+  stagingArea: string | null;
+  locationLabel: string;
+  locationKind: ProductLocationKind;
   receivedAt: Date | null;
   ageDays: number | null;
 };
@@ -442,12 +455,14 @@ export async function searchInventory(
   const out: InventorySearchRow[] = [];
 
   const skuQ = filters.sku?.trim().toUpperCase();
+  const queryQ = filters.query?.trim() ?? "";
   const ccQ = filters.cartonCode?.trim().toUpperCase();
   const reqQ = filters.inventoryRequestId?.trim();
   const cliQ = filters.clientId?.trim();
   const binQ = filters.binPath?.trim().toUpperCase();
   const cond = filters.condition ?? "all";
   const status = filters.status ?? "any";
+  const locationStage = filters.locationStage ?? "all";
 
   for (const c of cartons) {
     if (c.status === "closed") continue;
@@ -480,7 +495,33 @@ export async function searchInventory(
         if (lineStatus !== status) continue;
       }
       const binP = l.binId ? binPath.get(l.binId) ?? null : null;
-      if (binQ && (binP ?? "").toUpperCase().indexOf(binQ) < 0) continue;
+      const loc = describeProductLineLocation({ line: l, carton: c, binPath: binP });
+
+      if (binQ) {
+        const binHay = [binP ?? "", loc.stagingArea ?? "", loc.label]
+          .join(" ")
+          .toUpperCase();
+        if (!binHay.includes(binQ)) continue;
+      }
+
+      if (!locationKindMatchesStage(loc.kind, locationStage)) continue;
+
+      const productTitle = l.productTitle?.trim() || c.productTitle?.trim() || null;
+
+      if (
+        queryQ &&
+        !matchesProductSearchQuery({
+          query: queryQ,
+          sku: l.sku,
+          productTitle,
+          cartonCode: c.cartonCode,
+          binPath: binP,
+          locationLabel: loc.label,
+        })
+      ) {
+        continue;
+      }
+
       out.push({
         warehouseId: warehouse.id,
         cartonId: c.id,
@@ -488,7 +529,11 @@ export async function searchInventory(
         cartonStatus: c.status,
         palletId: c.palletId ?? null,
         line: l,
+        productTitle,
         binPath: binP,
+        stagingArea: loc.stagingArea,
+        locationLabel: loc.label,
+        locationKind: loc.kind,
         receivedAt,
         ageDays: ageInDays(receivedAt),
       });

@@ -116,6 +116,12 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       feature: "ops_dashboard",
     },
     {
+      title: "Find product",
+      href: "/warehouse-ops/locate",
+      feature: "ops_dashboard",
+      description: "Where SKU lives — bin, area, pick, pack",
+    },
+    {
       title: "Receiving",
       href: "/warehouse-ops/receiving",
       feature: "ops_receive",

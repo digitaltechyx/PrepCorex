@@ -229,7 +229,7 @@ export function WarehouseInventorySearch({ warehouse }: Props) {
                       <TableCell className="text-xs tabular-nums">{r.line.quantity}</TableCell>
                       <TableCell className="font-mono text-xs">{r.cartonCode}</TableCell>
                       <TableCell className="font-mono text-xs">
-                        {r.binPath ?? (
+                        {r.locationLabel ?? r.binPath ?? (
                           <span className="text-orange-700">staging</span>
                         )}
                       </TableCell>
