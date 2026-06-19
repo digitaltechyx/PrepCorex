@@ -24,6 +24,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { uploadReceivePhotos } from "@/lib/inbound-receive-photos";
 import type { WarehouseDoc, WarehouseCartonDoc } from "@/types";
 import {
   createCrossdockPalletReceive,
@@ -568,6 +569,8 @@ function ReceiveForm({
     initialSnapshot?.carrierAutoDetected ?? false
   );
   const [notes, setNotes] = useState(initialSnapshot?.notes ?? "");
+  const [receivePhotoFiles, setReceivePhotoFiles] = useState<File[]>([]);
+  const [receivePhotoPreviews, setReceivePhotoPreviews] = useState<string[]>([]);
   const [shipmentClientId, setShipmentClientId] = useState(
     initialSnapshot?.shipmentClientId ?? ""
   );
@@ -606,7 +609,7 @@ function ReceiveForm({
     const rows = await loadInboundRequestQueue({
       warehouse,
       clients: clientsForReload,
-      includePending: true,
+      dockQueue: true,
     });
     setInboundQueue(rows);
     return rows;
@@ -877,6 +880,9 @@ function ReceiveForm({
   }
 
   function resetForm() {
+    receivePhotoPreviews.forEach((u) => URL.revokeObjectURL(u));
+    setReceivePhotoFiles([]);
+    setReceivePhotoPreviews([]);
     setTrackingNumber(dockTracking?.trim() || "");
     setCarrier("");
     setNotes("");
@@ -1072,6 +1078,15 @@ function ReceiveForm({
 
     setSaving(true);
     try {
+      const receivePhotoUrls =
+        receivePhotoFiles.length > 0
+          ? await uploadReceivePhotos({
+              warehouseId: warehouse.id,
+              files: receivePhotoFiles,
+              uploadedBy: operatorId,
+            })
+          : [];
+
       const payloadCartons = cartons.map((c) => {
         const copies = showCopies ? Math.max(1, parseInt(c.copies, 10) || 1) : 1;
         const flatLines: Array<{
@@ -1148,6 +1163,8 @@ function ReceiveForm({
           trackingNumber: !useShipmentOnPallet ? trackingNumber.trim() || null : null,
           carrier: !useShipmentOnPallet ? carrier || null : null,
           notes: !useShipmentOnPallet ? notes.trim() || null : null,
+          photoUrls: receivePhotoUrls.length > 0 ? receivePhotoUrls : undefined,
+          photoUrl: receivePhotoUrls[0] ?? null,
         })),
       });
 
@@ -1474,6 +1491,33 @@ function ReceiveForm({
                 rows={2}
                 placeholder='e.g. "Outer box crushed, contents OK"'
               />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Photos (optional, multiple)</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                multiple
+                className="text-xs"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  setReceivePhotoFiles(files);
+                  receivePhotoPreviews.forEach((u) => URL.revokeObjectURL(u));
+                  setReceivePhotoPreviews(files.map((f) => URL.createObjectURL(f)));
+                }}
+              />
+              {receivePhotoPreviews.length > 0 ? (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {receivePhotoPreviews.map((src, i) => (
+                    <img
+                      key={src}
+                      src={src}
+                      alt={`Receive photo ${i + 1}`}
+                      className="h-16 w-16 rounded border object-cover"
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
           </CardContent>
         </Card>

@@ -38,7 +38,7 @@ export async function reloadInboundRequestRow(input: {
   const rows = await loadInboundRequestQueue({
     warehouse: input.warehouse,
     clients: input.clients,
-    includePending: true,
+    dockQueue: true,
   });
   return (
     rows.find((r) => r.id === input.requestId && r.clientUserId === input.clientUserId) ?? null

@@ -13,23 +13,80 @@ export type InboundRequestRow = InventoryRequest & {
   remainingQty: number;
 };
 
-function requestKey(clientUserId: string, requestId: string): string {
-  return `${clientUserId}:${requestId}`;
-}
-
 /** Requests already fulfilled when admin approved and added client inventory (legacy path). */
-async function loadAdminFulfilledRequestKeys(clientUserIds: string[]): Promise<Set<string>> {
-  const keys = new Set<string>();
+async function loadClientInventoryByUser(
+  clientUserIds: string[]
+): Promise<Map<string, Array<Record<string, unknown>>>> {
+  const map = new Map<string, Array<Record<string, unknown>>>();
   await Promise.all(
     clientUserIds.map(async (uid) => {
       const snap = await getDocs(collection(db, "users", uid, "inventory"));
-      for (const d of snap.docs) {
-        const sourceRequestId = (d.data() as { sourceRequestId?: string }).sourceRequestId?.trim();
-        if (sourceRequestId) keys.add(requestKey(uid, sourceRequestId));
-      }
+      map.set(
+        uid,
+        snap.docs.map((d) => d.data() as Record<string, unknown>)
+      );
     })
   );
-  return keys;
+  return map;
+}
+
+function isAdminLegacyFulfilled(input: {
+  clientUserId: string;
+  requestId: string;
+  req: Omit<InventoryRequest, "id">;
+  inventoryByUser: Map<string, Array<Record<string, unknown>>>;
+}): boolean {
+  const { clientUserId, requestId, req, inventoryByUser } = input;
+  const inventory = inventoryByUser.get(clientUserId) ?? [];
+
+  if (req.status !== "approved") return false;
+
+  // Warehouse inbound v2: approved product requests stay open until putaway syncs stock.
+  if (req.fulfillmentStatus === "open") return false;
+
+  if (
+    inventory.some(
+      (inv) => String(inv.sourceRequestId ?? "").trim() === requestId
+    )
+  ) {
+    return true;
+  }
+
+  const reqSku = (req.sku ?? "").trim().toLowerCase();
+  const reqName = (req.productName ?? "").trim().toLowerCase();
+  const expected = expectedQuantity({ ...req, id: requestId });
+
+  return inventory.some((inv) => {
+    const status = String(inv.status ?? "").toLowerCase();
+    if (status === "out of stock" || status === "rejected") return false;
+    const qty = typeof inv.quantity === "number" ? inv.quantity : 0;
+    if (qty <= 0) return false;
+
+    const invSku = String(inv.sku ?? inv.SKU ?? "")
+      .trim()
+      .toLowerCase();
+    if (reqSku && invSku && reqSku === invSku) return true;
+
+    const invName = String(inv.productName ?? "")
+      .trim()
+      .toLowerCase();
+    if (reqName && invName && reqName === invName && qty >= expected) {
+      return true;
+    }
+    return false;
+  });
+}
+
+/** Warehouse dock should only show requests that need physical receive (not admin-notifications queue). */
+function isAwaitingDockReceive(row: InboundRequestRow, legacyFulfilled: boolean): boolean {
+  if (row.remainingQty <= 0) return false;
+  // Pending → admin notifications only; not dock receive yet.
+  if (row.status === "pending") return false;
+  if (row.status !== "approved") return false;
+  if (legacyFulfilled) return false;
+  const hasTracking = (row.inboundTrackings ?? []).length > 0;
+  const warehouseStarted = row.cartonReceivedQty > 0;
+  return hasTracking || warehouseStarted;
 }
 
 function userIdFromDocPath(path: string): string {
@@ -91,8 +148,11 @@ export async function loadInboundRequestQueue(input: {
   warehouse: WarehouseDoc;
   clients: UserProfile[];
   includePending?: boolean;
+  /** Dock intake: approved + tracking (or receive started), excludes legacy admin-fulfilled stock. */
+  dockQueue?: boolean;
 }): Promise<InboundRequestRow[]> {
-  const { warehouse, clients, includePending = true } = input;
+  const { warehouse, clients, dockQueue = false } = input;
+  const includePending = dockQueue ? false : (input.includePending ?? true);
   const clientById = new Map(clients.map((c) => [c.uid, c]));
   const eligibleClientIds = new Set(
     clients.filter((c) => clientMatchesWarehouse(c, warehouse)).map((c) => c.uid)
@@ -124,7 +184,7 @@ export async function loadInboundRequestQueue(input: {
   }
 
   const cartonMap = await cartonQtyByInventoryRequestId(warehouse.id);
-  const adminFulfilledKeys = await loadAdminFulfilledRequestKeys(Array.from(eligibleClientIds));
+  const inventoryByUser = await loadClientInventoryByUser(Array.from(eligibleClientIds));
 
   const rows: InboundRequestRow[] = [];
   for (const d of docs) {
@@ -138,17 +198,14 @@ export async function loadInboundRequestQueue(input: {
     const cartonReceivedQty = cartonMap.get(d.id) ?? 0;
     const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
 
-    // Admin approve already added stock to client inventory — not awaiting dock receive
-    // unless warehouse has started receiving against this request (cartons linked).
-    if (
-      data.status === "approved" &&
-      adminFulfilledKeys.has(requestKey(clientUserId, d.id)) &&
-      cartonReceivedQty === 0
-    ) {
-      continue;
-    }
+    const legacyFulfilled = isAdminLegacyFulfilled({
+      clientUserId,
+      requestId: d.id,
+      req: data,
+      inventoryByUser,
+    });
 
-    rows.push({
+    const row: InboundRequestRow = {
       ...data,
       id: d.id,
       userId: clientUserId,
@@ -157,7 +214,25 @@ export async function loadInboundRequestQueue(input: {
       expectedQty,
       cartonReceivedQty,
       remainingQty,
-    });
+    };
+
+    if (dockQueue && !isAwaitingDockReceive(row, legacyFulfilled)) {
+      continue;
+    }
+
+    if (dockQueue && data.fulfillmentStatus === "closed") {
+      continue;
+    }
+
+    if (data.status === "approved" && legacyFulfilled && cartonReceivedQty === 0) {
+      continue;
+    }
+
+    if (data.fulfillmentStatus === "closed" && cartonReceivedQty === 0) {
+      continue;
+    }
+
+    rows.push(row);
   }
 
   return rows.sort((a, b) => {

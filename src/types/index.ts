@@ -204,6 +204,8 @@ export interface WarehouseCartonDoc {
   notes?: string | null;
   /** Uploaded photo of damage / packaging issue. */
   photoUrl?: string | null;
+  /** Multiple dock photos (damage, packaging, etc.). */
+  photoUrls?: string[];
   /** UID of operator who clicked Receive. */
   receivedBy?: string | null;
   /** Receiving staging area code (e.g. RCV-STAGE-A). */
@@ -419,7 +421,10 @@ export interface UserProfile {
 export interface InventoryItem {
   id: string;
   productName: string;
+  /** Sellable good units (updated on warehouse putaway — Option B). */
   quantity: number;
+  /** Non-sellable damaged units currently at warehouse (quarantine / hold). */
+  damagedQuantity?: number;
   dateAdded: {
     seconds: number;
     nanoseconds: number;
@@ -506,6 +511,44 @@ export interface InventoryRequest {
   imageUrls?: string[];
   /** Carrier tracking numbers client adds while inbound is pending or in transit to warehouse. */
   inboundTrackings?: InboundTrackingEntry[];
+  /** Warehouse inbound v2: open until fully received or manually closed. */
+  fulfillmentStatus?: "open" | "closed";
+  /** Good units put away to warehouse (client sellable stock source). */
+  warehouseGoodReceivedQty?: number;
+  /** Damaged units put away to quarantine / hold. */
+  warehouseDamagedReceivedQty?: number;
+  closedAt?: { seconds: number; nanoseconds: number } | string;
+  closedBy?: string;
+  closeReason?: string;
+}
+
+/** Per putaway session — good/damaged split with photos (users/{uid}/inboundReceiveLogs). */
+export interface InboundReceiveLog {
+  id: string;
+  inventoryId?: string | null;
+  inventoryRequestId?: string | null;
+  productName: string;
+  sku?: string | null;
+  eventType: "initial" | "restock";
+  goodQty: number;
+  damagedQty: number;
+  goodQtyBefore?: number | null;
+  goodQtyAfter?: number | null;
+  damagedQtyBefore?: number | null;
+  damagedQtyAfter?: number | null;
+  remarks?: string | null;
+  photoUrls?: string[];
+  warehouseId?: string | null;
+  cartonId?: string | null;
+  cartonCode?: string | null;
+  lineId?: string | null;
+  binPath?: string | null;
+  stagingArea?: string | null;
+  operatorId?: string | null;
+  operatorName?: string | null;
+  putawayAt?: { seconds: number; nanoseconds: number } | string | Date;
+  /** Idempotency key — `${warehouseId}_${cartonId}_${lineId}_${dest}`. */
+  syncKey?: string | null;
 }
 
 /** Inbound shipment tracking (client → warehouse). Status refreshed every 6 hours via Shippo. */

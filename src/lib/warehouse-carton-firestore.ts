@@ -337,6 +337,7 @@ export async function createWarehouseCarton(input: {
   carrier?: string | null;
   notes?: string | null;
   photoUrl?: string | null;
+  photoUrls?: string[];
   receivedBy?: string | null;
   stagingArea?: string | null;
 }): Promise<string> {
@@ -396,6 +397,7 @@ export async function createWarehouseCarton(input: {
     ...(input.carrier !== undefined ? { carrier: input.carrier?.trim() || null } : {}),
     ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
     ...(input.photoUrl !== undefined ? { photoUrl: input.photoUrl?.trim() || null } : {}),
+    ...(input.photoUrls && input.photoUrls.length > 0 ? { photoUrls: input.photoUrls } : {}),
     ...(input.receivedBy !== undefined ? { receivedBy: input.receivedBy?.trim() || null } : {}),
     ...(input.stagingArea !== undefined ? { stagingArea: input.stagingArea?.trim() || null } : {}),
     ...(status === "received" ? { receivedAt: serverTimestamp() } : {}),
@@ -581,6 +583,7 @@ export async function createReceiveBatch(input: {
     carrier?: string | null;
     notes?: string | null;
     photoUrl?: string | null;
+    photoUrls?: string[];
     /** Cross-dock closed receive: assign client at dock (optional). */
     clientId?: string | null;
     clientDisplayName?: string | null;
@@ -711,7 +714,8 @@ export async function createReceiveBatch(input: {
         trackingNumber: cfg.trackingNumber ?? input.pallet?.trackingNumber ?? null,
         carrier: cfg.carrier ?? input.pallet?.carrier ?? null,
         notes: cfg.notes ?? null,
-        photoUrl: cfg.photoUrl ?? null,
+        photoUrl: cfg.photoUrl ?? cfg.photoUrls?.[0] ?? null,
+        photoUrls: cfg.photoUrls,
         receivedBy: input.receivedBy ?? null,
         stagingArea: input.stagingArea ?? null,
       });

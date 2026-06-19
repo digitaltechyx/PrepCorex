@@ -73,6 +73,7 @@ import { Archive, Boxes, Check, Clock, Eye, Filter, Loader2, Package, Search, Tr
 import { Skeleton } from "@/components/ui/skeleton";
 import imageCompression from "browser-image-compression";
 import { formatInboundQuantityDisplay, getRequestedQuantity } from "@/lib/inventory-qty-display";
+import { closeInventoryRequest } from "@/lib/client-inventory-inbound-sync";
 
 function formatDate(date: InventoryRequest["addDate"] | InventoryRequest["requestedAt"] | InventoryRequest["receivingDate"]) {
   if (!date) return "N/A";
@@ -338,11 +339,19 @@ export function InventoryRequestsManagement({
         if (request.inventoryType === "product" && editedSku && editedSku.trim()) {
           requestUpdateData.sku = finalSku;
         }
+
+        const warehouseInboundV2 = request.inventoryType === "product";
+        if (warehouseInboundV2) {
+          requestUpdateData.fulfillmentStatus = "open";
+          requestUpdateData.warehouseGoodReceivedQty = 0;
+          requestUpdateData.warehouseDamagedReceivedQty = 0;
+        }
         
         // Update request status (single update with all changes)
         transaction.update(requestRef, requestUpdateData);
         
-        // Handle inventory update/create
+        // Handle inventory update/create (legacy: box/pallet/container; products use warehouse putaway)
+        if (!warehouseInboundV2) {
         if (isRestock && existingProductDoc && existingProductDoc.exists()) {
           // For restock: Update existing inventory item
           const existingData = existingProductDoc.data();
@@ -400,6 +409,7 @@ export function InventoryRequestsManagement({
           const newInventoryDocRef = doc(inventoryRef);
           createdInventoryDocId = newInventoryDocRef.id;
           transaction.set(newInventoryDocRef, finalData);
+        }
         }
       });
 
@@ -521,6 +531,8 @@ export function InventoryRequestsManagement({
         message:
           request.inventoryType === "container"
             ? "Your container handling request has been approved."
+            : request.inventoryType === "product"
+            ? "Your inventory request has been approved. Stock will appear after warehouse receiving and putaway."
             : "Your inventory request has been approved and added to inventory.",
         isRead: false,
         targetUrl: "/dashboard/inventory",
@@ -533,9 +545,13 @@ export function InventoryRequestsManagement({
       toast({
         title: "Success",
         description: isRestock 
-          ? "Restock request approved. Quantity added to existing product."
+          ? request.inventoryType === "product"
+            ? "Restock request approved. Stock will update after warehouse putaway."
+            : "Restock request approved. Quantity added to existing product."
           : request.inventoryType === "container"
           ? "Container handling request approved and invoice generated."
+          : request.inventoryType === "product"
+          ? "Product request approved. Awaiting warehouse receive."
           : "Inventory request approved and added to inventory.",
       });
       setSelectedRequest(null);
@@ -544,6 +560,35 @@ export function InventoryRequestsManagement({
         variant: "destructive",
         title: "Error",
         description: error.message || "Failed to approve inventory request.",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCloseInbound = async (request: InventoryRequest) => {
+    if (!selectedUser || !adminProfile) return;
+    const reason =
+      window.prompt(
+        "Close this inbound request? Optional reason (e.g. short ship, client cancelled remainder):"
+      ) ?? "";
+    setIsProcessing(true);
+    try {
+      await closeInventoryRequest({
+        clientUserId: selectedUser.uid,
+        requestId: request.id,
+        closedBy: adminProfile.uid,
+        closeReason: reason.trim() || "Closed by admin",
+      });
+      toast({
+        title: "Request closed",
+        description: "Inbound request marked closed. Dock queue will no longer show it.",
+      });
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to close request.",
       });
     } finally {
       setIsProcessing(false);
@@ -793,17 +838,32 @@ export function InventoryRequestsManagement({
                             Review
                           </Button>
                         ) : (
-                          <span className="text-muted-foreground text-sm">
-                            {request.status === "approved"
-                              ? `Approved ${request.approvedAt ? formatDate(request.approvedAt) : ""}`
-                              : request.status === "cancelled"
-                              ? `Cancelled ${(request as any).cancelledAt ? formatDate((request as any).cancelledAt) : ""}${
-                                  (request as any).cancellationReason
-                                    ? ` — ${(request as any).cancellationReason}`
-                                    : ""
-                                }`
-                              : `Rejected ${request.rejectedAt ? formatDate(request.rejectedAt) : ""}`}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-muted-foreground text-sm">
+                              {request.status === "approved"
+                                ? `Approved ${request.approvedAt ? formatDate(request.approvedAt) : ""}`
+                                : request.status === "cancelled"
+                                ? `Cancelled ${(request as any).cancelledAt ? formatDate((request as any).cancelledAt) : ""}${
+                                    (request as any).cancellationReason
+                                      ? ` — ${(request as any).cancellationReason}`
+                                      : ""
+                                  }`
+                                : `Rejected ${request.rejectedAt ? formatDate(request.rejectedAt) : ""}`}
+                            </span>
+                            {request.status === "approved" &&
+                            request.inventoryType === "product" &&
+                            (request as any).fulfillmentStatus !== "closed" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                disabled={isProcessing}
+                                onClick={() => void handleCloseInbound(request)}
+                              >
+                                Close inbound
+                              </Button>
+                            ) : null}
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>

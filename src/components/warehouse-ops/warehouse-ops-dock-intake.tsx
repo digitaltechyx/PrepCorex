@@ -52,7 +52,7 @@ export function WarehouseOpsDockIntake({
 
   const loadLists = useCallback(async () => {
     const [inbound, returns] = await Promise.all([
-      loadInboundRequestQueue({ warehouse, clients, includePending: true }),
+      loadInboundRequestQueue({ warehouse, clients, dockQueue: true }),
       loadReturnRequestQueue({ warehouse, clients }),
     ]);
     setInboundOpen(inbound.filter((r) => r.remainingQty > 0));

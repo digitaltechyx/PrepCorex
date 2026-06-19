@@ -2,6 +2,7 @@ import { format } from "date-fns";
 import type {
   DeleteLog,
   EditLog,
+  InboundReceiveLog,
   InventoryItem,
   InventoryRequest,
   InventoryTransfer,
@@ -436,4 +437,26 @@ export function downloadInventoryHistoryCsv(
   a.download = `inventory-history-${slug || "product"}-${format(new Date(), "yyyy-MM-dd")}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Inbound putaway logs linked to this inventory row (SKU, request, or id). */
+export function inboundReceiveLogsForItem(
+  item: InventoryItem,
+  logs: InboundReceiveLog[]
+): InboundReceiveLog[] {
+  const sourceRequestId = (item as InventoryItem & { sourceRequestId?: string }).sourceRequestId;
+  return logs
+    .filter((log) => {
+      if (log.inventoryId === item.id) return true;
+      if (sourceRequestId && log.inventoryRequestId === sourceRequestId) return true;
+      if (skusMatch(item, log.sku)) return true;
+      return namesMatch(item, log.productName);
+    })
+    .sort((a, b) => toTimestamp(b.putawayAt) - toTimestamp(a.putawayAt));
+}
+
+export function formatInboundLogDate(log: InboundReceiveLog): string {
+  const ts = toTimestamp(log.putawayAt);
+  if (!ts) return "—";
+  return format(new Date(ts), "MMM d, yyyy · h:mm a");
 }

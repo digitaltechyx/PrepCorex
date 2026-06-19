@@ -221,7 +221,7 @@ export async function scanDockIntake(input: {
     loadInboundRequestQueue({
       warehouse: input.warehouse,
       clients: input.clients,
-      includePending: true,
+      dockQueue: true,
     }),
     findReturnsByTracking(input.warehouse, input.clients, tracking),
   ]);

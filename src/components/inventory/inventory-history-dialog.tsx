@@ -26,13 +26,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Download, History, Search, X } from "lucide-react";
+import { Loader2, Download, History, Search, X, Package, Truck, AlertTriangle } from "lucide-react";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { endOfDay, startOfDay } from "date-fns";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCollection } from "@/hooks/use-collection";
 import type {
   DeleteLog,
   EditLog,
+  InboundReceiveLog,
   InventoryItem,
   InventoryRequest,
   RecycledInventoryItem,
@@ -43,7 +45,9 @@ import {
   buildInventoryHistory,
   downloadInventoryHistoryCsv,
   formatChangeCell,
+  formatInboundLogDate,
   formatQtyCell,
+  inboundReceiveLogsForItem,
   type InventoryHistoryEventType,
   type InventoryHistoryRow,
 } from "@/lib/inventory-history";
@@ -152,6 +156,7 @@ export function InventoryHistoryDialog({
   const [fromDate, setFromDate] = useState<Date | undefined>();
   const [toDate, setToDate] = useState<Date | undefined>();
   const [changeFilter, setChangeFilter] = useState("all");
+  const [activeTab, setActiveTab] = useState("overview");
 
   useEffect(() => {
     if (open) {
@@ -160,6 +165,7 @@ export function InventoryHistoryDialog({
       setFromDate(undefined);
       setToDate(undefined);
       setChangeFilter("all");
+      setActiveTab("overview");
     }
   }, [open, item?.id]);
 
@@ -175,8 +181,11 @@ export function InventoryHistoryDialog({
   const { data: recycledInventory, loading: l6 } = useCollection<RecycledInventoryItem>(
     path ? `${path}/recycledInventory` : ""
   );
+  const { data: inboundReceiveLogs, loading: l7 } = useCollection<InboundReceiveLog>(
+    path ? `${path}/inboundReceiveLogs` : ""
+  );
 
-  const loading = l1 || l2 || l3 || l4 || l5 || l6;
+  const loading = l1 || l2 || l3 || l4 || l5 || l6 || l7;
 
   const rows = useMemo(() => {
     if (!item) return [] as InventoryHistoryRow[];
@@ -201,6 +210,18 @@ export function InventoryHistoryDialog({
   );
 
   const displayRows = useMemo(() => [...filteredRows].reverse(), [filteredRows]);
+
+  const outboundRows = useMemo(
+    () => displayRows.filter((r) => r.eventType === "shipped"),
+    [displayRows]
+  );
+
+  const inboundLogs = useMemo(() => {
+    if (!item) return [] as InboundReceiveLog[];
+    return inboundReceiveLogsForItem(item, inboundReceiveLogs);
+  }, [item, inboundReceiveLogs]);
+
+  const damagedOnHand = Math.max(0, Number((item as InventoryItem & { damagedQuantity?: number })?.damagedQuantity ?? 0));
 
   const hasActiveFilters =
     search.trim() !== "" ||
@@ -257,7 +278,12 @@ export function InventoryHistoryDialog({
             </Button>
             {item ? (
               <Badge variant="secondary" className="text-xs">
-                Current qty: {item.quantity}
+                In stock: {item.quantity}
+              </Badge>
+            ) : null}
+            {item && damagedOnHand > 0 ? (
+              <Badge variant="outline" className="text-xs border-amber-300 text-amber-900">
+                Damaged on hand: {damagedOnHand}
               </Badge>
             ) : null}
             {!loading && rows.length > 0 ? (
@@ -268,7 +294,27 @@ export function InventoryHistoryDialog({
           </div>
         </DialogHeader>
 
-        {!loading && item && rows.length > 0 ? (
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
+          <TabsList className="mx-6 mt-2 shrink-0 w-fit">
+            <TabsTrigger value="overview" className="text-xs">
+              Overview
+            </TabsTrigger>
+            <TabsTrigger value="inbound" className="text-xs gap-1">
+              <Package className="h-3.5 w-3.5" />
+              Inbound &amp; damage
+              {inboundLogs.length > 0 ? (
+                <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
+                  {inboundLogs.length}
+                </Badge>
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="outbound" className="text-xs gap-1">
+              <Truck className="h-3.5 w-3.5" />
+              Outbound
+            </TabsTrigger>
+          </TabsList>
+
+        {!loading && item && rows.length > 0 && activeTab !== "inbound" ? (
           <div className="shrink-0 px-6 py-3 border-b bg-muted/40 space-y-3">
             <div className="relative flex-1 min-w-[200px] max-w-md">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -331,6 +377,7 @@ export function InventoryHistoryDialog({
         ) : null}
 
         <div className="flex-1 min-h-0 overflow-auto px-6 py-2">
+          <TabsContent value="overview" className="mt-0 h-full">
           {loading ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin mr-2" />
@@ -348,6 +395,101 @@ export function InventoryHistoryDialog({
               </Button>
             </div>
           ) : (
+            <HistoryTable rows={displayRows} />
+          )}
+          </TabsContent>
+
+          <TabsContent value="inbound" className="mt-0">
+            {loading ? (
+              <div className="flex items-center justify-center py-16 text-muted-foreground">
+                <Loader2 className="h-8 w-8 animate-spin mr-2" />
+                Loading inbound logs…
+              </div>
+            ) : inboundLogs.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">
+                No warehouse inbound / putaway sessions recorded yet. Stock appears here after
+                dock receive and putaway.
+              </p>
+            ) : (
+              <div className="space-y-3 pb-4">
+                {inboundLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="rounded-lg border bg-card p-4 space-y-2 text-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium">{formatInboundLogDate(log)}</span>
+                      <Badge variant="outline" className="text-[10px] capitalize">
+                        {log.eventType === "restock" ? "Restock" : "Initial inbound"}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-wrap gap-4 text-xs">
+                      <span className="text-emerald-700 font-medium">
+                        Good put away: +{log.goodQty}
+                        {log.goodQtyAfter != null ? ` → ${log.goodQtyAfter} in stock` : ""}
+                      </span>
+                      {log.damagedQty > 0 ? (
+                        <span className="text-amber-800 font-medium inline-flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Damaged: +{log.damagedQty}
+                          {log.damagedQtyAfter != null ? ` → ${log.damagedQtyAfter} on hand` : ""}
+                        </span>
+                      ) : null}
+                    </div>
+                    {log.remarks ? (
+                      <p className="text-xs text-muted-foreground">{log.remarks}</p>
+                    ) : null}
+                    {log.photoUrls && log.photoUrls.length > 0 ? (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {log.photoUrls.map((url) => (
+                          <a
+                            key={url}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block"
+                          >
+                            <img
+                              src={url}
+                              alt="Inbound"
+                              className="h-20 w-20 rounded border object-cover hover:opacity-90"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                    {log.binPath ? (
+                      <p className="text-[10px] text-muted-foreground">Bin: {log.binPath}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="outbound" className="mt-0">
+            {loading ? (
+              <div className="flex items-center justify-center py-16 text-muted-foreground">
+                <Loader2 className="h-8 w-8 animate-spin mr-2" />
+                Loading…
+              </div>
+            ) : outboundRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">
+                No outbound shipments recorded for this product.
+              </p>
+            ) : (
+              <HistoryTable rows={outboundRows} />
+            )}
+          </TabsContent>
+        </div>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function HistoryTable({ rows }: { rows: InventoryHistoryRow[] }) {
+  return (
             <Table containerClassName="overflow-visible">
               <TableHeader>
                 <TableRow className="hover:bg-transparent border-b-0">
@@ -363,7 +505,7 @@ export function InventoryHistoryDialog({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {displayRows.map((r) => (
+                {rows.map((r) => (
                   <TableRow key={`${r.seq}-${r.timestamp}-${r.event}`}>
                     <TableCell className="text-xs font-mono text-muted-foreground py-2">
                       {r.seq}
@@ -404,9 +546,5 @@ export function InventoryHistoryDialog({
                 ))}
               </TableBody>
             </Table>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }

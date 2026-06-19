@@ -149,7 +149,7 @@ service cloud.firestore {
     match /users/{userId}/inventoryRequests/{requestId} {
       allow read: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
       allow create: if isSelf(userId);
-      allow update: if isAdminOrSubAdmin() || (
+      allow update: if isAdminOrSubAdmin() || isWarehouseOperator() || (
         isSelf(userId) &&
         resource.data.status == 'pending' &&
         request.resource.data.status == 'cancelled' &&
@@ -158,6 +158,11 @@ service cloud.firestore {
         request.resource.data.cancellationReason.size() <= 500
       );
       allow delete: if isAdminOrSubAdmin();
+    }
+
+    match /users/{userId}/inboundReceiveLogs/{logId} {
+      allow read: if isSelf(userId) || isAdminOrSubAdmin();
+      allow create: if isAdminOrSubAdmin() || isWarehouseOperator();
     }
 
     // Ops floor staff: read/update client return requests for dock intake + QC
@@ -185,7 +190,8 @@ service cloud.firestore {
     // Ops floor staff: read client product catalog for UPC/SKU scan lookup at receiving
     match /users/{userId}/inventory/{itemId} {
       allow read: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
-      allow write: if isSelf(userId) || isAdminOrSubAdmin();
+      allow create, update: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
+      allow delete: if isSelf(userId) || isAdminOrSubAdmin();
     }
 
     // ---- ALL USER SUBCOLLECTIONS (inventory, invoices, requests, logs, pricing, etc.) ----

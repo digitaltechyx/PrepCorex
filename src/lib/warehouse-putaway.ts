@@ -30,6 +30,7 @@ import type {
   WarehouseCartonDoc,
   WarehouseCartonLine,
 } from "@/types";
+import { syncClientInventoryFromPutaway } from "@/lib/client-inventory-inbound-sync";
 
 const WAREHOUSES = "warehouses";
 
@@ -299,6 +300,14 @@ export async function applyPutawayAssignments(
   }
 
   await batch.commit();
+
+  await syncClientInventoryFromPutaway({
+    warehouseId,
+    cartonId,
+    carton,
+    applied,
+    operatorId: options?.operatorId ?? null,
+  });
 
   return {
     status: nextStatus as WarehouseCartonDoc["status"],
