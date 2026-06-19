@@ -55,6 +55,13 @@ import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { formatInboundQuantityDisplay } from "@/lib/inventory-qty-display";
 import {
+  formatInboundRequestRowQuantity,
+  inboundRequestDisplayStatus,
+  shouldShowApprovedInboundRequestRow,
+  expectedApprovedInboundQty,
+  type InboundTableDisplayStatus,
+} from "@/lib/inventory-inbound-display";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -67,11 +74,18 @@ function formatRowQuantity(item: {
   receivedQuantity?: number;
   isRequest?: boolean;
   status?: string;
-  requestData?: { quantity?: number; requestedQuantity?: number; receivedQuantity?: number; status?: string };
+  requestData?: InventoryRequest;
 }): string {
   if (!item.isRequest) {
     const q = Number(item.quantity);
     return String(Number.isFinite(q) ? q : 0);
+  }
+
+  if (
+    item.requestData &&
+    (item.status === "Awaiting Receiving" || item.status === "Receiving")
+  ) {
+    return formatInboundRequestRowQuantity(item.requestData);
   }
 
   const status =
@@ -91,6 +105,29 @@ function formatRowQuantity(item: {
     isRequest: status === "pending",
     status,
   });
+}
+
+function inventoryStatusBadge(status: string): { variant: "outline" | "secondary" | "destructive"; label: string } {
+  switch (status) {
+    case "Pending":
+      return { variant: "outline", label: "Pending Approval" };
+    case "Awaiting Receiving":
+      return { variant: "outline", label: "Awaiting Receiving" };
+    case "Receiving":
+      return { variant: "secondary", label: "Receiving" };
+    case "Rejected":
+      return { variant: "destructive", label: "Rejected" };
+    case "Cancelled":
+      return { variant: "secondary", label: "Cancelled" };
+    case "In Stock":
+      return { variant: "secondary", label: "In Stock" };
+    default:
+      return { variant: "destructive", label: status };
+  }
+}
+
+function isInboundPipelineStatus(status: string): boolean {
+  return status === "Pending" || status === "Awaiting Receiving" || status === "Receiving";
 }
 
 function formatDate(date: InventoryItem["dateAdded"]) {
@@ -475,6 +512,10 @@ export function InventoryTable({
   }, [user, effectiveUserId, toast]);
 
   const pendingCount = inventoryRequests.filter(req => req.status === "pending").length;
+  const awaitingReceivingCount = useMemo(
+    () => inventoryRequests.filter((req) => shouldShowApprovedInboundRequestRow(req, data)).length,
+    [inventoryRequests, data]
+  );
   const rejectedCount = inventoryRequests.filter(req => req.status === "rejected").length;
   const cancelledCount = inventoryRequests.filter(req => req.status === "cancelled").length;
   const outOfStockCount = data.filter((item) => item.status === "Out of Stock").length;
@@ -670,6 +711,35 @@ export function InventoryTable({
         remarksPhotoAt: getRemarksPhotoAt(req),
       }));
 
+    const awaitingInboundItems = approvedRequests
+      .filter((req) => shouldShowApprovedInboundRequestRow(req, data))
+      .map((req) => ({
+        id: `awaiting-${req.id}`,
+        productName: req.productName,
+        sku: (req as any).sku || "",
+        variantLabel: (req as any).variantLabel,
+        color: (req as any).color,
+        size: (req as any).size,
+        productEntryMode: (req as any).productEntryMode,
+        retailIdentifier: (req as any).retailIdentifier,
+        expiryDate: (req as any).expiryDate,
+        quantity: expectedApprovedInboundQty(req),
+        requestedQuantity: (req as any).requestedQuantity ?? req.quantity,
+        receivedQuantity: (req as any).receivedQuantity,
+        dateAdded: req.approvedAt ?? req.addDate,
+        receivingDate: req.receivingDate,
+        status: inboundRequestDisplayStatus(req) as InboundTableDisplayStatus,
+        inventoryType: req.inventoryType,
+        requestedBy: req.requestedBy,
+        remarks: req.remarks,
+        imageUrls: getImageUrls(req as any),
+        isRequest: true,
+        requestId: req.id,
+        requestData: req,
+        inboundTrackings: (req as InventoryRequest & { inboundTrackings?: InboundTrackingEntry[] }).inboundTrackings,
+        remarksPhotoAt: getRemarksPhotoAt(req),
+      }));
+
     // Convert approved inventory items - get remarks from inventory item OR approved request
     const inventoryItems = data.map(item => {
       // Try to find matching approved request to get remarks
@@ -721,7 +791,7 @@ export function InventoryTable({
 
     // Combine active inventory only — rejected/cancelled/OOS open in side panels via badges
     const activeInventoryItems = inventoryItems.filter((item) => item.status !== "Out of Stock");
-    return { combined: [...pendingItems, ...activeInventoryItems], outOfStockItems: inventoryItems.filter((item) => item.status === "Out of Stock") };
+    return { combined: [...pendingItems, ...awaitingInboundItems, ...activeInventoryItems], outOfStockItems: inventoryItems.filter((item) => item.status === "Out of Stock") };
   }, [data, inventoryRequests]);
 
   const combinedData = combinedInventory.combined;
@@ -760,7 +830,7 @@ export function InventoryTable({
       const row = item as { status: string; isRequest?: boolean; quantity?: number };
       const matchesStatus =
         statusFilter === "all" ||
-        (statusFilter === "Pending" && row.status === "Pending") ||
+        (statusFilter === "Pending" && isInboundPipelineStatus(row.status)) ||
         (statusFilter === "In Stock" && row.status === "In Stock") ||
         (statusFilter === LOW_STOCK_STATUS_VALUE && rowIsLowStock(row));
       return matchesSearch && matchesStatus;
@@ -797,6 +867,12 @@ export function InventoryTable({
                 <Badge variant="outline" className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
                   {pendingCount} Pending
+                </Badge>
+              )}
+              {awaitingReceivingCount > 0 && (
+                <Badge variant="outline" className="flex items-center gap-1 border-amber-300 text-amber-800 dark:text-amber-200">
+                  <PackageX className="h-3 w-3" />
+                  {awaitingReceivingCount} Awaiting receive
                 </Badge>
               )}
               {rejectedCount > 0 && (
@@ -1001,17 +1077,14 @@ export function InventoryTable({
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <Badge 
-                    variant={
-                      item.status === "Pending" ? "outline" :
-                      item.status === "Rejected" ? "destructive" :
-                      item.status === "Cancelled" ? "secondary" :
-                      item.status === "In Stock" ? "secondary" : "destructive"
-                    }
-                    className="text-[10px] px-2 py-1"
+                    variant={inventoryStatusBadge(item.status).variant}
+                    className={cn(
+                      "text-[10px] px-2 py-1",
+                      item.status === "Awaiting Receiving" &&
+                        "border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                    )}
                   >
-                    {item.status === "Pending" ? "Pending Approval" :
-                     item.status === "Rejected" ? "Rejected" :
-                     item.status === "Cancelled" ? "Cancelled" : item.status}
+                    {inventoryStatusBadge(item.status).label}
                   </Badge>
                   {item.status !== "Rejected" && item.status !== "Cancelled" && (
                     <InboundTrackingStatusCell
@@ -1249,17 +1322,14 @@ export function InventoryTable({
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                       <Badge 
-                        variant={
-                          item.status === "Pending" ? "outline" :
-                          item.status === "Rejected" ? "destructive" :
-                          item.status === "Cancelled" ? "secondary" :
-                          item.status === "In Stock" ? "secondary" : "destructive"
-                        }
-                        className="text-xs px-2 py-1"
+                        variant={inventoryStatusBadge(item.status).variant}
+                        className={cn(
+                          "text-xs px-2 py-1",
+                          item.status === "Awaiting Receiving" &&
+                            "border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                        )}
                       >
-                        {item.status === "Pending" ? "Pending Approval" :
-                         item.status === "Rejected" ? "Rejected" :
-                         item.status === "Cancelled" ? "Cancelled" : item.status}
+                        {inventoryStatusBadge(item.status).label}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-center whitespace-nowrap">
