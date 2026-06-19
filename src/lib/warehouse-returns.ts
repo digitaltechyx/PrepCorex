@@ -18,7 +18,12 @@ import {
   warehouseCartonDocRef,
 } from "@/lib/warehouse-carton-firestore";
 import { normalizeReturnTracking, parseReturnTrackings } from "@/lib/return-tracking-client";
-import { loadInboundRequestQueue, type InboundRequestRow } from "@/lib/warehouse-inbound-requests";
+import { normalizeReturnTracking } from "@/lib/return-tracking-client";
+import {
+  loadInboundRequestQueue,
+  inboundRequestMatchesTracking,
+  type InboundRequestRow,
+} from "@/lib/warehouse-inbound-requests";
 import {
   applyPutawayAssignmentsToLines,
   linesToFirestorePayload,
@@ -226,11 +231,7 @@ export async function scanDockIntake(input: {
     findReturnsByTracking(input.warehouse, input.clients, tracking),
   ]);
 
-  const needle = normalizeReturnTracking(tracking);
-  const inbound = inboundAll.filter((row) => {
-    const trackings = row.inboundTrackings ?? [];
-    return trackings.some((t) => normalizeReturnTracking(t.trackingNumber) === needle);
-  });
+  const inbound = inboundAll.filter((row) => inboundRequestMatchesTracking(row, tracking));
 
   return { tracking, inbound, returns: returnRows };
 }

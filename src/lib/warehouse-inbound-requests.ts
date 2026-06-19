@@ -2,6 +2,8 @@ import { collection, collectionGroup, getDocs, query, where } from "firebase/fir
 import { db } from "@/lib/firebase";
 import { isActiveWarehouseCarton } from "@/lib/warehouse-carton-states";
 import { listWarehouseCartons } from "@/lib/warehouse-carton-firestore";
+import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
+import { normalizeReturnTracking } from "@/lib/return-tracking-client";
 import type { InventoryRequest, UserProfile, WarehouseDoc } from "@/types";
 
 export type ReceivingScenario = "client_request" | "walk_in" | "mixed_pallet" | "damaged";
@@ -90,17 +92,20 @@ function isAwaitingDockReceive(row: InboundRequestRow, legacyFulfilled: boolean)
   return hasTracking || warehouseStarted;
 }
 
+export function inboundRequestMatchesTracking(
+  row: Pick<InventoryRequest, "inboundTrackings">,
+  trackingRaw: string
+): boolean {
+  const needle = normalizeReturnTracking(trackingRaw);
+  if (!needle) return false;
+  const trackings = row.inboundTrackings ?? [];
+  return trackings.some((t) => normalizeReturnTracking(t.trackingNumber) === needle);
+}
+
 function userIdFromDocPath(path: string): string {
   const parts = path.split("/");
   const idx = parts.indexOf("users");
   return idx >= 0 && parts[idx + 1] ? parts[idx + 1] : "";
-}
-
-function clientMatchesWarehouse(client: UserProfile, warehouse: WarehouseDoc): boolean {
-  const linked = String(warehouse.linkedLocationId ?? "").trim();
-  if (!linked) return true;
-  const locs = Array.isArray(client.locations) ? client.locations : [];
-  return locs.map(String).includes(linked);
 }
 
 function displayClient(client: UserProfile | undefined, userId: string): string {
