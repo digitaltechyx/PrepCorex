@@ -31,6 +31,8 @@ import type {
   OutboundPickOrder,
   WarehousePickStatus,
 } from "@/lib/warehouse-pick";
+import { orderLinesForRequests } from "@/lib/warehouse-outbound-lines";
+import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
 import type {
   UserProfile,
   WarehouseCartonDoc,
@@ -99,13 +101,6 @@ type PickMovementEvent = {
   lot: string | null;
   expiry: string | null;
 };
-
-function clientMatchesWarehouse(client: UserProfile, warehouse: WarehouseDoc): boolean {
-  const linked = String(warehouse.linkedLocationId ?? "").trim();
-  if (!linked) return true;
-  const locs = Array.isArray(client.locations) ? client.locations : [];
-  return locs.map(String).includes(linked);
-}
 
 function displayClient(client: UserProfile | undefined, userId: string): string {
   if (!client) return userId.slice(0, 8);
@@ -433,6 +428,49 @@ async function loadConfirmedOrders(input: {
   return out;
 }
 
+function fastPickableCheck(data: Record<string, unknown>): boolean | "lookup" {
+  const shipments = Array.isArray(data.shipments)
+    ? (data.shipments as Array<Record<string, unknown>>)
+    : [];
+  if (shipments.length === 0) return false;
+
+  let sawLine = false;
+  let needsLookup = false;
+  for (const shipment of shipments) {
+    const productId = String(shipment.productId ?? "").trim();
+    if (!productId) continue;
+    const qty = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
+    const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
+    if (qty * packOf < 1) continue;
+    sawLine = true;
+    const sku = String(shipment.sku ?? "").trim();
+    if (sku) return true;
+    needsLookup = true;
+  }
+  if (!sawLine) return false;
+  return needsLookup ? "lookup" : false;
+}
+
+function hasPickableLinesWithProductMap(
+  data: Record<string, unknown>,
+  products: Map<string, { sku: string; productName: string }>
+): boolean {
+  const shipments = Array.isArray(data.shipments)
+    ? (data.shipments as Array<Record<string, unknown>>)
+    : [];
+  for (const shipment of shipments) {
+    const productId = String(shipment.productId ?? "").trim();
+    if (!productId) continue;
+    const product = products.get(productId);
+    const sku = String(shipment.sku ?? product?.sku ?? "").trim();
+    if (!sku) continue;
+    const qty = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
+    const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
+    if (qty * packOf >= 1) return true;
+  }
+  return false;
+}
+
 async function requestHasPickableLines(
   clientUserId: string,
   data: Record<string, unknown>,
@@ -486,15 +524,39 @@ export async function countOutboundQueueStats(input: {
   clients: UserProfile[];
 }): Promise<OutboundQueueCounts> {
   const raw = await loadConfirmedOrders(input);
-  const productCache = new Map<string, Map<string, { sku: string; productName: string }>>();
+
+  const pickable: typeof raw = [];
+  const lookupByClient = new Map<string, typeof raw>();
+
+  for (const d of raw) {
+    const fast = fastPickableCheck(d.data);
+    if (fast === true) {
+      pickable.push(d);
+      continue;
+    }
+    if (fast !== "lookup") continue;
+    const list = lookupByClient.get(d.clientUserId) ?? [];
+    list.push(d);
+    lookupByClient.set(d.clientUserId, list);
+  }
+
+  if (lookupByClient.size > 0) {
+    const clientIds = [...lookupByClient.keys()];
+    const productMaps = await Promise.all(clientIds.map((uid) => loadClientProductMap(uid)));
+    for (let i = 0; i < clientIds.length; i += 1) {
+      const uid = clientIds[i]!;
+      const products = productMaps[i]!;
+      for (const d of lookupByClient.get(uid) ?? []) {
+        if (hasPickableLinesWithProductMap(d.data, products)) pickable.push(d);
+      }
+    }
+  }
 
   let pickQueue = 0;
   let packQueue = 0;
   let dispatchReady = 0;
 
-  for (const d of raw) {
-    if (!(await requestHasPickableLines(d.clientUserId, d.data, productCache))) continue;
-
+  for (const d of pickable) {
     const pickStatus = pickStatusFromRequest(d.data);
     const packStatus = packStatusFromRequest(d.data);
     const dispatchStatus = dispatchStatusFromRequest(d.data);
@@ -549,17 +611,24 @@ export async function loadOutboundPackQueue(input: {
 }): Promise<OutboundPackOrder[]> {
   const clientById = new Map(input.clients.map((c) => [c.uid, c]));
   const raw = await loadConfirmedOrders(input);
+  const pending = raw.filter(
+    (d) =>
+      pickStatusFromRequest(d.data) === "picked" &&
+      packStatusFromRequest(d.data) !== "ready_to_dispatch"
+  );
+
+  const lineSets = await orderLinesForRequests(
+    pending.map((d) => ({ clientUserId: d.clientUserId, data: d.data }))
+  );
+
   const orders: OutboundPackOrder[] = [];
-
-  for (const d of raw) {
-    if (pickStatusFromRequest(d.data) !== "picked") continue;
-    if (packStatusFromRequest(d.data) === "ready_to_dispatch") continue;
-
-    const lines = await orderLinesFromRequest(d.clientUserId, d.data);
-    if (lines.length === 0) continue;
-
-    orders.push(toOutboundPackOrder(d.id, d.clientUserId, d.data, clientById, lines, input.warehouse));
-  }
+  pending.forEach((d, index) => {
+    const lines = lineSets[index] ?? [];
+    if (lines.length === 0) return;
+    orders.push(
+      toOutboundPackOrder(d.id, d.clientUserId, d.data, clientById, lines, input.warehouse)
+    );
+  });
 
   orders.sort((a, b) => {
     const aFailed = a.qcFailedAt ? 1 : 0;
@@ -579,17 +648,24 @@ export async function loadDispatchQueue(input: {
 }): Promise<OutboundPackOrder[]> {
   const clientById = new Map(input.clients.map((c) => [c.uid, c]));
   const raw = await loadConfirmedOrders(input);
+  const pending = raw.filter(
+    (d) =>
+      packStatusFromRequest(d.data) === "ready_to_dispatch" &&
+      dispatchStatusFromRequest(d.data) !== "dispatched"
+  );
+
+  const lineSets = await orderLinesForRequests(
+    pending.map((d) => ({ clientUserId: d.clientUserId, data: d.data }))
+  );
+
   const orders: OutboundPackOrder[] = [];
-
-  for (const d of raw) {
-    if (packStatusFromRequest(d.data) !== "ready_to_dispatch") continue;
-    if (dispatchStatusFromRequest(d.data) === "dispatched") continue;
-
-    const lines = await orderLinesFromRequest(d.clientUserId, d.data);
-    if (lines.length === 0) continue;
-
-    orders.push(toOutboundPackOrder(d.id, d.clientUserId, d.data, clientById, lines, input.warehouse));
-  }
+  pending.forEach((d, index) => {
+    const lines = lineSets[index] ?? [];
+    if (lines.length === 0) return;
+    orders.push(
+      toOutboundPackOrder(d.id, d.clientUserId, d.data, clientById, lines, input.warehouse)
+    );
+  });
 
   orders.sort((a, b) => {
     const ta = a.readyToDispatchAt?.getTime() ?? a.confirmedAt?.getTime() ?? 0;

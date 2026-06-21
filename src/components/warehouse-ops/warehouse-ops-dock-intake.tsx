@@ -24,6 +24,7 @@ import { Loader2, Package, RotateCcw, ScanLine, Truck } from "lucide-react";
 type Props = {
   warehouse: WarehouseDoc;
   clients: UserProfile[];
+  clientsLoading?: boolean;
   onInbound: (row: InboundRequestRow, tracking: string) => void;
   onReturn: (row: ReturnRequestRow, tracking: string) => void;
   onWalkIn: (tracking: string) => void;
@@ -33,6 +34,7 @@ type Props = {
 export function WarehouseOpsDockIntake({
   warehouse,
   clients,
+  clientsLoading = false,
   onInbound,
   onReturn,
   onWalkIn,
@@ -43,6 +45,7 @@ export function WarehouseOpsDockIntake({
   const [scanning, setScanning] = useState(false);
   const [inboundOpen, setInboundOpen] = useState<InboundRequestRow[]>([]);
   const [returnOpen, setReturnOpen] = useState<ReturnRequestRow[]>([]);
+  const [listsLoading, setListsLoading] = useState(true);
   const [lastScan, setLastScan] = useState<{
     tracking: string;
     inbound: InboundRequestRow[];
@@ -51,18 +54,28 @@ export function WarehouseOpsDockIntake({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const loadLists = useCallback(async () => {
-    const [inbound, returns] = await Promise.all([
-      loadInboundRequestQueue({ warehouse, clients, dockQueue: true }),
-      loadReturnRequestQueue({ warehouse, clients }),
-    ]);
-    setInboundOpen(inbound.filter((r) => r.remainingQty > 0));
-    setReturnOpen(returns.filter((r) => r.remainingQty > 0));
-  }, [warehouse, clients]);
+    if (clientsLoading) return;
+    setListsLoading(true);
+    try {
+      const [inbound, returns] = await Promise.all([
+        loadInboundRequestQueue({ warehouse, clients, dockQueue: true }),
+        loadReturnRequestQueue({ warehouse, clients }),
+      ]);
+      setInboundOpen(inbound.filter((r) => r.remainingQty > 0));
+      setReturnOpen(returns.filter((r) => r.remainingQty > 0));
+    } finally {
+      setListsLoading(false);
+    }
+  }, [warehouse, clients, clientsLoading]);
 
   useEffect(() => {
+    if (clientsLoading) {
+      setListsLoading(true);
+      return;
+    }
     void loadLists();
     inputRef.current?.focus();
-  }, [loadLists]);
+  }, [loadLists, clientsLoading]);
 
   async function handleScan(pathOverride?: string) {
     const v = (pathOverride ?? tracking).trim();
@@ -201,6 +214,7 @@ export function WarehouseOpsDockIntake({
           title="Open inbound (no scan)"
           icon={<Package className="h-4 w-4" />}
           empty="No open inbound requests awaiting dock receive."
+          loading={clientsLoading || listsLoading}
           rows={inboundOpen.slice(0, 8)}
           renderRow={(row) => (
             <button
@@ -220,6 +234,7 @@ export function WarehouseOpsDockIntake({
           title="Open returns (no scan)"
           icon={<RotateCcw className="h-4 w-4" />}
           empty="No open return requests."
+          loading={clientsLoading || listsLoading}
           rows={returnOpen.slice(0, 8)}
           renderRow={(row) => (
             <button
@@ -255,12 +270,14 @@ function OpenListCard<T>({
   title,
   icon,
   empty,
+  loading = false,
   rows,
   renderRow,
 }: {
   title: string;
   icon: React.ReactNode;
   empty: string;
+  loading?: boolean;
   rows: T[];
   renderRow: (row: T) => React.ReactNode;
 }) {
@@ -273,7 +290,12 @@ function OpenListCard<T>({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
-        {rows.length === 0 ? (
+        {loading ? (
+          <p className="text-xs text-muted-foreground flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading…
+          </p>
+        ) : rows.length === 0 ? (
           <p className="text-xs text-muted-foreground">{empty}</p>
         ) : (
           rows.map((row) => renderRow(row))

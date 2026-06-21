@@ -186,6 +186,13 @@ function inboundDockRowPassesFilters(input: {
   return true;
 }
 
+function inboundNeedsLegacyInventoryCheck(req: Omit<InventoryRequest, "id">): boolean {
+  if (req.status !== "approved") return false;
+  // Inbound v2 keeps requests open until warehouse receive — never legacy-fulfilled.
+  if (req.fulfillmentStatus === "open") return false;
+  return true;
+}
+
 /** Count approved inbound awaiting dock receive (dashboard metric). */
 export async function countInboundDockQueue(input: {
   warehouse: WarehouseDoc;
@@ -199,7 +206,6 @@ export async function countInboundDockQueue(input: {
 
   const statuses = ["approved"];
   let docs: Array<{ id: string; data: () => Omit<InventoryRequest, "id">; ref: { path: string } }> = [];
-  const inventoryPromise = loadClientInventoryByUser(Array.from(eligibleClientIds));
   try {
     const snap = await getDocs(
       query(collectionGroup(db, "inventoryRequests"), where("status", "in", statuses))
@@ -222,14 +228,20 @@ export async function countInboundDockQueue(input: {
     );
   }
 
-  const [cartonMap, inventoryByUser] = await Promise.all([
-    input.cartons
-      ? Promise.resolve(buildCartonQtyByInventoryRequestId(input.cartons))
-      : cartonQtyByInventoryRequestId(warehouse.id),
-    inventoryPromise,
-  ]);
+  const cartonMap = input.cartons
+    ? buildCartonQtyByInventoryRequestId(input.cartons)
+    : await cartonQtyByInventoryRequestId(warehouse.id);
 
-  let count = 0;
+  type Candidate = {
+    id: string;
+    data: Omit<InventoryRequest, "id">;
+    clientUserId: string;
+    cartonReceivedQty: number;
+    remainingQty: number;
+    needsLegacy: boolean;
+  };
+  const candidates: Candidate[] = [];
+
   for (const d of docs) {
     const data = d.data() as Omit<InventoryRequest, "id">;
     if (data.inventoryType && data.inventoryType !== "product") continue;
@@ -240,20 +252,44 @@ export async function countInboundDockQueue(input: {
     const expectedQty = expectedQuantity({ ...data, id: d.id });
     const cartonReceivedQty = cartonMap.get(d.id) ?? 0;
     const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
-    const legacyFulfilled = isLegacyAdminFulfilledInboundRequest({
+    if (remainingQty <= 0) continue;
+
+    candidates.push({
+      id: d.id,
+      data,
       clientUserId,
-      requestId: d.id,
-      req: data,
-      inventoryByUser,
+      cartonReceivedQty,
+      remainingQty,
+      needsLegacy: inboundNeedsLegacyInventoryCheck(data),
     });
+  }
+
+  const legacyClientIds = [
+    ...new Set(candidates.filter((c) => c.needsLegacy).map((c) => c.clientUserId)),
+  ];
+  const inventoryByUser =
+    legacyClientIds.length > 0
+      ? await loadClientInventoryByUser(legacyClientIds)
+      : new Map<string, Array<Record<string, unknown>>>();
+
+  let count = 0;
+  for (const c of candidates) {
+    const legacyFulfilled = c.needsLegacy
+      ? isLegacyAdminFulfilledInboundRequest({
+          clientUserId: c.clientUserId,
+          requestId: c.id,
+          req: c.data,
+          inventoryByUser,
+        })
+      : false;
 
     if (
       inboundDockRowPassesFilters({
-        data,
-        requestId: d.id,
-        clientUserId,
-        cartonReceivedQty,
-        remainingQty,
+        data: c.data,
+        requestId: c.id,
+        clientUserId: c.clientUserId,
+        cartonReceivedQty: c.cartonReceivedQty,
+        remainingQty: c.remainingQty,
         legacyFulfilled,
       })
     ) {

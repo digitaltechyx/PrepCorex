@@ -26,11 +26,14 @@ import { getOpsNavItems, isOpsSupervisor } from "@/lib/warehouse-ops-permissions
 import { hasFeature } from "@/lib/permissions";
 import {
   buildWarehouseOpsFlowMetrics,
-  loadWarehouseOpsDashboardStats,
+  loadCartonDashboardStats,
+  loadQueueDashboardStats,
+  peekCachedWarehouseOpsDashboardStats,
+  rememberWarehouseOpsDashboardStats,
   type WarehouseOpsDashboardStats,
   type WarehouseOpsFlowMetric,
 } from "@/lib/warehouse-ops-dashboard-stats";
-import type { UserFeature, UserProfile } from "@/types";
+import type { UserFeature, UserProfile, WarehouseCartonDoc } from "@/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +48,17 @@ const QUEUE_METRIC_KEYS = new Set([
   "returns",
   "cycle",
 ]);
+
+function queueKeysFromPatch(patch: Partial<WarehouseOpsDashboardStats>): string[] {
+  const keys: string[] = [];
+  if ("inboundDock" in patch) keys.push("inbound");
+  if ("pickQueue" in patch || "packQueue" in patch || "dispatchReady" in patch) {
+    keys.push("pick", "pack", "dispatch");
+  }
+  if ("returnQc" in patch) keys.push("returns");
+  if ("cycleCountOpen" in patch) keys.push("cycle");
+  return keys;
+}
 
 const NAV_ICONS: Record<string, LucideIcon> = {
   "/warehouse-ops/locate": Search,
@@ -187,7 +201,36 @@ export function WarehouseOpsDashboard() {
 
   const [stats, setStats] = useState<WarehouseOpsDashboardStats | null>(null);
   const [loadingCartons, setLoadingCartons] = useState(false);
-  const [loadingQueues, setLoadingQueues] = useState(false);
+  const [loadingQueueKeys, setLoadingQueueKeys] = useState<Set<string>>(() => new Set());
+  const [cartonsForQueues, setCartonsForQueues] = useState<WarehouseCartonDoc[] | null>(null);
+
+  const clearQueueLoading = useCallback((patch: Partial<WarehouseOpsDashboardStats>) => {
+    const done = queueKeysFromPatch(patch);
+    if (done.length === 0) return;
+    setLoadingQueueKeys((prev) => {
+      const next = new Set(prev);
+      for (const key of done) next.delete(key);
+      return next;
+    });
+  }, []);
+
+  const mergeStats = useCallback((patch: Partial<WarehouseOpsDashboardStats>) => {
+    setStats((prev) => {
+      const base: WarehouseOpsDashboardStats = prev ?? {
+        inboundDock: 0,
+        awaitingPutaway: 0,
+        inStaging: 0,
+        activeCartons: 0,
+        quarantineUnits: 0,
+        pickQueue: 0,
+        packQueue: 0,
+        dispatchReady: 0,
+        cycleCountOpen: 0,
+        returnQc: 0,
+      };
+      return { ...base, ...patch };
+    });
+  }, []);
 
   const navItems = useMemo(
     () => getOpsNavItems(userProfile).filter((n) => n.href !== "/warehouse-ops"),
@@ -212,40 +255,128 @@ export function WarehouseOpsDashboard() {
     );
   }, [stats]);
 
-  const refresh = useCallback(
-    async (forceRefresh = false) => {
-      if (!selectedWarehouse || usersLoading) {
-        if (!selectedWarehouse) setStats(null);
-        return;
-      }
-      setLoadingCartons(true);
-      setLoadingQueues(true);
+  // Carton KPIs load immediately (no users list required).
+  useEffect(() => {
+    if (!selectedWarehouse) {
+      setStats(null);
+      setCartonsForQueues(null);
+      return;
+    }
+
+    const cached = peekCachedWarehouseOpsDashboardStats(selectedWarehouse.id);
+    if (cached) {
+      setStats(cached);
+    }
+
+    let cancelled = false;
+    setLoadingCartons(!cached);
+
+    void (async () => {
       try {
-        const next = await loadWarehouseOpsDashboardStats({
+        const { cartons, stats: cartonStats } = await loadCartonDashboardStats(
+          selectedWarehouse.id
+        );
+        if (cancelled) return;
+        setCartonsForQueues(cartons);
+        mergeStats(cartonStats);
+      } catch {
+        if (!cancelled && !cached) setStats(null);
+      } finally {
+        if (!cancelled) setLoadingCartons(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWarehouse, mergeStats]);
+
+  // Queue counts need client list for warehouse eligibility.
+  useEffect(() => {
+    if (!selectedWarehouse || usersLoading || !cartonsForQueues) return;
+
+    const cached = peekCachedWarehouseOpsDashboardStats(selectedWarehouse.id);
+    let cancelled = false;
+    setLoadingQueueKeys(cached ? new Set() : new Set(QUEUE_METRIC_KEYS));
+
+    void (async () => {
+      try {
+        const queueStats = await loadQueueDashboardStats({
           warehouse: selectedWarehouse,
           clients,
-          forceRefresh,
-          onPartial: (partial) => {
-            setStats(partial);
-            setLoadingCartons(false);
+          cartons: cartonsForQueues,
+          onPartial: (patch) => {
+            if (cancelled) return;
+            mergeStats(patch);
+            clearQueueLoading(patch);
           },
         });
-        setStats(next);
+        if (cancelled) return;
+        setStats((prev) => {
+          if (!prev) return prev;
+          const next = { ...prev, ...queueStats };
+          rememberWarehouseOpsDashboardStats(selectedWarehouse.id, next);
+          return next;
+        });
+      } catch {
+        // keep carton stats visible
+      } finally {
+        if (!cancelled) setLoadingQueueKeys(new Set());
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWarehouse, clients, usersLoading, cartonsForQueues, mergeStats, clearQueueLoading]);
+
+  const refresh = useCallback(
+    async (forceRefresh = false) => {
+      if (!selectedWarehouse) {
+        setStats(null);
+        return;
+      }
+      if (forceRefresh) {
+        setLoadingCartons(true);
+        setLoadingQueueKeys(new Set(QUEUE_METRIC_KEYS));
+      }
+      try {
+        const { cartons, stats: cartonStats } = await loadCartonDashboardStats(
+          selectedWarehouse.id
+        );
+        setCartonsForQueues(cartons);
+        mergeStats(cartonStats);
+        setLoadingCartons(false);
+
+        if (usersLoading) return;
+
+        const queueStats = await loadQueueDashboardStats({
+          warehouse: selectedWarehouse,
+          clients,
+          cartons,
+          onPartial: (patch) => {
+            mergeStats(patch);
+            clearQueueLoading(patch);
+          },
+        });
+        setStats((prev) => {
+          if (!prev) return prev;
+          const next = { ...prev, ...queueStats };
+          rememberWarehouseOpsDashboardStats(selectedWarehouse.id, next);
+          return next;
+        });
       } catch {
         setStats((prev) => prev);
       } finally {
         setLoadingCartons(false);
-        setLoadingQueues(false);
+        setLoadingQueueKeys(new Set());
       }
     },
-    [selectedWarehouse, clients, usersLoading]
+    [selectedWarehouse, clients, usersLoading, mergeStats, clearQueueLoading]
   );
 
+  const loadingQueues = loadingQueueKeys.size > 0;
   const loading = loadingCartons || loadingQueues;
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
 
   const supervisor = isOpsSupervisor(userProfile);
   const canReceive = hasFeature(userProfile, "ops_receive");
@@ -380,19 +511,23 @@ export function WarehouseOpsDashboard() {
           ) : stats ? (
             <>
               <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground overflow-x-auto pb-1">
-                {["Inbound", "Putaway", "Outbound", "Dispatch", "Quality"].map((step, i, arr) => (
-                  <div key={step} className="flex items-center gap-1 shrink-0">
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5",
-                        i === 0 && "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200"
-                      )}
-                    >
-                      {step}
-                    </span>
-                    {i < arr.length - 1 ? <ArrowRight className="h-3 w-3 opacity-40" /> : null}
-                  </div>
-                ))}
+                {["Inbound", "Staging", "Putaway", "Outbound", "Dispatch", "Quality"].map(
+                  (step, i, arr) => (
+                    <div key={step} className="flex items-center gap-1 shrink-0">
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5",
+                          i === 0 && "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200"
+                        )}
+                      >
+                        {step}
+                      </span>
+                      {i < arr.length - 1 ? (
+                        <ArrowRight className="h-3 w-3 opacity-40" />
+                      ) : null}
+                    </div>
+                  )
+                )}
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {flowMetrics.map((metric) => (
@@ -400,7 +535,7 @@ export function WarehouseOpsDashboard() {
                     key={metric.key}
                     metric={metric}
                     enabled={hasFeature(userProfile, metric.feature as UserFeature)}
-                    countLoading={loadingQueues && QUEUE_METRIC_KEYS.has(metric.key)}
+                    countLoading={loadingQueueKeys.has(metric.key)}
                   />
                 ))}
               </div>

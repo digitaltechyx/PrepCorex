@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { uploadReceivePhotos } from "@/lib/inbound-receive-photos";
@@ -222,14 +223,9 @@ function moduleFromSnapshot(snap: StoredReceiveFormSnapshot): ReceiveModule {
 
 export function WarehouseOpsReceiving({ warehouse }: Props) {
   const { toast } = useToast();
-  const { data: allUsers } = useCollection<UserProfile>("users");
-  const clients = useMemo(
-    () =>
-      allUsers.filter(
-        (u) => u.role === "user" || (u.roles ?? []).includes("user")
-      ),
-    [allUsers]
-  );
+  const { clients, loading: clientsLoading } = useWarehouseOpsClients({
+    includeUnapproved: true,
+  });
 
   const [tab, setTab] = useState<"receive" | "correct">("receive");
   const [phase, setPhase] = useState<ReceivePhase>("dock-intake");
@@ -308,6 +304,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
             <WarehouseOpsDockIntake
               warehouse={warehouse}
               clients={clients}
+              clientsLoading={clientsLoading}
               onInbound={handleDockInbound}
               onReturn={handleDockReturn}
               onWalkIn={handleDockWalkIn}

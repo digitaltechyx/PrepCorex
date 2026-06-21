@@ -250,6 +250,14 @@ export async function listWarehouseCartons(warehouseId: string): Promise<Warehou
     .sort((a, b) => b.cartonCode.localeCompare(a.cartonCode));
 }
 
+/** Same as listWarehouseCartons but skips sort (faster for aggregate counts). */
+export async function listWarehouseCartonsForStats(
+  warehouseId: string
+): Promise<WarehouseCartonDoc[]> {
+  const snap = await getDocs(warehouseCartonsCollectionRef(warehouseId));
+  return snap.docs.map((d) => docToCarton(d.id, d.data() as Record<string, unknown>));
+}
+
 export async function listWarehousePallets(warehouseId: string): Promise<WarehousePalletDoc[]> {
   const snap = await getDocs(warehousePalletsCollectionRef(warehouseId));
   return snap.docs

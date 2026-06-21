@@ -87,6 +87,16 @@ function docToTask(id: string, data: Record<string, unknown>): WarehouseCycleCou
   };
 }
 
+export async function countOpenCycleCountTasks(warehouseId: string): Promise<number> {
+  const snap = await getDocs(
+    query(
+      warehouseCycleCountTasksCollectionRef(warehouseId),
+      where("status", "in", ["open", "in_progress"])
+    )
+  );
+  return snap.size;
+}
+
 export async function loadActiveCycleCountTasks(
   warehouseId: string
 ): Promise<WarehouseCycleCountTaskDoc[]> {

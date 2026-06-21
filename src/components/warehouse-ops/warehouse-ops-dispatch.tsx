@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useCollection } from "@/hooks/use-collection";
+import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import {
@@ -35,7 +35,7 @@ import {
   type WarehouseQcCondition,
   type WarehouseQcUnitType,
 } from "@/lib/warehouse-pack";
-import type { UserProfile, WarehouseDoc } from "@/types";
+import type { WarehouseDoc } from "@/types";
 import { CheckCircle2, Loader2, Package, ScanLine, Truck, XCircle } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -54,11 +54,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
 
-  const { data: allUsers } = useCollection<UserProfile>("users");
-  const clients = useMemo(
-    () => allUsers.filter((u) => u.role === "user" && u.status === "approved"),
-    [allUsers]
-  );
+  const { clients, loading: clientsLoading } = useWarehouseOpsClients();
 
   const [orders, setOrders] = useState<OutboundPackOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,6 +71,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   const scanInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadQueue = useCallback(async () => {
+    if (clientsLoading) return;
     setLoading(true);
     try {
       const list = await loadDispatchQueue({ warehouse, clients });
@@ -89,11 +86,17 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [warehouse, clients, toast]);
+  }, [warehouse, clients, clientsLoading, toast]);
 
   useEffect(() => {
+    if (clientsLoading) {
+      setLoading(true);
+      return;
+    }
     void loadQueue();
-  }, [loadQueue]);
+  }, [loadQueue, clientsLoading]);
+
+  const queueLoading = clientsLoading || loading;
 
   useEffect(() => {
     scanInputRef.current?.focus();
@@ -445,7 +448,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          {loading ? (
+          {queueLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading…

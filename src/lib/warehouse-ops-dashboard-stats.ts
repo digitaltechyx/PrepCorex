@@ -1,8 +1,8 @@
-import { loadActiveCycleCountTasks } from "@/lib/warehouse-cycle-count";
+import { countOpenCycleCountTasks } from "@/lib/warehouse-cycle-count";
 import { countInboundDockQueue } from "@/lib/warehouse-inbound-requests";
 import { countOutboundQueueStats } from "@/lib/warehouse-pack";
 import { countReturnQcQueue } from "@/lib/warehouse-returns";
-import { listWarehouseCartons } from "@/lib/warehouse-carton-firestore";
+import { listWarehouseCartonsForStats } from "@/lib/warehouse-carton-firestore";
 import { isActiveWarehouseCarton } from "@/lib/warehouse-carton-states";
 import type { UserFeature, UserProfile, WarehouseCartonDoc, WarehouseDoc } from "@/types";
 
@@ -29,11 +29,20 @@ export type WarehouseOpsFlowMetric = {
   tone: "neutral" | "info" | "warning" | "success" | "danger";
 };
 
-const STATS_CACHE_MS = 30_000;
+export type WarehouseOpsQueueStats = Pick<
+  WarehouseOpsDashboardStats,
+  "inboundDock" | "pickQueue" | "packQueue" | "dispatchReady" | "cycleCountOpen" | "returnQc"
+>;
+
+const STATS_CACHE_MS = 60_000;
+const SESSION_CACHE_MS = 5 * 60_000;
+const SESSION_KEY_PREFIX = "wops-stats-v1-";
+
 const statsCache = new Map<
   string,
   { loadedAt: number; stats: WarehouseOpsDashboardStats }
 >();
+const inFlightLoads = new Map<string, Promise<WarehouseOpsDashboardStats>>();
 
 function countInStaging(cartons: WarehouseCartonDoc[]): number {
   let n = 0;
@@ -95,10 +104,7 @@ export function cartonDerivedDashboardStats(
   };
 }
 
-const EMPTY_QUEUE_STATS: Pick<
-  WarehouseOpsDashboardStats,
-  "inboundDock" | "pickQueue" | "packQueue" | "dispatchReady" | "cycleCountOpen" | "returnQc"
-> = {
+const EMPTY_QUEUE_STATS: WarehouseOpsQueueStats = {
   inboundDock: 0,
   pickQueue: 0,
   packQueue: 0,
@@ -107,54 +113,120 @@ const EMPTY_QUEUE_STATS: Pick<
   returnQc: 0,
 };
 
-export async function loadWarehouseOpsDashboardStats(input: {
+function readSessionStats(warehouseId: string): WarehouseOpsDashboardStats | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(`${SESSION_KEY_PREFIX}${warehouseId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { loadedAt: number; stats: WarehouseOpsDashboardStats };
+    if (Date.now() - parsed.loadedAt > SESSION_CACHE_MS) return null;
+    return parsed.stats;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionStats(warehouseId: string, stats: WarehouseOpsDashboardStats): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      `${SESSION_KEY_PREFIX}${warehouseId}`,
+      JSON.stringify({ loadedAt: Date.now(), stats })
+    );
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function persistStats(warehouseId: string, stats: WarehouseOpsDashboardStats): void {
+  statsCache.set(warehouseId, { loadedAt: Date.now(), stats });
+  writeSessionStats(warehouseId, stats);
+}
+
+/** Store latest stats for instant display on next visit. */
+export function rememberWarehouseOpsDashboardStats(
+  warehouseId: string,
+  stats: WarehouseOpsDashboardStats
+): void {
+  persistStats(warehouseId, stats);
+}
+
+/** Instant stats from memory or session (for first paint). */
+export function peekCachedWarehouseOpsDashboardStats(
+  warehouseId: string
+): WarehouseOpsDashboardStats | null {
+  const cached = statsCache.get(warehouseId);
+  if (cached && Date.now() - cached.loadedAt < STATS_CACHE_MS) {
+    return cached.stats;
+  }
+  const session = readSessionStats(warehouseId);
+  if (session) {
+    statsCache.set(warehouseId, { loadedAt: Date.now(), stats: session });
+    return session;
+  }
+  return null;
+}
+
+export async function loadCartonDashboardStats(warehouseId: string): Promise<{
+  cartons: WarehouseCartonDoc[];
+  stats: Pick<
+    WarehouseOpsDashboardStats,
+    "awaitingPutaway" | "inStaging" | "activeCartons" | "quarantineUnits"
+  >;
+}> {
+  const cartons = await listWarehouseCartonsForStats(warehouseId);
+  return { cartons, stats: cartonDerivedDashboardStats(cartons) };
+}
+
+export async function loadQueueDashboardStats(input: {
   warehouse: WarehouseDoc;
   clients: UserProfile[];
-  /** Skip cache and force a fresh Firestore read. */
-  forceRefresh?: boolean;
-  /** Called as soon as carton counts are ready, before queue queries finish. */
-  onPartial?: (stats: WarehouseOpsDashboardStats) => void;
-}): Promise<WarehouseOpsDashboardStats> {
-  const { warehouse, clients, forceRefresh = false, onPartial } = input;
-  const cacheKey = warehouse.id;
+  cartons: WarehouseCartonDoc[];
+  onPartial?: (patch: Partial<WarehouseOpsQueueStats>) => void;
+}): Promise<WarehouseOpsQueueStats> {
+  const { warehouse, clients, cartons, onPartial } = input;
+  const running: WarehouseOpsQueueStats = { ...EMPTY_QUEUE_STATS };
+  const patch = (next: Partial<WarehouseOpsQueueStats>) => {
+    Object.assign(running, next);
+    onPartial?.(next);
+  };
 
-  if (!forceRefresh) {
-    const cached = statsCache.get(cacheKey);
-    if (cached && Date.now() - cached.loadedAt < STATS_CACHE_MS) {
-      return cached.stats;
-    }
-  }
-
-  const cartonsPromise = listWarehouseCartons(warehouse.id);
-  void cartonsPromise.then((cartons) => {
-    onPartial?.({
-      ...EMPTY_QUEUE_STATS,
-      ...cartonDerivedDashboardStats(cartons),
+  const outboundPromise = countOutboundQueueStats({ warehouse, clients })
+    .catch(() => ({ pickQueue: 0, packQueue: 0, dispatchReady: 0 }))
+    .then((outbound) => {
+      patch(outbound);
+      return outbound;
     });
-  });
 
-  const [cartons, outbound, inboundDock, cycleCountOpen, returnQc] = await Promise.all([
-    cartonsPromise,
-    countOutboundQueueStats({ warehouse, clients }).catch(() => ({
-      pickQueue: 0,
-      packQueue: 0,
-      dispatchReady: 0,
-    })),
-    cartonsPromise.then((loaded) =>
-      countInboundDockQueue({ warehouse, clients, cartons: loaded }).catch(() => 0)
-    ),
-    loadActiveCycleCountTasks(warehouse.id)
-      .then((tasks) => tasks.length)
-      .catch(() => 0),
-    cartonsPromise.then((loaded) =>
-      countReturnQcQueue({ warehouse, clients, cartons: loaded }).catch(() => 0)
-    ),
+  const inboundPromise = countInboundDockQueue({ warehouse, clients, cartons })
+    .catch(() => 0)
+    .then((inboundDock) => {
+      patch({ inboundDock });
+      return inboundDock;
+    });
+
+  const cyclePromise = countOpenCycleCountTasks(warehouse.id)
+    .catch(() => 0)
+    .then((cycleCountOpen) => {
+      patch({ cycleCountOpen });
+      return cycleCountOpen;
+    });
+
+  const returnPromise = countReturnQcQueue({ warehouse, clients, cartons })
+    .catch(() => 0)
+    .then((returnQc) => {
+      patch({ returnQc });
+      return returnQc;
+    });
+
+  const [outbound, inboundDock, cycleCountOpen, returnQc] = await Promise.all([
+    outboundPromise,
+    inboundPromise,
+    cyclePromise,
+    returnPromise,
   ]);
 
-  const cartonStats = cartonDerivedDashboardStats(cartons);
-
-  const stats: WarehouseOpsDashboardStats = {
-    ...cartonStats,
+  return {
     inboundDock,
     pickQueue: outbound.pickQueue,
     packQueue: outbound.packQueue,
@@ -162,9 +234,79 @@ export async function loadWarehouseOpsDashboardStats(input: {
     cycleCountOpen,
     returnQc,
   };
+}
 
-  statsCache.set(cacheKey, { loadedAt: Date.now(), stats });
+async function fetchWarehouseOpsDashboardStats(input: {
+  warehouse: WarehouseDoc;
+  clients: UserProfile[];
+  forceRefresh?: boolean;
+  onPartial?: (stats: WarehouseOpsDashboardStats) => void;
+}): Promise<WarehouseOpsDashboardStats> {
+  const { warehouse, clients, onPartial } = input;
+  const warehouseId = warehouse.id;
+
+  const { cartons, stats: cartonStats } = await loadCartonDashboardStats(warehouseId);
+  const runningQueues: WarehouseOpsQueueStats = { ...EMPTY_QUEUE_STATS };
+  const partial: WarehouseOpsDashboardStats = {
+    ...EMPTY_QUEUE_STATS,
+    ...cartonStats,
+  };
+  onPartial?.(partial);
+
+  const queueStats = await loadQueueDashboardStats({
+    warehouse,
+    clients,
+    cartons,
+    onPartial: (patch) => {
+      Object.assign(runningQueues, patch);
+      onPartial?.({ ...cartonStats, ...runningQueues });
+    },
+  });
+
+  const stats: WarehouseOpsDashboardStats = {
+    ...cartonStats,
+    ...queueStats,
+  };
+
+  persistStats(warehouseId, stats);
   return stats;
+}
+
+export async function loadWarehouseOpsDashboardStats(input: {
+  warehouse: WarehouseDoc;
+  clients: UserProfile[];
+  forceRefresh?: boolean;
+  onPartial?: (stats: WarehouseOpsDashboardStats) => void;
+}): Promise<WarehouseOpsDashboardStats> {
+  const { warehouse, forceRefresh = false, onPartial } = input;
+  const warehouseId = warehouse.id;
+
+  if (!forceRefresh) {
+    const cached = peekCachedWarehouseOpsDashboardStats(warehouseId);
+    if (cached) {
+      onPartial?.(cached);
+      const memory = statsCache.get(warehouseId);
+      if (memory && Date.now() - memory.loadedAt < STATS_CACHE_MS) {
+        return cached;
+      }
+      // Stale cache: show immediately, refresh in background.
+      void fetchWarehouseOpsDashboardStats({ ...input, forceRefresh: true, onPartial }).catch(
+        () => undefined
+      );
+      return cached;
+    }
+  }
+
+  const existing = inFlightLoads.get(warehouseId);
+  if (existing && !forceRefresh) {
+    return existing;
+  }
+
+  const loadPromise = fetchWarehouseOpsDashboardStats(input).finally(() => {
+    inFlightLoads.delete(warehouseId);
+  });
+  inFlightLoads.set(warehouseId, loadPromise);
+  return loadPromise;
 }
 
 export function buildWarehouseOpsFlowMetrics(
@@ -181,15 +323,6 @@ export function buildWarehouseOpsFlowMetrics(
       tone: stats.inboundDock > 0 ? "info" : "neutral",
     },
     {
-      key: "putaway",
-      label: "Putaway",
-      description: "Received cartons need bin placement",
-      count: stats.awaitingPutaway,
-      href: "/warehouse-ops/putaway",
-      feature: "ops_putaway",
-      tone: stats.awaitingPutaway > 0 ? "warning" : "neutral",
-    },
-    {
       key: "staging",
       label: "In staging",
       description: "Received at dock, not yet in storage bin",
@@ -197,6 +330,15 @@ export function buildWarehouseOpsFlowMetrics(
       href: "/warehouse-ops/putaway",
       feature: "ops_putaway",
       tone: stats.inStaging > 0 ? "warning" : "neutral",
+    },
+    {
+      key: "putaway",
+      label: "Putaway",
+      description: "Received cartons need bin placement",
+      count: stats.awaitingPutaway,
+      href: "/warehouse-ops/putaway",
+      feature: "ops_putaway",
+      tone: stats.awaitingPutaway > 0 ? "warning" : "neutral",
     },
     {
       key: "pick",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useCollection } from "@/hooks/use-collection";
+import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { findBinByPath, resolveScan } from "@/lib/warehouse-putaway";
@@ -41,7 +41,7 @@ import {
   type PickTaskStep,
 } from "@/lib/warehouse-pick";
 import { isOpsSupervisor } from "@/lib/warehouse-ops-permissions";
-import type { UserProfile, WarehouseDoc } from "@/types";
+import type { WarehouseDoc } from "@/types";
 import {
   AlertCircle,
   ArrowLeft,
@@ -63,11 +63,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
   const canDismissFromQueue = isOpsSupervisor(userProfile);
 
-  const { data: allUsers } = useCollection<UserProfile>("users");
-  const clients = useMemo(
-    () => allUsers.filter((u) => u.role === "user" && u.status === "approved"),
-    [allUsers]
-  );
+  const { clients, loading: clientsLoading } = useWarehouseOpsClients();
 
   const [orders, setOrders] = useState<OutboundPickOrder[]>([]);
   const [loadingQueue, setLoadingQueue] = useState(true);
@@ -98,6 +94,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     qtyNum <= currentStep.quantity;
 
   const loadQueue = useCallback(async () => {
+    if (clientsLoading) return;
     setLoadingQueue(true);
     try {
       const list = await loadOutboundPickQueue({ warehouse, clients });
@@ -112,11 +109,17 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     } finally {
       setLoadingQueue(false);
     }
-  }, [warehouse, clients, toast]);
+  }, [warehouse, clients, clientsLoading, toast]);
 
   useEffect(() => {
+    if (clientsLoading) {
+      setLoadingQueue(true);
+      return;
+    }
     void loadQueue();
-  }, [loadQueue]);
+  }, [loadQueue, clientsLoading]);
+
+  const queueLoading = clientsLoading || loadingQueue;
 
   async function loadPlanForOrder(order: OutboundPickOrder) {
     setLoadingPlan(true);
@@ -406,7 +409,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
             ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
-            {loadingQueue ? (
+            {queueLoading ? (
               <p className="text-sm text-muted-foreground flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading orders…

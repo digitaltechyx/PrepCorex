@@ -28,6 +28,8 @@ import {
   comparePickStepWalkOrder,
   dateFromFirestore,
 } from "@/lib/warehouse-stock-sort";
+import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
+import { orderLinesForRequests } from "@/lib/warehouse-outbound-lines";
 import type {
   UserProfile,
   WarehouseCartonDoc,
@@ -109,13 +111,6 @@ type PickSource = {
   receivedAtIso: string;
 };
 
-function clientMatchesWarehouse(client: UserProfile, warehouse: WarehouseDoc): boolean {
-  const linked = String(warehouse.linkedLocationId ?? "").trim();
-  if (!linked) return true;
-  const locs = Array.isArray(client.locations) ? client.locations : [];
-  return locs.map(String).includes(linked);
-}
-
 function displayClient(client: UserProfile | undefined, userId: string): string {
   if (!client) return userId.slice(0, 8);
   const name = client.name || client.email || userId;
@@ -133,21 +128,99 @@ async function getBinPathMap(warehouseId: string): Promise<Map<string, string>> 
   return map;
 }
 
-async function loadClientProductMap(
-  clientUserId: string
-): Promise<Map<string, { sku: string; productName: string }>> {
-  const snap = await getDocs(collection(db, `users/${clientUserId}/inventory`));
-  const map = new Map<string, { sku: string; productName: string }>();
-  for (const d of snap.docs) {
-    const data = d.data() as Record<string, unknown>;
-    const sku = String(data.sku ?? "").trim();
-    if (!sku) continue;
-    map.set(d.id, {
-      sku,
-      productName: String(data.productName ?? data.sku ?? "").trim() || sku,
-    });
+async function orderLinesFromRequest(
+  clientUserId: string,
+  data: Record<string, unknown>
+): Promise<OutboundPickLine[]> {
+  const [lines] = await orderLinesForRequests([{ clientUserId, data }]);
+  return lines ?? [];
+}
+
+/** Confirmed outbound requests awaiting warehouse floor pick. */
+export async function loadOutboundPickQueue(input: {
+  warehouse: WarehouseDoc;
+  clients: UserProfile[];
+}): Promise<OutboundPickOrder[]> {
+  const clientById = new Map(input.clients.map((c) => [c.uid, c]));
+  const eligible = new Set(
+    input.clients
+      .filter((c) => clientMatchesWarehouse(c, input.warehouse))
+      .map((c) => c.uid)
+  );
+
+  type ReqDoc = { id: string; ref: { path: string }; data: () => Record<string, unknown> };
+  let docs: ReqDoc[] = [];
+  try {
+    const snap = await getDocs(
+      query(collectionGroup(db, "shipmentRequests"), where("status", "==", "confirmed"))
+    );
+    docs = snap.docs.map((d) => ({
+      id: d.id,
+      ref: d.ref,
+      data: () => d.data() as Record<string, unknown>,
+    }));
+  } catch {
+    for (const uid of eligible) {
+      const snap = await getDocs(
+        query(
+          collection(db, `users/${uid}/shipmentRequests`),
+          where("status", "==", "confirmed")
+        )
+      );
+      for (const d of snap.docs) {
+        docs.push({
+          id: d.id,
+          ref: d.ref,
+          data: () => d.data() as Record<string, unknown>,
+        });
+      }
+    }
   }
-  return map;
+
+  type PendingPick = {
+    id: string;
+    clientUserId: string;
+    data: Record<string, unknown>;
+    pickStatus: WarehousePickStatus;
+  };
+  const pending: PendingPick[] = [];
+
+  for (const d of docs) {
+    const data = d.data();
+    const clientUserId = d.ref.path.split("/")[1] ?? "";
+    if (!eligible.has(clientUserId)) continue;
+
+    const pickStatus = pickStatusFromRequest(data);
+    if (pickStatus === "picked" || pickStatus === "skipped") continue;
+
+    pending.push({ id: d.id, clientUserId, data, pickStatus });
+  }
+
+  const lineSets = await orderLinesForRequests(
+    pending.map((p) => ({ clientUserId: p.clientUserId, data: p.data }))
+  );
+
+  const orders: OutboundPickOrder[] = [];
+  pending.forEach((p, index) => {
+    const lines = lineSets[index] ?? [];
+    if (lines.length === 0) return;
+    orders.push({
+      id: p.id,
+      clientUserId: p.clientUserId,
+      clientDisplayName: displayClient(clientById.get(p.clientUserId), p.clientUserId),
+      shipTo: p.data.shipTo != null ? String(p.data.shipTo) : undefined,
+      confirmedAt: dateFromFirestore(p.data.confirmedAt),
+      warehousePickStatus: p.pickStatus,
+      lines,
+    });
+  });
+
+  orders.sort((a, b) => {
+    const ta = a.confirmedAt?.getTime() ?? 0;
+    const tb = b.confirmedAt?.getTime() ?? 0;
+    return ta - tb;
+  });
+  return orders;
 }
 
 function pickStatusFromRequest(data: Record<string, unknown>): WarehousePickStatus {
@@ -272,108 +345,6 @@ function sortStepsWalkOrder(steps: PickTaskStep[]): PickTaskStep[] {
       }
     )
   );
-}
-
-async function orderLinesFromRequest(
-  clientUserId: string,
-  data: Record<string, unknown>
-): Promise<OutboundPickLine[]> {
-  const shipments = Array.isArray(data.shipments)
-    ? (data.shipments as Array<Record<string, unknown>>)
-    : [];
-  const products = await loadClientProductMap(clientUserId);
-  const lines: OutboundPickLine[] = [];
-  for (const shipment of shipments) {
-    const productId = String(shipment.productId ?? "").trim();
-    if (!productId) continue;
-    const product = products.get(productId);
-    const sku = String(shipment.sku ?? product?.sku ?? "").trim();
-    if (!sku) continue;
-    const qty = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
-    const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
-    const quantityUnits = qty * packOf;
-    if (quantityUnits < 1) continue;
-    lines.push({
-      sku,
-      productName: String(shipment.productName ?? product?.productName ?? sku).trim() || sku,
-      quantityUnits,
-      productId,
-    });
-  }
-  return lines;
-}
-
-/** Confirmed outbound requests awaiting warehouse floor pick. */
-export async function loadOutboundPickQueue(input: {
-  warehouse: WarehouseDoc;
-  clients: UserProfile[];
-}): Promise<OutboundPickOrder[]> {
-  const clientById = new Map(input.clients.map((c) => [c.uid, c]));
-  const eligible = new Set(
-    input.clients
-      .filter((c) => clientMatchesWarehouse(c, input.warehouse))
-      .map((c) => c.uid)
-  );
-
-  type ReqDoc = { id: string; ref: { path: string }; data: () => Record<string, unknown> };
-  let docs: ReqDoc[] = [];
-  try {
-    const snap = await getDocs(
-      query(collectionGroup(db, "shipmentRequests"), where("status", "==", "confirmed"))
-    );
-    docs = snap.docs.map((d) => ({
-      id: d.id,
-      ref: d.ref,
-      data: () => d.data() as Record<string, unknown>,
-    }));
-  } catch {
-    for (const uid of eligible) {
-      const snap = await getDocs(
-        query(
-          collection(db, `users/${uid}/shipmentRequests`),
-          where("status", "==", "confirmed")
-        )
-      );
-      for (const d of snap.docs) {
-        docs.push({
-          id: d.id,
-          ref: d.ref,
-          data: () => d.data() as Record<string, unknown>,
-        });
-      }
-    }
-  }
-
-  const orders: OutboundPickOrder[] = [];
-
-  for (const d of docs) {
-    const data = d.data();
-    const clientUserId = d.ref.path.split("/")[1] ?? "";
-    if (!eligible.has(clientUserId)) continue;
-
-    const pickStatus = pickStatusFromRequest(data);
-    if (pickStatus === "picked" || pickStatus === "skipped") continue;
-
-    const lines = await orderLinesFromRequest(clientUserId, data);
-    if (lines.length === 0) continue;
-
-    orders.push({
-      id: d.id,
-      clientUserId,
-      clientDisplayName: displayClient(clientById.get(clientUserId), clientUserId),
-      shipTo: data.shipTo != null ? String(data.shipTo) : undefined,
-      confirmedAt: dateFromFirestore(data.confirmedAt),
-      warehousePickStatus: pickStatus,
-      lines,
-    });
-  }
-
-  orders.sort((a, b) => {
-    const ta = a.confirmedAt?.getTime() ?? 0;
-    const tb = b.confirmedAt?.getTime() ?? 0;
-    return ta - tb;
-  });
-  return orders;
 }
 
 export async function buildPickPlan(

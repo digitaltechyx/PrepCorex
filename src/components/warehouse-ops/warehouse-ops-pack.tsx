@@ -15,7 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useCollection } from "@/hooks/use-collection";
+import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { resolveScan } from "@/lib/warehouse-putaway";
@@ -30,7 +30,7 @@ import {
   type PackPlan,
   type PackPlanItem,
 } from "@/lib/warehouse-pack";
-import type { UserProfile, WarehouseDoc } from "@/types";
+import type { WarehouseDoc } from "@/types";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -52,11 +52,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
 
-  const { data: allUsers } = useCollection<UserProfile>("users");
-  const clients = useMemo(
-    () => allUsers.filter((u) => u.role === "user" && u.status === "approved"),
-    [allUsers]
-  );
+  const { clients, loading: clientsLoading } = useWarehouseOpsClients();
 
   const [orders, setOrders] = useState<OutboundPackOrder[]>([]);
   const [loadingQueue, setLoadingQueue] = useState(true);
@@ -87,6 +83,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     plan?.items.find((i) => !verifiedSet.has(i.itemKey)) ?? null;
 
   const loadQueue = useCallback(async () => {
+    if (clientsLoading) return;
     setLoadingQueue(true);
     try {
       const list = await loadOutboundPackQueue({ warehouse, clients });
@@ -101,11 +98,17 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     } finally {
       setLoadingQueue(false);
     }
-  }, [warehouse, clients, toast]);
+  }, [warehouse, clients, clientsLoading, toast]);
 
   useEffect(() => {
+    if (clientsLoading) {
+      setLoadingQueue(true);
+      return;
+    }
     void loadQueue();
-  }, [loadQueue]);
+  }, [loadQueue, clientsLoading]);
+
+  const queueLoading = clientsLoading || loadingQueue;
 
   async function refreshPlan(order: OutboundPackOrder) {
     setLoadingPlan(true);
@@ -318,7 +321,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
             <CardTitle className="text-sm">Orders to pack</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {loadingQueue ? (
+            {queueLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading…
