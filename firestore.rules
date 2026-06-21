@@ -174,7 +174,7 @@ service cloud.firestore {
     }
 
     match /users/{userId}/shipmentRequests/{requestId} {
-      allow read: if isSelf(userId) || isAdminOrSubAdmin();
+      allow read: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
       allow create: if isSelf(userId);
       allow update: if isAdminOrSubAdmin() || (
         isSelf(userId) &&

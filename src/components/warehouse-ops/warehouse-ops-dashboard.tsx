@@ -167,7 +167,7 @@ function FlowStateCard({
 export function WarehouseOpsDashboard() {
   const { userProfile } = useAuth();
   const { selectedWarehouse, loading: warehousesLoading } = useWarehouseOps();
-  const { stats, liveLoading } = useWarehouseOpsLive();
+  const { stats, liveLoading, syncError } = useWarehouseOpsLive();
 
   const navItems = useMemo(
     () => getOpsNavItems(userProfile).filter((n) => n.href !== "/warehouse-ops"),
@@ -246,6 +246,10 @@ export function WarehouseOpsDashboard() {
               <Badge variant="outline" className="gap-1 text-xs">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Syncing…
+              </Badge>
+            ) : syncError ? (
+              <Badge variant="outline" className="gap-1 border-amber-300/60 text-xs text-amber-700">
+                Partial sync
               </Badge>
             ) : (
               <Badge variant="outline" className="gap-1 border-emerald-300/60 text-xs text-emerald-700">

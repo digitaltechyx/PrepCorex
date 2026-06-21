@@ -9,11 +9,9 @@ import React, {
 } from "react";
 import {
   collection,
-  collectionGroup,
   onSnapshot,
   query,
   where,
-  type Query,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useWarehouseOps } from "@/components/warehouse-ops/warehouse-ops-provider";
@@ -31,8 +29,13 @@ import {
   buildInboundDockQueueLive,
   buildReturnDockQueueLive,
   filterQuarantineReturnCartons,
-  type LiveFirestoreDoc,
 } from "@/lib/warehouse-ops-live-compute";
+import {
+  useWarehouseClientDocsLive,
+  SHIPMENT_LIVE_CONSTRAINTS,
+  INVENTORY_LIVE_CONSTRAINTS,
+  RETURN_LIVE_CONSTRAINTS,
+} from "@/lib/warehouse-ops-live-queries";
 import type { InboundRequestRow } from "@/lib/warehouse-inbound-requests";
 import type { ReturnRequestRow } from "@/lib/warehouse-returns";
 import {
@@ -58,35 +61,6 @@ function inventoryDocToProductMap(
     });
   }
   return map;
-}
-
-function useLiveQueryDocs(collectionName: string, firestoreQuery: Query) {
-  const [docs, setDocs] = useState<LiveFirestoreDoc[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    const unsub = onSnapshot(
-      firestoreQuery,
-      (snap) => {
-        setDocs(
-          snap.docs.map((d) => ({
-            id: d.id,
-            path: d.ref.path,
-            data: d.data() as Record<string, unknown>,
-          }))
-        );
-        setLoading(false);
-      },
-      () => {
-        setDocs([]);
-        setLoading(false);
-      }
-    );
-    return () => unsub();
-  }, [collectionName, firestoreQuery]);
-
-  return { docs, loading };
 }
 
 function useWarehouseCartonsLive(warehouseId: string | undefined) {
@@ -116,7 +90,7 @@ function useWarehouseCartonsLive(warehouseId: string | undefined) {
     return () => unsub();
   }, [warehouseId]);
 
-  return { cartons, loading };
+  return { cartons, loading, syncError: null as string | null };
 }
 
 function useClientInventoryLive(clientUserIds: string[]) {
@@ -170,6 +144,7 @@ type WarehouseOpsLiveContextValue = {
   liveLoading: boolean;
   outboundLoading: boolean;
   clientsLoading: boolean;
+  syncError: string | null;
 };
 
 const WarehouseOpsLiveContext = createContext<WarehouseOpsLiveContextValue | undefined>(
@@ -181,19 +156,6 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
   const { clients, loading: clientsLoading } = useWarehouseOpsClients();
   const warehouseId = selectedWarehouse?.id;
 
-  const shipmentsQuery = useMemo(
-    () => query(collectionGroup(db, "shipmentRequests"), where("status", "==", "confirmed")),
-    []
-  );
-  const inventoryQuery = useMemo(
-    () => query(collectionGroup(db, "inventoryRequests"), where("status", "==", "approved")),
-    []
-  );
-  const returnsQuery = useMemo(
-    () =>
-      query(collectionGroup(db, "productReturns"), where("status", "in", ["approved", "in_progress"])),
-    []
-  );
   const cycleQuery = useMemo(
     () =>
       warehouseId
@@ -205,19 +167,41 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     [warehouseId]
   );
 
-  const { cartons, loading: cartonsLoading } = useWarehouseCartonsLive(warehouseId);
-  const { docs: shipmentDocs, loading: shipmentsLoading } = useLiveQueryDocs(
-    "shipmentRequests",
-    shipmentsQuery
-  );
-  const { docs: inventoryDocs, loading: inventoryLoading } = useLiveQueryDocs(
-    "inventoryRequests",
-    inventoryQuery
-  );
-  const { docs: returnDocs, loading: returnsLoading } = useLiveQueryDocs(
-    "productReturns",
-    returnsQuery
-  );
+  const { cartons, loading: cartonsLoading, syncError: cartonsSyncError } =
+    useWarehouseCartonsLive(warehouseId);
+  const {
+    docs: shipmentDocs,
+    loading: shipmentsLoading,
+    syncError: shipmentsSyncError,
+  } = useWarehouseClientDocsLive({
+    subcollection: "shipmentRequests",
+    constraints: SHIPMENT_LIVE_CONSTRAINTS,
+    warehouse: selectedWarehouse ?? undefined,
+    clients,
+    clientsLoading,
+  });
+  const {
+    docs: inventoryDocs,
+    loading: inventoryLoading,
+    syncError: inventorySyncError,
+  } = useWarehouseClientDocsLive({
+    subcollection: "inventoryRequests",
+    constraints: INVENTORY_LIVE_CONSTRAINTS,
+    warehouse: selectedWarehouse ?? undefined,
+    clients,
+    clientsLoading,
+  });
+  const {
+    docs: returnDocs,
+    loading: returnsLoading,
+    syncError: returnsSyncError,
+  } = useWarehouseClientDocsLive({
+    subcollection: "productReturns",
+    constraints: RETURN_LIVE_CONSTRAINTS,
+    warehouse: selectedWarehouse ?? undefined,
+    clients,
+    clientsLoading,
+  });
 
   const [cycleCountOpen, setCycleCountOpen] = useState(0);
   const [cycleLoading, setCycleLoading] = useState(true);
@@ -276,6 +260,9 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     inventoryLoading ||
     returnsLoading ||
     cycleLoading;
+
+  const syncError =
+    cartonsSyncError ?? shipmentsSyncError ?? inventorySyncError ?? returnsSyncError ?? null;
 
   const { stats, pickQueue, packQueue, dispatchQueue, inboundDockQueue, returnDockQueue, quarantineReturnCartons } =
     useMemo(() => {
@@ -362,8 +349,9 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
 
   useEffect(() => {
     if (!selectedWarehouse || liveLoading) return;
+    if (syncError) return;
     rememberWarehouseOpsDashboardStats(selectedWarehouse.id, stats);
-  }, [selectedWarehouse, stats, liveLoading]);
+  }, [selectedWarehouse, stats, liveLoading, syncError]);
 
   const outboundLoading = clientsLoading || shipmentsLoading;
 
@@ -380,6 +368,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       liveLoading,
       outboundLoading,
       clientsLoading,
+      syncError,
     }),
     [
       displayStats,
@@ -393,6 +382,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       liveLoading,
       outboundLoading,
       clientsLoading,
+      syncError,
     ]
   );
 
