@@ -1,8 +1,7 @@
 import { loadActiveCycleCountTasks } from "@/lib/warehouse-cycle-count";
-import { loadInboundRequestQueue } from "@/lib/warehouse-inbound-requests";
-import { loadDispatchQueue, loadOutboundPackQueue } from "@/lib/warehouse-pack";
-import { loadOutboundPickQueue } from "@/lib/warehouse-pick";
-import { loadReturnRequestQueue } from "@/lib/warehouse-returns";
+import { countInboundDockQueue } from "@/lib/warehouse-inbound-requests";
+import { countOutboundQueueStats } from "@/lib/warehouse-pack";
+import { countReturnQcQueue } from "@/lib/warehouse-returns";
 import { listWarehouseCartons } from "@/lib/warehouse-carton-firestore";
 import { isActiveWarehouseCarton } from "@/lib/warehouse-carton-states";
 import type { UserFeature, UserProfile, WarehouseCartonDoc, WarehouseDoc } from "@/types";
@@ -29,6 +28,12 @@ export type WarehouseOpsFlowMetric = {
   feature: UserFeature;
   tone: "neutral" | "info" | "warning" | "success" | "danger";
 };
+
+const STATS_CACHE_MS = 30_000;
+const statsCache = new Map<
+  string,
+  { loadedAt: number; stats: WarehouseOpsDashboardStats }
+>();
 
 function countInStaging(cartons: WarehouseCartonDoc[]): number {
   let n = 0;
@@ -75,42 +80,91 @@ function countQuarantineUnits(cartons: WarehouseCartonDoc[]): number {
   return units;
 }
 
-export async function loadWarehouseOpsDashboardStats(input: {
-  warehouse: WarehouseDoc;
-  clients: UserProfile[];
-}): Promise<WarehouseOpsDashboardStats> {
-  const { warehouse, clients } = input;
-  const cartons = await listWarehouseCartons(warehouse.id);
+export function cartonDerivedDashboardStats(
+  cartons: WarehouseCartonDoc[]
+): Pick<
+  WarehouseOpsDashboardStats,
+  "awaitingPutaway" | "inStaging" | "activeCartons" | "quarantineUnits"
+> {
   const active = cartons.filter(isActiveWarehouseCarton);
-
-  const [
-    inboundRows,
-    pickQueue,
-    packQueue,
-    dispatchQueue,
-    cycleTasks,
-    returnRows,
-  ] = await Promise.all([
-    loadInboundRequestQueue({ warehouse, clients, dockQueue: true }).catch(() => []),
-    loadOutboundPickQueue({ warehouse, clients }).catch(() => []),
-    loadOutboundPackQueue({ warehouse, clients }).catch(() => []),
-    loadDispatchQueue({ warehouse, clients }).catch(() => []),
-    loadActiveCycleCountTasks(warehouse.id).catch(() => []),
-    loadReturnRequestQueue({ warehouse, clients }).catch(() => []),
-  ]);
-
   return {
-    inboundDock: inboundRows.filter((r) => r.remainingQty > 0).length,
     awaitingPutaway: countAwaitingPutaway(active),
     inStaging: countInStaging(active),
     activeCartons: active.length,
     quarantineUnits: countQuarantineUnits(active),
-    pickQueue: pickQueue.length,
-    packQueue: packQueue.length,
-    dispatchReady: dispatchQueue.length,
-    cycleCountOpen: cycleTasks.length,
-    returnQc: returnRows.filter((r) => r.remainingQty > 0).length,
   };
+}
+
+const EMPTY_QUEUE_STATS: Pick<
+  WarehouseOpsDashboardStats,
+  "inboundDock" | "pickQueue" | "packQueue" | "dispatchReady" | "cycleCountOpen" | "returnQc"
+> = {
+  inboundDock: 0,
+  pickQueue: 0,
+  packQueue: 0,
+  dispatchReady: 0,
+  cycleCountOpen: 0,
+  returnQc: 0,
+};
+
+export async function loadWarehouseOpsDashboardStats(input: {
+  warehouse: WarehouseDoc;
+  clients: UserProfile[];
+  /** Skip cache and force a fresh Firestore read. */
+  forceRefresh?: boolean;
+  /** Called as soon as carton counts are ready, before queue queries finish. */
+  onPartial?: (stats: WarehouseOpsDashboardStats) => void;
+}): Promise<WarehouseOpsDashboardStats> {
+  const { warehouse, clients, forceRefresh = false, onPartial } = input;
+  const cacheKey = warehouse.id;
+
+  if (!forceRefresh) {
+    const cached = statsCache.get(cacheKey);
+    if (cached && Date.now() - cached.loadedAt < STATS_CACHE_MS) {
+      return cached.stats;
+    }
+  }
+
+  const cartonsPromise = listWarehouseCartons(warehouse.id);
+  void cartonsPromise.then((cartons) => {
+    onPartial?.({
+      ...EMPTY_QUEUE_STATS,
+      ...cartonDerivedDashboardStats(cartons),
+    });
+  });
+
+  const [cartons, outbound, inboundDock, cycleCountOpen, returnQc] = await Promise.all([
+    cartonsPromise,
+    countOutboundQueueStats({ warehouse, clients }).catch(() => ({
+      pickQueue: 0,
+      packQueue: 0,
+      dispatchReady: 0,
+    })),
+    cartonsPromise.then((loaded) =>
+      countInboundDockQueue({ warehouse, clients, cartons: loaded }).catch(() => 0)
+    ),
+    loadActiveCycleCountTasks(warehouse.id)
+      .then((tasks) => tasks.length)
+      .catch(() => 0),
+    cartonsPromise.then((loaded) =>
+      countReturnQcQueue({ warehouse, clients, cartons: loaded }).catch(() => 0)
+    ),
+  ]);
+
+  const cartonStats = cartonDerivedDashboardStats(cartons);
+
+  const stats: WarehouseOpsDashboardStats = {
+    ...cartonStats,
+    inboundDock,
+    pickQueue: outbound.pickQueue,
+    packQueue: outbound.packQueue,
+    dispatchReady: outbound.dispatchReady,
+    cycleCountOpen,
+    returnQc,
+  };
+
+  statsCache.set(cacheKey, { loadedAt: Date.now(), stats });
+  return stats;
 }
 
 export function buildWarehouseOpsFlowMetrics(

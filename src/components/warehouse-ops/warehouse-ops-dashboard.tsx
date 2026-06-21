@@ -37,6 +37,15 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
+const QUEUE_METRIC_KEYS = new Set([
+  "inbound",
+  "pick",
+  "pack",
+  "dispatch",
+  "returns",
+  "cycle",
+]);
+
 const NAV_ICONS: Record<string, LucideIcon> = {
   "/warehouse-ops/locate": Search,
   "/warehouse-ops/receiving": PackagePlus,
@@ -85,17 +94,27 @@ function StatCard({
   value,
   hint,
   accent,
+  loading,
 }: {
   label: string;
   value: number | string;
   hint?: string;
   accent?: string;
+  loading?: boolean;
 }) {
   return (
     <Card className="border-border/60 shadow-sm">
       <CardContent className="p-4 sm:p-5">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className={cn("mt-1 text-2xl sm:text-3xl font-bold tabular-nums", accent)}>{value}</p>
+        <p
+          className={cn(
+            "mt-1 text-2xl sm:text-3xl font-bold tabular-nums",
+            accent,
+            loading && "text-muted-foreground/60 animate-pulse"
+          )}
+        >
+          {value}
+        </p>
         {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
       </CardContent>
     </Card>
@@ -105,9 +124,11 @@ function StatCard({
 function FlowStateCard({
   metric,
   enabled,
+  countLoading,
 }: {
   metric: WarehouseOpsFlowMetric;
   enabled: boolean;
+  countLoading?: boolean;
 }) {
   const tone = TONE_STYLES[metric.tone];
   const inner = (
@@ -125,7 +146,15 @@ function FlowStateCard({
             <p className="font-semibold text-sm">{metric.label}</p>
             <p className="text-xs text-muted-foreground line-clamp-2">{metric.description}</p>
           </div>
-          <Badge className={cn("shrink-0 tabular-nums", tone.badge)}>{metric.count}</Badge>
+          <Badge
+            className={cn(
+              "shrink-0 tabular-nums min-w-[2rem] justify-center",
+              tone.badge,
+              countLoading && "animate-pulse opacity-70"
+            )}
+          >
+            {countLoading ? "…" : metric.count}
+          </Badge>
         </div>
         {enabled && metric.count > 0 ? (
           <span className="mt-auto inline-flex items-center gap-1 text-xs font-medium text-orange-600">
@@ -150,14 +179,15 @@ function FlowStateCard({
 export function WarehouseOpsDashboard() {
   const { userProfile } = useAuth();
   const { selectedWarehouse, loading: warehousesLoading } = useWarehouseOps();
-  const { data: allUsers } = useCollection<UserProfile>("users");
+  const { data: allUsers, loading: usersLoading } = useCollection<UserProfile>("users");
   const clients = useMemo(
     () => allUsers.filter((u) => u.role === "user" || (u.roles ?? []).includes("user")),
     [allUsers]
   );
 
   const [stats, setStats] = useState<WarehouseOpsDashboardStats | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loadingCartons, setLoadingCartons] = useState(false);
+  const [loadingQueues, setLoadingQueues] = useState(false);
 
   const navItems = useMemo(
     () => getOpsNavItems(userProfile).filter((n) => n.href !== "/warehouse-ops"),
@@ -182,24 +212,36 @@ export function WarehouseOpsDashboard() {
     );
   }, [stats]);
 
-  const refresh = useCallback(async () => {
-    if (!selectedWarehouse) {
-      setStats(null);
-      return;
-    }
-    setLoading(true);
-    try {
-      const next = await loadWarehouseOpsDashboardStats({
-        warehouse: selectedWarehouse,
-        clients,
-      });
-      setStats(next);
-    } catch {
-      setStats(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedWarehouse, clients]);
+  const refresh = useCallback(
+    async (forceRefresh = false) => {
+      if (!selectedWarehouse || usersLoading) {
+        if (!selectedWarehouse) setStats(null);
+        return;
+      }
+      setLoadingCartons(true);
+      setLoadingQueues(true);
+      try {
+        const next = await loadWarehouseOpsDashboardStats({
+          warehouse: selectedWarehouse,
+          clients,
+          forceRefresh,
+          onPartial: (partial) => {
+            setStats(partial);
+            setLoadingCartons(false);
+          },
+        });
+        setStats(next);
+      } catch {
+        setStats((prev) => prev);
+      } finally {
+        setLoadingCartons(false);
+        setLoadingQueues(false);
+      }
+    },
+    [selectedWarehouse, clients, usersLoading]
+  );
+
+  const loading = loadingCartons || loadingQueues;
 
   useEffect(() => {
     void refresh();
@@ -259,7 +301,12 @@ export function WarehouseOpsDashboard() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void refresh(true)}
+              disabled={loading}
+            >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -284,25 +331,35 @@ export function WarehouseOpsDashboard() {
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
           label="Pending tasks"
-          value={loading && !stats ? "—" : totalPending}
+          value={
+            !stats && loadingQueues
+              ? "—"
+              : stats
+                ? totalPending
+                : "—"
+          }
           hint="Across all floor queues"
           accent="text-orange-600"
+          loading={loadingQueues && !!stats}
         />
         <StatCard
           label="Active cartons"
-          value={loading && !stats ? "—" : (stats?.activeCartons ?? 0)}
+          value={stats?.activeCartons ?? (loadingCartons ? "—" : 0)}
           hint="On hand in this warehouse"
+          loading={loadingCartons && !stats}
         />
         <StatCard
           label="In staging"
-          value={loading && !stats ? "—" : (stats?.inStaging ?? 0)}
+          value={stats?.inStaging ?? (loadingCartons ? "—" : 0)}
           hint="Awaiting putaway"
+          loading={loadingCartons && !stats}
         />
         <StatCard
           label="Quarantine / DMG"
-          value={loading && !stats ? "—" : (stats?.quarantineUnits ?? 0)}
+          value={stats?.quarantineUnits ?? (loadingCartons ? "—" : 0)}
           hint="Units flagged damaged"
           accent={(stats?.quarantineUnits ?? 0) > 0 ? "text-red-600" : undefined}
+          loading={loadingCartons && !stats}
         />
       </div>
 
@@ -315,12 +372,12 @@ export function WarehouseOpsDashboard() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {loading && !stats ? (
+          {!stats && loadingCartons ? (
             <div className="flex items-center justify-center py-10 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               Loading live counts…
             </div>
-          ) : (
+          ) : stats ? (
             <>
               <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground overflow-x-auto pb-1">
                 {["Inbound", "Putaway", "Outbound", "Dispatch", "Quality"].map((step, i, arr) => (
@@ -343,16 +400,17 @@ export function WarehouseOpsDashboard() {
                     key={metric.key}
                     metric={metric}
                     enabled={hasFeature(userProfile, metric.feature as UserFeature)}
+                    countLoading={loadingQueues && QUEUE_METRIC_KEYS.has(metric.key)}
                   />
                 ))}
               </div>
             </>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
       {/* Outbound mini bar */}
-      {stats ? (
+      {stats && !loadingQueues ? (
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Outbound progress</CardTitle>

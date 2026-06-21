@@ -18,7 +18,6 @@ import {
   warehouseCartonDocRef,
 } from "@/lib/warehouse-carton-firestore";
 import { normalizeReturnTracking, parseReturnTrackings } from "@/lib/return-tracking-client";
-import { normalizeReturnTracking } from "@/lib/return-tracking-client";
 import {
   loadInboundRequestQueue,
   inboundRequestMatchesTracking,
@@ -90,11 +89,10 @@ function expectedReturnQty(r: ProductReturn): number {
   return Math.max(0, Math.floor(r.requestedQuantity ?? 0));
 }
 
-/** Sum carton qty linked to each product return id. */
-export async function cartonQtyByProductReturnId(
-  warehouseId: string
-): Promise<Map<string, number>> {
-  const cartons = await listWarehouseCartons(warehouseId);
+/** Sum carton qty linked to each product return id from an already-loaded carton list. */
+export function buildCartonQtyByProductReturnId(
+  cartons: WarehouseCartonDoc[]
+): Map<string, number> {
   const map = new Map<string, number>();
   for (const c of cartons) {
     if (c.status === "voided") continue;
@@ -109,6 +107,76 @@ export async function cartonQtyByProductReturnId(
     }
   }
   return map;
+}
+
+/** Sum carton qty linked to each product return id. */
+export async function cartonQtyByProductReturnId(
+  warehouseId: string
+): Promise<Map<string, number>> {
+  const cartons = await listWarehouseCartons(warehouseId);
+  return buildCartonQtyByProductReturnId(cartons);
+}
+
+/** Count returns awaiting QC receive (dashboard metric). */
+export async function countReturnQcQueue(input: {
+  warehouse: WarehouseDoc;
+  clients: UserProfile[];
+  cartons?: WarehouseCartonDoc[];
+}): Promise<number> {
+  const { warehouse, clients } = input;
+  const eligibleClientIds = new Set(
+    clients.filter((c) => clientMatchesWarehouse(c, warehouse)).map((c) => c.uid)
+  );
+
+  const statuses = ["approved", "in_progress"];
+  let docs: Array<{ id: string; ref: { path: string }; data: () => Record<string, unknown> }> = [];
+  try {
+    const snap = await getDocs(
+      query(collectionGroup(db, "productReturns"), where("status", "in", statuses))
+    );
+    docs = snap.docs.map((d) => ({
+      id: d.id,
+      ref: d.ref,
+      data: () => d.data() as Record<string, unknown>,
+    }));
+  } catch {
+    const eligible = Array.from(eligibleClientIds);
+    const perUserSnaps = await Promise.all(
+      eligible.map((uid) =>
+        getDocs(
+          query(
+            collection(db, `users/${uid}/productReturns`),
+            where("status", "in", statuses)
+          )
+        )
+      )
+    );
+    docs = perUserSnaps.flatMap((s) =>
+      s.docs.map((d) => ({
+        id: d.id,
+        ref: d.ref,
+        data: () => d.data() as Record<string, unknown>,
+      }))
+    );
+  }
+
+  const cartonMap = input.cartons
+    ? buildCartonQtyByProductReturnId(input.cartons)
+    : await cartonQtyByProductReturnId(warehouse.id);
+
+  let count = 0;
+  for (const d of docs) {
+    const data = d.data() as Omit<ProductReturn, "id">;
+    const clientUserId = userIdFromDocPath(d.ref.path);
+    if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;
+
+    const expectedQty = expectedReturnQty({ ...data, id: d.id });
+    const warehouseReceivedQty = cartonMap.get(d.id) ?? 0;
+    const remainingQty = Math.max(0, expectedQty - warehouseReceivedQty);
+    if (remainingQty > 0) count += 1;
+  }
+
+  return count;
 }
 
 export async function loadReturnRequestQueue(input: {

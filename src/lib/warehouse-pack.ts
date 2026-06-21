@@ -433,6 +433,88 @@ async function loadConfirmedOrders(input: {
   return out;
 }
 
+async function requestHasPickableLines(
+  clientUserId: string,
+  data: Record<string, unknown>,
+  productCache: Map<string, Map<string, { sku: string; productName: string }>>
+): Promise<boolean> {
+  const shipments = Array.isArray(data.shipments)
+    ? (data.shipments as Array<Record<string, unknown>>)
+    : [];
+  if (shipments.length === 0) return false;
+
+  let needsProductLookup = false;
+  for (const shipment of shipments) {
+    const productId = String(shipment.productId ?? "").trim();
+    if (!productId) continue;
+    const qty = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
+    const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
+    if (qty * packOf < 1) continue;
+    const sku = String(shipment.sku ?? "").trim();
+    if (sku) return true;
+    needsProductLookup = true;
+  }
+
+  if (!needsProductLookup) return false;
+
+  if (!productCache.has(clientUserId)) {
+    productCache.set(clientUserId, await loadClientProductMap(clientUserId));
+  }
+  const products = productCache.get(clientUserId)!;
+  for (const shipment of shipments) {
+    const productId = String(shipment.productId ?? "").trim();
+    if (!productId) continue;
+    const product = products.get(productId);
+    const sku = String(shipment.sku ?? product?.sku ?? "").trim();
+    if (!sku) continue;
+    const qty = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
+    const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
+    if (qty * packOf >= 1) return true;
+  }
+  return false;
+}
+
+export type OutboundQueueCounts = {
+  pickQueue: number;
+  packQueue: number;
+  dispatchReady: number;
+};
+
+/** Single-query outbound queue depths for dashboard metrics. */
+export async function countOutboundQueueStats(input: {
+  warehouse: WarehouseDoc;
+  clients: UserProfile[];
+}): Promise<OutboundQueueCounts> {
+  const raw = await loadConfirmedOrders(input);
+  const productCache = new Map<string, Map<string, { sku: string; productName: string }>>();
+
+  let pickQueue = 0;
+  let packQueue = 0;
+  let dispatchReady = 0;
+
+  for (const d of raw) {
+    if (!(await requestHasPickableLines(d.clientUserId, d.data, productCache))) continue;
+
+    const pickStatus = pickStatusFromRequest(d.data);
+    const packStatus = packStatusFromRequest(d.data);
+    const dispatchStatus = dispatchStatusFromRequest(d.data);
+
+    if (pickStatus !== "picked" && pickStatus !== "skipped") {
+      pickQueue += 1;
+      continue;
+    }
+    if (pickStatus === "picked" && packStatus !== "ready_to_dispatch") {
+      packQueue += 1;
+      continue;
+    }
+    if (packStatus === "ready_to_dispatch" && dispatchStatus !== "dispatched") {
+      dispatchReady += 1;
+    }
+  }
+
+  return { pickQueue, packQueue, dispatchReady };
+}
+
 function toOutboundPackOrder(
   id: string,
   clientUserId: string,

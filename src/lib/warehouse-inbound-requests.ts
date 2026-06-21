@@ -4,7 +4,7 @@ import { isActiveWarehouseCarton } from "@/lib/warehouse-carton-states";
 import { listWarehouseCartons } from "@/lib/warehouse-carton-firestore";
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
 import { normalizeReturnTracking } from "@/lib/return-tracking-client";
-import type { InventoryRequest, UserProfile, WarehouseDoc } from "@/types";
+import type { InventoryRequest, UserProfile, WarehouseCartonDoc, WarehouseDoc } from "@/types";
 
 export type ReceivingScenario = "client_request" | "walk_in" | "mixed_pallet" | "damaged";
 
@@ -125,14 +125,10 @@ function expectedQuantity(req: InventoryRequest): number {
   return Math.max(0, req.quantity ?? 0);
 }
 
-/** Sum carton qty per inventory request id for a warehouse.
- *  Considers both the legacy root-level `inventoryRequestId` (single-SKU cartons)
- *  AND per-line allocations stamped during the new Receive → Allocate flow.
- */
-export async function cartonQtyByInventoryRequestId(
-  warehouseId: string
-): Promise<Map<string, number>> {
-  const cartons = await listWarehouseCartons(warehouseId);
+/** Sum carton qty per inventory request id from an already-loaded carton list. */
+export function buildCartonQtyByInventoryRequestId(
+  cartons: WarehouseCartonDoc[]
+): Map<string, number> {
   const map = new Map<string, number>();
   for (const c of cartons) {
     if (!isActiveWarehouseCarton(c)) continue;
@@ -149,6 +145,123 @@ export async function cartonQtyByInventoryRequestId(
     map.set(rid, (map.get(rid) ?? 0) + Math.max(0, c.quantity));
   }
   return map;
+}
+
+/** Sum carton qty per inventory request id for a warehouse.
+ *  Considers both the legacy root-level `inventoryRequestId` (single-SKU cartons)
+ *  AND per-line allocations stamped during the new Receive → Allocate flow.
+ */
+export async function cartonQtyByInventoryRequestId(
+  warehouseId: string
+): Promise<Map<string, number>> {
+  const cartons = await listWarehouseCartons(warehouseId);
+  return buildCartonQtyByInventoryRequestId(cartons);
+}
+
+function inboundDockRowPassesFilters(input: {
+  data: Omit<InventoryRequest, "id">;
+  requestId: string;
+  clientUserId: string;
+  cartonReceivedQty: number;
+  remainingQty: number;
+  legacyFulfilled: boolean;
+}): boolean {
+  const { data, remainingQty, cartonReceivedQty, legacyFulfilled } = input;
+  if (remainingQty <= 0) return false;
+
+  const row = {
+    ...data,
+    id: input.requestId,
+    clientUserId: input.clientUserId,
+    clientDisplayName: "",
+    expectedQty: 0,
+    cartonReceivedQty,
+    remainingQty,
+  } satisfies InboundRequestRow;
+
+  if (!isAwaitingDockReceive(row, legacyFulfilled)) return false;
+  if (data.fulfillmentStatus === "closed") return false;
+  if (data.status === "approved" && legacyFulfilled && cartonReceivedQty === 0) return false;
+  if (data.fulfillmentStatus === "closed" && cartonReceivedQty === 0) return false;
+  return true;
+}
+
+/** Count approved inbound awaiting dock receive (dashboard metric). */
+export async function countInboundDockQueue(input: {
+  warehouse: WarehouseDoc;
+  clients: UserProfile[];
+  cartons?: WarehouseCartonDoc[];
+}): Promise<number> {
+  const { warehouse, clients } = input;
+  const eligibleClientIds = new Set(
+    clients.filter((c) => clientMatchesWarehouse(c, warehouse)).map((c) => c.uid)
+  );
+
+  const statuses = ["approved"];
+  let docs: Array<{ id: string; data: () => Omit<InventoryRequest, "id">; ref: { path: string } }> = [];
+  const inventoryPromise = loadClientInventoryByUser(Array.from(eligibleClientIds));
+  try {
+    const snap = await getDocs(
+      query(collectionGroup(db, "inventoryRequests"), where("status", "in", statuses))
+    );
+    docs = snap.docs as Array<{ id: string; data: () => Omit<InventoryRequest, "id">; ref: { path: string } }>;
+  } catch {
+    const eligible = Array.from(eligibleClientIds);
+    const perUserSnaps = await Promise.all(
+      eligible.map((uid) =>
+        getDocs(
+          query(
+            collection(db, `users/${uid}/inventoryRequests`),
+            where("status", "in", statuses)
+          )
+        )
+      )
+    );
+    docs = perUserSnaps.flatMap((s) =>
+      s.docs as Array<{ id: string; data: () => Omit<InventoryRequest, "id">; ref: { path: string } }>
+    );
+  }
+
+  const [cartonMap, inventoryByUser] = await Promise.all([
+    input.cartons
+      ? Promise.resolve(buildCartonQtyByInventoryRequestId(input.cartons))
+      : cartonQtyByInventoryRequestId(warehouse.id),
+    inventoryPromise,
+  ]);
+
+  let count = 0;
+  for (const d of docs) {
+    const data = d.data() as Omit<InventoryRequest, "id">;
+    if (data.inventoryType && data.inventoryType !== "product") continue;
+
+    const clientUserId = userIdFromDocPath(d.ref.path);
+    if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;
+
+    const expectedQty = expectedQuantity({ ...data, id: d.id });
+    const cartonReceivedQty = cartonMap.get(d.id) ?? 0;
+    const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
+    const legacyFulfilled = isLegacyAdminFulfilledInboundRequest({
+      clientUserId,
+      requestId: d.id,
+      req: data,
+      inventoryByUser,
+    });
+
+    if (
+      inboundDockRowPassesFilters({
+        data,
+        requestId: d.id,
+        clientUserId,
+        cartonReceivedQty,
+        remainingQty,
+        legacyFulfilled,
+      })
+    ) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
 
 export async function loadInboundRequestQueue(input: {
