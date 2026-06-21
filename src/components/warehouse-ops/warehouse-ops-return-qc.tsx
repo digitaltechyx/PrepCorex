@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,12 +17,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
+import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { findBinByPath } from "@/lib/warehouse-putaway";
 import {
   applyReturnQcDamaged,
   applyReturnQcDispose,
   applyReturnQcRestock,
-  listQuarantineReturnCartons,
 } from "@/lib/warehouse-returns";
 import type { WarehouseCartonDoc, WarehouseDoc } from "@/types";
 import { CheckCircle2, Loader2, RotateCcw, Trash2, XCircle } from "lucide-react";
@@ -35,32 +35,12 @@ export function WarehouseOpsReturnQc({ warehouse }: Props) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
+  const { quarantineReturnCartons: cartons, liveLoading: loading } = useWarehouseOpsLive();
 
-  const [cartons, setCartons] = useState<WarehouseCartonDoc[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<WarehouseCartonDoc | null>(null);
   const [binScan, setBinScan] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setCartons(await listQuarantineReturnCartons(warehouse.id));
-    } catch (e) {
-      toast({
-        title: "Load failed",
-        description: e instanceof Error ? e.message : "Unknown error",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [warehouse.id, toast]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   async function handleRestock() {
     if (!selected) return;
@@ -87,7 +67,6 @@ export function WarehouseOpsReturnQc({ warehouse }: Props) {
       setSelected(null);
       setBinScan("");
       setNotes("");
-      await load();
     } catch (e) {
       toast({
         title: "Restock failed",
@@ -112,7 +91,6 @@ export function WarehouseOpsReturnQc({ warehouse }: Props) {
       toast({ title: "Marked damaged" });
       setSelected(null);
       setNotes("");
-      await load();
     } catch (e) {
       toast({
         title: "Update failed",
@@ -137,7 +115,6 @@ export function WarehouseOpsReturnQc({ warehouse }: Props) {
       toast({ title: "Marked for dispose" });
       setSelected(null);
       setNotes("");
-      await load();
     } catch (e) {
       toast({
         title: "Update failed",

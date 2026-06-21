@@ -26,14 +26,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
+import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { findBinByPath, resolveScan } from "@/lib/warehouse-putaway";
 import {
   applyPickStep,
   buildPickPlan,
-  loadOutboundPickQueue,
   markPickOrderStatus,
   skipPickOrder,
   type OutboundPickOrder,
@@ -63,10 +62,8 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
   const canDismissFromQueue = isOpsSupervisor(userProfile);
 
-  const { clients, loading: clientsLoading } = useWarehouseOpsClients();
+  const { pickQueue: orders, outboundLoading: queueLoading } = useWarehouseOpsLive();
 
-  const [orders, setOrders] = useState<OutboundPickOrder[]>([]);
-  const [loadingQueue, setLoadingQueue] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<OutboundPickOrder | null>(null);
   const [plan, setPlan] = useState<PickPlan | null>(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
@@ -92,34 +89,6 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     resolvedCartonId === currentStep.cartonId &&
     qtyNum >= 1 &&
     qtyNum <= currentStep.quantity;
-
-  const loadQueue = useCallback(async () => {
-    if (clientsLoading) return;
-    setLoadingQueue(true);
-    try {
-      const list = await loadOutboundPickQueue({ warehouse, clients });
-      setOrders(list);
-    } catch (e) {
-      toast({
-        title: "Could not load orders",
-        description: e instanceof Error ? e.message : "Unknown error",
-        variant: "destructive",
-      });
-      setOrders([]);
-    } finally {
-      setLoadingQueue(false);
-    }
-  }, [warehouse, clients, clientsLoading, toast]);
-
-  useEffect(() => {
-    if (clientsLoading) {
-      setLoadingQueue(true);
-      return;
-    }
-    void loadQueue();
-  }, [loadQueue, clientsLoading]);
-
-  const queueLoading = clientsLoading || loadingQueue;
 
   async function loadPlanForOrder(order: OutboundPickOrder) {
     setLoadingPlan(true);
@@ -170,7 +139,6 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     setResolvedBinId(null);
     setResolvedCartonId(null);
     setPickQty("");
-    void loadQueue();
   }
 
   async function handleSkipOrder(
@@ -194,7 +162,6 @@ export function WarehouseOpsPick({ warehouse }: Props) {
       if (selectedOrder?.id === order.id) {
         resetToQueue();
       } else {
-        void loadQueue();
       }
     } catch (e) {
       toast({
@@ -231,7 +198,6 @@ export function WarehouseOpsPick({ warehouse }: Props) {
         description: e instanceof Error ? e.message : "Unknown error",
         variant: "destructive",
       });
-      void loadQueue();
     } finally {
       setDismissing(false);
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,12 +12,12 @@ import {
 } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
+import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import {
-  loadReturnRequestQueue,
   scanDockIntake,
   type ReturnRequestRow,
 } from "@/lib/warehouse-returns";
-import { loadInboundRequestQueue, type InboundRequestRow } from "@/lib/warehouse-inbound-requests";
+import type { InboundRequestRow } from "@/lib/warehouse-inbound-requests";
 import type { UserProfile, WarehouseDoc } from "@/types";
 import { Loader2, Package, RotateCcw, ScanLine, Truck } from "lucide-react";
 
@@ -41,11 +41,9 @@ export function WarehouseOpsDockIntake({
   onSkip,
 }: Props) {
   const { toast } = useToast();
+  const { inboundDockQueue, returnDockQueue, liveLoading } = useWarehouseOpsLive();
   const [tracking, setTracking] = useState("");
   const [scanning, setScanning] = useState(false);
-  const [inboundOpen, setInboundOpen] = useState<InboundRequestRow[]>([]);
-  const [returnOpen, setReturnOpen] = useState<ReturnRequestRow[]>([]);
-  const [listsLoading, setListsLoading] = useState(true);
   const [lastScan, setLastScan] = useState<{
     tracking: string;
     inbound: InboundRequestRow[];
@@ -53,29 +51,21 @@ export function WarehouseOpsDockIntake({
   } | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const loadLists = useCallback(async () => {
-    if (clientsLoading) return;
-    setListsLoading(true);
-    try {
-      const [inbound, returns] = await Promise.all([
-        loadInboundRequestQueue({ warehouse, clients, dockQueue: true }),
-        loadReturnRequestQueue({ warehouse, clients }),
-      ]);
-      setInboundOpen(inbound.filter((r) => r.remainingQty > 0));
-      setReturnOpen(returns.filter((r) => r.remainingQty > 0));
-    } finally {
-      setListsLoading(false);
-    }
-  }, [warehouse, clients, clientsLoading]);
+  const inboundOpen = useMemo(
+    () => inboundDockQueue.filter((r) => r.remainingQty > 0),
+    [inboundDockQueue]
+  );
+  const returnOpen = useMemo(
+    () => returnDockQueue.filter((r) => r.remainingQty > 0),
+    [returnDockQueue]
+  );
+  const listsLoading = clientsLoading || liveLoading;
 
   useEffect(() => {
-    if (clientsLoading) {
-      setListsLoading(true);
-      return;
+    if (!clientsLoading) {
+      inputRef.current?.focus();
     }
-    void loadLists();
-    inputRef.current?.focus();
-  }, [loadLists, clientsLoading]);
+  }, [clientsLoading]);
 
   async function handleScan(pathOverride?: string) {
     const v = (pathOverride ?? tracking).trim();

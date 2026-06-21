@@ -23,12 +23,11 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
+import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import {
   completeDispatchHandoff,
-  loadDispatchQueue,
   resolveDispatchOrderByScan,
   returnToPackFromDispatchQc,
   type OutboundPackOrder,
@@ -54,10 +53,8 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
 
-  const { clients, loading: clientsLoading } = useWarehouseOpsClients();
+  const { dispatchQueue: orders, outboundLoading: queueLoading } = useWarehouseOpsLive();
 
-  const [orders, setOrders] = useState<OutboundPackOrder[]>([]);
-  const [loading, setLoading] = useState(true);
   const [scanValue, setScanValue] = useState("");
   const [scanning, setScanning] = useState(false);
   const [matchedOrder, setMatchedOrder] = useState<OutboundPackOrder | null>(null);
@@ -69,34 +66,6 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   const [qcRemarks, setQcRemarks] = useState("");
 
   const scanInputRef = useRef<HTMLInputElement | null>(null);
-
-  const loadQueue = useCallback(async () => {
-    if (clientsLoading) return;
-    setLoading(true);
-    try {
-      const list = await loadDispatchQueue({ warehouse, clients });
-      setOrders(list);
-    } catch (e) {
-      toast({
-        title: "Could not load dispatch queue",
-        description: e instanceof Error ? e.message : "Unknown error",
-        variant: "destructive",
-      });
-      setOrders([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [warehouse, clients, clientsLoading, toast]);
-
-  useEffect(() => {
-    if (clientsLoading) {
-      setLoading(true);
-      return;
-    }
-    void loadQueue();
-  }, [loadQueue, clientsLoading]);
-
-  const queueLoading = clientsLoading || loading;
 
   useEffect(() => {
     scanInputRef.current?.focus();
@@ -169,7 +138,6 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
       setScanError(null);
       setQcCondition(null);
       setQcRemarks("");
-      void loadQueue();
     } catch (e) {
       toast({
         title: "Could not confirm dispatch",
@@ -205,7 +173,6 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
       setScanError(null);
       setQcCondition(null);
       setQcRemarks("");
-      void loadQueue();
     } catch (e) {
       toast({
         title: "Could not return to pack",
@@ -443,9 +410,6 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
       <Card>
         <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-sm">Awaiting handoff ({orders.length})</CardTitle>
-          <Button type="button" variant="outline" size="sm" onClick={() => void loadQueue()}>
-            Refresh
-          </Button>
         </CardHeader>
         <CardContent className="space-y-3">
           {queueLoading ? (

@@ -15,7 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
+import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { resolveScan } from "@/lib/warehouse-putaway";
@@ -23,7 +23,6 @@ import {
   buildPackPlan,
   bindCourierLabelAtPack,
   completePackReadyToDispatch,
-  loadOutboundPackQueue,
   markPackItemVerified,
   verifyPackScan,
   type OutboundPackOrder,
@@ -52,10 +51,8 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
 
-  const { clients, loading: clientsLoading } = useWarehouseOpsClients();
+  const { packQueue: orders, outboundLoading: queueLoading } = useWarehouseOpsLive();
 
-  const [orders, setOrders] = useState<OutboundPackOrder[]>([]);
-  const [loadingQueue, setLoadingQueue] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<OutboundPackOrder | null>(null);
   const [plan, setPlan] = useState<PackPlan | null>(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
@@ -81,34 +78,6 @@ export function WarehouseOpsPack({ warehouse }: Props) {
 
   const nextItem: PackPlanItem | null =
     plan?.items.find((i) => !verifiedSet.has(i.itemKey)) ?? null;
-
-  const loadQueue = useCallback(async () => {
-    if (clientsLoading) return;
-    setLoadingQueue(true);
-    try {
-      const list = await loadOutboundPackQueue({ warehouse, clients });
-      setOrders(list);
-    } catch (e) {
-      toast({
-        title: "Could not load pack queue",
-        description: e instanceof Error ? e.message : "Unknown error",
-        variant: "destructive",
-      });
-      setOrders([]);
-    } finally {
-      setLoadingQueue(false);
-    }
-  }, [warehouse, clients, clientsLoading, toast]);
-
-  useEffect(() => {
-    if (clientsLoading) {
-      setLoadingQueue(true);
-      return;
-    }
-    void loadQueue();
-  }, [loadQueue, clientsLoading]);
-
-  const queueLoading = clientsLoading || loadingQueue;
 
   async function refreshPlan(order: OutboundPackOrder) {
     setLoadingPlan(true);
@@ -141,7 +110,6 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     setLabelScan("");
     setCourierScan("");
     setCourierPreview(null);
-    void loadQueue();
   }
 
   async function handleConfirmLoose(item: PackPlanItem) {

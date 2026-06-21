@@ -209,6 +209,8 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
   };
 }
 
+export const parseWarehouseCartonDoc = docToCarton;
+
 function docToPallet(id: string, data: Record<string, unknown>): WarehousePalletDoc {
   return {
     id,
