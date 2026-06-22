@@ -9,7 +9,6 @@ import type { UserFeature, UserProfile, WarehouseCartonDoc, WarehouseDoc } from 
 export type WarehouseOpsDashboardStats = {
   inboundDock: number;
   awaitingPutaway: number;
-  inStaging: number;
   activeCartons: number;
   quarantineUnits: number;
   pickQueue: number;
@@ -44,26 +43,17 @@ const statsCache = new Map<
 >();
 const inFlightLoads = new Map<string, Promise<WarehouseOpsDashboardStats>>();
 
-function countInStaging(cartons: WarehouseCartonDoc[]): number {
-  let n = 0;
-  for (const c of cartons) {
-    if (!isActiveWarehouseCarton(c)) continue;
-    if (c.status !== "received" && c.status !== "receiving") continue;
-    const lines = c.lines ?? [];
-    if (lines.length === 0) {
-      if (!c.binId) n += 1;
-      continue;
-    }
-    if (lines.some((l) => !l.binId)) n += 1;
-  }
-  return n;
-}
-
 function countAwaitingPutaway(cartons: WarehouseCartonDoc[]): number {
   let n = 0;
   for (const c of cartons) {
     if (!isActiveWarehouseCarton(c)) continue;
-    if (c.status !== "received" && c.status !== "stowed_partial") continue;
+    if (
+      c.status !== "received" &&
+      c.status !== "receiving" &&
+      c.status !== "stowed_partial"
+    ) {
+      continue;
+    }
     const lines = c.lines ?? [];
     if (lines.length === 0) {
       if (!c.binId) n += 1;
@@ -93,12 +83,11 @@ export function cartonDerivedDashboardStats(
   cartons: WarehouseCartonDoc[]
 ): Pick<
   WarehouseOpsDashboardStats,
-  "awaitingPutaway" | "inStaging" | "activeCartons" | "quarantineUnits"
+  "awaitingPutaway" | "activeCartons" | "quarantineUnits"
 > {
   const active = cartons.filter(isActiveWarehouseCarton);
   return {
     awaitingPutaway: countAwaitingPutaway(active),
-    inStaging: countInStaging(active),
     activeCartons: active.length,
     quarantineUnits: countQuarantineUnits(active),
   };
@@ -171,7 +160,7 @@ export async function loadCartonDashboardStats(warehouseId: string): Promise<{
   cartons: WarehouseCartonDoc[];
   stats: Pick<
     WarehouseOpsDashboardStats,
-    "awaitingPutaway" | "inStaging" | "activeCartons" | "quarantineUnits"
+    "awaitingPutaway" | "activeCartons" | "quarantineUnits"
   >;
 }> {
   const cartons = await listWarehouseCartonsForStats(warehouseId);
@@ -323,18 +312,9 @@ export function buildWarehouseOpsFlowMetrics(
       tone: stats.inboundDock > 0 ? "info" : "neutral",
     },
     {
-      key: "staging",
-      label: "In staging",
-      description: "Received at dock, not yet in storage bin",
-      count: stats.inStaging,
-      href: "/warehouse-ops/putaway",
-      feature: "ops_putaway",
-      tone: stats.inStaging > 0 ? "warning" : "neutral",
-    },
-    {
       key: "putaway",
       label: "Putaway",
-      description: "Received cartons need bin placement",
+      description: "Received at dock — scan carton to storage bin",
       count: stats.awaitingPutaway,
       href: "/warehouse-ops/putaway",
       feature: "ops_putaway",

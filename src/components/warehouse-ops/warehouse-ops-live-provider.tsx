@@ -270,7 +270,6 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       const empty: WarehouseOpsDashboardStats = {
         inboundDock: 0,
         awaitingPutaway: 0,
-        inStaging: 0,
         activeCartons: 0,
         quarantineUnits: 0,
         pickQueue: 0,

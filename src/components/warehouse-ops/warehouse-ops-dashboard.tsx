@@ -285,9 +285,9 @@ export function WarehouseOpsDashboard() {
           loading={liveLoading}
         />
         <StatCard
-          label="In staging"
-          value={stats.inStaging}
-          hint="Awaiting putaway"
+          label="Putaway"
+          value={stats.awaitingPutaway}
+          hint="Awaiting bin placement"
           loading={liveLoading}
         />
         <StatCard
@@ -310,7 +310,7 @@ export function WarehouseOpsDashboard() {
         <CardContent className="space-y-4">
           <>
             <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground overflow-x-auto pb-1">
-              {["Inbound", "Staging", "Putaway", "Outbound", "Dispatch", "Quality"].map(
+              {["Inbound", "Putaway", "Outbound", "Dispatch", "Quality"].map(
                 (step, i, arr) => (
                   <div key={step} className="flex items-center gap-1 shrink-0">
                     <span
