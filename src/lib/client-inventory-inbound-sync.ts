@@ -15,9 +15,10 @@ import type { InventoryRequest, WarehouseCartonDoc, WarehouseCartonLine } from "
 
 export type PutawaySyncAssignment = {
   lineId: string;
-  binId: string;
-  binPath: string;
   quantity: number;
+  binId?: string | null;
+  binPath?: string | null;
+  stagingArea?: string | null;
 };
 
 function norm(value: string | undefined | null): string {
@@ -28,12 +29,11 @@ function buildSyncKey(input: {
   warehouseId: string;
   cartonId: string;
   lineId: string;
-  binId: string;
+  binId?: string | null;
+  stagingArea?: string | null;
 }): string {
-  return `${input.warehouseId}_${input.cartonId}_${input.lineId}_${input.binId}`.replace(
-    /\//g,
-    "_"
-  );
+  const dest = input.binId?.trim() || `area:${(input.stagingArea ?? "").trim().toUpperCase()}`;
+  return `${input.warehouseId}_${input.cartonId}_${input.lineId}_${dest}`.replace(/\//g, "_");
 }
 
 function cartonPhotoUrls(carton: WarehouseCartonDoc): string[] {
@@ -73,8 +73,9 @@ export async function syncClientInventoryFromPutaway(input: {
       carton: input.carton,
       line,
       putawayQty: assignment.quantity,
-      binId: assignment.binId,
-      binPath: assignment.binPath,
+      binId: assignment.binId ?? null,
+      binPath: assignment.binPath ?? null,
+      stagingArea: assignment.stagingArea ?? null,
       operatorId: input.operatorId ?? null,
     });
   }
@@ -86,8 +87,9 @@ async function syncPutawayLine(input: {
   carton: WarehouseCartonDoc;
   line: WarehouseCartonLine;
   putawayQty: number;
-  binId: string;
-  binPath: string;
+  binId: string | null;
+  binPath: string | null;
+  stagingArea: string | null;
   operatorId: string | null;
 }): Promise<void> {
   const clientUserId = input.line.clientId!.trim();
@@ -96,6 +98,7 @@ async function syncPutawayLine(input: {
     cartonId: input.cartonId,
     lineId: input.line.lineId,
     binId: input.binId,
+    stagingArea: input.stagingArea,
   });
 
   const logRef = doc(db, "users", clientUserId, "inboundReceiveLogs", syncKey);
@@ -198,7 +201,7 @@ async function syncPutawayLine(input: {
       cartonCode: input.carton.cartonCode,
       lineId: input.line.lineId,
       binPath: input.binPath,
-      stagingArea: input.line.stagingArea ?? input.carton.stagingArea ?? null,
+      stagingArea: input.stagingArea ?? input.line.stagingArea ?? input.carton.stagingArea ?? null,
       operatorId: input.operatorId,
       putawayAt: serverTimestamp(),
       syncKey,

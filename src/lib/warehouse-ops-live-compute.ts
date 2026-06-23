@@ -3,7 +3,12 @@ import {
   isLegacyAdminFulfilledInboundRequest,
   type InboundRequestRow,
 } from "@/lib/warehouse-inbound-requests";
-import { buildCartonQtyByProductReturnId, type ReturnRequestRow } from "@/lib/warehouse-returns";
+import {
+  buildCartonQtyByProductReturnId,
+  countQuarantineReturnQcCartons,
+  filterQuarantineReturnCartons,
+  type ReturnRequestRow,
+} from "@/lib/warehouse-returns";
 import { cartonDerivedDashboardStats } from "@/lib/warehouse-ops-dashboard-stats";
 import {
   buildOrderLinesFromRequestData,
@@ -142,32 +147,8 @@ function countInboundDockLive(input: {
   return count;
 }
 
-function countReturnQcLive(input: {
-  warehouse: WarehouseDoc;
-  clients: UserProfile[];
-  cartons: WarehouseCartonDoc[];
-  returnDocs: LiveFirestoreDoc[];
-}): number {
-  const eligibleClientIds = new Set(
-    input.clients.filter((c) => clientMatchesWarehouse(c, input.warehouse)).map((c) => c.uid)
-  );
-  const cartonMap = buildCartonQtyByProductReturnId(input.cartons);
-
-  let count = 0;
-  for (const doc of input.returnDocs) {
-    const data = doc.data as Omit<ProductReturn, "id">;
-    const status = String(data.status ?? "");
-    if (status !== "approved" && status !== "in_progress") continue;
-
-    const clientUserId = userIdFromDocPath(doc.path);
-    if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;
-
-    const expectedQty = expectedReturnQty({ ...data, id: doc.id });
-    const warehouseReceivedQty = cartonMap.get(doc.id) ?? 0;
-    const remainingQty = Math.max(0, expectedQty - warehouseReceivedQty);
-    if (remainingQty > 0) count += 1;
-  }
-  return count;
+function countReturnQcLive(cartons: WarehouseCartonDoc[]): number {
+  return countQuarantineReturnQcCartons(cartons);
 }
 
 function inferQcUnitTypeFromRequest(data: Record<string, unknown>) {
@@ -320,12 +301,7 @@ export function computeWarehouseOpsLiveStats(input: {
     packQueue: packQueue.length,
     dispatchReady: dispatchQueue.length,
     cycleCountOpen: input.cycleCountOpen,
-    returnQc: countReturnQcLive({
-      warehouse: input.warehouse,
-      clients: input.clients,
-      cartons: input.cartons,
-      returnDocs: input.returnDocs,
-    }),
+    returnQc: countReturnQcLive(input.cartons),
   };
 }
 
@@ -494,10 +470,4 @@ export function buildReturnDockQueueLive(input: {
   });
 }
 
-export function filterQuarantineReturnCartons(
-  cartons: WarehouseCartonDoc[]
-): WarehouseCartonDoc[] {
-  return cartons
-    .filter((c) => c.status === "quarantine" && !!c.productReturnId?.trim())
-    .sort((a, b) => a.cartonCode.localeCompare(b.cartonCode));
-}
+export { filterQuarantineReturnCartons } from "@/lib/warehouse-returns";

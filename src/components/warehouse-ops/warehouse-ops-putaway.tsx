@@ -34,14 +34,16 @@ import {
   manifestSkuCount,
   resolveManifestLotLabel,
 } from "@/lib/warehouse-label-manifest";
+import { isLinePutawayPlaced } from "@/lib/warehouse-carton-line-utils";
 import {
   applyPutawayAssignments,
-  classifyBin,
   findBinByPath,
   findCartonByCode,
   inspectBinContents,
+  lineEligibleAreasHaveBins,
   resolveScan,
   validateLineToBin,
+  type PutawayLineAssignment,
 } from "@/lib/warehouse-putaway";
 import {
   applyCrossdockAreaPutaway,
@@ -56,6 +58,7 @@ import {
   type OpenCrossdockLineInput,
 } from "@/lib/warehouse-putaway-disposition";
 import { isCrossdockClosedCarton } from "@/lib/warehouse-crossdock";
+import { listActiveWarehouseBins } from "@/lib/warehouse-cycle-count";
 import {
   applyPalletCrossdockAreaPutaway,
   isClosedCrossdockPallet,
@@ -89,29 +92,36 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
+import {
+  PutawayDestinationFields,
+  PutawayLineDestinationCard,
+  BinSummary,
+  emptyPutawayLineSlot,
+  isPutawayLineSlotReady,
+  type PutawayDestinationContext,
+  type PutawayLineSlot,
+  type ResolvedBin,
+} from "@/components/warehouse-ops/putaway-destination-fields";
 
-type Props = {
-  warehouse: WarehouseDoc;
-};
-
-type ResolvedBin = {
-  bin: WarehouseBinDoc;
-  contents: { skus: string[]; hasDamaged: boolean; cartonCount: number };
-};
-
-type LineAssignment = {
-  binPath: string;
-  resolved: ResolvedBin | null;
-  loading: boolean;
-  error: string | null;
-};
+function initPerLineFromCarton(
+  carton: WarehouseCartonDoc,
+  ctx?: PutawayDestinationContext
+): Record<string, PutawayLineSlot> {
+  const map: Record<string, PutawayLineSlot> = {};
+  for (const line of carton.lines ?? []) {
+    if (!line.binId && !line.stagingArea?.trim()) {
+      map[line.lineId] = emptyPutawayLineSlot(line, ctx);
+    }
+  }
+  return map;
+}
 
 type Mode = "split" | "whole" | "split_qty";
 
 type QtySplitRow = {
   id: string;
   qty: string;
-  bin: LineAssignment;
+  bin: PutawayLineSlot;
 };
 
 type ManifestLine = {
@@ -149,11 +159,21 @@ function pendingManifestLines(cartons: WarehouseCartonDoc[]): ManifestLine[] {
   for (const carton of cartons) {
     if (carton.status === "voided" || carton.status === "closed") continue;
     for (const line of carton.lines ?? []) {
-      if (!line.binId) out.push({ carton, line });
+      if (!isLinePutawayPlaced(line)) out.push({ carton, line });
     }
   }
   return out;
 }
+
+function isCrossdockAreaDisposition(
+  d: WarehousePutawayDisposition | null
+): d is "forward" | "keep_closed" {
+  return d === "forward" || d === "keep_closed";
+}
+
+type Props = {
+  warehouse: WarehouseDoc;
+};
 
 export function WarehouseOpsPutaway({ warehouse }: Props) {
   const { toast } = useToast();
@@ -169,23 +189,14 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
 
   const [mode, setMode] = useState<Mode>("split");
   const [palletMode, setPalletMode] = useState<Mode>("whole");
-  const [palletWholeBin, setPalletWholeBin] = useState<LineAssignment>({
-    binPath: "",
-    resolved: null,
-    loading: false,
-    error: null,
-  });
-  const [wholeBin, setWholeBin] = useState<LineAssignment>({
-    binPath: "",
-    resolved: null,
-    loading: false,
-    error: null,
-  });
-  const [perLine, setPerLine] = useState<Record<string, LineAssignment>>({});
+  const [palletWholeBin, setPalletWholeBin] = useState<PutawayLineSlot>(emptyPutawayLineSlot());
+  const [wholeSlot, setWholeSlot] = useState<PutawayLineSlot>(emptyPutawayLineSlot());
+  const [perLine, setPerLine] = useState<Record<string, PutawayLineSlot>>({});
   const [qtySplits, setQtySplits] = useState<QtySplitRow[]>([]);
   const [saving, setSaving] = useState(false);
 
   const [warehouseAreas, setWarehouseAreas] = useState<WarehouseAreaDoc[]>([]);
+  const [warehouseBins, setWarehouseBins] = useState<WarehouseBinDoc[]>([]);
   const [areasLoading, setAreasLoading] = useState(false);
   const [pendingDisposition, setPendingDisposition] =
     useState<WarehousePutawayDisposition | null>(null);
@@ -204,7 +215,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     (carton.isMixed || (carton.lines && carton.lines.length > 1) || false);
   const hasDamaged = !!carton?.lines?.some((l) => l.condition === "damaged");
   const linesPending = useMemo(
-    () => (carton?.lines ?? []).filter((l) => !l.binId),
+    () => (carton?.lines ?? []).filter((l) => !isLinePutawayPlaced(l)),
     [carton]
   );
   const canSplitQty = useMemo(
@@ -236,8 +247,8 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     setCartonScan("");
     setMode("split");
     setPalletMode("whole");
-    setPalletWholeBin({ binPath: "", resolved: null, loading: false, error: null });
-    setWholeBin({ binPath: "", resolved: null, loading: false, error: null });
+    setPalletWholeBin(emptyPutawayLineSlot());
+    setWholeSlot(emptyPutawayLineSlot());
     setPerLine({});
     setQtySplits([]);
     setPendingDisposition(null);
@@ -246,16 +257,24 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     setTimeout(() => cartonInputRef.current?.focus(), 50);
   }
 
+  const putawayCtx = useMemo<PutawayDestinationContext>(
+    () => ({ areas: warehouseAreas, bins: warehouseBins }),
+    [warehouseAreas, warehouseBins]
+  );
+
   useEffect(() => {
-    const needsAreas =
-      (carton?.receiveMode === "crossdock" && carton) ||
-      (pallet && isClosedCrossdockPallet(pallet));
-    if (!needsAreas) return;
+    if (!carton && !pallet) return;
     let cancelled = false;
     setAreasLoading(true);
-    void listWarehouseAreas(warehouse.id)
-      .then((areas) => {
-        if (!cancelled) setWarehouseAreas(areas);
+    void Promise.all([
+      listWarehouseAreas(warehouse.id),
+      listActiveWarehouseBins(warehouse.id),
+    ])
+      .then(([areas, bins]) => {
+        if (!cancelled) {
+          setWarehouseAreas(areas);
+          setWarehouseBins(bins);
+        }
       })
       .finally(() => {
         if (!cancelled) setAreasLoading(false);
@@ -263,7 +282,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [carton?.id, carton?.receiveMode, pallet?.id, pallet?.isClosedCrossdock, warehouse.id]);
+  }, [warehouse.id, carton?.id, pallet?.id]);
 
   async function reloadCarton(code: string) {
     const fresh = await findCartonByCode(warehouse.id, code);
@@ -377,9 +396,9 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         setPendingDisposition(null);
         setStagingAreaCode("");
         setPalletMode("whole");
-        setPalletWholeBin({ binPath: "", resolved: null, loading: false, error: null });
+        setPalletWholeBin(emptyPutawayLineSlot());
         setPerLine({});
-        setWholeBin({ binPath: "", resolved: null, loading: false, error: null });
+        setWholeSlot(emptyPutawayLineSlot());
         return;
       }
       const c = res.carton;
@@ -409,11 +428,17 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
       setMode(c.isMixed || c.lines.length > 1 ? "split" : "whole");
       setQtySplits(
         !c.isMixed && c.lines.length === 1 && c.lines[0].quantity > 1
-          ? [{ id: "qs1", qty: String(c.lines[0].quantity), bin: { binPath: "", resolved: null, loading: false, error: null } }]
+          ? [
+              {
+                id: "qs1",
+                qty: String(c.lines[0].quantity),
+                bin: emptyPutawayLineSlot(c.lines[0], putawayCtx),
+              },
+            ]
           : []
       );
-      setPerLine({});
-      setWholeBin({ binPath: "", resolved: null, loading: false, error: null });
+      setPerLine(initPerLineFromCarton(c, putawayCtx));
+      setWholeSlot(emptyPutawayLineSlot(c.lines[0], putawayCtx));
     } catch (e) {
       toast({
         title: "Lookup failed",
@@ -436,67 +461,77 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     return { bin, contents };
   }
 
-  async function handleWholeBinChange(value: string) {
-    setWholeBin({ binPath: value, resolved: null, loading: false, error: null });
+  function assignmentFromSlot(
+    line: WarehouseCartonLine,
+    slot: PutawayLineSlot | undefined,
+    ctx: PutawayDestinationContext = putawayCtx
+  ): PutawayLineAssignment | null {
+    if (!slot || !isPutawayLineSlotReady(line, slot, ctx)) return null;
+    if (lineEligibleAreasHaveBins(ctx.areas, ctx.bins, line) && slot.resolved) {
+      return {
+        lineId: line.lineId,
+        binId: slot.resolved.bin.id,
+        binPath: slot.resolved.bin.path,
+      };
+    }
+    if (!lineEligibleAreasHaveBins(ctx.areas, ctx.bins, line) && slot.areaCode.trim()) {
+      return { lineId: line.lineId, stagingArea: slot.areaCode.trim() };
+    }
+    return null;
+  }
+
+  function updateWholeSlot(patch: Partial<PutawayLineSlot>) {
+    setWholeSlot((prev) => ({ ...prev, ...patch }));
   }
 
   async function handleResolveWholeBin(pathOverride?: string) {
-    const v = (pathOverride ?? wholeBin.binPath).trim();
+    const v = (pathOverride ?? wholeSlot.binPath).trim();
     if (!v) return;
-    setWholeBin({ binPath: v, resolved: null, loading: true, error: null });
+    updateWholeSlot({ binPath: v, resolved: null, loading: true, error: null });
     try {
       const resolved = await resolveBin(v);
       if (!resolved) {
-        setWholeBin((s) => ({ ...s, resolved: null, loading: false, error: "Bin not found." }));
+        updateWholeSlot({ resolved: null, loading: false, error: "Bin not found." });
         return;
       }
-      setWholeBin({ binPath: v, resolved, loading: false, error: null });
+      updateWholeSlot({ binPath: v, resolved, loading: false, error: null });
     } catch (e) {
-      setWholeBin((s) => ({
-        ...s,
+      updateWholeSlot({
         loading: false,
         error: e instanceof Error ? e.message : "Lookup failed",
-      }));
+      });
     }
   }
 
-  async function handlePerLineBinChange(lineId: string, value: string) {
+  function updatePerLineSlot(lineId: string, patch: Partial<PutawayLineSlot>) {
     setPerLine((prev) => ({
       ...prev,
-      [lineId]: { binPath: value, resolved: null, loading: false, error: null },
+      [lineId]: { ...(prev[lineId] ?? emptyPutawayLineSlot()), ...patch },
     }));
   }
 
   async function handleResolvePerLineBin(lineId: string, pathOverride?: string) {
-    const slot = perLine[lineId];
-    const v = (pathOverride ?? slot?.binPath ?? "").trim();
+    const slot = perLine[lineId] ?? emptyPutawayLineSlot();
+    const v = (pathOverride ?? slot.binPath).trim();
     if (!v) return;
-    setPerLine((prev) => ({
-      ...prev,
-      [lineId]: { binPath: v, resolved: null, loading: true, error: null },
-    }));
+    updatePerLineSlot(lineId, { binPath: v, resolved: null, loading: true, error: null });
     try {
       const resolved = await resolveBin(v);
       if (!resolved) {
-        setPerLine((prev) => ({
-          ...prev,
-          [lineId]: { binPath: v, resolved: null, loading: false, error: "Bin not found." },
-        }));
+        updatePerLineSlot(lineId, {
+          binPath: v,
+          resolved: null,
+          loading: false,
+          error: "Bin not found.",
+        });
         return;
       }
-      setPerLine((prev) => ({
-        ...prev,
-        [lineId]: { binPath: v, resolved, loading: false, error: null },
-      }));
+      updatePerLineSlot(lineId, { binPath: v, resolved, loading: false, error: null });
     } catch (e) {
-      setPerLine((prev) => ({
-        ...prev,
-        [lineId]: {
-          ...slot,
-          loading: false,
-          error: e instanceof Error ? e.message : "Lookup failed",
-        },
-      }));
+      updatePerLineSlot(lineId, {
+        loading: false,
+        error: e instanceof Error ? e.message : "Lookup failed",
+      });
     }
   }
 
@@ -514,7 +549,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
       {
         id: `qs${Date.now()}`,
         qty: "1",
-        bin: { binPath: "", resolved: null, loading: false, error: null },
+        bin: emptyPutawayLineSlot(),
       },
     ]);
   }
@@ -527,7 +562,10 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     setQtySplits((prev) =>
       prev.map((r) =>
         r.id === rowId
-          ? { ...r, bin: { binPath: value, resolved: null, loading: false, error: null } }
+          ? {
+              ...r,
+              bin: { ...emptyPutawayLineSlot(), binPath: value, resolved: null, loading: false, error: null },
+            }
           : r
       )
     );
@@ -539,7 +577,12 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     if (!v) return;
     setQtySplits((prev) =>
       prev.map((r) =>
-        r.id === rowId ? { ...r, bin: { binPath: v, resolved: null, loading: true, error: null } } : r
+        r.id === rowId
+          ? {
+              ...r,
+              bin: { ...emptyPutawayLineSlot(), binPath: v, resolved: null, loading: true, error: null },
+            }
+          : r
       )
     );
     try {
@@ -548,7 +591,16 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         setQtySplits((prev) =>
           prev.map((r) =>
             r.id === rowId
-              ? { ...r, bin: { binPath: v, resolved: null, loading: false, error: "Bin not found." } }
+              ? {
+                  ...r,
+                  bin: {
+                    ...emptyPutawayLineSlot(),
+                    binPath: v,
+                    resolved: null,
+                    loading: false,
+                    error: "Bin not found.",
+                  },
+                }
               : r
           )
         );
@@ -556,7 +608,9 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
       }
       setQtySplits((prev) =>
         prev.map((r) =>
-          r.id === rowId ? { ...r, bin: { binPath: v, resolved, loading: false, error: null } } : r
+          r.id === rowId
+            ? { ...r, bin: { ...emptyPutawayLineSlot(), binPath: v, resolved, loading: false, error: null } }
+            : r
         )
       );
     } catch (e) {
@@ -578,18 +632,21 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
   }
 
   function validateWholeAssignment(): Array<{ line: WarehouseCartonLine; error: string | null }> {
-    if (!carton?.lines || !wholeBin.resolved) return [];
+    if (!carton?.lines) return [];
     return linesPending.map((l) => {
-      const r = validateLineToBin(l, wholeBin.resolved!.bin, wholeBin.resolved!.contents);
-      return { line: l, error: r.ok ? null : r.reason };
+      if (!isPutawayLineSlotReady(l, wholeSlot, putawayCtx)) {
+        return { line: l, error: "Choose a valid bin or area." };
+      }
+      return { line: l, error: null };
     });
   }
 
   function validatePerLineAssignment(line: WarehouseCartonLine): string | null {
     const slot = perLine[line.lineId];
-    if (!slot?.resolved) return null;
-    const r = validateLineToBin(line, slot.resolved.bin, slot.resolved.contents);
-    return r.ok ? null : r.reason;
+    if (!isPutawayLineSlotReady(line, slot, putawayCtx)) {
+      return "Choose a valid bin or area.";
+    }
+    return null;
   }
 
   async function handleCrossdockAreaConfirm() {
@@ -750,92 +807,76 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
 
   function validateManifestLine(entry: ManifestLine): string | null {
     const key = manifestLineKey(entry.carton.id, entry.line.lineId);
-    if (palletMode === "whole" && palletWholeBin.resolved) {
-      const r = validateLineToBin(
-        entry.line,
-        palletWholeBin.resolved.bin,
-        palletWholeBin.resolved.contents
-      );
-      return r.ok ? null : r.reason;
+    if (palletMode === "whole") {
+      if (!isPutawayLineSlotReady(entry.line, palletWholeBin, putawayCtx)) {
+        return "Choose a valid bin or area.";
+      }
+      return null;
     }
     const slot = perLine[key];
-    if (!slot?.resolved) return null;
-    const r = validateLineToBin(entry.line, slot.resolved.bin, slot.resolved.contents);
-    return r.ok ? null : r.reason;
+    if (!isPutawayLineSlotReady(entry.line, slot, putawayCtx)) {
+      return "Choose a valid bin or area.";
+    }
+    return null;
   }
 
-  async function handlePalletWholeBinChange(value: string) {
-    setPalletWholeBin({ binPath: value, resolved: null, loading: false, error: null });
+  function updatePalletWholeSlot(patch: Partial<PutawayLineSlot>) {
+    setPalletWholeBin((prev) => ({ ...prev, ...patch }));
   }
 
   async function handleResolvePalletWholeBin(pathOverride?: string) {
     const v = (pathOverride ?? palletWholeBin.binPath).trim();
     if (!v) return;
-    setPalletWholeBin({ binPath: v, resolved: null, loading: true, error: null });
+    updatePalletWholeSlot({ binPath: v, resolved: null, loading: true, error: null });
     try {
       const resolved = await resolveBin(v);
       if (!resolved) {
-        setPalletWholeBin((s) => ({
-          ...s,
-          resolved: null,
-          loading: false,
-          error: "Bin not found.",
-        }));
+        updatePalletWholeSlot({ resolved: null, loading: false, error: "Bin not found." });
         return;
       }
-      setPalletWholeBin({ binPath: v, resolved, loading: false, error: null });
+      updatePalletWholeSlot({ binPath: v, resolved, loading: false, error: null });
     } catch (e) {
-      setPalletWholeBin((s) => ({
-        ...s,
+      updatePalletWholeSlot({
         loading: false,
         error: e instanceof Error ? e.message : "Lookup failed",
-      }));
+      });
     }
   }
 
   async function handlePalletConfirm() {
     if (!pallet) return;
-    const assignmentsByCarton = new Map<
-      string,
-      Array<{ lineId: string; binId: string; binPath: string }>
-    >();
+    const assignmentsByCarton = new Map<string, PutawayLineAssignment[]>();
     const blocking: string[] = [];
 
     if (palletMode === "whole") {
-      if (!palletWholeBin.resolved) {
-        toast({ title: "Scan a bin first", variant: "destructive" });
-        return;
-      }
       for (const entry of palletManifest) {
         const err = validateManifestLine(entry);
         if (err) {
           blocking.push(`${entry.carton.cartonCode} · ${skuLabel(entry.line)}: ${err}`);
           continue;
         }
+        const a = assignmentFromSlot(entry.line, palletWholeBin);
+        if (!a) {
+          blocking.push(`${entry.carton.cartonCode} · ${skuLabel(entry.line)}: invalid destination`);
+          continue;
+        }
         const list = assignmentsByCarton.get(entry.carton.id) ?? [];
-        list.push({
-          lineId: entry.line.lineId,
-          binId: palletWholeBin.resolved.bin.id,
-          binPath: palletWholeBin.resolved.bin.path,
-        });
+        list.push(a);
         assignmentsByCarton.set(entry.carton.id, list);
       }
     } else {
       for (const entry of palletManifest) {
         const key = manifestLineKey(entry.carton.id, entry.line.lineId);
         const slot = perLine[key];
-        if (!slot?.resolved) continue;
         const err = validateManifestLine(entry);
         if (err) {
           blocking.push(`${entry.carton.cartonCode} · ${skuLabel(entry.line)}: ${err}`);
           continue;
         }
+        const a = assignmentFromSlot(entry.line, slot);
+        if (!a) continue;
         const list = assignmentsByCarton.get(entry.carton.id) ?? [];
-        list.push({
-          lineId: entry.line.lineId,
-          binId: slot.resolved.bin.id,
-          binPath: slot.resolved.bin.path,
-        });
+        list.push(a);
         assignmentsByCarton.set(entry.carton.id, list);
       }
     }
@@ -871,6 +912,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         }
         await applyPutawayAssignments(warehouse.id, cartonId, fresh, assigns, {
           operatorId: operatorId ?? operatorName,
+          warehouseAreas,
         });
       }
 
@@ -890,7 +932,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
       } else {
         setPalletCartons(refreshed);
         setPerLine({});
-        setPalletWholeBin({ binPath: "", resolved: null, loading: false, error: null });
+        setPalletWholeBin(emptyPutawayLineSlot());
         toast({
           title: "Partially stowed",
           description: `${totalAssigned} line${totalAssigned === 1 ? "" : "s"} placed. ${stillPending.length} still pending on this pallet.`,
@@ -909,8 +951,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
 
   async function handleConfirm() {
     if (!carton) return;
-    const assignments: Array<{ lineId: string; binId: string; binPath: string; quantity?: number }> =
-      [];
+    const assignments: PutawayLineAssignment[] = [];
     const blocking: string[] = [];
 
     if (mode === "split_qty" && linesPending.length === 1) {
@@ -925,7 +966,12 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         const q = parseInt(sp.qty, 10) || 0;
         total += q;
         const probe = { ...line, quantity: q };
-        const r = validateLineToBin(probe, sp.bin.resolved!.bin, sp.bin.resolved!.contents);
+        const r = validateLineToBin(
+          probe,
+          sp.bin.resolved!.bin,
+          sp.bin.resolved!.contents,
+          warehouseAreas
+        );
         if (!r.ok) {
           blocking.push(`${q} × ${skuLabel(line)} → ${sp.bin.resolved!.bin.path}: ${r.reason}`);
         } else {
@@ -946,37 +992,26 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         return;
       }
     } else if (mode === "whole") {
-      if (!wholeBin.resolved) {
-        toast({ title: "Scan a bin first", variant: "destructive" });
-        return;
-      }
       const validations = validateWholeAssignment();
       for (const v of validations) {
         if (v.error) blocking.push(`${skuLabel(v.line)}: ${v.error}`);
       }
       if (blocking.length === 0) {
         for (const l of linesPending) {
-          assignments.push({
-            lineId: l.lineId,
-            binId: wholeBin.resolved.bin.id,
-            binPath: wholeBin.resolved.bin.path,
-          });
+          const a = assignmentFromSlot(l, wholeSlot);
+          if (a) assignments.push(a);
         }
       }
     } else if (mode === "split") {
       for (const l of linesPending) {
         const slot = perLine[l.lineId];
-        if (!slot?.resolved) continue;
         const err = validatePerLineAssignment(l);
         if (err) {
           blocking.push(`${skuLabel(l)}: ${err}`);
           continue;
         }
-        assignments.push({
-          lineId: l.lineId,
-          binId: slot.resolved.bin.id,
-          binPath: slot.resolved.bin.path,
-        });
+        const a = assignmentFromSlot(l, slot);
+        if (a) assignments.push(a);
       }
     }
 
@@ -991,7 +1026,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     if (assignments.length === 0) {
       toast({
         title: "Nothing to stow",
-        description: "Scan at least one bin to stow a line.",
+        description: "Assign each line to a bin or area.",
         variant: "destructive",
       });
       return;
@@ -1004,7 +1039,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         carton.id,
         carton,
         assignments,
-        { operatorId: operatorId ?? operatorName }
+        { operatorId: operatorId ?? operatorName, warehouseAreas }
       );
       toast({
         title:
@@ -1041,9 +1076,8 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
               Scan label to putaway
             </CardTitle>
             <CardDescription className="text-xs">
-              Scan CTN-…, PKG-…, or PAL-… from receiving staging. Pallet scan shows all cartons
-              and SKUs on the manifest. Cross-dock units: choose forward, keep closed (area),
-              or open for storage (bins).
+              Scan the carton label first (what you are moving), then the bin or area (where it
+              goes). The app shows area pick only when that zone has no bins yet.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -1090,7 +1124,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           }}
           onCancel={resetCarton}
         />
-      ) : pallet && palletPhase === "pick_area" && pendingDisposition ? (
+      ) : pallet && palletPhase === "pick_area" && isCrossdockAreaDisposition(pendingDisposition) ? (
         <CrossdockAreaPicker
           carton={null}
           pallet={pallet}
@@ -1133,11 +1167,14 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           hasDamaged={palletHasDamaged}
           mode={palletMode}
           setMode={setPalletMode}
-          wholeBin={palletWholeBin}
-          onWholeBinChange={handlePalletWholeBinChange}
+          warehouseAreas={warehouseAreas}
+          warehouseBins={warehouseBins}
+          areasLoading={areasLoading}
+          wholeSlot={palletWholeBin}
+          onUpdateWholeSlot={updatePalletWholeSlot}
           onResolveWholeBin={handleResolvePalletWholeBin}
           perLine={perLine}
-          onPerLineBinChange={handlePerLineBinChange}
+          onUpdatePerLineSlot={updatePerLineSlot}
           onResolvePerLineBin={handleResolvePerLineBin}
           onClearPerLine={clearLineAssignment}
           validateManifestLine={validateManifestLine}
@@ -1145,7 +1182,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           onConfirm={() => void handlePalletConfirm()}
           saving={saving}
         />
-      ) : crossdockPhase === "choose_disposition" ? (
+      ) : carton && crossdockPhase === "choose_disposition" ? (
         <CrossdockDispositionPicker
           carton={carton}
           onPick={(d) => {
@@ -1179,7 +1216,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           }}
           onCancel={resetCarton}
         />
-      ) : crossdockPhase === "pick_area" && pendingDisposition ? (
+      ) : carton && crossdockPhase === "pick_area" && isCrossdockAreaDisposition(pendingDisposition) ? (
         <CrossdockAreaPicker
           carton={carton}
           disposition={pendingDisposition}
@@ -1199,7 +1236,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           onConfirm={() => void handleCrossdockAreaConfirm()}
           saving={saving}
         />
-      ) : crossdockPhase === "capture_skus" ? (
+      ) : carton && crossdockPhase === "capture_skus" ? (
         <CrossdockOpenLinesForm
           carton={carton}
           lines={captureLines}
@@ -1209,25 +1246,27 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           onConfirm={() => void handleOpenCaptureConfirm()}
           saving={saving}
         />
-      ) : crossdockPhase === "area_done" ? (
+      ) : carton && crossdockPhase === "area_done" ? (
         <CrossdockAreaDonePanel carton={carton} onDone={resetCarton} />
-      ) : carton.isPackage ? (
+      ) : carton && carton.isPackage ? (
         <PackagePutawayPanel
           carton={carton}
           linesPending={linesPending}
           skuCount={manifestSkuCount(carton)}
           lotLabel={resolveManifestLotLabel(carton)}
           damagedQty={manifestDamagedQty(carton)}
+          warehouseAreas={warehouseAreas}
+          warehouseBins={warehouseBins}
+          areasLoading={areasLoading}
           perLine={perLine}
-          onPerLineBinChange={handlePerLineBinChange}
+          onUpdatePerLineSlot={updatePerLineSlot}
           onResolvePerLineBin={handleResolvePerLineBin}
           onClearPerLine={clearLineAssignment}
-          validatePerLine={validatePerLineAssignment}
           onCancel={resetCarton}
           onConfirm={handleConfirm}
           saving={saving}
         />
-      ) : (
+      ) : carton ? (
         <CartonPutawayPanel
           carton={carton}
           isMixed={isMixed}
@@ -1236,8 +1275,11 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           linesPending={linesPending}
           mode={mode}
           setMode={setMode}
-          wholeBin={wholeBin}
-          onWholeBinChange={handleWholeBinChange}
+          warehouseAreas={warehouseAreas}
+          warehouseBins={warehouseBins}
+          areasLoading={areasLoading}
+          wholeSlot={wholeSlot}
+          onUpdateWholeSlot={updateWholeSlot}
           onResolveWholeBin={handleResolveWholeBin}
           wholeValidations={validateWholeAssignment()}
           qtySplits={qtySplits}
@@ -1249,15 +1291,14 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           onAddQtySplitRow={addQtySplitRow}
           onRemoveQtySplitRow={removeQtySplitRow}
           perLine={perLine}
-          onPerLineBinChange={handlePerLineBinChange}
+          onUpdatePerLineSlot={updatePerLineSlot}
           onResolvePerLineBin={handleResolvePerLineBin}
           onClearPerLine={clearLineAssignment}
-          validatePerLine={validatePerLineAssignment}
           onCancel={resetCarton}
           onConfirm={handleConfirm}
           saving={saving}
         />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -1270,11 +1311,14 @@ type PalletPanelProps = {
   hasDamaged: boolean;
   mode: Mode;
   setMode: (m: Mode) => void;
-  wholeBin: LineAssignment;
-  onWholeBinChange: (v: string) => void;
+  warehouseAreas: WarehouseAreaDoc[];
+  warehouseBins: WarehouseBinDoc[];
+  areasLoading: boolean;
+  wholeSlot: PutawayLineSlot;
+  onUpdateWholeSlot: (patch: Partial<PutawayLineSlot>) => void;
   onResolveWholeBin: (path?: string) => void;
-  perLine: Record<string, LineAssignment>;
-  onPerLineBinChange: (lineId: string, v: string) => void;
+  perLine: Record<string, PutawayLineSlot>;
+  onUpdatePerLineSlot: (lineId: string, patch: Partial<PutawayLineSlot>) => void;
   onResolvePerLineBin: (lineId: string, path?: string) => void;
   onClearPerLine: (lineId: string) => void;
   validateManifestLine: (entry: ManifestLine) => string | null;
@@ -1291,11 +1335,14 @@ function PalletPutawayPanel({
   hasDamaged,
   mode,
   setMode,
-  wholeBin,
-  onWholeBinChange,
+  warehouseAreas,
+  warehouseBins,
+  areasLoading,
+  wholeSlot,
+  onUpdateWholeSlot,
   onResolveWholeBin,
   perLine,
-  onPerLineBinChange,
+  onUpdatePerLineSlot,
   onResolvePerLineBin,
   onClearPerLine,
   validateManifestLine,
@@ -1355,10 +1402,10 @@ function PalletPutawayPanel({
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Bin assignment</CardTitle>
+          <CardTitle className="text-sm">Destination</CardTitle>
           <CardDescription className="text-xs">
-            One bin for the whole pallet (default), or split lines across bins when SKUs or damaged
-            stock need different locations.
+            One destination for the whole pallet (bin or area), or assign each line separately when
+            SKUs or damaged stock need different locations.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -1382,56 +1429,44 @@ function PalletPutawayPanel({
           </div>
           {mode === "whole" ? (
             <div className="space-y-2">
-              <div className="flex gap-2">
-                <Input
-                  value={wholeBin.binPath}
-                  onChange={(e) => onWholeBinChange(e.target.value)}
-                  placeholder="Scan bin for entire pallet"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") onResolveWholeBin();
-                  }}
-                  className="flex-1"
+              {manifest[0] ? (
+                <PutawayDestinationFields
+                  line={manifest[0].line}
+                  slot={wholeSlot}
+                  warehouseAreas={warehouseAreas}
+                  warehouseBins={warehouseBins}
+                  areasLoading={areasLoading}
+                  onBinPathChange={(value) =>
+                    onUpdateWholeSlot({ binPath: value, resolved: null, error: null })
+                  }
+                  onResolveBin={onResolveWholeBin}
+                  onAreaChange={(areaCode) =>
+                    onUpdateWholeSlot({ areaCode, resolved: null, error: null })
+                  }
                 />
-                <ScanCameraButton
-                  onScan={(text) => {
-                    onWholeBinChange(text);
-                    onResolveWholeBin(text);
-                  }}
-                  scannerTitle="Scan bin label"
-                  scannerDescription="Scan the QR on the storage bin."
-                />
-                <Button onClick={() => onResolveWholeBin()} disabled={wholeBin.loading}>
-                  {wholeBin.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
-                </Button>
-              </div>
-              {wholeBin.error ? <p className="text-xs text-red-600">{wholeBin.error}</p> : null}
-              {wholeBin.resolved ? (
-                <div className="space-y-2">
-                  <BinSummary resolved={wholeBin.resolved} />
-                  {manifest.map((entry) => {
-                    const err = validateManifestLine(entry);
-                    if (!err) return null;
-                    return (
-                      <div
-                        key={manifestLineKey(entry.carton.id, entry.line.lineId)}
-                        className="flex items-start gap-1 rounded bg-red-50 text-red-800 border border-red-200 px-2 py-1 text-xs"
-                      >
-                        <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                        <span>
-                          {entry.carton.cartonCode} · {entry.line.sku}: {err}
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {manifest.every((e) => !validateManifestLine(e)) ? (
-                    <div className="flex items-start gap-1 rounded bg-green-50 text-green-800 border border-green-200 px-2 py-1 text-xs">
-                      <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
-                      <span>
-                        All {manifest.length} line{manifest.length === 1 ? "" : "s"} OK for{" "}
-                        {wholeBin.resolved.bin.path}
-                      </span>
-                    </div>
-                  ) : null}
+              ) : null}
+              {manifest.map((entry) => {
+                const err = validateManifestLine(entry);
+                if (!err) return null;
+                return (
+                  <div
+                    key={manifestLineKey(entry.carton.id, entry.line.lineId)}
+                    className="flex items-start gap-1 rounded bg-red-50 text-red-800 border border-red-200 px-2 py-1 text-xs"
+                  >
+                    <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                    <span>
+                      {entry.carton.cartonCode} · {entry.line.sku}: {err}
+                    </span>
+                  </div>
+                );
+              })}
+              {manifest.every((e) => !validateManifestLine(e)) && manifest.length > 0 ? (
+                <div className="flex items-start gap-1 rounded bg-green-50 text-green-800 border border-green-200 px-2 py-1 text-xs">
+                  <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
+                  <span>
+                    All {manifest.length} line{manifest.length === 1 ? "" : "s"} OK for this
+                    destination
+                  </span>
                 </div>
               ) : null}
             </div>
@@ -1456,94 +1491,18 @@ function PalletPutawayPanel({
                 <div className="space-y-2 pl-1 border-l-2 border-indigo-100 ml-1">
                   {entries.map((entry) => {
                     const key = manifestLineKey(entry.carton.id, entry.line.lineId);
-                    const slot = perLine[key];
-                    const err = slot?.resolved ? validateManifestLine(entry) : null;
                     return (
-                      <Card
+                      <PutawayLineDestinationCard
                         key={key}
-                        className={cn(
-                          entry.line.condition === "damaged" && "border-red-200 bg-red-50/30"
-                        )}
-                      >
-                        <CardContent className="py-3 space-y-2">
-                          <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <div className="text-sm">
-                              <PutawayLineSku line={entry.line} /> × {entry.line.quantity}
-                              {entry.line.condition === "damaged" ? (
-                                <Badge
-                                  variant="outline"
-                                  className="ml-2 bg-red-100 border-red-300 text-red-800"
-                                >
-                                  Damaged
-                                </Badge>
-                              ) : null}
-                              {entry.line.lot ? (
-                                <span className="text-xs text-muted-foreground ml-2">
-                                  Lot {entry.line.lot}
-                                </span>
-                              ) : null}
-                            </div>
-                            {slot?.resolved ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => onClearPerLine(key)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            ) : null}
-                          </div>
-                          <div className="flex gap-2">
-                            <Input
-                              value={slot?.binPath ?? ""}
-                              onChange={(e) => onPerLineBinChange(key, e.target.value)}
-                              placeholder="Camera or type bin path"
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") onResolvePerLineBin(key);
-                              }}
-                              className="flex-1"
-                            />
-                            <ScanCameraButton
-                              onScan={(text) => {
-                                onPerLineBinChange(key, text);
-                                onResolvePerLineBin(key, text);
-                              }}
-                              scannerTitle="Scan bin label"
-                              scannerDescription="Scan the QR on the storage bin."
-                            />
-                            <Button
-                              onClick={() => onResolvePerLineBin(key)}
-                              disabled={slot?.loading}
-                            >
-                              {slot?.loading ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                "Check"
-                              )}
-                            </Button>
-                          </div>
-                          {slot?.error ? (
-                            <p className="text-xs text-red-600">{slot.error}</p>
-                          ) : null}
-                          {slot?.resolved ? (
-                            <div className="space-y-1">
-                              <BinSummary resolved={slot.resolved} />
-                              {err ? (
-                                <div className="flex items-start gap-1 rounded bg-red-50 text-red-800 border border-red-200 px-2 py-1 text-xs">
-                                  <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                                  <span>{err}</span>
-                                </div>
-                              ) : (
-                                <div className="flex items-start gap-1 rounded bg-green-50 text-green-800 border border-green-200 px-2 py-1 text-xs">
-                                  <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
-                                  <span>OK — lands in {slot.resolved.bin.path}</span>
-                                </div>
-                              )}
-                            </div>
-                          ) : null}
-                        </CardContent>
-                      </Card>
+                        line={entry.line}
+                        slot={perLine[key] ?? emptyPutawayLineSlot(entry.line, { areas: warehouseAreas, bins: warehouseBins })}
+                        warehouseAreas={warehouseAreas}
+                        warehouseBins={warehouseBins}
+                        areasLoading={areasLoading}
+                        onUpdateSlot={(patch) => onUpdatePerLineSlot(key, patch)}
+                        onResolveBin={(path) => onResolvePerLineBin(key, path)}
+                        onClear={() => onClearPerLine(key)}
+                      />
                     );
                   })}
                 </div>
@@ -1607,11 +1566,13 @@ type PackagePanelProps = {
   skuCount: number;
   lotLabel: string | null;
   damagedQty: number;
-  perLine: Record<string, LineAssignment>;
-  onPerLineBinChange: (lineId: string, v: string) => void;
+  warehouseAreas: WarehouseAreaDoc[];
+  warehouseBins: WarehouseBinDoc[];
+  areasLoading: boolean;
+  perLine: Record<string, PutawayLineSlot>;
+  onUpdatePerLineSlot: (lineId: string, patch: Partial<PutawayLineSlot>) => void;
   onResolvePerLineBin: (lineId: string, path?: string) => void;
   onClearPerLine: (lineId: string) => void;
-  validatePerLine: (line: WarehouseCartonLine) => string | null;
   onCancel: () => void;
   onConfirm: () => void;
   saving: boolean;
@@ -1623,11 +1584,13 @@ function PackagePutawayPanel({
   skuCount,
   lotLabel,
   damagedQty,
+  warehouseAreas,
+  warehouseBins,
+  areasLoading,
   perLine,
-  onPerLineBinChange,
+  onUpdatePerLineSlot,
   onResolvePerLineBin,
   onClearPerLine,
-  validatePerLine,
   onCancel,
   onConfirm,
   saving,
@@ -1692,76 +1655,19 @@ function PackagePutawayPanel({
       </Card>
 
       <div className="space-y-3">
-        {linesPending.map((line) => {
-          const slot = perLine[line.lineId];
-          const err = slot?.resolved ? validatePerLine(line) : null;
-          return (
-            <Card
-              key={line.lineId}
-              className={cn(line.condition === "damaged" && "border-red-200 bg-red-50/30")}
-            >
-              <CardContent className="py-3 space-y-2">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="text-sm">
-                    <PutawayLineSku line={line} /> × {line.quantity}
-                    {line.condition === "damaged" ? (
-                      <Badge variant="outline" className="ml-2 bg-red-100 border-red-300 text-red-800">
-                        Damaged
-                      </Badge>
-                    ) : null}
-                    {line.lot ? (
-                      <span className="text-xs text-muted-foreground ml-2">Lot {line.lot}</span>
-                    ) : null}
-                  </div>
-                  {slot?.resolved ? (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => onClearPerLine(line.lineId)}>
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  ) : null}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={slot?.binPath ?? ""}
-                    onChange={(e) => onPerLineBinChange(line.lineId, e.target.value)}
-                    placeholder="Camera or type bin path"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") onResolvePerLineBin(line.lineId);
-                    }}
-                    className="flex-1"
-                  />
-                  <ScanCameraButton
-                    onScan={(text) => {
-                      onPerLineBinChange(line.lineId, text);
-                      onResolvePerLineBin(line.lineId, text);
-                    }}
-                    scannerTitle="Scan bin label"
-                    scannerDescription="Scan the QR on the storage bin."
-                  />
-                  <Button onClick={() => onResolvePerLineBin(line.lineId)} disabled={slot?.loading}>
-                    {slot?.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
-                  </Button>
-                </div>
-                {slot?.error ? <p className="text-xs text-red-600">{slot.error}</p> : null}
-                {slot?.resolved ? (
-                  <div className="space-y-1">
-                    <BinSummary resolved={slot.resolved} />
-                    {err ? (
-                      <div className="flex items-start gap-1 rounded bg-red-50 text-red-800 border border-red-200 px-2 py-1 text-xs">
-                        <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                        <span>{err}</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-start gap-1 rounded bg-green-50 text-green-800 border border-green-200 px-2 py-1 text-xs">
-                        <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
-                        <span>OK — lands in {slot.resolved.bin.path}</span>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-          );
-        })}
+        {linesPending.map((line) => (
+          <PutawayLineDestinationCard
+            key={line.lineId}
+            line={line}
+            slot={perLine[line.lineId] ?? emptyPutawayLineSlot(line, { areas: warehouseAreas, bins: warehouseBins })}
+            warehouseAreas={warehouseAreas}
+            warehouseBins={warehouseBins}
+            areasLoading={areasLoading}
+            onUpdateSlot={(patch) => onUpdatePerLineSlot(line.lineId, patch)}
+            onResolveBin={(path) => onResolvePerLineBin(line.lineId, path)}
+            onClear={() => onClearPerLine(line.lineId)}
+          />
+        ))}
       </div>
 
       <Card className="border-emerald-300 sticky bottom-4 bg-background shadow-lg">
@@ -1798,8 +1704,11 @@ type PanelProps = {
   linesPending: WarehouseCartonLine[];
   mode: Mode;
   setMode: (m: Mode) => void;
-  wholeBin: LineAssignment;
-  onWholeBinChange: (v: string) => void;
+  warehouseAreas: WarehouseAreaDoc[];
+  warehouseBins: WarehouseBinDoc[];
+  areasLoading: boolean;
+  wholeSlot: PutawayLineSlot;
+  onUpdateWholeSlot: (patch: Partial<PutawayLineSlot>) => void;
   onResolveWholeBin: (path?: string) => void;
   wholeValidations: Array<{ line: WarehouseCartonLine; error: string | null }>;
   qtySplits: QtySplitRow[];
@@ -1808,11 +1717,10 @@ type PanelProps = {
   onResolveQtySplitBin: (rowId: string, path?: string) => void;
   onAddQtySplitRow: () => void;
   onRemoveQtySplitRow: (rowId: string) => void;
-  perLine: Record<string, LineAssignment>;
-  onPerLineBinChange: (lineId: string, v: string) => void;
+  perLine: Record<string, PutawayLineSlot>;
+  onUpdatePerLineSlot: (lineId: string, patch: Partial<PutawayLineSlot>) => void;
   onResolvePerLineBin: (lineId: string, path?: string) => void;
   onClearPerLine: (lineId: string) => void;
-  validatePerLine: (line: WarehouseCartonLine) => string | null;
   onCancel: () => void;
   onConfirm: () => void;
   saving: boolean;
@@ -1826,8 +1734,11 @@ function CartonPutawayPanel({
   linesPending,
   mode,
   setMode,
-  wholeBin,
-  onWholeBinChange,
+  warehouseAreas,
+  warehouseBins,
+  areasLoading,
+  wholeSlot,
+  onUpdateWholeSlot,
   onResolveWholeBin,
   wholeValidations,
   qtySplits,
@@ -1837,10 +1748,9 @@ function CartonPutawayPanel({
   onAddQtySplitRow,
   onRemoveQtySplitRow,
   perLine,
-  onPerLineBinChange,
+  onUpdatePerLineSlot,
   onResolvePerLineBin,
   onClearPerLine,
-  validatePerLine,
   onCancel,
   onConfirm,
   saving,
@@ -1920,7 +1830,7 @@ function CartonPutawayPanel({
             onClick={() => setMode("split")}
             size="sm"
           >
-            Split across bins (recommended)
+            Split per line (bin or area)
           </Button>
           <Button
             type="button"
@@ -1928,7 +1838,7 @@ function CartonPutawayPanel({
             onClick={() => setMode("whole")}
             size="sm"
           >
-            Stow whole carton in 1 bin
+            Stow whole carton in one place
           </Button>
         </div>
       ) : canSplitQty ? (
@@ -2005,7 +1915,7 @@ function CartonPutawayPanel({
                 {row.bin.error ? <p className="text-xs text-red-600 w-full">{row.bin.error}</p> : null}
                 {row.bin.resolved ? (
                   <div className="w-full">
-                    <BinSummary resolved={row.bin.resolved} />
+                    <BinSummary resolved={row.bin.resolved} warehouseAreas={warehouseAreas} />
                   </div>
                 ) : null}
               </div>
@@ -2019,44 +1929,30 @@ function CartonPutawayPanel({
       ) : mode === "whole" ? (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Scan destination bin</CardTitle>
+            <CardTitle className="text-sm">Destination</CardTitle>
             <CardDescription className="text-xs">
-              {isMixed
-                ? "All lines of this carton will be placed in the same bin (bin must be empty)."
-                : "Single-SKU bin — must be empty or already hold the same SKU."}
+              Scan the destination bin for this carton. Area is used only when that zone has no bins
+              set up yet (e.g. empty quarantine floor).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex gap-2">
-              <Input
-                value={wholeBin.binPath}
-                onChange={(e) => onWholeBinChange(e.target.value)}
-                placeholder="Camera or type bin path"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") onResolveWholeBin();
-                }}
-                autoFocus
-                className="flex-1"
+            {linesPending[0] ? (
+              <PutawayDestinationFields
+                line={linesPending[0]}
+                slot={wholeSlot}
+                warehouseAreas={warehouseAreas}
+                warehouseBins={warehouseBins}
+                areasLoading={areasLoading}
+                onBinPathChange={(value) =>
+                  onUpdateWholeSlot({ binPath: value, resolved: null, error: null })
+                }
+                onResolveBin={onResolveWholeBin}
+                onAreaChange={(areaCode) =>
+                  onUpdateWholeSlot({ areaCode, resolved: null, error: null })
+                }
               />
-              <ScanCameraButton
-                onScan={(text) => {
-                  onWholeBinChange(text);
-                  onResolveWholeBin(text);
-                }}
-                scannerTitle="Scan bin label"
-                scannerDescription="Scan the QR on the storage bin label."
-              />
-              <Button onClick={() => onResolveWholeBin()} disabled={wholeBin.loading}>
-                {wholeBin.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
-              </Button>
-            </div>
-            {wholeBin.error ? (
-              <p className="text-xs text-red-600">{wholeBin.error}</p>
             ) : null}
-            {wholeBin.resolved ? (
-              <BinSummary resolved={wholeBin.resolved} />
-            ) : null}
-            {wholeBin.resolved && wholeValidations.length > 0 ? (
+            {wholeValidations.length > 0 ? (
               <div className="space-y-1">
                 {wholeValidations.map((v) => (
                   <div
@@ -2086,90 +1982,20 @@ function CartonPutawayPanel({
         </Card>
       ) : (
         <div className="space-y-3">
-          {linesPending.map((line) => {
-            const slot = perLine[line.lineId];
-            const err = slot?.resolved ? validatePerLine(line) : null;
-            return (
-              <Card
-                key={line.lineId}
-                className={cn(
-                  line.condition === "damaged" && "border-red-200 bg-red-50/30"
-                )}
-              >
-                <CardContent className="py-3 space-y-2">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="text-sm">
-                      <PutawayLineSku line={line} /> × {line.quantity}
-                      {line.condition === "damaged" ? (
-                        <Badge variant="outline" className="ml-2 bg-red-100 border-red-300 text-red-800">
-                          Damaged → Quarantine
-                        </Badge>
-                      ) : null}
-                      {line.lot ? (
-                        <span className="text-xs text-muted-foreground ml-2">
-                          Lot {line.lot}
-                        </span>
-                      ) : null}
-                    </div>
-                    {slot?.resolved ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onClearPerLine(line.lineId)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    ) : null}
-                  </div>
-                  <div className="flex gap-2">
-                    <Input
-                      value={slot?.binPath ?? ""}
-                      onChange={(e) => onPerLineBinChange(line.lineId, e.target.value)}
-                      placeholder="Camera or type bin path"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") onResolvePerLineBin(line.lineId);
-                      }}
-                      className="flex-1"
-                    />
-                    <ScanCameraButton
-                      onScan={(text) => {
-                        onPerLineBinChange(line.lineId, text);
-                        onResolvePerLineBin(line.lineId, text);
-                      }}
-                      scannerTitle="Scan bin label"
-                      scannerDescription="Scan the QR on the storage bin."
-                    />
-                    <Button
-                      onClick={() => onResolvePerLineBin(line.lineId)}
-                      disabled={slot?.loading}
-                    >
-                      {slot?.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
-                    </Button>
-                  </div>
-                  {slot?.error ? (
-                    <p className="text-xs text-red-600">{slot.error}</p>
-                  ) : null}
-                  {slot?.resolved ? (
-                    <div className="space-y-1">
-                      <BinSummary resolved={slot.resolved} />
-                      {err ? (
-                        <div className="flex items-start gap-1 rounded bg-red-50 text-red-800 border border-red-200 px-2 py-1 text-xs">
-                          <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                          <span>{err}</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-start gap-1 rounded bg-green-50 text-green-800 border border-green-200 px-2 py-1 text-xs">
-                          <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
-                          <span>OK — line will land in {slot.resolved.bin.path}</span>
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-                </CardContent>
-              </Card>
-            );
-          })}
+          {linesPending.map((line) => (
+            <PutawayLineDestinationCard
+              key={line.lineId}
+              line={line}
+              slot={perLine[line.lineId] ?? emptyPutawayLineSlot(line, { areas: warehouseAreas, bins: warehouseBins })}
+              warehouseAreas={warehouseAreas}
+              warehouseBins={warehouseBins}
+              areasLoading={areasLoading}
+              damagedBadge="Damaged → Quarantine"
+              onUpdateSlot={(patch) => onUpdatePerLineSlot(line.lineId, patch)}
+              onResolveBin={(path) => onResolvePerLineBin(line.lineId, path)}
+              onClear={() => onClearPerLine(line.lineId)}
+            />
+          ))}
         </div>
       )}
 
@@ -2535,42 +2361,6 @@ function PalletAreaDonePanel({
           </Button>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function BinSummary({ resolved }: { resolved: ResolvedBin }) {
-  const kind = classifyBin(resolved.bin);
-  return (
-    <div className="rounded border bg-muted/40 px-3 py-2 text-xs space-y-1">
-      <div className="flex items-center justify-between">
-        <span className="font-mono font-medium">{resolved.bin.path}</span>
-        <Badge
-          variant="outline"
-          className={cn(
-            kind === "quarantine" && "bg-red-100 border-red-300 text-red-800",
-            kind === "receiving_staging" && "bg-orange-100 border-orange-300 text-orange-800",
-            kind === "normal" && "bg-blue-50 border-blue-300 text-blue-800"
-          )}
-        >
-          {kind === "quarantine"
-            ? "Quarantine"
-            : kind === "receiving_staging"
-            ? "Receiving staging"
-            : "Storage"}
-        </Badge>
-      </div>
-      {resolved.contents.cartonCount > 0 ? (
-        <p className="text-muted-foreground">
-          Currently holds {resolved.contents.cartonCount} carton
-          {resolved.contents.cartonCount === 1 ? "" : "s"}
-          {resolved.contents.skus.length > 0
-            ? ` · SKUs: ${resolved.contents.skus.join(", ")}`
-            : ""}
-        </p>
-      ) : (
-        <p className="text-muted-foreground">Empty bin</p>
-      )}
     </div>
   );
 }

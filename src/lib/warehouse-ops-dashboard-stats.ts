@@ -350,7 +350,7 @@ export function buildWarehouseOpsFlowMetrics(
     {
       key: "returns",
       label: "Return QC",
-      description: "Returns awaiting inspection",
+      description: "Quarantine cartons awaiting inspection",
       count: stats.returnQc,
       href: "/warehouse-ops/return-qc",
       feature: "ops_returns",
@@ -359,7 +359,7 @@ export function buildWarehouseOpsFlowMetrics(
     {
       key: "cycle",
       label: "Cycle count",
-      description: "Open count tasks",
+      description: "Assigned count tasks for the team",
       count: stats.cycleCountOpen,
       href: "/warehouse-ops/cycle-count",
       feature: "ops_count",

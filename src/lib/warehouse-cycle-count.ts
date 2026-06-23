@@ -87,14 +87,13 @@ function docToTask(id: string, data: Record<string, unknown>): WarehouseCycleCou
   };
 }
 
+export function isAssignedCycleCountTask(task: Pick<WarehouseCycleCountTaskDoc, "type">): boolean {
+  return task.type !== "quick";
+}
+
 export async function countOpenCycleCountTasks(warehouseId: string): Promise<number> {
-  const snap = await getDocs(
-    query(
-      warehouseCycleCountTasksCollectionRef(warehouseId),
-      where("status", "in", ["open", "in_progress"])
-    )
-  );
-  return snap.size;
+  const tasks = await loadActiveCycleCountTasks(warehouseId);
+  return tasks.filter(isAssignedCycleCountTask).length;
 }
 
 export async function loadActiveCycleCountTasks(

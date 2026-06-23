@@ -20,7 +20,7 @@ import {
   parseWarehouseCartonDoc,
   warehouseCartonsCollectionRef,
 } from "@/lib/warehouse-carton-firestore";
-import { warehouseCycleCountTasksCollectionRef } from "@/lib/warehouse-cycle-count";
+import { warehouseCycleCountTasksCollectionRef, isAssignedCycleCountTask } from "@/lib/warehouse-cycle-count";
 import {
   computeWarehouseOpsLiveStats,
   getLiveOutboundQueues,
@@ -216,7 +216,11 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     const unsub = onSnapshot(
       cycleQuery,
       (snap) => {
-        setCycleCountOpen(snap.size);
+        const openAssigned = snap.docs.filter((d) => {
+          const type = String((d.data() as { type?: string }).type ?? "");
+          return isAssignedCycleCountTask({ type: type as "spot" | "abc" | "full" | "quick" });
+        }).length;
+        setCycleCountOpen(openAssigned);
         setCycleLoading(false);
       },
       () => {

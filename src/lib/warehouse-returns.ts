@@ -117,66 +117,29 @@ export async function cartonQtyByProductReturnId(
   return buildCartonQtyByProductReturnId(cartons);
 }
 
-/** Count returns awaiting QC receive (dashboard metric). */
+/** Cartons in quarantine linked to a product return — awaiting QC on Return QC screen. */
+export function filterQuarantineReturnCartons(
+  cartons: WarehouseCartonDoc[]
+): WarehouseCartonDoc[] {
+  return cartons
+    .filter((c) => c.status === "quarantine" && !!c.productReturnId?.trim())
+    .sort((a, b) => a.cartonCode.localeCompare(b.cartonCode));
+}
+
+export function countQuarantineReturnQcCartons(cartons: WarehouseCartonDoc[]): number {
+  return filterQuarantineReturnCartons(cartons).length;
+}
+
+/** Count cartons awaiting return QC inspection (matches Return QC workflow page). */
 export async function countReturnQcQueue(input: {
   warehouse: WarehouseDoc;
   clients: UserProfile[];
   cartons?: WarehouseCartonDoc[];
 }): Promise<number> {
-  const { warehouse, clients } = input;
-  const eligibleClientIds = new Set(
-    clients.filter((c) => clientMatchesWarehouse(c, warehouse)).map((c) => c.uid)
-  );
-
-  const statuses = ["approved", "in_progress"];
-  let docs: Array<{ id: string; ref: { path: string }; data: () => Record<string, unknown> }> = [];
-  try {
-    const snap = await getDocs(
-      query(collectionGroup(db, "productReturns"), where("status", "in", statuses))
-    );
-    docs = snap.docs.map((d) => ({
-      id: d.id,
-      ref: d.ref,
-      data: () => d.data() as Record<string, unknown>,
-    }));
-  } catch {
-    const eligible = Array.from(eligibleClientIds);
-    const perUserSnaps = await Promise.all(
-      eligible.map((uid) =>
-        getDocs(
-          query(
-            collection(db, `users/${uid}/productReturns`),
-            where("status", "in", statuses)
-          )
-        )
-      )
-    );
-    docs = perUserSnaps.flatMap((s) =>
-      s.docs.map((d) => ({
-        id: d.id,
-        ref: d.ref,
-        data: () => d.data() as Record<string, unknown>,
-      }))
-    );
-  }
-
-  const cartonMap = input.cartons
-    ? buildCartonQtyByProductReturnId(input.cartons)
-    : await cartonQtyByProductReturnId(warehouse.id);
-
-  let count = 0;
-  for (const d of docs) {
-    const data = d.data() as Omit<ProductReturn, "id">;
-    const clientUserId = userIdFromDocPath(d.ref.path);
-    if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;
-
-    const expectedQty = expectedReturnQty({ ...data, id: d.id });
-    const warehouseReceivedQty = cartonMap.get(d.id) ?? 0;
-    const remainingQty = Math.max(0, expectedQty - warehouseReceivedQty);
-    if (remainingQty > 0) count += 1;
-  }
-
-  return count;
+  void input.clients;
+  void input.warehouse;
+  const cartons = input.cartons ?? (await listWarehouseCartons(input.warehouse.id));
+  return countQuarantineReturnQcCartons(cartons);
 }
 
 export async function loadReturnRequestQueue(input: {
@@ -414,9 +377,7 @@ export async function listQuarantineReturnCartons(
   warehouseId: string
 ): Promise<WarehouseCartonDoc[]> {
   const cartons = await listWarehouseCartons(warehouseId);
-  return cartons
-    .filter((c) => c.status === "quarantine" && !!c.productReturnId?.trim())
-    .sort((a, b) => a.cartonCode.localeCompare(b.cartonCode));
+  return filterQuarantineReturnCartons(cartons);
 }
 
 export async function applyReturnQcRestock(input: {
@@ -457,7 +418,7 @@ export async function applyReturnQcRestock(input: {
     quantity: l.quantity,
   }));
 
-  const nextLines = applyPutawayAssignmentsToLines(lines, assignments);
+  const { nextLines } = applyPutawayAssignmentsToLines(lines, assignments);
   const { status, binId } = rollCartonBinStateFromLines(
     { status: "quarantine" } as WarehouseCartonDoc,
     nextLines

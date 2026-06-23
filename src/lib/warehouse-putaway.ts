@@ -21,11 +21,20 @@ import {
 } from "@/lib/warehouse-carton-barcode";
 import {
   applyPutawayAssignmentsToLines,
+  applyPutawayAreaAssignmentsToLines,
+  isLinePutawayPlaced,
+  isPutawayAreaAssignment,
   linesToFirestorePayload,
+  rollupCartonStagingArea,
   rollCartonBinStateFromLines,
   type PutawayAssignment,
+  type PutawayAreaAssignment,
+  type PutawayLineAssignment,
 } from "@/lib/warehouse-carton-line-utils";
+import { getAreaPurposes, purposeKey } from "@/lib/warehouse-area-purposes";
+import { cartonStatusForArea } from "@/lib/warehouse-area-move";
 import type {
+  WarehouseAreaDoc,
   WarehouseBinDoc,
   WarehouseCartonDoc,
   WarehouseCartonLine,
@@ -37,9 +46,105 @@ const WAREHOUSES = "warehouses";
 /** Bin "kind" inferred from area code for putaway routing. */
 export type BinKind = "normal" | "quarantine" | "receiving_staging";
 
-export function classifyBin(bin: WarehouseBinDoc): BinKind {
+/** Area purpose bucket for putaway routing. */
+export type AreaPutawayKind = "storage" | "quarantine" | "receiving_staging" | "other";
+
+export function classifyWarehouseArea(area: WarehouseAreaDoc): AreaPutawayKind {
+  const keys = getAreaPurposes(area).map(purposeKey);
+  if (keys.some((k) => k === "quarantine" || k === "returns" || k === "damaged")) {
+    return "quarantine";
+  }
+  if (keys.some((k) => k === "receiving")) return "receiving_staging";
+  if (keys.some((k) => k === "storage")) return "storage";
+  return "other";
+}
+
+export function areasEligibleForPutawayLine(
+  areas: WarehouseAreaDoc[],
+  line: WarehouseCartonLine
+): WarehouseAreaDoc[] {
+  const active = areas.filter((a) => a.active !== false);
+  if (line.condition === "damaged") {
+    return active.filter((a) => classifyWarehouseArea(a) === "quarantine");
+  }
+  return active.filter((a) => classifyWarehouseArea(a) !== "quarantine");
+}
+
+export function formatWarehouseAreaOption(area: WarehouseAreaDoc): string {
+  const purposes = getAreaPurposes(area).join(", ");
+  const name = area.name?.trim();
+  return name ? `${area.code} — ${name}${purposes ? ` (${purposes})` : ""}` : area.code;
+}
+
+export function binBelongsToWarehouseArea(
+  bin: WarehouseBinDoc,
+  area: WarehouseAreaDoc
+): boolean {
+  if (bin.storageAreaId && bin.storageAreaId === area.id) return true;
+  return bin.area.trim().toUpperCase() === area.code.trim().toUpperCase();
+}
+
+/** True when at least one active bin exists in an area this line may use. */
+export function lineEligibleAreasHaveBins(
+  areas: WarehouseAreaDoc[],
+  bins: WarehouseBinDoc[],
+  line: WarehouseCartonLine
+): boolean {
+  const eligible = areasEligibleForPutawayLine(areas, line);
+  const activeBins = bins.filter((b) => b.active !== false);
+  return eligible.some((area) =>
+    activeBins.some((bin) => binBelongsToWarehouseArea(bin, area))
+  );
+}
+
+export type PutawayPlacementMode = "bin" | "area";
+
+export function defaultPutawayPlacementMode(
+  line: WarehouseCartonLine,
+  areas: WarehouseAreaDoc[],
+  bins: WarehouseBinDoc[]
+): PutawayPlacementMode {
+  return lineEligibleAreasHaveBins(areas, bins, line) ? "bin" : "area";
+}
+
+function classifyBinFromLinkedArea(area: WarehouseAreaDoc): BinKind | null {
+  const kind = classifyWarehouseArea(area);
+  if (kind === "quarantine") return "quarantine";
+  if (kind === "receiving_staging") return "receiving_staging";
+  if (kind === "storage") return "normal";
+  return null;
+}
+
+function findWarehouseAreaForBin(
+  bin: WarehouseBinDoc,
+  areas: WarehouseAreaDoc[]
+): WarehouseAreaDoc | null {
+  if (bin.storageAreaId) {
+    const linked = areas.find((a) => a.id === bin.storageAreaId);
+    if (linked) return linked;
+  }
+  const code = bin.area.trim().toUpperCase();
+  if (!code) return null;
+  return areas.find((a) => a.code.trim().toUpperCase() === code) ?? null;
+}
+
+/**
+ * Infer bin kind from linked warehouse area purposes (preferred), then legacy
+ * area-code heuristics (Q / QR / QUAR / RECV…) for older bins.
+ */
+export function classifyBin(bin: WarehouseBinDoc, areas?: WarehouseAreaDoc[]): BinKind {
+  if (areas?.length) {
+    const linked = findWarehouseAreaForBin(bin, areas);
+    if (linked) {
+      const fromPurpose = classifyBinFromLinkedArea(linked);
+      if (fromPurpose) return fromPurpose;
+    }
+  }
+
   const area = (bin.area ?? "").toUpperCase();
-  if (area.includes("QUAR") || area.startsWith("QR") || area === "Q") return "quarantine";
+  if (area.includes("QUAR") || area.startsWith("QR") || area === "Q" || area.includes("DMG")) {
+    return "quarantine";
+  }
   if (area.includes("RECV") || area.includes("RCV") || area.includes("STAGE")) {
     return "receiving_staging";
   }
@@ -197,10 +302,11 @@ export type LineValidationResult =
 export function validateLineToBin(
   line: WarehouseCartonLine,
   bin: WarehouseBinDoc,
-  binContents: { skus: string[] }
+  binContents: { skus: string[] },
+  areas?: WarehouseAreaDoc[]
 ): LineValidationResult {
   if (!bin.active) return { ok: false, reason: "Bin is inactive." };
-  const kind = classifyBin(bin);
+  const kind = classifyBin(bin, areas);
 
   if (line.condition === "damaged") {
     if (kind !== "quarantine") {
@@ -234,6 +340,92 @@ export function validateLineToBin(
   };
 }
 
+export function validateLineToArea(
+  line: WarehouseCartonLine,
+  area: WarehouseAreaDoc
+): LineValidationResult {
+  const kind = classifyWarehouseArea(area);
+  if (line.condition === "damaged") {
+    if (kind !== "quarantine") {
+      return {
+        ok: false,
+        reason: "Damaged stock must go to a quarantine or damaged area.",
+      };
+    }
+    return { ok: true };
+  }
+  if (kind === "quarantine") {
+    return {
+      ok: false,
+      reason: "Good stock cannot be stowed in a quarantine area.",
+    };
+  }
+  if (kind === "receiving_staging") {
+    return {
+      ok: false,
+      reason: "Choose storage or quarantine — receiving staging is dock only.",
+    };
+  }
+  return { ok: true };
+}
+
+function findAreaByCode(areas: WarehouseAreaDoc[], code: string): WarehouseAreaDoc | null {
+  const needle = code.trim().toUpperCase();
+  return areas.find((a) => a.code.trim().toUpperCase() === needle) ?? null;
+}
+
+function resolveCartonFieldsAfterPutaway(
+  carton: WarehouseCartonDoc,
+  nextLines: WarehouseCartonLine[],
+  areas: WarehouseAreaDoc[]
+): { status: WarehouseCartonDoc["status"]; binId: string | null; stagingArea: string | null } {
+  const rolled = rollCartonBinStateFromLines(carton, nextLines);
+  const unstowed = nextLines.filter((l) => !isLinePutawayPlaced(l));
+  const binLines = nextLines.filter((l) => l.binId);
+  const areaOnly = nextLines.filter((l) => !l.binId && l.stagingArea?.trim());
+
+  if (unstowed.length > 0) {
+    return {
+      status: rolled.status as WarehouseCartonDoc["status"],
+      binId: rolled.binId,
+      stagingArea: rollupCartonStagingArea(nextLines, carton),
+    };
+  }
+
+  if (binLines.length > 0 && areaOnly.length > 0) {
+    return {
+      status: "stowed_partial",
+      binId: rolled.binId,
+      stagingArea: rollupCartonStagingArea(nextLines, carton),
+    };
+  }
+
+  if (areaOnly.length > 0 && binLines.length === 0) {
+    const codes = new Set(areaOnly.map((l) => l.stagingArea!.trim().toUpperCase()));
+    if (codes.size === 1) {
+      const dest = findAreaByCode(areas, [...codes][0]);
+      if (dest) {
+        return {
+          status: cartonStatusForArea(dest),
+          binId: null,
+          stagingArea: dest.code.trim(),
+        };
+      }
+    }
+    return {
+      status: "on_hold",
+      binId: null,
+      stagingArea: rollupCartonStagingArea(nextLines, carton),
+    };
+  }
+
+  return {
+    status: rolled.status as WarehouseCartonDoc["status"],
+    binId: rolled.binId,
+    stagingArea: rollupCartonStagingArea(nextLines, carton),
+  };
+}
+
 /**
  * Apply the putaway assignments for a single carton. Each assignment maps a
  * line (by lineId) to the bin where it should land. Lines not mentioned stay
@@ -244,27 +436,48 @@ export function validateLineToBin(
  *   - some lines have binId → stowed_partial
  *   - none have binId → unchanged
  */
-export type { PutawayAssignment } from "@/lib/warehouse-carton-line-utils";
+export type { PutawayAssignment, PutawayAreaAssignment, PutawayLineAssignment } from "@/lib/warehouse-carton-line-utils";
 
 export async function applyPutawayAssignments(
   warehouseId: string,
   cartonId: string,
   carton: WarehouseCartonDoc,
-  assignments: PutawayAssignment[],
-  options?: { operatorId?: string | null }
+  assignments: PutawayLineAssignment[],
+  options?: { operatorId?: string | null; warehouseAreas?: WarehouseAreaDoc[] }
 ): Promise<{ status: WarehouseCartonDoc["status"]; allStowed: boolean; splitAcrossBins: boolean }> {
   if (!carton.lines || carton.lines.length === 0) {
     throw new Error("This carton has no lines — cannot putaway.");
   }
 
-  const { nextLines, applied } = applyPutawayAssignmentsToLines(carton.lines, assignments);
+  const binAssignments = assignments.filter((a): a is PutawayAssignment => !isPutawayAreaAssignment(a));
+  const areaAssignments = assignments.filter(isPutawayAreaAssignment);
 
-  const stowedLines = nextLines.filter((l) => l.binId);
-  const allStowed = stowedLines.length === nextLines.length;
-  const distinctBins = new Set(stowedLines.map((l) => l.binId));
+  let nextLines = [...carton.lines];
+  const appliedBins: Array<PutawayAssignment & { quantity: number }> = [];
+  const appliedAreas: Array<PutawayAreaAssignment & { quantity: number }> = [];
+
+  if (binAssignments.length > 0) {
+    const binResult = applyPutawayAssignmentsToLines(nextLines, binAssignments);
+    nextLines = binResult.nextLines;
+    appliedBins.push(...binResult.applied);
+  }
+  if (areaAssignments.length > 0) {
+    const areaResult = applyPutawayAreaAssignmentsToLines(nextLines, areaAssignments);
+    nextLines = areaResult.nextLines;
+    appliedAreas.push(...areaResult.applied);
+  }
+
+  const placedLines = nextLines.filter(isLinePutawayPlaced);
+  const allStowed = placedLines.length === nextLines.length;
+  const distinctBins = new Set(nextLines.filter((l) => l.binId).map((l) => l.binId));
   const splitAcrossBins = distinctBins.size > 1;
 
-  const { status: nextStatus, binId: rootBinId } = rollCartonBinStateFromLines(carton, nextLines);
+  const areas = options?.warehouseAreas ?? [];
+  const { status: nextStatus, binId: rootBinId, stagingArea } = resolveCartonFieldsAfterPutaway(
+    carton,
+    nextLines,
+    areas
+  );
 
   const batch = writeBatch(db);
   const dispositionPatch =
@@ -277,10 +490,11 @@ export async function applyPutawayAssignments(
     lines: linesToFirestorePayload(nextLines),
     status: nextStatus,
     binId: rootBinId,
+    stagingArea: stagingArea ?? null,
     updatedAt: serverTimestamp(),
   });
 
-  for (const a of applied) {
+  for (const a of appliedBins) {
     const eventsRef = collection(db, WAREHOUSES, warehouseId, "movementEvents");
     const ref = doc(eventsRef);
     const line = nextLines.find((l) => l.lineId === a.lineId);
@@ -294,6 +508,28 @@ export async function applyPutawayAssignments(
       condition: line?.condition ?? null,
       toBinId: a.binId,
       toBinPath: a.binPath,
+      putawayMode: "bin",
+      operatorId: options?.operatorId ?? null,
+      at: serverTimestamp(),
+    });
+  }
+
+  for (const a of appliedAreas) {
+    const eventsRef = collection(db, WAREHOUSES, warehouseId, "movementEvents");
+    const ref = doc(eventsRef);
+    const line = nextLines.find((l) => l.lineId === a.lineId);
+    batch.set(ref, {
+      type: "putaway",
+      cartonId,
+      cartonCode: carton.cartonCode,
+      lineId: a.lineId,
+      sku: line?.sku ?? null,
+      quantity: a.quantity,
+      condition: line?.condition ?? null,
+      toBinId: null,
+      toBinPath: null,
+      stagingArea: a.stagingArea,
+      putawayMode: "area",
       operatorId: options?.operatorId ?? null,
       at: serverTimestamp(),
     });
@@ -305,7 +541,19 @@ export async function applyPutawayAssignments(
     warehouseId,
     cartonId,
     carton,
-    applied,
+    applied: [
+      ...appliedBins.map((a) => ({
+        lineId: a.lineId,
+        quantity: a.quantity,
+        binId: a.binId,
+        binPath: a.binPath,
+      })),
+      ...appliedAreas.map((a) => ({
+        lineId: a.lineId,
+        quantity: a.quantity,
+        stagingArea: a.stagingArea,
+      })),
+    ],
     operatorId: options?.operatorId ?? null,
   });
 
@@ -332,6 +580,7 @@ function docToCartonShallow(id: string, data: Record<string, unknown>): Warehous
           expiry: l.expiry != null ? String(l.expiry) : null,
           condition: l.condition === "damaged" ? "damaged" : "good",
           binId: l.binId != null ? String(l.binId) : null,
+          stagingArea: l.stagingArea != null ? String(l.stagingArea) : null,
           allocationStatus:
             l.allocationStatus === "allocated" || l.allocationStatus === "picked"
               ? (l.allocationStatus as "allocated" | "picked")

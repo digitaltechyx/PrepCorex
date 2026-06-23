@@ -8,6 +8,20 @@ export type PutawayAssignment = {
   quantity?: number;
 };
 
+export type PutawayAreaAssignment = {
+  lineId: string;
+  stagingArea: string;
+  quantity?: number;
+};
+
+export type PutawayLineAssignment = PutawayAssignment | PutawayAreaAssignment;
+
+export function isPutawayAreaAssignment(
+  a: PutawayLineAssignment
+): a is PutawayAreaAssignment {
+  return !("binId" in a);
+}
+
 export function nextCartonLineId(lines: WarehouseCartonLine[]): string {
   let n = lines.length + 1;
   while (lines.some((l) => l.lineId === `L${n}`)) n += 1;
@@ -66,6 +80,40 @@ export function assignLineQuantityToBin(
   return { nextLines: next, assignedLineId: newId, assignedQty: qty };
 }
 
+export function assignLineQuantityToArea(
+  lines: WarehouseCartonLine[],
+  lineId: string,
+  putQty: number,
+  stagingArea: string
+): { nextLines: WarehouseCartonLine[]; assignedLineId: string; assignedQty: number } {
+  const dest = stagingArea.trim();
+  if (!dest) throw new Error("Select a destination area.");
+
+  const idx = lines.findIndex((l) => l.lineId === lineId);
+  if (idx < 0) throw new Error(`Line ${lineId} not found.`);
+
+  const line = lines[idx];
+  if (line.allocationStatus === "picked") {
+    throw new Error(`Line ${line.sku} is picked and cannot be moved.`);
+  }
+  const qty = Math.floor(putQty);
+  if (qty < 1) throw new Error("Quantity must be at least 1.");
+  if (qty > line.quantity) {
+    throw new Error(`Only ${line.quantity} available on ${line.sku}.`);
+  }
+
+  const next = [...lines];
+  if (qty === line.quantity) {
+    next[idx] = { ...line, binId: null, stagingArea: dest };
+    return { nextLines: next, assignedLineId: line.lineId, assignedQty: qty };
+  }
+
+  const newId = nextCartonLineId(next);
+  next[idx] = { ...line, quantity: line.quantity - qty };
+  next.push({ ...line, lineId: newId, quantity: qty, binId: null, stagingArea: dest });
+  return { nextLines: next, assignedLineId: newId, assignedQty: qty };
+}
+
 /** Apply many putaway assignments (supports partial qty per assignment). */
 export function applyPutawayAssignmentsToLines(
   lines: WarehouseCartonLine[],
@@ -85,24 +133,50 @@ export function applyPutawayAssignmentsToLines(
   return { nextLines, applied };
 }
 
+export function applyPutawayAreaAssignmentsToLines(
+  lines: WarehouseCartonLine[],
+  assignments: PutawayAreaAssignment[]
+): {
+  nextLines: WarehouseCartonLine[];
+  applied: Array<PutawayAreaAssignment & { quantity: number }>;
+} {
+  let nextLines = [...lines];
+  const applied: Array<PutawayAreaAssignment & { quantity: number }> = [];
+
+  for (const a of assignments) {
+    const sourceLine = nextLines.find((l) => l.lineId === a.lineId);
+    const putQty = a.quantity ?? sourceLine?.quantity ?? 0;
+    const result = assignLineQuantityToArea(nextLines, a.lineId, putQty, a.stagingArea);
+    nextLines = result.nextLines;
+    applied.push({ ...a, quantity: result.assignedQty, lineId: result.assignedLineId });
+  }
+
+  return { nextLines, applied };
+}
+
+export function isLinePutawayPlaced(line: WarehouseCartonLine): boolean {
+  return Boolean(line.binId) || Boolean(line.stagingArea?.trim());
+}
+
 export function rollCartonBinStateFromLines(
   carton: { status: string; isMixed?: boolean },
   nextLines: WarehouseCartonLine[]
 ): { status: string; binId: string | null } {
-  const stowedLines = nextLines.filter((l) => l.binId);
-  const allStowed = stowedLines.length === nextLines.length && nextLines.length > 0;
-  const someStowed = stowedLines.length > 0;
-  const distinctBins = new Set(stowedLines.map((l) => l.binId));
+  const placedLines = nextLines.filter(isLinePutawayPlaced);
+  const binStowedLines = nextLines.filter((l) => l.binId);
+  const allPlaced = placedLines.length === nextLines.length && nextLines.length > 0;
+  const somePlaced = placedLines.length > 0;
+  const distinctBins = new Set(binStowedLines.map((l) => l.binId));
 
   let status = carton.status;
-  if (allStowed) {
+  if (allPlaced) {
     status = distinctBins.size > 1 && carton.isMixed ? "split" : "stowed";
-  } else if (someStowed) {
+  } else if (somePlaced) {
     status = "stowed_partial";
   }
 
-  if (allStowed && distinctBins.size === 1) {
-    return { status, binId: stowedLines[0]?.binId ?? null };
+  if (allPlaced && distinctBins.size === 1 && binStowedLines.length === nextLines.length) {
+    return { status, binId: binStowedLines[0]?.binId ?? null };
   }
   if (distinctBins.size > 1) {
     return { status: carton.isMixed ? "split" : status, binId: null };
