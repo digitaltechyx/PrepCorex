@@ -44,6 +44,9 @@ import {
   type WarehouseOpsDashboardStats,
 } from "@/lib/warehouse-ops-dashboard-stats";
 import type { ClientProductMap } from "@/lib/warehouse-outbound-lines";
+import { buildOrderLinesFromRequestData } from "@/lib/warehouse-outbound-lines";
+import { reconcilePickOrderStatusIfComplete } from "@/lib/warehouse-pick";
+import { pickStatusFromRequest } from "@/lib/warehouse-outbound-request-status";
 import type { OutboundPickOrder } from "@/lib/warehouse-pick";
 import type { OutboundPackOrder } from "@/lib/warehouse-pack";
 import type { WarehouseCartonDoc } from "@/types";
@@ -355,6 +358,39 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     if (syncError) return;
     rememberWarehouseOpsDashboardStats(selectedWarehouse.id, stats);
   }, [selectedWarehouse, stats, liveLoading, syncError]);
+
+  // Orders can stay stuck in "picking" after the last pick step — reconcile from movement events.
+  useEffect(() => {
+    if (!selectedWarehouse || liveLoading || shipmentDocs.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      for (const shipmentDoc of shipmentDocs) {
+        if (cancelled) return;
+        const data = shipmentDoc.data;
+        if (data.status !== "confirmed") continue;
+        if (pickStatusFromRequest(data) !== "picking") continue;
+
+        const clientUserId = shipmentDoc.path.split("/")[1] ?? "";
+        if (!clientUserId) continue;
+
+        const products = productMaps.get(clientUserId) ?? new Map();
+        const lines = buildOrderLinesFromRequestData(data, products);
+        if (lines.length === 0) continue;
+
+        await reconcilePickOrderStatusIfComplete({
+          warehouseId: selectedWarehouse.id,
+          clientUserId,
+          shipmentRequestId: shipmentDoc.id,
+          lines,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWarehouse, shipmentDocs, productMaps, liveLoading]);
 
   const outboundLoading = clientsLoading || shipmentsLoading;
 

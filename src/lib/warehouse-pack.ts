@@ -13,6 +13,10 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
+  applyClientInventoryOnDispatch,
+  type ShopifyInventorySyncHint,
+} from "@/lib/client-inventory-outbound-sync";
+import {
   linesToFirestorePayload,
   rollCartonBinStateFromLines,
 } from "@/lib/warehouse-carton-line-utils";
@@ -1070,7 +1074,7 @@ export async function completeDispatchHandoff(input: {
   scannedValue: string;
   qcUnitType: WarehouseQcUnitType;
   operatorId?: string | null;
-}): Promise<void> {
+}): Promise<ShopifyInventorySyncHint[]> {
   const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
   const snap = await getDoc(ref);
   if (!snap.exists()) throw new Error("Order not found.");
@@ -1090,6 +1094,11 @@ export async function completeDispatchHandoff(input: {
   if (!courierScansMatch(input.scannedValue, stored)) {
     throw new Error("Wrong parcel — label does not match this order.");
   }
+
+  const shopifyHints = await applyClientInventoryOnDispatch({
+    clientUserId: input.clientUserId,
+    shipmentRequestId: input.shipmentRequestId,
+  });
 
   const batch = writeBatch(db);
 
@@ -1118,6 +1127,7 @@ export async function completeDispatchHandoff(input: {
   });
 
   await batch.commit();
+  return shopifyHints;
 }
 
 /** Dispatch QC failed — restore warehouse stock and return order to pack. */

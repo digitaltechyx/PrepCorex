@@ -35,6 +35,7 @@ import type {
   DeleteLog,
   EditLog,
   InboundReceiveLog,
+  InventoryChangeLog,
   InventoryItem,
   InventoryRequest,
   RecycledInventoryItem,
@@ -184,8 +185,11 @@ export function InventoryHistoryDialog({
   const { data: inboundReceiveLogs, loading: l7 } = useCollection<InboundReceiveLog>(
     path ? `${path}/inboundReceiveLogs` : ""
   );
+  const { data: inventoryChangeLogs, loading: l8 } = useCollection<InventoryChangeLog>(
+    path ? `${path}/inventoryChangeLogs` : ""
+  );
 
-  const loading = l1 || l2 || l3 || l4 || l5 || l6 || l7;
+  const loading = l1 || l2 || l3 || l4 || l5 || l6 || l7 || l8;
 
   const rows = useMemo(() => {
     if (!item) return [] as InventoryHistoryRow[];
@@ -199,10 +203,11 @@ export function InventoryHistoryDialog({
         inventoryRequests,
         inventoryTransfers: [],
         recycledInventory,
+        inventoryChangeLogs,
       },
       { includeInternalEvents: false }
     );
-  }, [item, editLogs, deleteLogs, restockHistory, shipped, inventoryRequests, recycledInventory]);
+  }, [item, editLogs, deleteLogs, restockHistory, shipped, inventoryRequests, recycledInventory, inventoryChangeLogs]);
 
   const filteredRows = useMemo(
     () => filterHistoryRows(rows, { search, eventType, fromDate, toDate, changeFilter }),

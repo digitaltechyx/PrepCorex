@@ -97,6 +97,97 @@ export type PickPlan = {
   readyToPick: boolean;
 };
 
+type PickMovementEvent = {
+  sku: string;
+  quantity: number;
+};
+
+async function loadPickEventsForOrder(
+  warehouseId: string,
+  shipmentRequestId: string
+): Promise<PickMovementEvent[]> {
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, WAREHOUSES, warehouseId, "movementEvents"),
+        where("type", "==", "pick"),
+        where("shipmentRequestId", "==", shipmentRequestId)
+      )
+    );
+    return snap.docs.map((d) => {
+      const data = d.data() as Record<string, unknown>;
+      return {
+        sku: String(data.sku ?? ""),
+        quantity: Math.max(0, Math.floor(Number(data.quantity) || 0)),
+      };
+    });
+  } catch {
+    const snap = await getDocs(
+      query(collection(db, WAREHOUSES, warehouseId, "movementEvents"), where("type", "==", "pick"))
+    );
+    return snap.docs
+      .filter((d) => String(d.data().shipmentRequestId ?? "") === shipmentRequestId)
+      .map((d) => {
+        const data = d.data() as Record<string, unknown>;
+        return {
+          sku: String(data.sku ?? ""),
+          quantity: Math.max(0, Math.floor(Number(data.quantity) || 0)),
+        };
+      });
+  }
+}
+
+/** True when pick movement events satisfy every order line (picked lines are excluded from the pick plan pool). */
+export async function isOrderFullyPicked(
+  warehouseId: string,
+  order: OutboundPickOrder
+): Promise<boolean> {
+  if (order.lines.length === 0) return false;
+  const events = await loadPickEventsForOrder(warehouseId, order.id);
+  const pickedBySku = new Map<string, number>();
+  for (const e of events) {
+    if (!e.sku) continue;
+    pickedBySku.set(e.sku, (pickedBySku.get(e.sku) ?? 0) + e.quantity);
+  }
+  return order.lines.every((line) => (pickedBySku.get(line.sku) ?? 0) >= line.quantityUnits);
+}
+
+/** Promote stuck "picking" orders to "picked" when floor picks already satisfy demand. */
+export async function reconcilePickOrderStatusIfComplete(input: {
+  warehouseId: string;
+  clientUserId: string;
+  shipmentRequestId: string;
+  lines: OutboundPickLine[];
+  operatorId?: string | null;
+}): Promise<boolean> {
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return false;
+
+  const pickStatus = pickStatusFromRequest(snap.data() as Record<string, unknown>);
+  if (pickStatus !== "picking") return false;
+
+  const order: OutboundPickOrder = {
+    id: input.shipmentRequestId,
+    clientUserId: input.clientUserId,
+    clientDisplayName: "",
+    warehousePickStatus: "picking",
+    lines: input.lines,
+    confirmedAt: null,
+  };
+
+  if (!(await isOrderFullyPicked(input.warehouseId, order))) return false;
+
+  await markPickOrderStatus({
+    clientUserId: input.clientUserId,
+    shipmentRequestId: input.shipmentRequestId,
+    warehouseId: input.warehouseId,
+    status: "picked",
+    operatorId: input.operatorId,
+  });
+  return true;
+}
+
 type PickSource = {
   sku: string;
   lot: string | null;
@@ -614,8 +705,7 @@ export async function applyPickStep(input: {
     confirmedAt: null,
   };
 
-  const plan = await buildPickPlan({ id: input.warehouseId } as WarehouseDoc, order);
-  const orderComplete = plan.steps.length === 0 && plan.shortfalls.length === 0;
+  const orderComplete = await isOrderFullyPicked(input.warehouseId, order);
 
   if (orderComplete) {
     await markPickOrderStatus({

@@ -121,7 +121,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
 
     setConfirming(true);
     try {
-      await completeDispatchHandoff({
+      const shopifyHints = await completeDispatchHandoff({
         warehouseId: warehouse.id,
         clientUserId: matchedOrder.clientUserId,
         shipmentRequestId: matchedOrder.id,
@@ -129,6 +129,41 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
         qcUnitType,
         operatorId,
       });
+
+      if (user && shopifyHints.length > 0) {
+        const token = await user.getIdToken();
+        for (const hint of shopifyHints) {
+          if (hint.source !== "shopify" || !hint.shop || !hint.shopifyVariantId) continue;
+          try {
+            const res = await fetch("/api/shopify/sync-inventory", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({
+                userId: matchedOrder.clientUserId,
+                shop: hint.shop,
+                shopifyVariantId: hint.shopifyVariantId,
+                shopifyInventoryItemId: hint.shopifyInventoryItemId,
+                newQuantity: hint.newQuantity,
+              }),
+            });
+            if (!res.ok) {
+              const data = await res.json().catch(() => ({}));
+              toast({
+                variant: "destructive",
+                title: "Dispatched; Shopify inventory did not update",
+                description: typeof data.error === "string" ? data.error : "Re-connect the store or use an admin account.",
+              });
+            }
+          } catch (e) {
+            toast({
+              variant: "destructive",
+              title: "Dispatched; Shopify inventory did not update",
+              description: e instanceof Error ? e.message : "Unknown error",
+            });
+          }
+        }
+      }
+
       toast({
         title: "Dispatched",
         description: `${matchedOrder.clientDisplayName} handed off to carrier.`,

@@ -1725,6 +1725,9 @@ export function InventoryTable({
         open={outOfStockSheetOpen}
         onOpenChange={setOutOfStockSheetOpen}
         items={outOfStockRows}
+        inventoryItems={combinedInventory.outOfStockItems as InventoryItem[]}
+        userId={effectiveUserId}
+        ownerLabel={effectiveUserName}
       />
 
       <Dialog

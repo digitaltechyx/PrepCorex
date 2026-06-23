@@ -40,6 +40,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { doc, updateDoc, collection, Timestamp, runTransaction, addDoc } from "firebase/firestore";
+import { getCommittedOutboundUnits } from "@/lib/client-inventory-outbound-sync";
 import { format } from "date-fns";
 import { Check, X, Eye, Loader2, FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -320,13 +321,21 @@ export function ShipmentRequestsManagement({
       const extraServiceQuantities = additionalServices?.extraServiceQuantities;
       const extraServiceUnitPrices = additionalServices?.extraServiceUnitPrices;
 
+      const committedByProduct = new Map<string, number>();
+      for (const shipment of request.shipments ?? []) {
+        const productId = String(shipment.productId ?? "").trim();
+        if (!productId || committedByProduct.has(productId)) continue;
+        committedByProduct.set(
+          productId,
+          await getCommittedOutboundUnits(targetUserId, productId, request.id)
+        );
+      }
+
       await runTransaction(db, async (transaction) => {
         const requestRef = doc(db, `users/${targetUserId}/shipmentRequests`, request.id);
-        const shippedCollectionRef = collection(db, `users/${targetUserId}/shipped`);
         const confirmedAt = Timestamp.now();
-        const createdAt = Timestamp.now();
 
-        // STEP 1: Read all inventory documents first (all reads must happen before writes)
+        // Validate stock availability (deduction happens at warehouse dispatch, not here).
         const isCustomProduct =
           String(request.productType || "").toLowerCase() === "custom" &&
           String(request.shipmentType || "").toLowerCase() === "product";
@@ -347,10 +356,12 @@ export function ShipmentRequestsManagement({
                 : shipment.packOf;
             const totalUnitsShipped = shipment.quantity * effectivePackOf;
             const selectedSourceLocationId = String((shipment as any).sourceLocationId || "").trim();
+            const committed = committedByProduct.get(shipment.productId) ?? 0;
+            const sellableQty = Math.max(0, currentInventory.quantity - committed);
 
-            if (currentInventory.quantity < totalUnitsShipped) {
+            if (sellableQty < totalUnitsShipped) {
               throw new Error(
-                `Not enough stock for ${currentInventory.productName}. Available: ${currentInventory.quantity}, Requested: ${totalUnitsShipped}.`
+                `Not enough stock for ${currentInventory.productName}. Available: ${sellableQty}, Requested: ${totalUnitsShipped}.`
               );
             }
 
@@ -399,15 +410,18 @@ export function ShipmentRequestsManagement({
           })
         );
 
-        // STEP 2: Now perform all writes (after all reads are complete)
-        // Update request status
+        // Approve for warehouse — client inventory deducts at dispatch, not here.
         transaction.update(requestRef, {
           status: "confirmed",
           confirmedBy: adminProfile.uid,
           confirmedAt,
+          clientInventoryDeductionTiming: "dispatch",
           adminRemarks: adminRemarks || "",
           ...(typeof (request as any).customDimensions === "string"
             ? { customDimensions: (request as any).customDimensions.trim() }
+            : {}),
+          ...(isCustomProduct && additionalServices?.customProductPricing
+            ? { adminCustomProductPricing: additionalServices.customProductPricing }
             : {}),
           adminAdditionalServices: {
             bubbleWrapFeet,
@@ -426,219 +440,12 @@ export function ShipmentRequestsManagement({
           },
         });
 
-        // Collect all items and calculate totals for a single combined shipped record
-        const allItems: any[] = [];
-        let totalBoxes = 0;
-        let totalUnits = 0;
-        let totalSkus = 0;
-        const firstProduct = inventoryData[0]?.currentInventory;
-
-        // Process each shipment item - update inventory and collect data
-        for (let i = 0; i < inventoryData.length; i++) {
-          const {
-            shipment,
-            effectivePackOf,
-            inventoryDocRef,
-            currentInventory,
-            totalUnitsShipped,
-            selectedSourceLocationId,
-            locationQuantities,
-            hasTrackedLocations,
-          } = inventoryData[i] as any;
-          const newQuantity = currentInventory.quantity - totalUnitsShipped;
-          const newStatus = newQuantity > 0 ? "In Stock" : "Out of Stock";
-          if (hasTrackedLocations && selectedSourceLocationId) {
-            const currentSourceQty = Number(locationQuantities[selectedSourceLocationId] || 0);
-            locationQuantities[selectedSourceLocationId] = Math.max(0, currentSourceQty - totalUnitsShipped);
-            if (locationQuantities[selectedSourceLocationId] <= 0) {
-              delete locationQuantities[selectedSourceLocationId];
-            }
-          }
-          const nextPrimaryLocationId =
-            ((currentInventory as any).locationId && locationQuantities[(currentInventory as any).locationId]
-              ? String((currentInventory as any).locationId)
-              : "") ||
-            Object.keys(locationQuantities)[0] ||
-            String((currentInventory as any).locationId || "").trim();
-
-          // Update inventory
-          transaction.update(inventoryDocRef, {
-            quantity: newQuantity,
-            status: newStatus,
-            locationId: nextPrimaryLocationId,
-            locationQuantities,
-          });
-
-          // Use admin-set pricing for custom products, otherwise use shipment pricing
-          let finalUnitPrice = shipment.unitPrice;
-          if (isCustomProduct && additionalServices?.customProductPricing) {
-            const customPricing = additionalServices.customProductPricing[i];
-            if (customPricing && customPricing.unitPrice > 0) {
-              finalUnitPrice = customPricing.unitPrice;
-            }
-          }
-          const finalPackOfPrice =
-            isCustomProduct && additionalServices?.customProductPricing?.[i]
-              ? (additionalServices.customProductPricing[i].packOfPrice || 0)
-              : 0;
-
-          // Collect item data for the combined shipped record
-          allItems.push({
-            productId: shipment.productId,
-            productName: currentInventory.productName,
-            boxesShipped: shipment.quantity,
-            shippedQty: totalUnitsShipped,
-            packOf: effectivePackOf,
-            unitPrice: finalUnitPrice,
-            packOfPrice: finalPackOfPrice,
-            remainingQty: newQuantity,
-            shippedFromLocationId: selectedSourceLocationId || "",
-            shippedFromLocationName: selectedSourceLocationId
-              ? (warehouseNameById[selectedSourceLocationId] || selectedSourceLocationId)
-              : "Unspecified location",
-          });
-
-          // Accumulate totals
-          totalBoxes += shipment.quantity;
-          totalUnits += totalUnitsShipped;
-          totalSkus += 1;
-        }
-
-        // Create a SINGLE combined shipped record with all products
-        const shipmentDocRef = doc(shippedCollectionRef);
-        const shipmentDoc: any = {
-          productName: firstProduct?.productName || "Multiple Products",
-          date: shippingDate ? Timestamp.fromDate(shippingDate) : (typeof request.date === 'string' ? Timestamp.fromDate(new Date(request.date)) : request.date),
-          createdAt,
-          shippedQty: totalUnits,
-          boxesShipped: totalBoxes,
-          unitsForPricing: totalBoxes,
-          remainingQty: inventoryData[inventoryData.length - 1]?.currentInventory.quantity - inventoryData[inventoryData.length - 1]?.totalUnitsShipped || 0,
-          packOf: inventoryData[0]?.effectivePackOf || inventoryData[0]?.shipment.packOf || 1, // Use first product's packOf for display
-          unitPrice: (() => {
-            // Unit price is per-box (qty), not per-unit (qty*packOf).
-            // For custom products, use admin-set unitPrice and weight by boxes shipped.
-            if (isCustomProduct && additionalServices?.customProductPricing) {
-              let totalPrice = 0;
-              inventoryData.forEach((d, index) => {
-                const customPricing = additionalServices.customProductPricing?.[index];
-                const price = customPricing && customPricing.unitPrice > 0 ? customPricing.unitPrice : d.shipment.unitPrice;
-                totalPrice += price * (d.shipment.quantity || 0);
-              });
-              return totalPrice / totalBoxes || 0;
-            }
-            // For non-custom, we keep the existing behavior (weighted by total units shipped)
-            return inventoryData.reduce((sum, d) => sum + (d.shipment.unitPrice * d.totalUnitsShipped), 0) / totalUnits || 0;
-          })(),
-          packOfPrice: (() => {
-            // For custom products, store the packOfPrice from the first item (or 0). Invoices use item-level pricing too.
-            if (isCustomProduct && additionalServices?.customProductPricing?.[0]) {
-              return additionalServices.customProductPricing[0].packOfPrice || 0;
-            }
-            return 0;
-          })(),
-          remarks: request.remarks,
-          // Map service based on shipmentType
-          service: (() => {
-            if (request.shipmentType === 'box') {
-              return 'Box Forwarding';
-            } else if (request.shipmentType === 'pallet') {
-              if (request.palletSubType === 'forwarding') {
-                return 'Pallet Forwarding';
-              } else if (request.palletSubType === 'existing_inventory') {
-                return 'Pallet Existing Inventory';
-              }
-              return 'Pallet Forwarding';
-            }
-            return request.service || "FBA/WFS/TFS";
-          })(),
-          productType: request.productType || "Standard",
-          shipmentType: request.shipmentType || "product", // Store shipmentType for invoice service mapping
-          remarks: adminRemarks || "", // Use admin remarks instead of user remarks
-          labelUrl: request.labelUrl || "",
-          customDimensions: request.customDimensions || undefined, // Store custom dimensions if present
-          customProductPricing: (isCustomProduct && additionalServices?.customProductPricing)
-            ? additionalServices.customProductPricing
-            : undefined, // Store admin-set pricing for custom products
-          additionalServices: {
-            bubbleWrapFeet,
-            stickerRemovalItems,
-            warningLabels,
-            pricePerFoot,
-            pricePerItem,
-            pricePerLabel,
-            total: additionalServicesTotal,
-            ...(extraServiceQuantities && Object.keys(extraServiceQuantities).length > 0
-              ? { extraServiceQuantities }
-              : {}),
-            ...(extraServiceUnitPrices && Object.keys(extraServiceUnitPrices).length > 0
-              ? { extraServiceUnitPrices }
-              : {}),
-          },
-          additionalServicesTotal,
-          items: allItems, // All products in this shipment
-          totalBoxes: totalBoxes,
-          totalUnits: totalUnits,
-          totalSkus: totalSkus,
-          requestedBy: request.requestedBy,
-          confirmedBy: adminProfile.uid,
-          confirmedAt,
-        };
-        
-        // Only include palletSubType if it has a value
-        if (request.palletSubType) {
-          shipmentDoc.palletSubType = request.palletSubType;
-        }
-        
-        // Remove undefined values before saving
-        const cleanedDoc = removeUndefined(shipmentDoc);
-        transaction.set(shipmentDocRef, cleanedDoc);
-
       });
-
-      if (authUser && targetUserId) {
-        for (const shipment of request.shipments || []) {
-          if (!shipment.productId) continue;
-          const invItem = inventory.find((i) => i.id === shipment.productId) as (InventoryItem & { source?: string; shop?: string; shopifyVariantId?: string; shopifyInventoryItemId?: string }) | undefined;
-          if (invItem?.source === "shopify" && invItem.shop && invItem.shopifyVariantId) {
-            const totalUnitsShipped = (shipment.quantity || 0) * (shipment.packOf || 1);
-            const newQty = Math.max(0, invItem.quantity - totalUnitsShipped);
-            try {
-              const token = await authUser.getIdToken();
-              const res = await fetch("/api/shopify/sync-inventory", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body: JSON.stringify({
-                  userId: targetUserId,
-                  shop: invItem.shop,
-                  shopifyVariantId: invItem.shopifyVariantId,
-                  shopifyInventoryItemId: invItem.shopifyInventoryItemId,
-                  newQuantity: newQty,
-                }),
-              });
-              const data = await res.json().catch(() => ({}));
-              if (!res.ok) {
-                toast({
-                  variant: "destructive",
-                  title: "Shipment processed; Shopify inventory did not update",
-                  description: typeof data.error === "string" ? data.error : "Add write_inventory scope and re-connect the store.",
-                });
-              }
-            } catch (e) {
-              toast({
-                variant: "destructive",
-                title: "Shipment processed; Shopify inventory did not update",
-                description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
-              });
-            }
-          }
-        }
-      }
 
       await addDoc(collection(db, `users/${targetUserId}/notifications`), {
         type: "shipment_request",
         title: "Outbound shipment request approved",
-        message: "Your outbound shipment request has been approved and processed.",
+        message: "Your outbound shipment request was approved and sent to the warehouse for fulfillment.",
         isRead: false,
         targetUrl: "/dashboard/create-shipment-with-labels",
         relatedRequestId: request.id,
@@ -648,7 +455,7 @@ export function ShipmentRequestsManagement({
 
       toast({
         title: "Success",
-        description: "Shipment request confirmed and processed.",
+        description: "Shipment request confirmed — inventory will deduct when dispatched.",
       });
       setSelectedRequest(null);
     } catch (error: any) {
@@ -681,9 +488,8 @@ export function ShipmentRequestsManagement({
           rejectionReason: reason,
         });
 
-        // Restore inventory quantities if request was confirmed (edge case)
-        // Normally quantities are only deducted on confirmation, but we check to be safe
-        if (request.status === "confirmed" && request.shipments) {
+        // Restore inventory only if it was already deducted (legacy confirm or after dispatch).
+        if ((request as ShipmentRequest & { clientInventoryDeductedAt?: unknown }).clientInventoryDeductedAt && request.shipments) {
           // Read all inventory documents first
           const inventoryData = await Promise.all(
             request.shipments.map(async (shipment) => {
@@ -722,7 +528,7 @@ export function ShipmentRequestsManagement({
         }
       });
 
-      if (request.status === "confirmed" && request.shipments && authUser && targetUserId) {
+      if ((request as ShipmentRequest & { clientInventoryDeductedAt?: unknown }).clientInventoryDeductedAt && request.shipments && authUser && targetUserId) {
         for (const shipment of request.shipments) {
           if (!shipment.productId) continue;
           const invItem = inventory.find((i) => i.id === shipment.productId) as (InventoryItem & { source?: string; shop?: string; shopifyVariantId?: string; shopifyInventoryItemId?: string }) | undefined;

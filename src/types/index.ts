@@ -551,6 +551,24 @@ export interface InboundReceiveLog {
   syncKey?: string | null;
 }
 
+/** Stock decrease audit trail (users/{uid}/inventoryChangeLogs) — outbound dispatch, etc. */
+export interface InventoryChangeLog {
+  id: string;
+  inventoryId: string;
+  productName: string;
+  sku?: string | null;
+  eventType: "outbound_dispatch" | "outbound_shipped" | "admin_ship" | "edit" | "dispose";
+  qtyBefore: number;
+  qtyAfter: number;
+  qtyChange: number;
+  shipmentRequestId?: string | null;
+  shippedId?: string | null;
+  service?: string | null;
+  shipTo?: string | null;
+  details?: string | null;
+  at?: { seconds: number; nanoseconds: number } | string | Date;
+}
+
 /** Inbound shipment tracking (client → warehouse). Status refreshed every 6 hours via Shippo. */
 export interface InboundTrackingEntry {
   id: string;
@@ -603,6 +621,10 @@ export interface ShipmentRequest {
   warehouseDispatchStatus?: "ready" | "dispatched";
   warehouseDispatchedAt?: { seconds: number; nanoseconds: number } | string;
   warehouseDispatchedBy?: string | null;
+  /** When client sellable inventory was decremented (dispatch for warehouse orders). */
+  clientInventoryDeductionTiming?: "confirm" | "dispatch";
+  clientInventoryDeductedAt?: { seconds: number; nanoseconds: number } | string;
+  adminCustomProductPricing?: Record<number, { unitPrice: number; packOf: number; packOfPrice: number }>;
   /** Dispatch QC — package / carton / pallet condition before handoff. */
   warehouseQcUnitType?: "package" | "carton" | "pallet" | null;
   warehouseQcCondition?: "good" | "not_good" | null;

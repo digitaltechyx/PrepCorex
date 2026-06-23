@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Fragment } from "react";
 import { format } from "date-fns";
-import { Eye, Filter, Search, X } from "lucide-react";
+import { Eye, Filter, History, Search, X } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -34,6 +33,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useCollection } from "@/hooks/use-collection";
+import type {
+  DeleteLog,
+  EditLog,
+  InventoryChangeLog,
+  InventoryItem,
+  InventoryRequest,
+  RecycledInventoryItem,
+  RestockHistory,
+  ShippedItem,
+} from "@/types";
+import {
+  buildInventoryHistory,
+  findLastStockOutCause,
+  formatChangeCell,
+  formatStockOutSummary,
+  type InventoryHistoryRow,
+} from "@/lib/inventory-history";
+import { InventoryHistoryDialog } from "@/components/inventory/inventory-history-dialog";
 
 export type OutOfStockInventoryRow = {
   id: string;
@@ -76,9 +94,19 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   items: OutOfStockInventoryRow[];
+  inventoryItems: InventoryItem[];
+  userId?: string;
+  ownerLabel?: string;
 };
 
-export function InventoryOutOfStockSheet({ open, onOpenChange, items }: Props) {
+export function InventoryOutOfStockSheet({
+  open,
+  onOpenChange,
+  items,
+  inventoryItems,
+  userId,
+  ownerLabel,
+}: Props) {
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -88,6 +116,67 @@ export function InventoryOutOfStockSheet({ open, onOpenChange, items }: Props) {
     text: string;
     imageUrls: string[];
   } | null>(null);
+  const [historyItem, setHistoryItem] = useState<InventoryItem | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const path = open && userId ? `users/${userId}` : "";
+  const { data: editLogs } = useCollection<EditLog>(path ? `${path}/editLogs` : "");
+  const { data: deleteLogs } = useCollection<DeleteLog>(path ? `${path}/deleteLogs` : "");
+  const { data: restockHistory } = useCollection<RestockHistory>(path ? `${path}/restockHistory` : "");
+  const { data: shipped } = useCollection<ShippedItem>(path ? `${path}/shipped` : "");
+  const { data: inventoryRequests } = useCollection<InventoryRequest>(
+    path ? `${path}/inventoryRequests` : ""
+  );
+  const { data: recycledInventory } = useCollection<RecycledInventoryItem>(
+    path ? `${path}/recycledInventory` : ""
+  );
+  const { data: inventoryChangeLogs } = useCollection<InventoryChangeLog>(
+    path ? `${path}/inventoryChangeLogs` : ""
+  );
+
+  const inventoryById = useMemo(
+    () => new Map(inventoryItems.map((item) => [item.id, item])),
+    [inventoryItems]
+  );
+
+  const historySources = useMemo(
+    () => ({
+      editLogs,
+      deleteLogs,
+      restockHistory,
+      shipped,
+      inventoryRequests,
+      inventoryTransfers: [],
+      recycledInventory,
+      inventoryChangeLogs,
+    }),
+    [
+      editLogs,
+      deleteLogs,
+      restockHistory,
+      shipped,
+      inventoryRequests,
+      recycledInventory,
+      inventoryChangeLogs,
+    ]
+  );
+
+  const stockOutByItemId = useMemo(() => {
+    const map = new Map<
+      string,
+      { summary: ReturnType<typeof findLastStockOutCause>; history: InventoryHistoryRow[] }
+    >();
+    for (const row of items) {
+      const item = inventoryById.get(row.id);
+      if (!item) continue;
+      map.set(row.id, {
+        summary: findLastStockOutCause(item, historySources),
+        history: buildInventoryHistory(item, historySources),
+      });
+    }
+    return map;
+  }, [items, inventoryById, historySources]);
 
   useEffect(() => {
     if (!open) {
@@ -96,6 +185,7 @@ export function InventoryOutOfStockSheet({ open, onOpenChange, items }: Props) {
       setEndDate("");
       setSourceFilter("all");
       setDateField("added");
+      setExpandedId(null);
     }
   }, [open]);
 
@@ -125,30 +215,41 @@ export function InventoryOutOfStockSheet({ open, onOpenChange, items }: Props) {
         const variant = (item.variantLabel || "").toLowerCase();
         const identifier = (item.retailIdentifier || "").toLowerCase();
         const remarks = (item.remarks || "").toLowerCase();
+        const stockOut = stockOutByItemId.get(item.id)?.summary;
+        const stockOutText = stockOut ? formatStockOutSummary(stockOut).toLowerCase() : "";
 
         return (
           productName.includes(query) ||
           sku.includes(query) ||
           variant.includes(query) ||
           identifier.includes(query) ||
-          remarks.includes(query)
+          remarks.includes(query) ||
+          stockOutText.includes(query)
         );
       })
       .sort((a, b) => getTimestampMs(b.dateAdded) - getTimestampMs(a.dateAdded));
-  }, [items, searchTerm, startDate, endDate, sourceFilter, dateField]);
+  }, [items, searchTerm, startDate, endDate, sourceFilter, dateField, stockOutByItemId]);
+
+  function openFullHistory(itemId: string) {
+    const item = inventoryById.get(itemId);
+    if (!item) return;
+    setHistoryItem(item);
+    setHistoryOpen(true);
+  }
 
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="right"
-          className="flex w-full flex-col gap-0 p-0 sm:max-w-xl md:max-w-2xl lg:max-w-3xl"
+          className="flex w-full flex-col gap-0 p-0 sm:max-w-xl md:max-w-3xl lg:max-w-4xl"
         >
           <SheetHeader className="space-y-1 border-b px-6 pb-4 pt-6 pr-14 text-left">
             <SheetTitle className="text-xl tracking-tight">Out of stock</SheetTitle>
             <SheetDescription>
               {filtered.length} of {items.length} product
-              {items.length === 1 ? "" : "s"} — search, filter by date, or source.
+              {items.length === 1 ? "" : "s"} — see why each item went out of stock and open full
+              history.
             </SheetDescription>
           </SheetHeader>
 
@@ -157,7 +258,7 @@ export function InventoryOutOfStockSheet({ open, onOpenChange, items }: Props) {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Search product, SKU, identifier, or remarks..."
+                  placeholder="Search product, SKU, identifier, or out-of-stock reason..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
@@ -253,55 +354,117 @@ export function InventoryOutOfStockSheet({ open, onOpenChange, items }: Props) {
                     <TableRow>
                       <TableHead>Product</TableHead>
                       <TableHead className="hidden md:table-cell">SKU</TableHead>
-                      <TableHead>Qty</TableHead>
-                      <TableHead className="hidden sm:table-cell">Added</TableHead>
-                      <TableHead className="hidden lg:table-cell">Source</TableHead>
+                      <TableHead>Why out of stock</TableHead>
+                      <TableHead className="w-[88px] text-right">History</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filtered.map((item) => {
                       const src = item.source?.trim() || "Warehouse";
+                      const stockOut = stockOutByItemId.get(item.id);
+                      const summary = stockOut?.summary;
+                      const recentDecreases = (stockOut?.history ?? [])
+                        .filter((row) => row.qtyChange != null && row.qtyChange < 0)
+                        .sort((a, b) => b.timestamp - a.timestamp)
+                        .slice(0, 3);
+                      const isExpanded = expandedId === item.id;
+
                       return (
-                        <TableRow key={item.id}>
-                          <TableCell>
-                            <div className="space-y-0.5">
-                              <p className="font-medium text-sm">{item.productName}</p>
-                              {item.variantLabel ? (
-                                <p className="text-xs text-muted-foreground">{item.variantLabel}</p>
-                              ) : null}
-                              <p className="text-xs text-muted-foreground md:hidden">
-                                {item.sku || "No SKU"}
-                              </p>
-                              {(item.remarks?.trim() || (item.imageUrls?.length ?? 0) > 0) && (
-                                <Button
+                        <Fragment key={item.id}>
+                          <TableRow>
+                            <TableCell>
+                              <div className="space-y-0.5">
+                                <p className="font-medium text-sm">{item.productName}</p>
+                                {item.variantLabel ? (
+                                  <p className="text-xs text-muted-foreground">{item.variantLabel}</p>
+                                ) : null}
+                                <p className="text-xs text-muted-foreground md:hidden">
+                                  {item.sku || "No SKU"} · Qty {item.quantity ?? 0}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Added {formatDisplayDate(item.dateAdded)} · {src}
+                                </p>
+                              </div>
+                            </TableCell>
+                            <TableCell className="hidden md:table-cell font-mono text-xs">
+                              {item.sku || "N/A"}
+                            </TableCell>
+                            <TableCell>
+                              {summary ? (
+                                <button
                                   type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-auto justify-start px-0 py-0 text-left text-xs text-blue-600 lg:hidden"
-                                  onClick={() =>
-                                    setRemarksPreview({
-                                      text: item.remarks?.trim() || "No remarks.",
-                                      imageUrls: item.imageUrls ?? [],
-                                    })
-                                  }
+                                  className="text-left text-xs leading-relaxed text-foreground hover:underline"
+                                  onClick={() => setExpandedId(isExpanded ? null : item.id)}
                                 >
-                                  <span className="line-clamp-2">{item.remarks || "View photos"}</span>
-                                  <Eye className="ml-1 inline h-3 w-3 shrink-0" />
-                                </Button>
+                                  {formatStockOutSummary(summary)}
+                                </button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  No outbound history found yet.
+                                </span>
                               )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="hidden md:table-cell font-mono text-xs">
-                            {item.sku || "N/A"}
-                          </TableCell>
-                          <TableCell className="text-sm">{item.quantity ?? 0}</TableCell>
-                          <TableCell className="hidden sm:table-cell text-xs text-muted-foreground">
-                            {formatDisplayDate(item.dateAdded)}
-                          </TableCell>
-                          <TableCell className="hidden lg:table-cell text-xs capitalize text-muted-foreground">
-                            {src}
-                          </TableCell>
-                        </TableRow>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2"
+                                onClick={() => openFullHistory(item.id)}
+                              >
+                                <History className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                          {isExpanded && recentDecreases.length > 0 ? (
+                            <TableRow key={`${item.id}-history`} className="bg-muted/30 hover:bg-muted/30">
+                              <TableCell colSpan={4} className="py-3">
+                                <div className="space-y-2">
+                                  <p className="text-xs font-medium text-muted-foreground">
+                                    Recent stock decreases
+                                  </p>
+                                  <div className="space-y-1.5">
+                                    {recentDecreases.map((row) => (
+                                      <div
+                                        key={`${row.timestamp}-${row.event}-${row.seq}`}
+                                        className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+                                      >
+                                        <span className="font-medium">{row.event}</span>
+                                        <span className="text-muted-foreground">{row.dateLabel}</span>
+                                        <span>{formatChangeCell(row.qtyChange)} units</span>
+                                        {row.qtyBefore != null && row.qtyAfter != null ? (
+                                          <span className="text-muted-foreground">
+                                            ({row.qtyBefore} → {row.qtyAfter})
+                                          </span>
+                                        ) : null}
+                                        {row.details ? (
+                                          <span className="text-muted-foreground">· {row.details}</span>
+                                        ) : null}
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {(item.remarks?.trim() || (item.imageUrls?.length ?? 0) > 0) && (
+                                    <Button
+                                      type="button"
+                                      variant="link"
+                                      size="sm"
+                                      className="h-auto px-0 text-xs"
+                                      onClick={() =>
+                                        setRemarksPreview({
+                                          text: item.remarks?.trim() || "No remarks.",
+                                          imageUrls: item.imageUrls ?? [],
+                                        })
+                                      }
+                                    >
+                                      View remarks / photos
+                                      <Eye className="ml-1 h-3 w-3" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </Fragment>
                       );
                     })}
                   </TableBody>
@@ -311,6 +474,14 @@ export function InventoryOutOfStockSheet({ open, onOpenChange, items }: Props) {
           </div>
         </SheetContent>
       </Sheet>
+
+      <InventoryHistoryDialog
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        item={historyItem}
+        userId={userId}
+        ownerLabel={ownerLabel}
+      />
 
       <Dialog open={remarksPreview !== null} onOpenChange={(o) => !o && setRemarksPreview(null)}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">

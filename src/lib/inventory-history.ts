@@ -3,6 +3,7 @@ import type {
   DeleteLog,
   EditLog,
   InboundReceiveLog,
+  InventoryChangeLog,
   InventoryItem,
   InventoryRequest,
   InventoryTransfer,
@@ -44,6 +45,16 @@ export type InventoryHistorySources = {
   inventoryRequests: InventoryRequest[];
   inventoryTransfers: InventoryTransfer[];
   recycledInventory: RecycledInventoryItem[];
+  inventoryChangeLogs?: InventoryChangeLog[];
+};
+
+export type StockOutSummary = {
+  timestamp: number;
+  event: string;
+  qtyBefore: number | null;
+  qtyChange: number | null;
+  qtyAfter: number | null;
+  details: string;
 };
 
 type RawEvent = {
@@ -239,6 +250,38 @@ export function buildInventoryHistory(
         .filter(Boolean)
         .join(" · "),
       user: e.editedBy,
+    });
+  }
+
+  for (const log of sources.inventoryChangeLogs ?? []) {
+    if (log.inventoryId !== item.id && !skusMatch(item, log.sku) && !namesMatch(item, log.productName)) {
+      continue;
+    }
+    const eventLabel =
+      log.eventType === "outbound_dispatch"
+        ? "Outbound dispatched"
+        : log.eventType === "outbound_shipped"
+          ? "Outbound shipped"
+          : log.eventType === "dispose"
+            ? "Disposed"
+            : "Stock removed";
+    raw.push({
+      timestamp: toTimestamp(log.at),
+      event: eventLabel,
+      eventType: "shipped",
+      qtyBefore: log.qtyBefore,
+      qtyAfter: log.qtyAfter,
+      qtyChange: log.qtyChange,
+      details:
+        log.details?.trim() ||
+        [
+          log.service ? `Service: ${log.service}` : "",
+          log.shipTo ? `Ship to: ${log.shipTo}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ") ||
+        "Removed from sellable stock",
+      user: "Fulfillment",
     });
   }
 
@@ -459,4 +502,52 @@ export function formatInboundLogDate(log: InboundReceiveLog): string {
   const ts = toTimestamp(log.putawayAt);
   if (!ts) return "—";
   return format(new Date(ts), "MMM d, yyyy · h:mm a");
+}
+
+/** Most recent event that drove sellable quantity to zero. */
+export function findLastStockOutCause(
+  item: InventoryItem,
+  sources: InventoryHistorySources
+): StockOutSummary | null {
+  const rows = buildInventoryHistory(item, sources, { includeInternalEvents: false });
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (row.qtyAfter !== 0) continue;
+    if (row.qtyChange != null && row.qtyChange >= 0) continue;
+    return {
+      timestamp: row.timestamp,
+      event: row.event,
+      qtyBefore: row.qtyBefore,
+      qtyChange: row.qtyChange,
+      qtyAfter: row.qtyAfter,
+      details: row.details,
+    };
+  }
+
+  const lastDecrease = [...rows]
+    .reverse()
+    .find((row) => row.qtyChange != null && row.qtyChange < 0);
+  if (!lastDecrease) return null;
+
+  return {
+    timestamp: lastDecrease.timestamp,
+    event: lastDecrease.event,
+    qtyBefore: lastDecrease.qtyBefore,
+    qtyChange: lastDecrease.qtyChange,
+    qtyAfter: lastDecrease.qtyAfter,
+    details: lastDecrease.details,
+  };
+}
+
+export function formatStockOutSummary(summary: StockOutSummary): string {
+  const dateLabel = summary.timestamp
+    ? format(new Date(summary.timestamp), "MMM d, yyyy")
+    : "Unknown date";
+  const change =
+    summary.qtyChange != null
+      ? `${summary.qtyChange > 0 ? "+" : ""}${summary.qtyChange} units`
+      : "quantity reduced";
+  const parts = [summary.event, change, dateLabel];
+  if (summary.details?.trim()) parts.push(summary.details.trim());
+  return parts.filter(Boolean).join(" · ");
 }
