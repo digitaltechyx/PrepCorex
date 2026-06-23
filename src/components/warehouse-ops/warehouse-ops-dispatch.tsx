@@ -28,12 +28,12 @@ import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button"
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import {
   completeDispatchHandoff,
-  resolveDispatchOrderByScan,
   returnToPackFromDispatchQc,
   type OutboundPackOrder,
   type WarehouseQcCondition,
   type WarehouseQcUnitType,
 } from "@/lib/warehouse-pack";
+import { courierScansMatch } from "@/lib/warehouse-courier-label";
 import type { WarehouseDoc } from "@/types";
 import { CheckCircle2, Loader2, Package, ScanLine, Truck, XCircle } from "lucide-react";
 import { format } from "date-fns";
@@ -80,13 +80,11 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
     setMatchedOrder(null);
 
     try {
-      const order = await resolveDispatchOrderByScan({
-        warehouse,
-        clients,
-        scannedValue: value,
-      });
+      const matches = orders.filter(
+        (order) => order.courierTracking && courierScansMatch(value, order.courierTracking)
+      );
 
-      if (!order) {
+      if (matches.length === 0) {
         setScanError("No matching parcel in the dispatch queue — check the label or pack bench.");
         toast({
           title: "Wrong or unknown parcel",
@@ -94,6 +92,14 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
           variant: "destructive",
         });
         return;
+      }
+
+      const order = matches[0];
+      if (matches.length > 1) {
+        toast({
+          title: "Multiple orders on this label",
+          description: `Matched ${order.clientDisplayName} — dispatch one parcel at a time if labels were reused.`,
+        });
       }
 
       setMatchedOrder(order);
