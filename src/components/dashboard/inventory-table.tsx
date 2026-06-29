@@ -295,6 +295,67 @@ const lowStockRowCardClass =
 const lowStockTextClass = "text-red-700 dark:text-red-400";
 const lowStockQtyClass = "text-red-800 dark:text-red-300";
 
+type InventorySourceRow = {
+  source?: string;
+  shop?: string;
+  isRequest?: boolean;
+};
+
+function inventorySourceKey(item: InventorySourceRow): string {
+  if (item.isRequest) return "inbound";
+  if (item.source === "shopify") return "shopify";
+  if (item.source === "ebay") return "ebay";
+  return "manual";
+}
+
+function inventorySourceMeta(item: InventorySourceRow) {
+  if (item.isRequest) {
+    return {
+      label: "Inbound",
+      detail: "Warehouse request",
+      className: "border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100",
+    };
+  }
+  if (item.source === "shopify") {
+    const shop = String(item.shop ?? "")
+      .trim()
+      .replace(/\.myshopify\.com$/i, "");
+    return {
+      label: "Shopify",
+      detail: shop || undefined,
+      className: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-100",
+    };
+  }
+  if (item.source === "ebay") {
+    return {
+      label: "eBay",
+      detail: undefined,
+      className: "border-blue-300 bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-100",
+    };
+  }
+  return {
+    label: "Manual",
+    detail: "Added in PrepCorex",
+    className: "border-neutral-300 bg-neutral-50 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-200",
+  };
+}
+
+function InventorySourceBadge({ item }: { item: InventorySourceRow }) {
+  const meta = inventorySourceMeta(item);
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5 font-semibold w-fit", meta.className)}>
+        {meta.label}
+      </Badge>
+      {meta.detail ? (
+        <span className="text-[10px] text-muted-foreground truncate max-w-[96px]" title={meta.detail}>
+          {meta.detail}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 /** Fallback when layout has not measured yet. */
 const PRODUCT_NAME_EXPAND_AT = 28;
 
@@ -406,6 +467,7 @@ export function InventoryTable({
   const effectiveUserName = ownerUserName || userProfile?.name || "Unknown User";
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [openAddInventorySignal, setOpenAddInventorySignal] = useState(0);
 
   useEffect(() => {
@@ -827,18 +889,20 @@ export function InventoryTable({
         sku.includes(query) ||
         variantLabel.includes(query) ||
         retailIdentifier.includes(query);
-      const row = item as { status: string; isRequest?: boolean; quantity?: number };
+      const row = item as { status: string; isRequest?: boolean; quantity?: number; source?: string; shop?: string };
       const matchesStatus =
         statusFilter === "all" ||
         (statusFilter === "Pending" && isInboundPipelineStatus(row.status)) ||
         (statusFilter === "In Stock" && row.status === "In Stock") ||
         (statusFilter === LOW_STOCK_STATUS_VALUE && rowIsLowStock(row));
-      return matchesSearch && matchesStatus;
+      const matchesSource =
+        sourceFilter === "all" || inventorySourceKey(row) === sourceFilter;
+      return matchesSearch && matchesStatus && matchesSource;
     });
     
     // Sort by dateAdded (newest first)
     return filtered.sort((a, b) => getTimestampMs(b.dateAdded) - getTimestampMs(a.dateAdded));
-  }, [combinedData, searchTerm, statusFilter]);
+  }, [combinedData, searchTerm, statusFilter, sourceFilter]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
@@ -848,7 +912,7 @@ export function InventoryTable({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter]);
+  }, [searchTerm, statusFilter, sourceFilter]);
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -944,9 +1008,21 @@ export function InventoryTable({
               )}
             </div>
           </div>
-          <div className="sm:w-56">
+          <div className="flex flex-col sm:flex-row gap-2 sm:w-auto">
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger className="sm:w-[160px]">
+                <SelectValue placeholder="All sources" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All sources</SelectItem>
+                <SelectItem value="shopify">Shopify</SelectItem>
+                <SelectItem value="ebay">eBay</SelectItem>
+                <SelectItem value="manual">Manual</SelectItem>
+                <SelectItem value="inbound">Inbound requests</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger>
+              <SelectTrigger className="sm:w-[200px]">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
@@ -1018,6 +1094,9 @@ export function InventoryTable({
                       )}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">SKU: {(item as any).sku || "N/A"}</div>
+                    <div className="mt-1.5">
+                      <InventorySourceBadge item={item as InventorySourceRow} />
+                    </div>
                     {(item as any).variantLabel && (
                       <div className="text-xs text-muted-foreground mt-0.5">
                         Variant: {(item as any).variantLabel}
@@ -1179,6 +1258,7 @@ export function InventoryTable({
             <TableHeader>
               <TableRow>
                 <TableHead className="text-xs sm:text-sm w-[280px] max-w-[280px]">Product</TableHead>
+                <TableHead className="text-xs sm:text-sm hidden md:table-cell w-[92px]">Source</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">SKU</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden lg:table-cell">Identifier</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden xl:table-cell">Expiry</TableHead>
@@ -1271,6 +1351,9 @@ export function InventoryTable({
                           )}
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell align-top">
+                      <InventorySourceBadge item={item as InventorySourceRow} />
                     </TableCell>
                     <TableCell className="hidden md:table-cell whitespace-nowrap">{(item as any).sku || "N/A"}</TableCell>
                     <TableCell className="hidden lg:table-cell whitespace-nowrap">

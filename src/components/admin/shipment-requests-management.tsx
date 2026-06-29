@@ -303,6 +303,7 @@ export function ShipmentRequestsManagement({
       customProductPricing?: Record<number, { unitPrice: number; packOf: number; packOfPrice: number }>;
       extraServiceQuantities?: Record<string, number>;
       extraServiceUnitPrices?: Record<string, number>;
+      crossdockHoldFulfillment?: boolean;
     }
   ) => {
     if (!selectedUser || !adminProfile) return;
@@ -320,8 +321,10 @@ export function ShipmentRequestsManagement({
       const additionalServicesTotal = additionalServices?.totalAdditionalCost || 0;
       const extraServiceQuantities = additionalServices?.extraServiceQuantities;
       const extraServiceUnitPrices = additionalServices?.extraServiceUnitPrices;
+      const crossdockHoldFulfillment = additionalServices?.crossdockHoldFulfillment === true;
 
       const committedByProduct = new Map<string, number>();
+      if (!crossdockHoldFulfillment) {
       for (const shipment of request.shipments ?? []) {
         const productId = String(shipment.productId ?? "").trim();
         if (!productId || committedByProduct.has(productId)) continue;
@@ -329,6 +332,7 @@ export function ShipmentRequestsManagement({
           productId,
           await getCommittedOutboundUnits(targetUserId, productId, request.id)
         );
+      }
       }
 
       await runTransaction(db, async (transaction) => {
@@ -340,7 +344,8 @@ export function ShipmentRequestsManagement({
           String(request.productType || "").toLowerCase() === "custom" &&
           String(request.shipmentType || "").toLowerCase() === "product";
 
-        const inventoryData = await Promise.all(
+        if (!crossdockHoldFulfillment) {
+        await Promise.all(
           request.shipments.map(async (shipment, index) => {
             const inventoryDocRef = doc(db, `users/${targetUserId}/inventory`, shipment.productId);
             const inventoryDoc = await transaction.get(inventoryDocRef);
@@ -409,13 +414,16 @@ export function ShipmentRequestsManagement({
             };
           })
         );
+        }
 
         // Approve for warehouse — client inventory deducts at dispatch, not here.
         transaction.update(requestRef, {
           status: "confirmed",
           confirmedBy: adminProfile.uid,
           confirmedAt,
-          clientInventoryDeductionTiming: "dispatch",
+          ...(crossdockHoldFulfillment
+            ? { crossdockFulfillment: true }
+            : { clientInventoryDeductionTiming: "dispatch" }),
           adminRemarks: adminRemarks || "",
           ...(typeof (request as any).customDimensions === "string"
             ? { customDimensions: (request as any).customDimensions.trim() }
@@ -874,6 +882,7 @@ function ReviewShipmentDialog({
       customProductPricing?: Record<number, { unitPrice: number; packOf: number; packOfPrice: number }>;
       extraServiceQuantities?: Record<string, number>;
       extraServiceUnitPrices?: Record<string, number>;
+      crossdockHoldFulfillment?: boolean;
     }
   ) => void;
   onReject: (request: ShipmentRequest, reason: string) => void;
@@ -888,6 +897,7 @@ function ReviewShipmentDialog({
 }) {
   const { toast } = useToast();
   const [adminRemarks, setAdminRemarks] = useState("");
+  const [crossdockHoldFulfillment, setCrossdockHoldFulfillment] = useState(false);
   const [adminCustomDimensions, setAdminCustomDimensions] = useState(
     String((request as any).customDimensions || "")
   );
@@ -1243,6 +1253,7 @@ function ReviewShipmentDialog({
         pricePerLabel,
         totalAdditionalCost: additionalServicesTotal,
         customProductPricing: isCustomProduct ? customProductPricing : undefined,
+        crossdockHoldFulfillment,
         ...extraPayload,
       });
     } else {
@@ -1256,6 +1267,7 @@ function ReviewShipmentDialog({
         pricePerLabel,
         totalAdditionalCost: additionalServicesTotal,
         customProductPricing: isCustomProduct ? customProductPricing : undefined,
+        crossdockHoldFulfillment,
         ...extraPayload,
       });
     }
@@ -1291,6 +1303,12 @@ function ReviewShipmentDialog({
                 <p className="text-sm font-medium">{formatDate(request.requestedAt)}</p>
               </div>
             </div>
+            {request.shipmentPreference && (
+              <div>
+                <label className="text-sm font-medium">Shipment Preference</label>
+                <p className="text-sm font-medium capitalize">{request.shipmentPreference}</p>
+              </div>
+            )}
             {request.remarks && (
               <div>
                 <label className="text-sm font-medium">Remarks</label>
@@ -2022,6 +2040,21 @@ function ReviewShipmentDialog({
                     : "Optional remarks about this shipment."}
                 </p>
               </div>
+              <label className="flex items-start gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={crossdockHoldFulfillment}
+                  onChange={(e) => setCrossdockHoldFulfillment(e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium">Cross-dock hold fulfillment</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">
+                    Ship from a closed cross-dock unit already in the warehouse — skip inventory
+                    checks. Link the unit on Dispatch → Cross-dock after confirming.
+                  </span>
+                </span>
+              </label>
               {isCustomProduct && (
                 <div>
                   <label className="text-sm font-medium">Custom Dimensions (Optional)</label>

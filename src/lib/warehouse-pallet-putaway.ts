@@ -48,11 +48,20 @@ export async function applyPalletCrossdockAreaPutaway(input: {
   const nextStatus: WarehousePalletStatus =
     input.disposition === "forward" ? "on_hold" : "receiving";
 
+  const crossdockPatch =
+    input.disposition === "forward"
+      ? {
+          crossdockDispatchStatus: "ready" as const,
+          crossdockReadyToDispatchAt: serverTimestamp(),
+        }
+      : {};
+
   const batch = writeBatch(db);
   batch.update(warehousePalletDocRef(input.warehouseId, input.palletId), {
     putawayDisposition: input.disposition,
     stagingArea,
     status: nextStatus,
+    ...crossdockPatch,
     updatedAt: serverTimestamp(),
   });
 

@@ -23,7 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { db, storage } from "@/lib/firebase";
-import { Archive, Boxes, CircleHelp, ImagePlus, Loader2, Package, Plus, Truck } from "lucide-react";
+import { Archive, Boxes, CircleHelp, ImagePlus, Loader2, Package, Plus, Trash2, Truck, Upload } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { InventoryType, ContainerSize, UserContainerHandlingPricing } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,6 +32,7 @@ import type { InventoryItem } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { InboundBulkImportDialog } from "@/components/dashboard/inbound-bulk-import-dialog";
 
 type VariantRowState = {
   id: string;
@@ -43,6 +44,29 @@ type VariantRowState = {
   imageFile?: File;
   imagePreviewUrl?: string;
 };
+
+type NewProductRowState = {
+  id: string;
+  productName: string;
+  sku: string;
+  quantity: number;
+  retailIdentifier: string;
+  remarks: string;
+  expiryDate?: Date;
+  imageFile?: File;
+  imagePreviewUrl?: string;
+};
+
+function createEmptyNewProductRow(): NewProductRowState {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    productName: "",
+    sku: "",
+    quantity: 1,
+    retailIdentifier: "",
+    remarks: "",
+  };
+}
 
 function optionalExpiryTimestampFromParts(
   expiryDateStr?: string,
@@ -81,8 +105,11 @@ const inventoryRequestSchema = z.object({
   message: "Please select New or Restock.",
   path: ["productSubType"],
 }).refine((data) => {
-  // For new product, productName and SKU are required
+  // For new product, productName required except single mode (validated per product row on submit)
   if (data.inventoryType === "product" && data.productSubType === "new") {
+    if (data.productEntryMode === "single" || data.productEntryMode === "variants") {
+      return true;
+    }
     if (!data.productName || data.productName.trim() === "") {
       return false;
     }
@@ -92,7 +119,7 @@ const inventoryRequestSchema = z.object({
   }
   return true;
 }, {
-  message: "Product name and SKU are required for new products.",
+  message: "Product name is required for new products.",
   path: ["productName"],
 }).refine((data) => {
   // For restock, productId is required
@@ -169,7 +196,9 @@ export function AddInventoryRequestForm({
   const [variantColorInput, setVariantColorInput] = useState("");
   const [variantSizeInput, setVariantSizeInput] = useState("");
   const [variantRows, setVariantRows] = useState<VariantRowState[]>([]);
+  const [newProductRows, setNewProductRows] = useState<NewProductRowState[]>([createEmptyNewProductRow()]);
   const [singleExpiryDate, setSingleExpiryDate] = useState<Date | undefined>(undefined);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
 
   // Fetch existing inventory for restock dropdown
   const { data: existingInventory } = useCollection<InventoryItem>(
@@ -215,6 +244,80 @@ export function AddInventoryRequestForm({
       return [];
     });
   };
+
+  const clearAllNewProductRows = () => {
+    setNewProductRows((prev) => {
+      for (const row of prev) {
+        if (row.imagePreviewUrl) URL.revokeObjectURL(row.imagePreviewUrl);
+      }
+      return [createEmptyNewProductRow()];
+    });
+  };
+
+  const addNewProductRow = () => {
+    setNewProductRows((prev) => [...prev, createEmptyNewProductRow()]);
+  };
+
+  const updateNewProductRow = (
+    id: string,
+    patch: Partial<Omit<NewProductRowState, "id">>
+  ) => {
+    setNewProductRows((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  };
+
+  const removeNewProductRow = (id: string) => {
+    setNewProductRows((prev) => {
+      if (prev.length <= 1) return prev;
+      const removed = prev.find((row) => row.id === id);
+      if (removed?.imagePreviewUrl) URL.revokeObjectURL(removed.imagePreviewUrl);
+      return prev.filter((row) => row.id !== id);
+    });
+  };
+
+  const handleNewProductImageSelect = (rowId: string, event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({
+        variant: "destructive",
+        title: "Invalid file",
+        description: "Please select an image file.",
+      });
+      return;
+    }
+    const maxSizeBytes = 5 * 1024 * 1024;
+    if (file.size > maxSizeBytes) {
+      toast({
+        variant: "destructive",
+        title: "Image too large",
+        description: "Please upload an image smaller than 5 MB.",
+      });
+      return;
+    }
+    setNewProductRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== rowId) return row;
+        if (row.imagePreviewUrl) URL.revokeObjectURL(row.imagePreviewUrl);
+        return {
+          ...row,
+          imageFile: file,
+          imagePreviewUrl: URL.createObjectURL(file),
+        };
+      })
+    );
+  };
+
+  useEffect(() => {
+    if (
+      inventoryType === "product" &&
+      productSubType === "new" &&
+      productEntryMode === "single" &&
+      newProductRows.length === 0
+    ) {
+      setNewProductRows([createEmptyNewProductRow()]);
+    }
+  }, [inventoryType, productSubType, productEntryMode, newProductRows.length]);
 
   const resetImageStates = () => {
     setSelectedProductImageFile(null);
@@ -606,9 +709,17 @@ export function AddInventoryRequestForm({
         values.productSubType === "new" &&
         values.productEntryMode === "variants";
 
+      const isMultiNewProductSingle =
+        values.inventoryType === "product" &&
+        values.productSubType === "new" &&
+        values.productEntryMode === "single";
+
       let finalImageUrls: string[] = [];
       if (
-        (values.inventoryType === "product" && values.productSubType === "new" && !isVariantsNewProduct) ||
+        (values.inventoryType === "product" &&
+          values.productSubType === "new" &&
+          !isVariantsNewProduct &&
+          !isMultiNewProductSingle) ||
         values.inventoryType === "box" ||
         values.inventoryType === "pallet"
       ) {
@@ -645,8 +756,8 @@ export function AddInventoryRequestForm({
         baseRequestData.containerSize = values.containerSize;
       }
 
-      // Include remarks if provided (trim whitespace)
-      if (values.remarks && values.remarks.trim()) {
+      // Include remarks if provided (trim whitespace) — not for multi-product single mode (per-row remarks)
+      if (values.remarks && values.remarks.trim() && !isMultiNewProductSingle) {
         baseRequestData.remarks = values.remarks.trim();
       }
 
@@ -733,30 +844,86 @@ export function AddInventoryRequestForm({
           return addDoc(collection(db, `users/${ownerId}/inventoryRequests`), doc);
         });
         await Promise.all(requests);
-      } else {
-        if (
-          values.inventoryType === "product" &&
-          values.productSubType === "new" &&
-          values.productEntryMode === "single" &&
-          values.sku?.trim()
-        ) {
-          const singleDup = await checkSkusAndIdentifiersInFirestore([
-            {
-              sku: values.sku.trim(),
-              retailIdentifier: values.retailIdentifier?.trim(),
-            },
-          ]);
-          if (!singleDup.ok) {
+      } else if (isMultiNewProductSingle) {
+        const invalidRow = newProductRows.find(
+          (row) => !row.productName.trim() || !row.sku.trim() || row.quantity <= 0
+        );
+        if (invalidRow) {
+          toast({
+            variant: "destructive",
+            title: "Invalid products",
+            description: "Each product requires a name, SKU, and quantity greater than 0.",
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        const seenSkus = new Set<string>();
+        for (const row of newProductRows) {
+          const normalizedSku = row.sku.trim().toLowerCase();
+          if (seenSkus.has(normalizedSku)) {
             toast({
               variant: "destructive",
-              title: "Already exists",
-              description: singleDup.message,
+              title: "Duplicate SKU",
+              description: `SKU "${row.sku}" appears more than once.`,
             });
             setIsLoading(false);
             return;
           }
+          seenSkus.add(normalizedSku);
         }
 
+        const dupCheck = await checkSkusAndIdentifiersInFirestore(
+          newProductRows.map((row) => ({
+            sku: row.sku,
+            retailIdentifier: row.retailIdentifier?.trim(),
+          }))
+        );
+        if (!dupCheck.ok) {
+          toast({
+            variant: "destructive",
+            title: "Already exists",
+            description: dupCheck.message,
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        const requests = newProductRows.map(async (row) => {
+          const rowImageUrls = row.imageFile
+            ? await uploadInventoryImageFile(ownerId, row.imageFile)
+            : [];
+          const rowExpiry = optionalExpiryTimestampFromParts(undefined, row.expiryDate);
+          const doc: Record<string, unknown> = {
+            userId: ownerId,
+            userName: ownerName || "Unknown User",
+            inventoryType: values.inventoryType,
+            productSubType: "new",
+            addDate,
+            status: "pending",
+            requestedBy: ownerId,
+            requestedAt,
+            productName: row.productName.trim(),
+            sku: row.sku.trim(),
+            quantity: row.quantity,
+            requestedQuantity: row.quantity,
+            productEntryMode: "single",
+          };
+          if (row.retailIdentifier?.trim()) {
+            doc.retailIdentifier = row.retailIdentifier.trim();
+          }
+          if (row.remarks?.trim()) {
+            doc.remarks = row.remarks.trim();
+          }
+          if (rowExpiry) doc.expiryDate = rowExpiry;
+          if (rowImageUrls.length > 0) {
+            doc.imageUrls = rowImageUrls;
+            doc.imageUrl = rowImageUrls[0];
+          }
+          return addDoc(collection(db, `users/${ownerId}/inventoryRequests`), doc);
+        });
+        await Promise.all(requests);
+      } else {
         const requestData: any = {
           ...baseRequestData,
           productName: finalProductName,
@@ -783,9 +950,18 @@ export function AddInventoryRequestForm({
         await addDoc(collection(db, `users/${ownerId}/inventoryRequests`), requestData);
       }
 
+      const submittedCount = isVariantsNewProduct
+        ? variantRows.length
+        : isMultiNewProductSingle
+          ? newProductRows.length
+          : 1;
+
       toast({
         title: "Success",
-        description: "Inventory request submitted successfully. Waiting for admin approval.",
+        description:
+          submittedCount > 1
+            ? `${submittedCount} inventory requests submitted successfully. Waiting for admin approval.`
+            : "Inventory request submitted successfully. Waiting for admin approval.",
       });
 
       form.reset({
@@ -804,6 +980,7 @@ export function AddInventoryRequestForm({
       setVariantColorInput("");
       setVariantSizeInput("");
       clearAllVariantRows();
+      clearAllNewProductRows();
       setSingleExpiryDate(undefined);
       if (mode === "dialog") setOpen(false);
     } catch (error: any) {
@@ -822,11 +999,11 @@ export function AddInventoryRequestForm({
       case "product":
         return "Product";
       case "box":
-        return "Box";
+        return "Carton forwarding (Cross-Dock)";
       case "pallet":
-        return "Pallet";
+        return "Pallet forwarding (Crossdock)";
       case "container":
-        return "Container";
+        return "Container handling (receiving)";
       default:
         return type;
     }
@@ -837,7 +1014,7 @@ export function AddInventoryRequestForm({
       case "product":
         return "Product Name";
       case "box":
-        return "Box Name/ID";
+        return "Carton Name/ID";
       case "pallet":
         return "Pallet Name/ID";
       case "container":
@@ -885,7 +1062,7 @@ export function AddInventoryRequestForm({
                         </FormControl>
                         <FormLabel className="font-normal cursor-pointer flex items-center gap-2">
                           <Archive className="h-4 w-4 text-amber-600" />
-                          Box
+                          Carton forwarding (Cross-Dock)
                         </FormLabel>
                       </FormItem>
                       <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
@@ -894,7 +1071,7 @@ export function AddInventoryRequestForm({
                         </FormControl>
                         <FormLabel className="font-normal cursor-pointer flex items-center gap-2">
                           <Boxes className="h-4 w-4 text-violet-600" />
-                          Pallet
+                          Pallet forwarding (Crossdock)
                         </FormLabel>
                       </FormItem>
                       <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
@@ -903,7 +1080,7 @@ export function AddInventoryRequestForm({
                         </FormControl>
                         <FormLabel className="font-normal cursor-pointer flex items-center gap-2">
                           <Truck className="h-4 w-4 text-cyan-600" />
-                          Container Handling
+                          Container handling (receiving)
                         </FormLabel>
                       </FormItem>
                     </RadioGroup>
@@ -958,7 +1135,7 @@ export function AddInventoryRequestForm({
                             <RadioGroupItem value="restock" />
                           </FormControl>
                           <FormLabel className="font-normal cursor-pointer">
-                            Restock Existing Product
+                            Restock
                           </FormLabel>
                         </FormItem>
                       </RadioGroup>
@@ -985,9 +1162,11 @@ export function AddInventoryRequestForm({
                           field.onChange(value);
                           if (value === "single") {
                             clearAllVariantRows();
+                            clearAllNewProductRows();
                           } else {
                             setSelectedProductImageFile(null);
                             setSelectedProductImagePreview("");
+                            clearAllNewProductRows();
                           }
                         }}
                         value={field.value}
@@ -998,7 +1177,7 @@ export function AddInventoryRequestForm({
                             <RadioGroupItem value="single" />
                           </FormControl>
                           <FormLabel className="font-normal cursor-pointer">
-                            Single Product
+                            Product without variant
                           </FormLabel>
                         </FormItem>
                         <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
@@ -1107,8 +1286,9 @@ export function AddInventoryRequestForm({
               />
             )}
 
-            {/* Product Name - Only show for New Product, Box, Pallet, or Container */}
-            {(inventoryType !== "product" || productSubType === "new") && (
+            {/* Product Name - hidden in single new product mode (use product rows instead) */}
+            {(inventoryType !== "product" || productSubType === "new") &&
+              !(inventoryType === "product" && productSubType === "new" && productEntryMode === "single") && (
               <FormField
                 control={form.control}
                 name="productName"
@@ -1139,28 +1319,130 @@ export function AddInventoryRequestForm({
               />
             )}
 
-            {/* New Product: SKU Field */}
-            {inventoryType === "product" && productSubType === "new" && (
-              <FormField
-                control={form.control}
-                name="sku"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>SKU *</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Enter SKU"
-                        {...field}
-                        className="h-11 rounded-lg"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            {/* New products (single mode) — add multiple products one by one */}
+            {inventoryType === "product" && productSubType === "new" && productEntryMode === "single" && (
+              <div className="space-y-3 rounded-xl border bg-card/90 p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-sm font-medium">Products *</Label>
+                  <Button type="button" variant="outline" size="sm" className="h-9" onClick={addNewProductRow}>
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    Add Product
+                  </Button>
+                </div>
+                <div className="space-y-3">
+                  {newProductRows.map((row, index) => (
+                    <div key={row.id} className="space-y-3 rounded-lg border bg-background p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-foreground">Product {index + 1}</span>
+                        {newProductRows.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-destructive hover:text-destructive"
+                            onClick={() => removeNewProductRow(row.id)}
+                          >
+                            <Trash2 className="mr-1 h-4 w-4" />
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-1 sm:col-span-2">
+                          <Label className="text-xs text-muted-foreground">Product Name *</Label>
+                          <Input
+                            placeholder="Enter product name"
+                            value={row.productName}
+                            onChange={(e) => updateNewProductRow(row.id, { productName: e.target.value })}
+                            className="h-11 rounded-lg"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">SKU *</Label>
+                          <Input
+                            placeholder="Enter SKU"
+                            value={row.sku}
+                            onChange={(e) => updateNewProductRow(row.id, { sku: e.target.value })}
+                            className="h-11 rounded-lg"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Quantity *</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={row.quantity}
+                            onChange={(e) =>
+                              updateNewProductRow(row.id, {
+                                quantity: Math.max(1, Number.parseInt(e.target.value || "1", 10)),
+                              })
+                            }
+                            className="h-11 rounded-lg"
+                          />
+                        </div>
+                        <div className="space-y-1 sm:col-span-2">
+                          <Label className="text-xs text-muted-foreground">
+                            UPC / EAN / FNSKU / ASIN (optional)
+                          </Label>
+                          <Input
+                            placeholder="Enter one identifier if applicable"
+                            value={row.retailIdentifier}
+                            onChange={(e) =>
+                              updateNewProductRow(row.id, { retailIdentifier: e.target.value })
+                            }
+                            className="h-11 rounded-lg"
+                          />
+                        </div>
+                        <div className="space-y-1 sm:col-span-2">
+                          <Label className="text-xs text-muted-foreground">
+                            Expiry date (optional)
+                          </Label>
+                          <DatePicker
+                            date={row.expiryDate}
+                            setDate={(date) => updateNewProductRow(row.id, { expiryDate: date })}
+                          />
+                        </div>
+                        <div className="space-y-1 sm:col-span-2">
+                          <Label className="text-xs text-muted-foreground">Remarks (optional)</Label>
+                          <Textarea
+                            placeholder="Notes for this product only"
+                            value={row.remarks}
+                            onChange={(e) => updateNewProductRow(row.id, { remarks: e.target.value })}
+                            className="min-h-[72px] rounded-lg text-sm"
+                          />
+                        </div>
+                        <div className="space-y-2 sm:col-span-2">
+                          <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <ImagePlus className="h-4 w-4" />
+                            Product picture (optional)
+                          </Label>
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleNewProductImageSelect(row.id, e)}
+                            className="rounded-lg"
+                          />
+                          {row.imagePreviewUrl && (
+                            <div className="rounded-lg border bg-muted/20 p-3">
+                              <img
+                                src={row.imagePreviewUrl}
+                                alt={`${row.productName || "Product"} preview`}
+                                className="h-24 w-24 rounded-md border object-cover"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Each product has its own expiry, picture, and remarks. Use Add Product for another item.
+                </p>
+              </div>
             )}
 
-            {inventoryType === "product" && productSubType === "new" && (
+            {inventoryType === "product" && productSubType === "new" && productEntryMode !== "single" && (
               <>
                 <FormField
                   control={form.control}
@@ -1327,14 +1609,15 @@ export function AddInventoryRequestForm({
 
             {((inventoryType === "product" &&
               productSubType === "new" &&
-              productEntryMode !== "variants") ||
+              productEntryMode !== "variants" &&
+              productEntryMode !== "single") ||
               inventoryType === "box" ||
               inventoryType === "pallet") && (
               <div className="space-y-2">
                 <Label htmlFor="productImage" className="flex items-center gap-2">
                   <ImagePlus className="h-4 w-4" />
                   {inventoryType === "box"
-                    ? "Box Picture (Optional)"
+                    ? "Carton Picture (Optional)"
                     : inventoryType === "pallet"
                       ? "Pallet Picture (Optional)"
                       : "Product Picture (Optional)"}
@@ -1368,7 +1651,7 @@ export function AddInventoryRequestForm({
             {!(
               inventoryType === "product" &&
               productSubType === "new" &&
-              productEntryMode === "variants"
+              (productEntryMode === "variants" || productEntryMode === "single")
             ) && (
               <FormField
                 control={form.control}
@@ -1392,24 +1675,29 @@ export function AddInventoryRequestForm({
               />
             )}
 
-            {/* Remarks Field - Available for all inventory types */}
-            <FormField
-              control={form.control}
-              name="remarks"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Remarks (Optional)</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Add any additional notes or remarks about this inventory request..."
-                      className="min-h-[110px] rounded-lg"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {!(
+              inventoryType === "product" &&
+              productSubType === "new" &&
+              productEntryMode === "single"
+            ) && (
+              <FormField
+                control={form.control}
+                name="remarks"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Remarks (Optional)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Add any additional notes or remarks about this inventory request..."
+                        className="min-h-[110px] rounded-lg"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
           </div>
         </div>
         <div className="mt-auto flex shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-background/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85">
@@ -1424,6 +1712,7 @@ export function AddInventoryRequestForm({
                 setVariantColorInput("");
                 setVariantSizeInput("");
                 clearAllVariantRows();
+                clearAllNewProductRows();
                 setSingleExpiryDate(undefined);
               } else {
                 form.reset({
@@ -1442,6 +1731,7 @@ export function AddInventoryRequestForm({
                 setVariantColorInput("");
                 setVariantSizeInput("");
                 clearAllVariantRows();
+                clearAllNewProductRows();
                 setSingleExpiryDate(undefined);
               }
             }}
@@ -1460,20 +1750,43 @@ export function AddInventoryRequestForm({
 
   if (mode === "inline") {
     return (
-      <div className="flex max-h-[min(85vh,900px)] flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
-        <div className="shrink-0 space-y-1 border-b px-6 py-4">
-          <h2 className="text-lg font-semibold tracking-tight">Add Inventory Request</h2>
-          <p className="text-sm text-muted-foreground">
-            Submit an inventory request. Admin will review and approve it.
-          </p>
+      <>
+        <div className="flex max-h-[min(85vh,900px)] flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
+          <div className="shrink-0 space-y-1 border-b px-6 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold tracking-tight">Add Inventory Request</h2>
+                <p className="text-sm text-muted-foreground">
+                  Submit an inventory request. Admin will review and approve it.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setBulkImportOpen(true)}
+              >
+                <Upload className="mr-1.5 h-4 w-4" />
+                Import
+              </Button>
+            </div>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col">{formBody}</div>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col">{formBody}</div>
-      </div>
+        <InboundBulkImportDialog
+          open={bulkImportOpen}
+          onOpenChange={setBulkImportOpen}
+          ownerId={ownerId}
+          ownerName={ownerName}
+        />
+      </>
     );
   }
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <>
+      <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
@@ -1485,9 +1798,21 @@ export function AddInventoryRequestForm({
         className="flex h-full max-h-[100dvh] w-full flex-col gap-0 border-l p-0 sm:max-w-xl md:max-w-[50vw]"
       >
         <SheetHeader className="space-y-2 border-b bg-gradient-to-r from-background via-background to-primary/5 px-6 pb-4 pt-6 pr-14 text-left">
-          <p className="inline-flex w-fit items-center rounded-full border border-primary/15 bg-primary/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-primary">
-            Request Workspace
-          </p>
+          <div className="flex items-start justify-between gap-3 pr-2">
+            <p className="inline-flex w-fit items-center rounded-full border border-primary/15 bg-primary/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-primary">
+              Request Workspace
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 -mt-0.5"
+              onClick={() => setBulkImportOpen(true)}
+            >
+              <Upload className="mr-1.5 h-4 w-4" />
+              Import
+            </Button>
+          </div>
           <SheetTitle className="text-[1.55rem] tracking-tight">Add Inventory Request</SheetTitle>
           <SheetDescription>
             Submit an inventory request. Admin will review and approve it.
@@ -1496,6 +1821,14 @@ export function AddInventoryRequestForm({
         <div className="flex min-h-0 flex-1 flex-col">{formBody}</div>
       </SheetContent>
     </Sheet>
+    <InboundBulkImportDialog
+      open={bulkImportOpen}
+      onOpenChange={setBulkImportOpen}
+      ownerId={ownerId}
+      ownerName={ownerName}
+      onSuccess={() => setOpen(false)}
+    />
+    </>
   );
 }
 

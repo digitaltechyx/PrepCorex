@@ -8,8 +8,7 @@ import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { generateClientId } from "@/lib/client-id";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
-import type { Location } from "@/types";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -30,8 +29,6 @@ import { Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
 const formSchema = z.object({
   fullName: z.string().min(2, { message: "Name must be at least 2 characters." }),
   phone: z.string().min(10, { message: "Please enter a valid phone number." }),
@@ -45,9 +42,6 @@ const formSchema = z.object({
   country: z.string().min(1, { message: "Country is required." }),
   zipCode: z.string().min(5, { message: "Zip code must be at least 5 characters." }),
   referralCode: z.string().optional(),
-  storageType: z.enum(["product_base", "pallet_base"], {
-    required_error: "Please select a storage type.",
-  }),
   /** Location IDs – at least one required when active locations exist (validated in submit). */
   locations: z.array(z.string()).optional().default([]),
   termsAccepted: z.boolean().refine((val) => val === true, {
@@ -75,7 +69,6 @@ export default function RegisterPage() {
       country: "",
       zipCode: "",
       referralCode: "",
-      storageType: "product_base",
       termsAccepted: false,
     },
   });
@@ -129,7 +122,6 @@ export default function RegisterPage() {
         roles: ["user"],
         features: [], // No features until user accepts MSA (Activate Account)
         status: "pending",
-        storageType: values.storageType, // Store selected storage type
         createdAt: new Date(),
         clientId: await generateClientId(),
       };
@@ -334,30 +326,6 @@ export default function RegisterPage() {
                         onChange={(e) => field.onChange(e.target.value.toUpperCase())}
                       />
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="storageType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Storage Type *</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select storage type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="product_base">Product Base Storage</SelectItem>
-                        <SelectItem value="pallet_base">Pallet Base Storage</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Product Base: Charged per item in inventory. Pallet Base: Fixed monthly charge.
-                    </p>
                     <FormMessage />
                   </FormItem>
                 )}

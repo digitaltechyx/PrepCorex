@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, X, Plus, ChevronDown } from "lucide-react";
+import { Loader2, X, Plus, ChevronDown, Upload } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
@@ -27,6 +27,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { OutboundBulkImportDialog } from "@/components/dashboard/outbound-bulk-import-dialog";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -48,6 +49,9 @@ const shipmentGroupSchema = z.object({
   palletSubType: z.enum(["existing_inventory", "forwarding"]).optional(),
   shipments: z.array(shipmentItemSchema).min(1, "Select at least one item to ship."),
   date: z.date({ required_error: "A shipping date is required." }),
+  shipmentPreference: z.enum(["box", "pallet"], {
+    required_error: "Select box or pallet shipment preference.",
+  }),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "FBM"]).optional(),
 }).superRefine((data, ctx) => {
@@ -141,6 +145,7 @@ export function CreateShipmentWithLabelsForm({
   
   // Accordion state - only one shipment open at a time
   const [openAccordionValue, setOpenAccordionValue] = useState<string | undefined>(undefined);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   
   const togglePopup = (groupId: string, popupType: string) => {
     const key = `${groupId}_${popupType}`;
@@ -420,6 +425,7 @@ export function CreateShipmentWithLabelsForm({
       palletSubType: undefined,
       shipments: [],
       date: new Date(),
+      shipmentPreference: undefined,
       remarks: undefined,
       service: "FBA/WFS/TFS",
     });
@@ -793,6 +799,7 @@ export function CreateShipmentWithLabelsForm({
             date: dateTimestamp,
             remarks: group.remarks || undefined,
             shipmentType: group.shipmentType,
+            shipmentPreference: group.shipmentPreference,
             labelUrl: labelUrl || "",
             status: "pending",
             requestedBy: ownerId,
@@ -955,15 +962,33 @@ export function CreateShipmentWithLabelsForm({
               <h3 className="text-lg font-semibold">Create Outbound Shipment</h3>
               <p className="text-sm text-muted-foreground">Create multiple shipments, each with its own label</p>
             </div>
-            <Button
-              type="button"
-              onClick={handleAddShipmentGroup}
-              variant="outline"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add Shipment
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setBulkImportOpen(true)}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Import
+              </Button>
+              <Button
+                type="button"
+                onClick={handleAddShipmentGroup}
+                variant="outline"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add Shipment
+              </Button>
+            </div>
           </div>
+
+          <OutboundBulkImportDialog
+            open={bulkImportOpen}
+            onOpenChange={setBulkImportOpen}
+            ownerId={ownerId}
+            ownerDisplayName={ownerDisplayName}
+            inventory={inventory}
+          />
 
           {/* Shipments */}
           {shipmentGroups.length === 0 && (
@@ -1052,78 +1077,20 @@ export function CreateShipmentWithLabelsForm({
                   <div className="pt-3">
                     <div className="border-b pb-2">
                       <div className="mouse-h-scroll pb-2">
-                        <div className="min-w-[1220px] space-y-2">
+                        <div className="min-w-[1050px] space-y-2">
                           <div className="flex flex-nowrap items-start gap-2">
-                    {/* Shipment Type - Popup */}
+                    {/* Service */}
                     <FormField
                       control={form.control}
-                      name={`shipmentGroups.${groupIndex}.shipmentType`}
+                      name={`shipmentGroups.${groupIndex}.service`}
                       render={({ field }) => (
-                        <FormItem className="order-1 w-[130px] shrink-0 space-y-1">
-                          <FormLabel className="text-[11px] text-muted-foreground">Shipment Type *</FormLabel>
-                          <Dialog open={openPopups[`${popupKey}_shipmentType`] || false} onOpenChange={(open) => {
-                            if (open) {
-                              setOpenPopups(prev => ({ ...prev, [`${popupKey}_shipmentType`]: true }));
-                            } else {
-                              closePopup(popupKey, 'shipmentType');
-                            }
-                          }}>
-                            <DialogTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-8 w-full justify-between"
-                                onClick={() => togglePopup(popupKey, 'shipmentType')}
-                              >
-                                <span className="truncate">{field.value ? field.value.charAt(0).toUpperCase() + field.value.slice(1) : "Select"}</span>
-                                <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Select Shipment Type</DialogTitle>
-                              </DialogHeader>
-                              <div className="space-y-2 py-4">
-                                {["product", "box", "pallet"].map((type) => (
-                                  <Button
-                                    key={type}
-                                    type="button"
-                                    variant={field.value === type ? "default" : "outline"}
-                                    className="w-full justify-start"
-                                    onClick={() => {
-                                      field.onChange(type);
-                                      if (type !== "pallet") {
-                                        form.setValue(`shipmentGroups.${groupIndex}.palletSubType`, undefined);
-                                      }
-                                      clearLabelStatesForGroup(groupIndex);
-                                      form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
-                                      closePopup(popupKey, 'shipmentType');
-                                    }}
-                                  >
-                                    {type.charAt(0).toUpperCase() + type.slice(1)}
-                                  </Button>
-                                ))}
-                              </div>
-                            </DialogContent>
-                          </Dialog>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    {/* Pallet Sub-Type - Popup */}
-                    {groupShipmentType === "pallet" && (
-                      <FormField
-                        control={form.control}
-                        name={`shipmentGroups.${groupIndex}.palletSubType`}
-                        render={({ field }) => (
-                          <FormItem className="order-2 w-[170px] shrink-0 space-y-1">
-                            <FormLabel className="text-[11px] text-muted-foreground">Pallet Type *</FormLabel>
-                            <Dialog open={openPopups[`${popupKey}_palletType`] || false} onOpenChange={(open) => {
+                          <FormItem className="order-1 w-[150px] shrink-0 space-y-1">
+                            <FormLabel className="text-[11px] text-muted-foreground">Service *</FormLabel>
+                            <Dialog open={openPopups[`${popupKey}_service`] || false} onOpenChange={(open) => {
                               if (open) {
-                                setOpenPopups(prev => ({ ...prev, [`${popupKey}_palletType`]: true }));
+                                setOpenPopups(prev => ({ ...prev, [`${popupKey}_service`]: true }));
                               } else {
-                                closePopup(popupKey, 'palletType');
+                                closePopup(popupKey, 'service');
                               }
                             }}>
                               <DialogTrigger asChild>
@@ -1131,45 +1098,38 @@ export function CreateShipmentWithLabelsForm({
                                   type="button"
                                   variant="outline"
                                   className="h-8 w-full justify-between"
-                                  onClick={() => togglePopup(popupKey, 'palletType')}
+                                  onClick={() => togglePopup(popupKey, 'service')}
                                 >
-                                  <span className="truncate">
-                                    {field.value === "existing_inventory" ? "Existing Inventory" :
-                                     field.value === "forwarding" ? "Pallet Forwarding" : "Select"}
-                                  </span>
+                                  <span className="truncate">{field.value || "Select"}</span>
                                   <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
                                 </Button>
                               </DialogTrigger>
                               <DialogContent>
                                 <DialogHeader>
-                                  <DialogTitle>Select Pallet Type</DialogTitle>
+                                  <DialogTitle>Select Service</DialogTitle>
                                 </DialogHeader>
                                 <div className="space-y-2 py-4">
                                   <Button
                                     type="button"
-                                    variant={field.value === "existing_inventory" ? "default" : "outline"}
+                                    variant={field.value === "FBA/WFS/TFS" ? "default" : "outline"}
                                     className="w-full justify-start"
                                     onClick={() => {
-                                      field.onChange("existing_inventory");
-                                      clearLabelStatesForGroup(groupIndex);
-                                      form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
-                                      closePopup(popupKey, 'palletType');
+                                      field.onChange("FBA/WFS/TFS");
+                                      closePopup(popupKey, 'service');
                                     }}
                                   >
-                                    Existing Inventory
+                                    FBA/WFS/TFS
                                   </Button>
                                   <Button
                                     type="button"
-                                    variant={field.value === "forwarding" ? "default" : "outline"}
+                                    variant={field.value === "FBM" ? "default" : "outline"}
                                     className="w-full justify-start"
                                     onClick={() => {
-                                      field.onChange("forwarding");
-                                      clearLabelStatesForGroup(groupIndex);
-                                      form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
-                                      closePopup(popupKey, 'palletType');
+                                      field.onChange("FBM");
+                                      closePopup(popupKey, 'service');
                                     }}
                                   >
-                                    Pallet Forwarding
+                                    FBM
                                   </Button>
                                 </div>
                               </DialogContent>
@@ -1178,10 +1138,9 @@ export function CreateShipmentWithLabelsForm({
                           </FormItem>
                         )}
                       />
-                    )}
 
-                    {/* Products - Popup (FIRST) */}
-                    <FormItem className="order-4 w-[290px] shrink-0 space-y-1">
+                    {/* Select Product */}
+                    <FormItem className="order-2 w-[290px] shrink-0 space-y-1">
                       <FormLabel className="text-[11px] text-muted-foreground">Select Product</FormLabel>
                       <Dialog open={openPopups[`${popupKey}_products`] || false} onOpenChange={(open) => {
                         if (open) {
@@ -1330,36 +1289,15 @@ export function CreateShipmentWithLabelsForm({
                             <div className="space-y-2">
                               <div className="text-sm font-medium">Selected Product Details</div>
                               <div className="mouse-both-scroll max-h-[44vh] rounded-md border">
-                                <div className="min-w-[1480px]">
-                                  <div className="grid grid-cols-[220px_170px_220px_90px_90px_120px_250px_180px_120px] gap-2 border-b bg-muted/30 px-2 py-2 text-[11px] font-medium text-muted-foreground">
+                                <div className="min-w-[1100px]">
+                                  <div className="grid grid-cols-[220px_90px_90px_120px_250px_180px_120px] gap-2 border-b bg-muted/30 px-2 py-2 text-[11px] font-medium text-muted-foreground">
                                     <div>Product</div>
-                                    <div className="flex items-center gap-1">
-                                      <span>Type</span>
-                                      <span
-                                        className="inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold text-muted-foreground"
-                                        title="Custom workflow: If user does not know exact dimensions, select Custom and submit. Admin can correct dimensions, set pricing, and request label upload. If dimensions and label are already correct, admin can complete directly."
-                                      >
-                                        ?
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                      <span>Custom dimensions (Custom only)</span>
-                                      <span
-                                        className="inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold text-muted-foreground"
-                                        title="Dimensions are optional for Custom. You can submit without dimensions or labels if unknown. Admin will review and guide the next step."
-                                      >
-                                        ?
-                                      </span>
-                                    </div>
                                     <div>Qty</div>
                                     <div>Pack</div>
                                     <div>Price ($)</div>
                                     <div>Additional Services</div>
                                     <div>Labels</div>
                                     <div>Remove</div>
-                                  </div>
-                                  <div className="border-b bg-blue-50/60 px-2 py-2 text-[11px] text-blue-900">
-                                    Custom submission help: If dimensions or labels are not available, submit anyway. Admin can update dimensions and pricing, then ask for label upload. If everything is correct with labels, admin can complete directly.
                                   </div>
                                   {groupShipments.length === 0 ? (
                                     <div className="px-2 py-4 text-xs text-muted-foreground">
@@ -1368,9 +1306,6 @@ export function CreateShipmentWithLabelsForm({
                                   ) : (
                                     groupShipments.map((shipment, shipmentIndex) => {
                                       const selectedProduct = inventory.find((item) => item.id === shipment.productId);
-                                      const lineProductType = form.watch(
-                                        `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType`
-                                      );
                                       const lineKey = getLineKey(groupIndex, shipmentIndex);
                                       const lineLabelState = labelStates[lineKey] || { items: [], isUploading: false };
                                       const selectedServices =
@@ -1399,67 +1334,11 @@ export function CreateShipmentWithLabelsForm({
                                       return (
                                         <div
                                           key={shipment.productId || shipmentIndex}
-                                          className="grid grid-cols-[220px_170px_220px_90px_90px_120px_250px_180px_120px] gap-2 border-b px-2 py-2"
+                                          className="grid grid-cols-[220px_90px_90px_120px_250px_180px_120px] gap-2 border-b px-2 py-2"
                                         >
                                           <div className="truncate text-xs font-medium">
                                             {selectedProduct?.productName || "Unknown"}
                                           </div>
-                                          {groupShipmentType === "product" ? (
-                                            <Select
-                                              value={
-                                                form.watch(
-                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType`
-                                                ) || "Standard"
-                                              }
-                                              onValueChange={(value) => {
-                                                form.setValue(
-                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType`,
-                                                  value as ProductType,
-                                                  { shouldValidate: true }
-                                                );
-                                                if (value !== "Custom") {
-                                                  form.setValue(
-                                                    `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions`,
-                                                    undefined,
-                                                    { shouldValidate: true }
-                                                  );
-                                                }
-                                              }}
-                                            >
-                                              <SelectTrigger className="h-8">
-                                                <SelectValue />
-                                              </SelectTrigger>
-                                              <SelectContent>
-                                                <SelectItem value="Standard">Standard</SelectItem>
-                                                <SelectItem value="Large">Large</SelectItem>
-                                                <SelectItem value="Custom">Custom</SelectItem>
-                                              </SelectContent>
-                                            </Select>
-                                          ) : (
-                                            <Input className="h-8" value="N/A" readOnly />
-                                          )}
-                                          {groupShipmentType === "product" && lineProductType === "Custom" ? (
-                                            <Input
-                                              className="h-8"
-                                              placeholder="Optional custom dimensions"
-                                              value={
-                                                form.watch(
-                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions`
-                                                ) || ""
-                                              }
-                                              onChange={(e) =>
-                                                form.setValue(
-                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions`,
-                                                  e.target.value,
-                                                  { shouldValidate: true }
-                                                )
-                                              }
-                                            />
-                                          ) : (
-                                            <div className="flex h-8 items-center px-2 text-[11px] text-muted-foreground">
-                                              -
-                                            </div>
-                                          )}
                                           <Input
                                             type="number"
                                             min="1"
@@ -1622,68 +1501,6 @@ export function CreateShipmentWithLabelsForm({
                       </Dialog>
                     </FormItem>
 
-                    {/* Service - Popup (only for product type) - After Products */}
-                    {groupShipmentType === "product" && (
-                      <FormField
-                        control={form.control}
-                        name={`shipmentGroups.${groupIndex}.service`}
-                        render={({ field }) => (
-                          <FormItem className="order-2 w-[150px] shrink-0 space-y-1">
-                            <FormLabel className="text-[11px] text-muted-foreground">Service *</FormLabel>
-                            <Dialog open={openPopups[`${popupKey}_service`] || false} onOpenChange={(open) => {
-                              if (open) {
-                                setOpenPopups(prev => ({ ...prev, [`${popupKey}_service`]: true }));
-                              } else {
-                                closePopup(popupKey, 'service');
-                              }
-                            }}>
-                              <DialogTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 w-full justify-between"
-                                  onClick={() => togglePopup(popupKey, 'service')}
-                                >
-                                  <span className="truncate">{field.value || "Select"}</span>
-                                  <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Select Service</DialogTitle>
-                                </DialogHeader>
-                                <div className="space-y-2 py-4">
-                                  <Button
-                                    type="button"
-                                    variant={field.value === "FBA/WFS/TFS" ? "default" : "outline"}
-                                    className="w-full justify-start"
-                                    onClick={() => {
-                                      field.onChange("FBA/WFS/TFS");
-                                      closePopup(popupKey, 'service');
-                                    }}
-                                  >
-                                    FBA/WFS/TFS
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant={field.value === "FBM" ? "default" : "outline"}
-                                    className="w-full justify-start"
-                                    onClick={() => {
-                                      field.onChange("FBM");
-                                      closePopup(popupKey, 'service');
-                                    }}
-                                  >
-                                    FBM
-                                  </Button>
-                                </div>
-                              </DialogContent>
-                            </Dialog>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )}
-
                     {/* Date */}
                     <FormField
                       control={form.control}
@@ -1694,6 +1511,64 @@ export function CreateShipmentWithLabelsForm({
                           <div className="w-full">
                             <DatePicker date={field.value} setDate={field.onChange} />
                           </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Shipment Preference */}
+                    <FormField
+                      control={form.control}
+                      name={`shipmentGroups.${groupIndex}.shipmentPreference`}
+                      render={({ field }) => (
+                        <FormItem className="order-4 w-[150px] shrink-0 space-y-1">
+                          <FormLabel className="text-[11px] text-muted-foreground">Shipment Preference *</FormLabel>
+                          <Dialog
+                            open={openPopups[`${popupKey}_shipmentPreference`] || false}
+                            onOpenChange={(open) => {
+                              if (open) {
+                                setOpenPopups((prev) => ({ ...prev, [`${popupKey}_shipmentPreference`]: true }));
+                              } else {
+                                closePopup(popupKey, "shipmentPreference");
+                              }
+                            }}
+                          >
+                            <DialogTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 w-full justify-between"
+                                onClick={() => togglePopup(popupKey, "shipmentPreference")}
+                              >
+                                <span className="truncate capitalize">{field.value || "Select"}</span>
+                                <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Shipment Preference</DialogTitle>
+                                <DialogDescription>
+                                  How should this outbound shipment be packed for fulfillment?
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-2 py-4">
+                                {(["box", "pallet"] as const).map((pref) => (
+                                  <Button
+                                    key={pref}
+                                    type="button"
+                                    variant={field.value === pref ? "default" : "outline"}
+                                    className="w-full justify-start capitalize"
+                                    onClick={() => {
+                                      field.onChange(pref);
+                                      closePopup(popupKey, "shipmentPreference");
+                                    }}
+                                  >
+                                    {pref}
+                                  </Button>
+                                ))}
+                              </div>
+                            </DialogContent>
+                          </Dialog>
                           <FormMessage />
                         </FormItem>
                       )}

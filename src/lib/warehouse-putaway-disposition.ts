@@ -70,11 +70,20 @@ export async function applyCrossdockAreaPutaway(input: {
   const nextStatus = input.disposition === "forward" ? "on_hold" : "received";
   assertCartonStatusTransition(input.carton.status, nextStatus);
 
+  const crossdockPatch =
+    input.disposition === "forward"
+      ? {
+          crossdockDispatchStatus: "ready" as const,
+          crossdockReadyToDispatchAt: serverTimestamp(),
+        }
+      : {};
+
   const batch = writeBatch(db);
   batch.update(warehouseCartonDocRef(input.warehouseId, input.cartonId), {
     putawayDisposition: input.disposition,
     stagingArea,
     status: nextStatus,
+    ...crossdockPatch,
     updatedAt: serverTimestamp(),
   });
 
@@ -235,7 +244,7 @@ export async function listWarehouseAreas(warehouseId: string): Promise<Warehouse
 }
 
 export const DISPOSITION_LABELS: Record<WarehousePutawayDisposition, string> = {
-  forward: "Forward (prep / dispatch)",
-  keep_closed: "Keep closed (staging)",
+  forward: "Forward — ship now (direct dispatch)",
+  keep_closed: "Keep closed — hold for client outbound",
   open_for_storage: "Open for storage (bins)",
 };

@@ -251,6 +251,22 @@ export default function DashboardPage() {
     return raw || "-";
   }, [selectedWarehouse]);
 
+  const shipmentAddressBorderClass = useMemo(() => {
+    if (!selectedWarehouse) {
+      return "border-[1.5px] border-solid border-orange-400";
+    }
+    if (!isSelectedWarehouseAssigned) {
+      return "border-[1.5px] border-solid border-red-500";
+    }
+    return "border-[1.5px] border-solid border-green-500";
+  }, [selectedWarehouse, isSelectedWarehouseAssigned]);
+
+  const shippingName = useMemo(() => {
+    const company = userProfile?.companyName?.trim();
+    if (company) return company;
+    return userProfile?.name?.trim() || "-";
+  }, [userProfile?.companyName, userProfile?.name]);
+
   const hasDateRange = Boolean(dateRangeFrom && dateRangeTo);
 
   const shippedDataInRange = useMemo(() => {
@@ -709,8 +725,9 @@ export default function DashboardPage() {
           </Card>
           <Card
             className={cn(
-              "xl:col-span-5 rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm",
-              !isSelectedWarehouseAssigned && "opacity-70"
+              "xl:col-span-5 rounded-xl bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm",
+              shipmentAddressBorderClass,
+              !isSelectedWarehouseAssigned && selectedWarehouse && "opacity-70"
             )}
           >
             <CardHeader className="pb-2 pt-6 px-6">
@@ -739,7 +756,7 @@ export default function DashboardPage() {
                       ...(selectedWarehouse.name?.trim()
                         ? [formatWarehouseDisplayName(selectedWarehouse.name)]
                         : []),
-                      userProfile?.name || "",
+                      shippingName !== "-" ? shippingName : "",
                       selectedWarehouse.street1 || "",
                       street2WithClientId || "",
                       selectedWarehouse.city || "",
@@ -768,7 +785,7 @@ export default function DashboardPage() {
                     <span className="text-muted-foreground">Warehouse:</span>
                     <span className="font-medium">{formatWarehouseDisplayName(selectedWarehouse.name)}</span>
                     <span className="text-muted-foreground">Shipping Name:</span>
-                    <span className="font-medium text-primary">{userProfile?.name || "-"}</span>
+                    <span className="font-medium text-primary">{shippingName}</span>
                     <span className="text-muted-foreground">Street1:</span>
                     <span>{selectedWarehouse.street1 || "-"}</span>
                     <span className="text-muted-foreground">Street2:</span>
@@ -786,7 +803,7 @@ export default function DashboardPage() {
                   </div>
                   <p className="mt-4 text-sm text-muted-foreground">
                     To ensure accurate processing and avoid any misplacement, all shipments to our warehouse must be
-                    addressed with your full name.
+                    addressed with your company name.
                   </p>
                   {!isSelectedWarehouseAssigned && (
                     <div className="mt-4 rounded-md bg-white p-3 text-center shadow-sm">

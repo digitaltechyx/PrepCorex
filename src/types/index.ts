@@ -119,6 +119,9 @@ export type WarehousePutawayDisposition =
   | "keep_closed"
   | "open_for_storage";
 
+/** Cross-dock units routed to direct dispatch (skip pick/pack). */
+export type CrossdockDispatchStatus = "ready" | "dispatched";
+
 /**
  * One SKU line inside a received carton. Single-SKU cartons have exactly one line.
  * Mixed cartons have N lines. Damaged units are recorded as their own line with
@@ -196,6 +199,14 @@ export interface WarehouseCartonDoc {
   isClosedCrossdock?: boolean;
   /** Chosen at putaway (forward / stage closed / open into bins). */
   putawayDisposition?: WarehousePutawayDisposition | null;
+  /** Direct dispatch queue after forward putaway or hold linked to client outbound. */
+  crossdockDispatchStatus?: CrossdockDispatchStatus | null;
+  crossdockReadyToDispatchAt?: { seconds: number; nanoseconds: number } | Date;
+  crossdockDispatchedAt?: { seconds: number; nanoseconds: number } | Date;
+  /** Outbound courier label scanned at cross-dock dispatch. */
+  crossdockCourierTracking?: string | null;
+  /** Path B — client outbound linked to a held cross-dock unit. */
+  crossdockLinkedShipmentRequestId?: string | null;
   /** Carrier tracking number on the inbound box (for admin reconciliation later). */
   trackingNumber?: string | null;
   /** UPS / FedEx / USPS / DHL / Other */
@@ -239,6 +250,11 @@ export interface WarehousePalletDoc {
   stagingArea?: string | null;
   receiveMode?: WarehouseReceiveMode | null;
   putawayDisposition?: WarehousePutawayDisposition | null;
+  crossdockDispatchStatus?: CrossdockDispatchStatus | null;
+  crossdockReadyToDispatchAt?: { seconds: number; nanoseconds: number } | Date;
+  crossdockDispatchedAt?: { seconds: number; nanoseconds: number } | Date;
+  crossdockCourierTracking?: string | null;
+  crossdockLinkedShipmentRequestId?: string | null;
   /** Cross-dock pallet received closed — contents unknown until putaway. */
   isClosedCrossdock?: boolean;
   /** Client when known at receive (optional). */
@@ -593,6 +609,8 @@ export interface ShipmentRequest {
   service?: string;
   productType?: string;
   remarks?: string;
+  /** Client preference for outbound pack unit: box (carton) or pallet. */
+  shipmentPreference?: "box" | "pallet";
   rejectionReason?: string;
   shipments: Array<Record<string, unknown>>;
   confirmedAt?: { seconds: number; nanoseconds: number } | string;
@@ -639,6 +657,11 @@ export interface ShipmentRequest {
     cartonCode: string;
     removedLines: Array<Record<string, unknown>>;
   }>;
+  /** Fulfilled from a held cross-dock unit — no client inventory deduction. */
+  crossdockFulfillment?: boolean;
+  crossdockLinkedUnitId?: string | null;
+  crossdockLinkedUnitKind?: "carton" | "pallet" | null;
+  crossdockLinkedUnitCode?: string | null;
 }
 
 export interface ShipmentProductItem {
@@ -687,6 +710,8 @@ export interface ShippedItem {
   // Optional fields stored by newer shipment flows (admin side can show richer detail)
   service?: string;
   shipmentType?: string;
+  /** Client preference for outbound pack unit: box (carton) or pallet. */
+  shipmentPreference?: "box" | "pallet";
   palletSubType?: string;
   productType?: string;
   customDimensions?: string;

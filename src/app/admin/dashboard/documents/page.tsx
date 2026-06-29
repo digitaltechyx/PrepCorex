@@ -136,6 +136,9 @@ export default function DocumentRequestsPage() {
   const [msaSearchQuery, setMsaSearchQuery] = useState("");
   const [msaSelectedCompany, setMsaSelectedCompany] = useState<string>("all");
   const [msaDateFilter, setMsaDateFilter] = useState<string>("all");
+  const [msaSortOrder, setMsaSortOrder] = useState<
+    "newest" | "oldest" | "name_asc" | "name_desc"
+  >("newest");
   const [msaPage, setMsaPage] = useState(1);
 
   // Search matches: documentType, userName, userEmail, companyName, contact, email, notes
@@ -446,6 +449,25 @@ export default function DocumentRequestsPage() {
     [users]
   );
 
+  function msaSortTimestamp(u: UserProfile): number {
+    const activated = u.accountActivatedAt;
+    if (activated && typeof activated === "object" && "seconds" in activated) {
+      return activated.seconds * 1000;
+    }
+    if (activated instanceof Date) {
+      return activated.getTime();
+    }
+    if (u.msaEffectiveDate) {
+      const d = new Date(u.msaEffectiveDate);
+      if (!Number.isNaN(d.getTime())) return d.getTime();
+    }
+    return 0;
+  }
+
+  function msaDisplayName(u: UserProfile): string {
+    return (u.name || u.email || u.msaClientDetails?.companyName || "").trim();
+  }
+
   const msaCompanyOptions = useMemo(() => {
     const companies = new Set<string>();
     usersWithMSA.forEach((u) => {
@@ -460,7 +482,7 @@ export default function DocumentRequestsPage() {
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
 
-    return usersWithMSA.filter((u) => {
+    const filtered = usersWithMSA.filter((u) => {
       const company = (u.msaClientDetails?.companyName || "").trim();
       const matchesCompany = msaSelectedCompany === "all" || company === msaSelectedCompany;
       if (!matchesCompany) return false;
@@ -481,7 +503,25 @@ export default function DocumentRequestsPage() {
       if (msaDateFilter === "month") return diffDays <= 30;
       return true;
     });
-  }, [usersWithMSA, msaSearchQuery, msaSelectedCompany, msaDateFilter]);
+
+    return [...filtered].sort((a, b) => {
+      switch (msaSortOrder) {
+        case "oldest":
+          return msaSortTimestamp(a) - msaSortTimestamp(b);
+        case "name_asc":
+          return msaDisplayName(a).localeCompare(msaDisplayName(b), undefined, {
+            sensitivity: "base",
+          });
+        case "name_desc":
+          return msaDisplayName(b).localeCompare(msaDisplayName(a), undefined, {
+            sensitivity: "base",
+          });
+        case "newest":
+        default:
+          return msaSortTimestamp(b) - msaSortTimestamp(a);
+      }
+    });
+  }, [usersWithMSA, msaSearchQuery, msaSelectedCompany, msaDateFilter, msaSortOrder]);
 
   const msaItemsPerPage = 10;
   const totalMsaPages = Math.max(1, Math.ceil(filteredMSAUsers.length / msaItemsPerPage));
@@ -490,7 +530,7 @@ export default function DocumentRequestsPage() {
 
   useEffect(() => {
     setMsaPage(1);
-  }, [msaSearchQuery, msaSelectedCompany, msaDateFilter]);
+  }, [msaSearchQuery, msaSelectedCompany, msaDateFilter, msaSortOrder]);
 
   const hasMsaActiveFilters =
     msaSearchQuery.trim() !== "" || msaSelectedCompany !== "all" || msaDateFilter !== "all";
@@ -527,13 +567,33 @@ export default function DocumentRequestsPage() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <Tabs value={managementTab} onValueChange={setManagementTab} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="requests">Document Requests</TabsTrigger>
-          <TabsTrigger value="msa">MSA Agreements ({usersWithMSA.length})</TabsTrigger>
-        </TabsList>
+      <Tabs value={managementTab} onValueChange={setManagementTab} className="space-y-6">
+        <div className="rounded-lg border bg-card p-1.5 shadow-sm">
+          <TabsList className="grid h-auto w-full max-w-2xl grid-cols-2 gap-1.5 bg-muted/50 p-1">
+            <TabsTrigger
+              value="requests"
+              className="gap-2 rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:text-foreground"
+            >
+              <FileStack className="h-4 w-4 shrink-0" />
+              Document Requests
+            </TabsTrigger>
+            <TabsTrigger
+              value="msa"
+              className="gap-2 rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:text-foreground"
+            >
+              <FileSignature className="h-4 w-4 shrink-0" />
+              MSA Agreements
+              <Badge
+                variant={managementTab === "msa" ? "secondary" : "outline"}
+                className="ml-0.5 h-5 min-w-[1.25rem] px-1.5 text-xs font-bold"
+              >
+                {usersWithMSA.length}
+              </Badge>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
-        <TabsContent value="requests" className="space-y-6">
+        <TabsContent value="requests" className="mt-0 space-y-6">
           {/* Stat cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card
@@ -946,7 +1006,7 @@ export default function DocumentRequestsPage() {
             </TabsContent>
           </Tabs>
         </TabsContent>
-        <TabsContent value="msa" className="space-y-4">
+        <TabsContent value="msa" className="mt-0 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -965,7 +1025,7 @@ export default function DocumentRequestsPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
@@ -993,6 +1053,15 @@ export default function DocumentRequestsPage() {
                         <SelectItem value="month">Last 30 days</SelectItem>
                       </SelectContent>
                     </Select>
+                    <Select value={msaSortOrder} onValueChange={(v) => setMsaSortOrder(v as typeof msaSortOrder)}>
+                      <SelectTrigger><SelectValue placeholder="Sort by" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="newest">Newest to oldest</SelectItem>
+                        <SelectItem value="oldest">Oldest to newest</SelectItem>
+                        <SelectItem value="name_asc">Name A → Z</SelectItem>
+                        <SelectItem value="name_desc">Name Z → A</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <div className="flex items-center gap-2">
                       {hasMsaActiveFilters && (
                         <Button
@@ -1001,6 +1070,7 @@ export default function DocumentRequestsPage() {
                             setMsaSearchQuery("");
                             setMsaSelectedCompany("all");
                             setMsaDateFilter("all");
+                            setMsaSortOrder("newest");
                           }}
                         >
                           Reset

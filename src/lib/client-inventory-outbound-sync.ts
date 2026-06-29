@@ -144,6 +144,9 @@ export async function applyClientInventoryOnDispatch(input: {
     if (logSnap.exists()) return;
 
     if (!defersClientInventoryDeduction(data)) return;
+    if (data.crossdockFulfillment === true || String(data.crossdockLinkedUnitId ?? "").trim()) {
+      return;
+    }
 
     const shipments = Array.isArray(data.shipments)
       ? (data.shipments as Array<Record<string, unknown>>)

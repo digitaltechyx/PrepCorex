@@ -62,6 +62,8 @@ export async function syncClientInventoryFromPutaway(input: {
   applied: PutawaySyncAssignment[];
   operatorId?: string | null;
 }): Promise<void> {
+  if (input.carton.receiveMode === "crossdock") return;
+
   for (const assignment of input.applied) {
     const line = input.carton.lines?.find((l) => l.lineId === assignment.lineId);
     if (!line?.clientId?.trim()) continue;

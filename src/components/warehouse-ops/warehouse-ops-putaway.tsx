@@ -2062,7 +2062,7 @@ function CrossdockDispositionPicker({
             <Truck className="h-5 w-5 text-indigo-600" />
             <span className="font-semibold text-sm">Forward</span>
             <span className="text-xs text-muted-foreground text-left">
-              Prep / dispatch area — carton stays closed
+              Ship now — direct dispatch, no pick/pack
             </span>
           </Button>
           <Button
@@ -2074,7 +2074,7 @@ function CrossdockDispositionPicker({
             <Box className="h-5 w-5 text-indigo-600" />
             <span className="font-semibold text-sm">Keep closed</span>
             <span className="text-xs text-muted-foreground text-left">
-              Hold in staging — no bin
+              Hold for client outbound — link later on Dispatch
             </span>
           </Button>
           <Button
@@ -2312,6 +2312,12 @@ function CrossdockAreaDonePanel({
     carton.putawayDisposition && DISPOSITION_LABELS[carton.putawayDisposition]
       ? DISPOSITION_LABELS[carton.putawayDisposition]
       : "Placed";
+  const nextStep =
+    carton.putawayDisposition === "forward"
+      ? "This unit is in the cross-dock dispatch queue — go to Dispatch → Cross-dock."
+      : carton.putawayDisposition === "keep_closed"
+        ? "Held for client outbound — link on Dispatch → Cross-dock when the order is confirmed."
+        : null;
   return (
     <div className="space-y-4">
       <Card className="border-green-200 bg-green-50/40">
@@ -2319,6 +2325,7 @@ function CrossdockAreaDonePanel({
           <CheckCircle2 className="h-10 w-10 text-green-600 mx-auto" />
           <p className="font-semibold">{carton.cartonCode}</p>
           <p className="text-sm text-muted-foreground">{label}</p>
+          {nextStep ? <p className="text-xs text-muted-foreground px-4">{nextStep}</p> : null}
           {carton.stagingArea ? (
             <Badge variant="outline" className="font-mono">
               Area {carton.stagingArea}
@@ -2344,6 +2351,12 @@ function PalletAreaDonePanel({
     pallet.putawayDisposition && DISPOSITION_LABELS[pallet.putawayDisposition]
       ? DISPOSITION_LABELS[pallet.putawayDisposition]
       : "Placed";
+  const nextStep =
+    pallet.putawayDisposition === "forward"
+      ? "This pallet is in the cross-dock dispatch queue — go to Dispatch → Cross-dock."
+      : pallet.putawayDisposition === "keep_closed"
+        ? "Held for client outbound — link on Dispatch → Cross-dock when the order is confirmed."
+        : null;
   return (
     <div className="space-y-4">
       <Card className="border-green-200 bg-green-50/40">
@@ -2351,6 +2364,7 @@ function PalletAreaDonePanel({
           <CheckCircle2 className="h-10 w-10 text-green-600 mx-auto" />
           <p className="font-semibold">{pallet.palletCode}</p>
           <p className="text-sm text-muted-foreground">{label}</p>
+          {nextStep ? <p className="text-xs text-muted-foreground px-4">{nextStep}</p> : null}
           {pallet.stagingArea ? (
             <Badge variant="outline" className="font-mono">
               Area {pallet.stagingArea}

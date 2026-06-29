@@ -44,7 +44,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
-import type { Invoice, UploadedPDF } from "@/types";
+import type { Invoice, ShopifyOrder, UploadedPDF } from "@/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hasRole, hasFeature } from "@/lib/permissions";
@@ -72,6 +72,9 @@ export function DashboardSidebar() {
   const { data: invoices } = useCollection<Invoice>(
     userProfile ? `users/${userProfile.uid}/invoices` : ""
   );
+  const { data: shopifyOrders } = useCollection<ShopifyOrder>(
+    userProfile ? `users/${userProfile.uid}/shopifyOrders` : ""
+  );
   const { data: locationDocs } = useCollection<LocationDoc>("locations");
   const { data: allUploadedPDFs } = useCollection<UploadedPDF>("uploadedPDFs");
   const uploadedPDFs = userProfile?.role === "admin" 
@@ -79,6 +82,9 @@ export function DashboardSidebar() {
     : allUploadedPDFs.filter((pdf) => pdf.uploadedBy === user?.uid);
 
   const pendingInvoicesCount = invoices.filter(inv => inv.status === 'pending').length;
+  const pendingShopifyOrdersCount = shopifyOrders.filter(
+    (order) => order.fulfillment_status !== "fulfilled"
+  ).length;
   const labelsCount = uploadedPDFs.length;
   const assignedLocationIds = useMemo(
     () => new Set((userProfile?.locations ?? []).filter(Boolean)),
@@ -334,7 +340,7 @@ export function DashboardSidebar() {
       url: "/dashboard/shopify-orders",
       icon: Store,
       color: "text-emerald-600",
-      badge: null,
+      badge: pendingShopifyOrdersCount > 0 ? pendingShopifyOrdersCount : null,
       requiredRole: "user" as const,
       requiredFeature: "view_shopify_orders" as const,
     },

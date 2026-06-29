@@ -192,6 +192,18 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
         ? data.putawayDisposition
         : null,
     isClosedCrossdock: data.isClosedCrossdock === true,
+    crossdockDispatchStatus:
+      data.crossdockDispatchStatus === "ready" || data.crossdockDispatchStatus === "dispatched"
+        ? data.crossdockDispatchStatus
+        : null,
+    crossdockReadyToDispatchAt: data.crossdockReadyToDispatchAt as WarehouseCartonDoc["crossdockReadyToDispatchAt"],
+    crossdockDispatchedAt: data.crossdockDispatchedAt as WarehouseCartonDoc["crossdockDispatchedAt"],
+    crossdockCourierTracking:
+      data.crossdockCourierTracking != null ? String(data.crossdockCourierTracking) : null,
+    crossdockLinkedShipmentRequestId:
+      data.crossdockLinkedShipmentRequestId != null
+        ? String(data.crossdockLinkedShipmentRequestId)
+        : null,
     trackingNumber: data.trackingNumber != null ? String(data.trackingNumber) : null,
     carrier: data.carrier != null ? String(data.carrier) : null,
     notes: data.notes != null ? String(data.notes) : null,
@@ -210,6 +222,7 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
 }
 
 export const parseWarehouseCartonDoc = docToCarton;
+export const parseWarehousePalletDoc = docToPallet;
 
 function docToPallet(id: string, data: Record<string, unknown>): WarehousePalletDoc {
   return {
@@ -235,6 +248,18 @@ function docToPallet(id: string, data: Record<string, unknown>): WarehousePallet
         ? data.putawayDisposition
         : null,
     isClosedCrossdock: data.isClosedCrossdock === true,
+    crossdockDispatchStatus:
+      data.crossdockDispatchStatus === "ready" || data.crossdockDispatchStatus === "dispatched"
+        ? data.crossdockDispatchStatus
+        : null,
+    crossdockReadyToDispatchAt: data.crossdockReadyToDispatchAt as WarehousePalletDoc["crossdockReadyToDispatchAt"],
+    crossdockDispatchedAt: data.crossdockDispatchedAt as WarehousePalletDoc["crossdockDispatchedAt"],
+    crossdockCourierTracking:
+      data.crossdockCourierTracking != null ? String(data.crossdockCourierTracking) : null,
+    crossdockLinkedShipmentRequestId:
+      data.crossdockLinkedShipmentRequestId != null
+        ? String(data.crossdockLinkedShipmentRequestId)
+        : null,
     clientId: data.clientId != null ? String(data.clientId) : null,
     receivedForClient:
       data.receivedForClient != null ? String(data.receivedForClient) : null,

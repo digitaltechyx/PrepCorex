@@ -33,9 +33,15 @@ import {
   type WarehouseQcCondition,
   type WarehouseQcUnitType,
 } from "@/lib/warehouse-pack";
+import {
+  completeCrossdockDispatch,
+  findCrossdockUnitByScan,
+  linkCrossdockHoldToShipment,
+  type CrossdockDispatchUnit,
+} from "@/lib/warehouse-crossdock-dispatch";
 import { courierScansMatch } from "@/lib/warehouse-courier-label";
 import type { WarehouseDoc } from "@/types";
-import { CheckCircle2, Loader2, Package, ScanLine, Truck, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Package, ScanLine, Truck, XCircle, ArrowRightLeft } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -48,12 +54,22 @@ function formatWhen(date: Date | null): string {
   return format(date, "MMM d, yyyy h:mm a");
 }
 
+type DispatchMode = "outbound" | "crossdock";
+
 export function WarehouseOpsDispatch({ warehouse }: Props) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
 
-  const { dispatchQueue: orders, outboundLoading: queueLoading } = useWarehouseOpsLive();
+  const {
+    dispatchQueue: orders,
+    crossdockDispatchQueue,
+    crossdockHoldQueue,
+    outboundLoading: queueLoading,
+    liveLoading: crossdockLoading,
+  } = useWarehouseOpsLive();
+
+  const [mode, setMode] = useState<DispatchMode>("outbound");
 
   const [scanValue, setScanValue] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -65,11 +81,134 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   const [qcCondition, setQcCondition] = useState<WarehouseQcCondition | null>(null);
   const [qcRemarks, setQcRemarks] = useState("");
 
+  const [crossdockUnitScan, setCrossdockUnitScan] = useState("");
+  const [crossdockCourierScan, setCrossdockCourierScan] = useState("");
+  const [matchedCrossdockUnit, setMatchedCrossdockUnit] = useState<CrossdockDispatchUnit | null>(null);
+  const [matchedHoldUnit, setMatchedHoldUnit] = useState<CrossdockDispatchUnit | null>(null);
+  const [crossdockScanError, setCrossdockScanError] = useState<string | null>(null);
+  const [crossdockConfirming, setCrossdockConfirming] = useState(false);
+  const [linkShipmentId, setLinkShipmentId] = useState("");
+  const [linkingHold, setLinkingHold] = useState(false);
+
   const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const crossdockUnitScanRef = useRef<HTMLInputElement | null>(null);
+  const crossdockCourierScanRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    scanInputRef.current?.focus();
-  }, []);
+    if (mode === "outbound") scanInputRef.current?.focus();
+    else crossdockUnitScanRef.current?.focus();
+  }, [mode]);
+
+  function clearCrossdockMatch() {
+    setMatchedCrossdockUnit(null);
+    setCrossdockUnitScan("");
+    setCrossdockCourierScan("");
+    setCrossdockScanError(null);
+    setQcCondition(null);
+    setQcRemarks("");
+    crossdockUnitScanRef.current?.focus();
+  }
+
+  function handleCrossdockUnitScan(raw?: string) {
+    const value = (raw ?? crossdockUnitScan).trim();
+    if (!value) return;
+
+    const unit = findCrossdockUnitByScan(value, crossdockDispatchQueue);
+    if (!unit) {
+      setCrossdockScanError("No matching cross-dock unit in the dispatch queue.");
+      setMatchedCrossdockUnit(null);
+      toast({
+        title: "Unknown unit",
+        description: "Scan a CTN/PKG/PLT that was forwarded or linked to outbound.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setMatchedCrossdockUnit(unit);
+    setCrossdockUnitScan("");
+    setCrossdockScanError(null);
+    setQcUnitType(unit.defaultQcUnitType);
+    setQcCondition(null);
+    setQcRemarks("");
+    toast({ title: "Cross-dock unit", description: unit.code });
+    crossdockCourierScanRef.current?.focus();
+  }
+
+  async function handleCrossdockDispatchConfirm() {
+    if (!matchedCrossdockUnit || !crossdockCourierScan.trim() || qcCondition !== "good") return;
+
+    setCrossdockConfirming(true);
+    try {
+      await completeCrossdockDispatch({
+        warehouseId: warehouse.id,
+        unit: matchedCrossdockUnit,
+        courierTracking: crossdockCourierScan.trim(),
+        qcUnitType,
+        operatorId,
+      });
+      toast({
+        title: "Cross-dock dispatched",
+        description: `${matchedCrossdockUnit.code} — entry added to client shipped table.`,
+      });
+      clearCrossdockMatch();
+    } catch (e) {
+      toast({
+        title: "Could not dispatch cross-dock",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setCrossdockConfirming(false);
+    }
+  }
+
+  async function handleLinkHoldToOutbound() {
+    if (!matchedHoldUnit || !linkShipmentId.trim()) return;
+
+    setLinkingHold(true);
+    try {
+      await linkCrossdockHoldToShipment({
+        warehouseId: warehouse.id,
+        kind: matchedHoldUnit.kind,
+        unitId: matchedHoldUnit.id,
+        clientUserId: matchedHoldUnit.clientUserId,
+        shipmentRequestId: linkShipmentId.trim(),
+        operatorId,
+      });
+      toast({
+        title: "Linked to outbound",
+        description: `${matchedHoldUnit.code} is ready for cross-dock dispatch.`,
+      });
+      setLinkShipmentId("");
+      setMatchedHoldUnit(null);
+    } catch (e) {
+      toast({
+        title: "Could not link",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setLinkingHold(false);
+    }
+  }
+
+  function handleHoldUnitScan(raw?: string) {
+    const value = (raw ?? crossdockUnitScan).trim();
+    if (!value) return;
+    const unit = findCrossdockUnitByScan(value, crossdockHoldQueue);
+    if (!unit) {
+      toast({
+        title: "Unknown held unit",
+        description: "Scan a keep-closed cross-dock CTN/PKG/PLT awaiting client outbound.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setMatchedHoldUnit(unit);
+    setCrossdockUnitScan("");
+    toast({ title: "Held cross-dock", description: unit.code });
+  }
 
   async function handleScanSubmit(raw?: string) {
     const value = (raw ?? scanValue).trim();
@@ -239,6 +378,26 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   return (
     <div className="space-y-4">
       <WarehouseOpsHeader title="Dispatch" />
+
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          type="button"
+          variant={mode === "outbound" ? "default" : "outline"}
+          onClick={() => setMode("outbound")}
+        >
+          Outbound orders ({orders.length})
+        </Button>
+        <Button
+          type="button"
+          variant={mode === "crossdock" ? "default" : "outline"}
+          onClick={() => setMode("crossdock")}
+        >
+          Cross-dock ({crossdockDispatchQueue.length})
+        </Button>
+      </div>
+
+      {mode === "outbound" ? (
+        <>
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
@@ -510,6 +669,255 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
           Back to pack
         </Link>
       </Button>
+        </>
+      ) : (
+        <>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Truck className="h-4 w-4" />
+                Cross-dock direct dispatch
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Skip pick and pack. Scan the unit, then the outbound courier label. A shipped entry is
+                created for the client automatically.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-orange-300/60">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <ScanLine className="h-4 w-4" />
+                1. Scan cross-dock unit
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-2">
+                <Input
+                  ref={crossdockUnitScanRef}
+                  value={crossdockUnitScan}
+                  onChange={(e) => setCrossdockUnitScan(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCrossdockUnitScan();
+                  }}
+                  placeholder="CTN / PKG / PLT…"
+                  className="font-mono"
+                  disabled={crossdockConfirming}
+                />
+                <ScanCameraButton
+                  onScan={(v) => {
+                    setCrossdockUnitScan(v);
+                    handleCrossdockUnitScan(v);
+                  }}
+                />
+              </div>
+              <Button
+                type="button"
+                className="w-full"
+                disabled={!crossdockUnitScan.trim() || crossdockConfirming}
+                onClick={() => handleCrossdockUnitScan()}
+              >
+                Verify unit
+              </Button>
+              {crossdockScanError ? (
+                <p className="text-sm text-red-600">{crossdockScanError}</p>
+              ) : null}
+              {matchedCrossdockUnit ? (
+                <div className="rounded-lg border border-emerald-300/60 bg-emerald-50/50 px-3 py-3 text-sm space-y-1">
+                  <p className="font-semibold">{matchedCrossdockUnit.code}</p>
+                  <p>{matchedCrossdockUnit.clientDisplayName}</p>
+                  <p className="text-muted-foreground">{matchedCrossdockUnit.productLabel}</p>
+                  {matchedCrossdockUnit.stagingArea ? (
+                    <p className="text-xs font-mono">Area {matchedCrossdockUnit.stagingArea}</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          {matchedCrossdockUnit ? (
+            <Card className="border-orange-300/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">2. Scan outbound courier label</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Input
+                  ref={crossdockCourierScanRef}
+                  value={crossdockCourierScan}
+                  onChange={(e) => setCrossdockCourierScan(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && crossdockCourierScan.trim()) {
+                      crossdockCourierScanRef.current?.blur();
+                    }
+                  }}
+                  placeholder="Outbound tracking barcode…"
+                  className="font-mono"
+                  disabled={crossdockConfirming}
+                />
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Unit type</Label>
+                  <Select
+                    value={qcUnitType}
+                    onValueChange={(v) => setQcUnitType(v as WarehouseQcUnitType)}
+                    disabled={crossdockConfirming}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="package">Package</SelectItem>
+                      <SelectItem value="carton">Carton</SelectItem>
+                      <SelectItem value="pallet">Pallet</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={qcCondition === "good" ? "default" : "outline"}
+                    className={cn(qcCondition === "good" && "bg-emerald-600 hover:bg-emerald-700")}
+                    onClick={() => setQcCondition("good")}
+                    disabled={crossdockConfirming}
+                  >
+                    Good
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={crossdockConfirming}
+                    onClick={clearCrossdockMatch}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+                <Button
+                  type="button"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700"
+                  disabled={
+                    crossdockConfirming ||
+                    !crossdockCourierScan.trim() ||
+                    qcCondition !== "good"
+                  }
+                  onClick={() => void handleCrossdockDispatchConfirm()}
+                >
+                  {crossdockConfirming ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      Dispatching…
+                    </>
+                  ) : (
+                    "Confirm cross-dock dispatch"
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <ArrowRightLeft className="h-4 w-4" />
+                Link held unit to client outbound (Path B)
+              </CardTitle>
+              <CardDescription className="text-xs">
+                After the client outbound is confirmed, scan the held unit and enter the order ID.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-2">
+                <Input
+                  value={crossdockUnitScan}
+                  onChange={(e) => setCrossdockUnitScan(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleHoldUnitScan();
+                  }}
+                  placeholder="Scan held CTN/PKG/PLT…"
+                  className="font-mono"
+                  disabled={linkingHold}
+                />
+                <Button type="button" variant="outline" onClick={() => handleHoldUnitScan()} disabled={linkingHold}>
+                  Select
+                </Button>
+              </div>
+              {matchedHoldUnit ? (
+                <div className="rounded-lg border px-3 py-2 text-sm">
+                  <p className="font-semibold">{matchedHoldUnit.code}</p>
+                  <p className="text-muted-foreground">{matchedHoldUnit.clientDisplayName}</p>
+                </div>
+              ) : null}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Confirmed outbound order ID</Label>
+                <Input
+                  value={linkShipmentId}
+                  onChange={(e) => setLinkShipmentId(e.target.value)}
+                  placeholder="Shipment request document ID"
+                  className="font-mono text-xs"
+                  disabled={linkingHold}
+                />
+              </div>
+              <Button
+                type="button"
+                className="w-full"
+                disabled={!matchedHoldUnit || !linkShipmentId.trim() || linkingHold}
+                onClick={() => void handleLinkHoldToOutbound()}
+              >
+                {linkingHold ? "Linking…" : "Link and mark ready to dispatch"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">
+                Ready for cross-dock dispatch ({crossdockDispatchQueue.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {crossdockLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading…
+                </div>
+              ) : crossdockDispatchQueue.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No cross-dock units ready. Forward at putaway or link a held unit to outbound.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {crossdockDispatchQueue.map((unit) => (
+                    <button
+                      key={`${unit.kind}:${unit.id}`}
+                      type="button"
+                      className={cn(
+                        "w-full text-left rounded-lg border px-3 py-3 bg-card hover:bg-muted/40",
+                        matchedCrossdockUnit?.id === unit.id && "border-emerald-400 ring-1 ring-emerald-300/50"
+                      )}
+                      onClick={() => {
+                        setMatchedCrossdockUnit(unit);
+                        setQcUnitType(unit.defaultQcUnitType);
+                        setQcCondition(null);
+                        crossdockCourierScanRef.current?.focus();
+                      }}
+                    >
+                      <div className="flex justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-sm font-mono">{unit.code}</p>
+                          <p className="text-xs">{unit.clientDisplayName}</p>
+                          <p className="text-xs text-muted-foreground">{unit.productLabel}</p>
+                        </div>
+                        <Badge variant="outline">
+                          {unit.disposition === "forward" ? "Forward" : "Linked hold"}
+                        </Badge>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }
