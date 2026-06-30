@@ -14,8 +14,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import { db } from "@/lib/firebase";
+import { addInboundTrackingToRequests } from "@/lib/inbound-tracking-client";
 import type { InventoryItem, InventoryRequest } from "@/types";
 import {
   collectExistingStorageNames,
@@ -43,6 +45,7 @@ export function InboundBulkImportDialog({
   onSuccess,
 }: InboundBulkImportDialogProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [validRows, setValidRows] = useState<InboundBulkValidatedRow[]>([]);
@@ -119,9 +122,9 @@ export function InboundBulkImportDialog({
       const requestedAt = Timestamp.now();
       const colRef = collection(db, `users/${ownerId}/inventoryRequests`);
 
-      await Promise.all(
-        validRows.map((row) =>
-          addDoc(
+      const created = await Promise.all(
+        validRows.map(async (row) => {
+          const ref = await addDoc(
             colRef,
             inboundBulkRowToFirestoreDoc(row, {
               ownerId,
@@ -129,9 +132,33 @@ export function InboundBulkImportDialog({
               addDate,
               requestedAt,
             })
-          )
-        )
+          );
+          return { requestId: ref.id, row };
+        })
       );
+
+      if (user) {
+        try {
+          await addInboundTrackingToRequests(
+            user,
+            ownerId,
+            created.map(({ requestId, row }) => ({
+              requestId,
+              trackingNumber: row.trackingNumber,
+              carrier: row.carrier,
+            }))
+          );
+        } catch (trackingError) {
+          toast({
+            variant: "destructive",
+            title: "Some tracking not saved",
+            description:
+              trackingError instanceof Error
+                ? `${trackingError.message} You can add tracking from the inventory table.`
+                : "Requests were created but tracking could not be added.",
+          });
+        }
+      }
 
       toast({
         title: "Import successful",
@@ -160,7 +187,8 @@ export function InboundBulkImportDialog({
           </DialogTitle>
           <DialogDescription>
             Download the CSV template, fill in your products, then upload the file. Each row becomes
-            one pending inbound request (same as the manual form). Product photos can be added later
+            one pending inbound request (same as the manual form). Optional Tracking Number and Carrier
+            columns use the same tracking shown in your inventory list. Product photos can be added later
             in inventory.
           </DialogDescription>
         </DialogHeader>

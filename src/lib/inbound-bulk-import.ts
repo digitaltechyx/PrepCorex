@@ -15,6 +15,8 @@ export const INBOUND_BULK_CSV_HEADERS = [
   "Retail Identifier",
   "Expiry Date",
   "Remarks",
+  "Tracking Number",
+  "Carrier",
 ] as const;
 
 export type InboundBulkCsvRow = Record<(typeof INBOUND_BULK_CSV_HEADERS)[number], string>;
@@ -33,6 +35,8 @@ export type InboundBulkValidatedRow = {
   retailIdentifier?: string;
   expiryDate?: Timestamp;
   remarks?: string;
+  trackingNumber?: string;
+  carrier?: string;
   productId?: string;
   imageUrls?: string[];
   parentProductName?: string;
@@ -265,6 +269,8 @@ export function validateInboundBulkRows(
 
     const remarks = raw["Remarks"].trim() || undefined;
     const retailIdentifier = raw["Retail Identifier"].trim() || undefined;
+    const trackingNumber = raw["Tracking Number"].trim() || undefined;
+    const carrier = raw["Carrier"].trim() || undefined;
 
     if (inventoryType === "product") {
       const subTypeRaw = raw["Product Sub Type"].trim().toLowerCase();
@@ -301,6 +307,8 @@ export function validateInboundBulkRows(
           productId: product.id,
           imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
           remarks,
+          trackingNumber,
+          carrier,
         });
         return;
       }
@@ -385,6 +393,8 @@ export function validateInboundBulkRows(
           retailIdentifier,
           expiryDate: expiryParsed,
           remarks,
+          trackingNumber,
+          carrier,
         });
         return;
       }
@@ -445,6 +455,8 @@ export function validateInboundBulkRows(
         retailIdentifier,
         expiryDate: expiryParsed,
         remarks,
+        trackingNumber,
+        carrier,
       });
       return;
     }
@@ -476,6 +488,8 @@ export function validateInboundBulkRows(
         quantity,
         containerSize,
         remarks,
+        trackingNumber,
+        carrier,
       });
       return;
     }
@@ -496,6 +510,8 @@ export function validateInboundBulkRows(
       productName,
       quantity,
       remarks,
+      trackingNumber,
+      carrier,
     });
   });
 
@@ -561,6 +577,24 @@ export function downloadInboundBulkTemplate(): void {
       "Retail Identifier": "",
       "Expiry Date": "",
       Remarks: "Single new product",
+      "Tracking Number": "",
+      Carrier: "",
+    },
+    {
+      "Inventory Type": "product",
+      "Product Sub Type": "new",
+      "Entry Mode": "single",
+      "Product Name": "Example Product B",
+      SKU: "SKU-002",
+      Color: "",
+      Size: "",
+      Quantity: "5",
+      "Container Size": "",
+      "Retail Identifier": "",
+      "Expiry Date": "",
+      Remarks: "Same shipment as row above — repeat tracking on each row",
+      "Tracking Number": "9400111899223344556677",
+      Carrier: "USPS",
     },
     {
       "Inventory Type": "product",
@@ -575,6 +609,8 @@ export function downloadInboundBulkTemplate(): void {
       "Retail Identifier": "",
       "Expiry Date": "2026-12-31",
       Remarks: "One row per variant",
+      "Tracking Number": "",
+      Carrier: "",
     },
     {
       "Inventory Type": "product",
@@ -589,6 +625,8 @@ export function downloadInboundBulkTemplate(): void {
       "Retail Identifier": "",
       "Expiry Date": "",
       Remarks: "Restock by SKU",
+      "Tracking Number": "",
+      Carrier: "",
     },
     {
       "Inventory Type": "box",
@@ -603,6 +641,8 @@ export function downloadInboundBulkTemplate(): void {
       "Retail Identifier": "",
       "Expiry Date": "",
       Remarks: "Box (ID auto-generated if name empty)",
+      "Tracking Number": "",
+      Carrier: "",
     },
     {
       "Inventory Type": "pallet",
@@ -617,6 +657,8 @@ export function downloadInboundBulkTemplate(): void {
       "Retail Identifier": "",
       "Expiry Date": "",
       Remarks: "Pallet (ID auto-generated if name empty)",
+      "Tracking Number": "",
+      Carrier: "",
     },
     {
       "Inventory Type": "container",
@@ -631,6 +673,8 @@ export function downloadInboundBulkTemplate(): void {
       "Retail Identifier": "",
       "Expiry Date": "",
       Remarks: "Container handling",
+      "Tracking Number": "",
+      Carrier: "",
     },
   ];
 

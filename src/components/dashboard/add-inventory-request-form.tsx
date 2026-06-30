@@ -33,6 +33,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { InboundBulkImportDialog } from "@/components/dashboard/inbound-bulk-import-dialog";
+import {
+  EMPTY_INBOUND_TRACKING,
+  InboundTrackingFields,
+  type InboundTrackingInput,
+} from "@/components/inventory/inbound-tracking-fields";
+import { addInboundTrackingToRequests } from "@/lib/inbound-tracking-client";
 
 type VariantRowState = {
   id: string;
@@ -40,6 +46,8 @@ type VariantRowState = {
   size: string;
   sku: string;
   quantity: number;
+  trackingNumber: string;
+  carrier: string;
   /** Optional photo for this variant only (not shared across variants). */
   imageFile?: File;
   imagePreviewUrl?: string;
@@ -52,6 +60,8 @@ type NewProductRowState = {
   quantity: number;
   retailIdentifier: string;
   remarks: string;
+  trackingNumber: string;
+  carrier: string;
   expiryDate?: Date;
   imageFile?: File;
   imagePreviewUrl?: string;
@@ -65,6 +75,8 @@ function createEmptyNewProductRow(): NewProductRowState {
     quantity: 1,
     retailIdentifier: "",
     remarks: "",
+    trackingNumber: "",
+    carrier: "usps",
   };
 }
 
@@ -199,6 +211,9 @@ export function AddInventoryRequestForm({
   const [newProductRows, setNewProductRows] = useState<NewProductRowState[]>([createEmptyNewProductRow()]);
   const [singleExpiryDate, setSingleExpiryDate] = useState<Date | undefined>(undefined);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [inboundTrackingMode, setInboundTrackingMode] = useState<"shared" | "per_item">("shared");
+  const [sharedInboundTracking, setSharedInboundTracking] =
+    useState<InboundTrackingInput>(EMPTY_INBOUND_TRACKING);
 
   // Fetch existing inventory for restock dropdown
   const { data: existingInventory } = useCollection<InventoryItem>(
@@ -252,6 +267,11 @@ export function AddInventoryRequestForm({
       }
       return [createEmptyNewProductRow()];
     });
+  };
+
+  const resetInboundTrackingState = () => {
+    setInboundTrackingMode("shared");
+    setSharedInboundTracking(EMPTY_INBOUND_TRACKING);
   };
 
   const addNewProductRow = () => {
@@ -377,6 +397,8 @@ export function AddInventoryRequestForm({
           size,
           sku: prev?.sku ?? buildVariantSku(baseSku, color, size),
           quantity: prev?.quantity ?? 1,
+          trackingNumber: prev?.trackingNumber ?? "",
+          carrier: prev?.carrier ?? "usps",
           imageFile: prev?.imageFile,
           imagePreviewUrl: prev?.imagePreviewUrl,
         });
@@ -395,7 +417,7 @@ export function AddInventoryRequestForm({
 
   const updateVariantRow = (
     id: string,
-    patch: Partial<{ sku: string; quantity: number }>
+    patch: Partial<Omit<VariantRowState, "id">>
   ) => {
     setVariantRows((prev) =>
       prev.map((row) => (row.id === id ? { ...row, ...patch } : row))
@@ -714,6 +736,37 @@ export function AddInventoryRequestForm({
         values.productSubType === "new" &&
         values.productEntryMode === "single";
 
+      const createsMultipleRequests =
+        (isVariantsNewProduct && variantRows.length > 1) ||
+        (isMultiNewProductSingle && newProductRows.length > 1);
+      const usePerItemTracking = createsMultipleRequests && inboundTrackingMode === "per_item";
+
+      const trackingPairs: Array<{ requestId: string; trackingNumber?: string; carrier?: string }> =
+        [];
+
+      function queueSharedTracking(requestId: string) {
+        const tn = sharedInboundTracking.trackingNumber.trim();
+        if (!tn) return;
+        trackingPairs.push({
+          requestId,
+          trackingNumber: tn,
+          carrier: sharedInboundTracking.carrier,
+        });
+      }
+
+      function queueRowTracking(
+        requestId: string,
+        row: Pick<InboundTrackingInput, "trackingNumber" | "carrier">
+      ) {
+        const tn = row.trackingNumber.trim();
+        if (!tn) return;
+        trackingPairs.push({
+          requestId,
+          trackingNumber: tn,
+          carrier: row.carrier,
+        });
+      }
+
       let finalImageUrls: string[] = [];
       if (
         (values.inventoryType === "product" &&
@@ -818,32 +871,38 @@ export function AddInventoryRequestForm({
           return;
         }
 
-        const requests = variantRows.map(async (row) => {
-          const doc: Record<string, unknown> = {
-            ...baseRequestData,
-            productName: finalProductName,
-            sku: row.sku.trim(),
-            quantity: row.quantity,
-            requestedQuantity: row.quantity,
-            color: row.color,
-            size: row.size,
-            variantLabel: `${row.color} / ${row.size}`,
-            parentProductName: finalProductName,
-            productEntryMode: "variants",
-          };
-          if (values.retailIdentifier?.trim()) {
-            doc.retailIdentifier = values.retailIdentifier.trim();
-          }
-          const productExpiry = optionalExpiryTimestampFromParts(undefined, singleExpiryDate);
-          if (productExpiry) doc.expiryDate = productExpiry;
-          if (row.imageFile) {
-            const urls = await uploadInventoryImageFile(ownerId, row.imageFile);
-            doc.imageUrls = urls;
-            doc.imageUrl = urls[0];
-          }
-          return addDoc(collection(db, `users/${ownerId}/inventoryRequests`), doc);
-        });
-        await Promise.all(requests);
+        await Promise.all(
+          variantRows.map(async (row) => {
+            const doc: Record<string, unknown> = {
+              ...baseRequestData,
+              productName: finalProductName,
+              sku: row.sku.trim(),
+              quantity: row.quantity,
+              requestedQuantity: row.quantity,
+              color: row.color,
+              size: row.size,
+              variantLabel: `${row.color} / ${row.size}`,
+              parentProductName: finalProductName,
+              productEntryMode: "variants",
+            };
+            if (values.retailIdentifier?.trim()) {
+              doc.retailIdentifier = values.retailIdentifier.trim();
+            }
+            const productExpiry = optionalExpiryTimestampFromParts(undefined, singleExpiryDate);
+            if (productExpiry) doc.expiryDate = productExpiry;
+            if (row.imageFile) {
+              const urls = await uploadInventoryImageFile(ownerId, row.imageFile);
+              doc.imageUrls = urls;
+              doc.imageUrl = urls[0];
+            }
+            const ref = await addDoc(collection(db, `users/${ownerId}/inventoryRequests`), doc);
+            if (usePerItemTracking) {
+              queueRowTracking(ref.id, row);
+            } else {
+              queueSharedTracking(ref.id);
+            }
+          })
+        );
       } else if (isMultiNewProductSingle) {
         const invalidRow = newProductRows.find(
           (row) => !row.productName.trim() || !row.sku.trim() || row.quantity <= 0
@@ -889,40 +948,46 @@ export function AddInventoryRequestForm({
           return;
         }
 
-        const requests = newProductRows.map(async (row) => {
-          const rowImageUrls = row.imageFile
-            ? await uploadInventoryImageFile(ownerId, row.imageFile)
-            : [];
-          const rowExpiry = optionalExpiryTimestampFromParts(undefined, row.expiryDate);
-          const doc: Record<string, unknown> = {
-            userId: ownerId,
-            userName: ownerName || "Unknown User",
-            inventoryType: values.inventoryType,
-            productSubType: "new",
-            addDate,
-            status: "pending",
-            requestedBy: ownerId,
-            requestedAt,
-            productName: row.productName.trim(),
-            sku: row.sku.trim(),
-            quantity: row.quantity,
-            requestedQuantity: row.quantity,
-            productEntryMode: "single",
-          };
-          if (row.retailIdentifier?.trim()) {
-            doc.retailIdentifier = row.retailIdentifier.trim();
-          }
-          if (row.remarks?.trim()) {
-            doc.remarks = row.remarks.trim();
-          }
-          if (rowExpiry) doc.expiryDate = rowExpiry;
-          if (rowImageUrls.length > 0) {
-            doc.imageUrls = rowImageUrls;
-            doc.imageUrl = rowImageUrls[0];
-          }
-          return addDoc(collection(db, `users/${ownerId}/inventoryRequests`), doc);
-        });
-        await Promise.all(requests);
+        await Promise.all(
+          newProductRows.map(async (row) => {
+            const rowImageUrls = row.imageFile
+              ? await uploadInventoryImageFile(ownerId, row.imageFile)
+              : [];
+            const rowExpiry = optionalExpiryTimestampFromParts(undefined, row.expiryDate);
+            const doc: Record<string, unknown> = {
+              userId: ownerId,
+              userName: ownerName || "Unknown User",
+              inventoryType: values.inventoryType,
+              productSubType: "new",
+              addDate,
+              status: "pending",
+              requestedBy: ownerId,
+              requestedAt,
+              productName: row.productName.trim(),
+              sku: row.sku.trim(),
+              quantity: row.quantity,
+              requestedQuantity: row.quantity,
+              productEntryMode: "single",
+            };
+            if (row.retailIdentifier?.trim()) {
+              doc.retailIdentifier = row.retailIdentifier.trim();
+            }
+            if (row.remarks?.trim()) {
+              doc.remarks = row.remarks.trim();
+            }
+            if (rowExpiry) doc.expiryDate = rowExpiry;
+            if (rowImageUrls.length > 0) {
+              doc.imageUrls = rowImageUrls;
+              doc.imageUrl = rowImageUrls[0];
+            }
+            const ref = await addDoc(collection(db, `users/${ownerId}/inventoryRequests`), doc);
+            if (usePerItemTracking) {
+              queueRowTracking(ref.id, row);
+            } else {
+              queueSharedTracking(ref.id);
+            }
+          })
+        );
       } else {
         const requestData: any = {
           ...baseRequestData,
@@ -947,7 +1012,23 @@ export function AddInventoryRequestForm({
         if (singleEx) {
           requestData.expiryDate = singleEx;
         }
-        await addDoc(collection(db, `users/${ownerId}/inventoryRequests`), requestData);
+        const ref = await addDoc(collection(db, `users/${ownerId}/inventoryRequests`), requestData);
+        queueSharedTracking(ref.id);
+      }
+
+      if (trackingPairs.length > 0) {
+        try {
+          await addInboundTrackingToRequests(user, ownerId, trackingPairs);
+        } catch (trackingError) {
+          toast({
+            variant: "destructive",
+            title: "Tracking not saved",
+            description:
+              trackingError instanceof Error
+                ? `${trackingError.message} You can add tracking from the inventory table.`
+                : "Requests were created but tracking could not be added.",
+          });
+        }
       }
 
       const submittedCount = isVariantsNewProduct
@@ -982,6 +1063,7 @@ export function AddInventoryRequestForm({
       clearAllVariantRows();
       clearAllNewProductRows();
       setSingleExpiryDate(undefined);
+      resetInboundTrackingState();
       if (mode === "dialog") setOpen(false);
     } catch (error: any) {
       toast({
@@ -1023,6 +1105,16 @@ export function AddInventoryRequestForm({
         return "Name";
     }
   };
+
+  const createsMultipleInboundRequests =
+    (inventoryType === "product" &&
+      productSubType === "new" &&
+      productEntryMode === "variants" &&
+      variantRows.length > 1) ||
+    (inventoryType === "product" &&
+      productSubType === "new" &&
+      productEntryMode === "single" &&
+      newProductRows.length > 1);
 
   const formBody = (
     <Form {...form}>
@@ -1322,13 +1414,7 @@ export function AddInventoryRequestForm({
             {/* New products (single mode) — add multiple products one by one */}
             {inventoryType === "product" && productSubType === "new" && productEntryMode === "single" && (
               <div className="space-y-3 rounded-xl border bg-card/90 p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <Label className="text-sm font-medium">Products *</Label>
-                  <Button type="button" variant="outline" size="sm" className="h-9" onClick={addNewProductRow}>
-                    <Plus className="mr-1.5 h-4 w-4" />
-                    Add Product
-                  </Button>
-                </div>
+                <Label className="text-sm font-medium">Products *</Label>
                 <div className="space-y-3">
                   {newProductRows.map((row, index) => (
                     <div key={row.id} className="space-y-3 rounded-lg border bg-background p-3">
@@ -1432,6 +1518,27 @@ export function AddInventoryRequestForm({
                             </div>
                           )}
                         </div>
+                        {createsMultipleInboundRequests && inboundTrackingMode === "per_item" && (
+                          <div className="space-y-1 border-t pt-3">
+                            <Label className="text-xs font-medium text-muted-foreground">
+                              Shipment tracking (optional)
+                            </Label>
+                            <InboundTrackingFields
+                              compact
+                              idPrefix={`product-trk-${row.id}`}
+                              value={{
+                                trackingNumber: row.trackingNumber,
+                                carrier: row.carrier,
+                              }}
+                              onChange={(next) =>
+                                updateNewProductRow(row.id, {
+                                  trackingNumber: next.trackingNumber,
+                                  carrier: next.carrier,
+                                })
+                              }
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1439,6 +1546,12 @@ export function AddInventoryRequestForm({
                 <p className="text-xs text-muted-foreground">
                   Each product has its own expiry, picture, and remarks. Use Add Product for another item.
                 </p>
+                <div className="flex justify-end">
+                  <Button type="button" variant="outline" size="sm" className="h-9" onClick={addNewProductRow}>
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    Add Product
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -1600,6 +1713,27 @@ export function AddInventoryRequestForm({
                             )}
                           </div>
                         </div>
+                        {createsMultipleInboundRequests && inboundTrackingMode === "per_item" && (
+                          <div className="space-y-1 border-t pt-3">
+                            <Label className="text-xs font-medium text-muted-foreground">
+                              Shipment tracking (optional)
+                            </Label>
+                            <InboundTrackingFields
+                              compact
+                              idPrefix={`variant-trk-${row.id}`}
+                              value={{
+                                trackingNumber: row.trackingNumber,
+                                carrier: row.carrier,
+                              }}
+                              onChange={(next) =>
+                                updateVariantRow(row.id, {
+                                  trackingNumber: next.trackingNumber,
+                                  carrier: next.carrier,
+                                })
+                              }
+                            />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1675,6 +1809,53 @@ export function AddInventoryRequestForm({
               />
             )}
 
+            <div className="space-y-3 rounded-xl border bg-card/90 p-4 shadow-sm">
+              <div>
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <Truck className="h-4 w-4" />
+                  Inbound shipment tracking (optional)
+                </Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Uses the same tracking as the inventory table. Carrier status refreshes every 6 hours.
+                </p>
+              </div>
+
+              {createsMultipleInboundRequests && (
+                <RadioGroup
+                  value={inboundTrackingMode}
+                  onValueChange={(v) => setInboundTrackingMode(v as "shared" | "per_item")}
+                  className="space-y-2"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="shared" id="inbound-trk-shared" />
+                    <Label htmlFor="inbound-trk-shared" className="font-normal">
+                      One tracking number for all items in this submission
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="per_item" id="inbound-trk-per-item" />
+                    <Label htmlFor="inbound-trk-per-item" className="font-normal">
+                      Separate tracking per item
+                    </Label>
+                  </div>
+                </RadioGroup>
+              )}
+
+              {(!createsMultipleInboundRequests || inboundTrackingMode === "shared") && (
+                <InboundTrackingFields
+                  idPrefix="inbound-trk-shared"
+                  value={sharedInboundTracking}
+                  onChange={setSharedInboundTracking}
+                />
+              )}
+
+              {createsMultipleInboundRequests && inboundTrackingMode === "per_item" && (
+                <p className="text-xs text-muted-foreground">
+                  Enter tracking on each product or variant card above.
+                </p>
+              )}
+            </div>
+
             {!(
               inventoryType === "product" &&
               productSubType === "new" &&
@@ -1714,6 +1895,7 @@ export function AddInventoryRequestForm({
                 clearAllVariantRows();
                 clearAllNewProductRows();
                 setSingleExpiryDate(undefined);
+                resetInboundTrackingState();
               } else {
                 form.reset({
                   inventoryType: "product",
@@ -1733,6 +1915,7 @@ export function AddInventoryRequestForm({
                 clearAllVariantRows();
                 clearAllNewProductRows();
                 setSingleExpiryDate(undefined);
+                resetInboundTrackingState();
               }
             }}
             disabled={isLoading}
