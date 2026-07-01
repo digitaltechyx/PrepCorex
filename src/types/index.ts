@@ -95,6 +95,24 @@ export interface UserProfile {
   } | null;
   /** MSA effective date (ISO string). */
   msaEffectiveDate?: string | null;
+  /** Client onboarding: business type selected at activation. */
+  businessType?: string | null;
+  /** Client onboarding: services the client needs. */
+  servicesNeeded?: string[] | null;
+  /** Client onboarding: estimated monthly sales volume band. */
+  salesVolume?: string | null;
+  /** Set when business + services profile steps are completed (before MSA). */
+  onboardingProfileCompletedAt?: { seconds: number; nanoseconds: number } | Date | null;
+  /** MSA acceptance record at account activation. */
+  msaAcceptance?: {
+    version: number;
+    effectiveAt?: string | null;
+    acceptedAt?: { seconds: number; nanoseconds: number } | Date | string | null;
+    acceptMsa: boolean;
+    acceptSchedules: boolean;
+    authorityConfirmed: boolean;
+    legalName?: string | null;
+  } | null;
 }
 
 export interface InventoryItem {

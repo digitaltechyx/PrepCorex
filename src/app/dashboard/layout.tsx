@@ -170,6 +170,15 @@ export default function DashboardLayout({
     );
   }
 
+  const isOnActivatePage =
+    pathname === "/dashboard/activate-account" || pathname?.startsWith("/dashboard/activate-account");
+  const needsClientActivation =
+    !!userProfile && hasRole(userProfile, "user") && !isAccountActivated(userProfile);
+
+  if (needsClientActivation && isOnActivatePage) {
+    return <main className="min-h-screen w-full bg-background">{children}</main>;
+  }
+
   return (
     <SidebarProvider>
       <DashboardNavProvider>

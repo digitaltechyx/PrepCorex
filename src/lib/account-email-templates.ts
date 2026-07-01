@@ -80,7 +80,7 @@ export function buildAccountApprovedEmail(input: {
 
 Good news — your PrepCorex account for ${input.companyName} has been approved.
 
-You can now sign in and start using the portal:
+Sign in to complete your profile and accept the Master Service Agreement:
 ${input.loginUrl}
 
 Welcome aboard,
@@ -90,7 +90,7 @@ PrepCorex Team`;
     "Your account is approved",
     `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Hello <strong>${input.contactName}</strong>,</p>
 <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Good news — your PrepCorex account for <strong>${input.companyName}</strong> has been <strong>approved</strong>.</p>
-<p style="margin:0 0 20px;font-size:15px;line-height:1.6;">You can now sign in, submit inbound requests, manage inventory, and access your client dashboard.</p>
+<p style="margin:0 0 20px;font-size:15px;line-height:1.6;">Sign in to complete your business profile, review the Master Service Agreement, and activate your account.</p>
 <p style="margin:0 0 24px;">
   <a href="${input.loginUrl}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;font-size:14px;">Sign in to PrepCorex</a>
 </p>

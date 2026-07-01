@@ -87,3 +87,9 @@ export function withResolvedDocumentMetadata(doc: PlatformDocument): PlatformDoc
 export function getDocumentControlHeading(slug: PlatformDocumentSlug): boolean {
   return DOCUMENT_CONTROL_TEMPLATES[slug].showHeading;
 }
+
+export function formatMsaAgreementVersionLabel(
+  doc: Pick<PlatformDocument, "version" | "effectiveAt" | "updatedAt">
+): string {
+  return `MSA v${formatControlVersion(doc.version)} (Effective: ${formatControlDate(doc.effectiveAt || doc.updatedAt)})`;
+}
