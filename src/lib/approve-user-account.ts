@@ -3,6 +3,8 @@ import { buildAccountApprovedEmail } from "@/lib/account-email-templates";
 import { adminDb } from "@/lib/firebase-admin";
 import { getDefaultFeaturesForRole } from "@/lib/permissions";
 import { getAppLoginUrl, sendTransactionalEmail } from "@/lib/smtp-send";
+import type { AuditRequestMeta } from "@/lib/user-audit-request-meta";
+import { appendUserAuditEvent } from "@/lib/user-audit-trail-server";
 import type { UserRole } from "@/types";
 
 function normalizeRoles(data: FirebaseFirestore.DocumentData): UserRole[] {
@@ -35,7 +37,15 @@ export type ApproveUserResult = {
   emailError?: string;
 };
 
-export async function approveUserAccount(uid: string): Promise<ApproveUserResult> {
+export type ApproveUserAuditContext = {
+  meta?: AuditRequestMeta;
+  performedByUid?: string;
+};
+
+export async function approveUserAccount(
+  uid: string,
+  auditContext?: ApproveUserAuditContext
+): Promise<ApproveUserResult> {
   const ref = adminDb().collection("users").doc(uid);
   const snap = await ref.get();
   if (!snap.exists) {
@@ -74,6 +84,17 @@ export async function approveUserAccount(uid: string): Promise<ApproveUserResult
   }
 
   await ref.set(updateData, { merge: true });
+
+  try {
+    await appendUserAuditEvent(uid, {
+      type: "account_approved",
+      description: "Account approved by administrator.",
+      meta: auditContext?.meta,
+      performedByUid: auditContext?.performedByUid ?? null,
+    });
+  } catch (err) {
+    console.error("[approveUserAccount] audit log failed:", err);
+  }
 
   const to = String(user.email || "").trim();
   if (!to) {

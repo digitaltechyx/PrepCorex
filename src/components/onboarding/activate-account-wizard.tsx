@@ -220,6 +220,14 @@ export function ActivateAccountWizard() {
       setSubmitting(true);
       try {
         await saveProfilePartial();
+        await logUserAuditEvent("profile_completed", {
+          description: "Completed business profile and services onboarding steps.",
+          metadata: {
+            businessType: businessType.trim(),
+            servicesNeeded,
+            salesVolume: salesVolume.trim(),
+          },
+        });
         setStep(3);
       } catch (err) {
         toast({
@@ -307,6 +315,13 @@ export function ActivateAccountWizard() {
       }
 
       await updateDoc(doc(db, "users", userProfile.uid), updateData);
+      await logUserAuditEvent("account_activated", {
+        description: "Accepted MSA and activated account.",
+        metadata: {
+          msaVersion: msaDocument.version,
+          legalName: legalName.trim(),
+        },
+      });
       toast({
         title: "Account activated",
         description: "Welcome to PrepCorex! Your dashboard is now ready.",

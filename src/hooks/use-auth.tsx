@@ -159,6 +159,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [user?.uid, userProfile]);
 
   const signOut = async () => {
+    try {
+      if (user) {
+        const { clearAuditSession, getAuditSession, logUserAuditEvent } = await import(
+          "@/lib/user-audit-trail-client"
+        );
+        const session = getAuditSession();
+        await logUserAuditEvent("sign_out", {
+          description: "User signed out.",
+          session,
+          metadata: {
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+          },
+        });
+        clearAuditSession();
+      }
+    } catch {
+      // Non-blocking
+    }
     await firebaseSignOut(auth);
     setUser(null);
     setUserProfile(null);

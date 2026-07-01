@@ -108,6 +108,16 @@ function LoginPageContent() {
           return;
         }
         
+        const { beginAuditSession, logUserAuditEvent } = await import("@/lib/user-audit-trail-client");
+        const session = beginAuditSession();
+        await logUserAuditEvent("sign_in", {
+          description: "Successful sign in.",
+          session,
+          metadata: {
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+          },
+        });
+
         // Import permission helpers
         const { hasRole, getUserRoles } = await import("@/lib/permissions");
         
@@ -135,6 +145,15 @@ function LoginPageContent() {
         }
       } else {
         // If no profile exists, redirect to regular dashboard
+        const { beginAuditSession, logUserAuditEvent } = await import("@/lib/user-audit-trail-client");
+        const session = beginAuditSession();
+        await logUserAuditEvent("sign_in", {
+          description: "Successful sign in.",
+          session,
+          metadata: {
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+          },
+        });
         router.push("/dashboard");
       }
     } catch (error: any) {

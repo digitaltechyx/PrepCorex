@@ -8,6 +8,7 @@ import { ProfileDialog } from "@/components/dashboard/profile-dialog";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { ClientFeatureGate } from "@/components/dashboard/client-feature-gate";
+import { UserAuditActivityTracker } from "@/components/audit/user-audit-activity-tracker";
 import { DashboardNavProvider } from "@/contexts/dashboard-nav-context";
 import { hasRole, getUserRoles, isAccountActivated, hasFeature } from "@/lib/permissions";
 import { userRequiresEmailVerification } from "@/lib/email-verification";
@@ -183,11 +184,17 @@ export default function DashboardLayout({
     !!userProfile && hasRole(userProfile, "user") && !isAccountActivated(userProfile);
 
   if (needsClientActivation && isOnActivatePage) {
-    return <main className="min-h-screen w-full bg-background">{children}</main>;
+    return (
+      <>
+        <UserAuditActivityTracker />
+        <main className="min-h-screen w-full bg-background">{children}</main>
+      </>
+    );
   }
 
   return (
     <SidebarProvider>
+      <UserAuditActivityTracker />
       <DashboardNavProvider>
         <div className="flex min-h-screen w-full">
           <DashboardSidebar />

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-admin-auth";
 import { approveUserAccount } from "@/lib/approve-user-account";
+import { getAuditRequestMeta } from "@/lib/user-audit-request-meta";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   try {
-    const result = await approveUserAccount(uid.trim());
+    const result = await approveUserAccount(uid.trim(), {
+      meta: getAuditRequestMeta(request),
+      performedByUid: auth.uid,
+    });
     return NextResponse.json({
       success: true,
       emailSent: result.emailSent,
