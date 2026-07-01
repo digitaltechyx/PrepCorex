@@ -44,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PlatformLegalDocumentsCard } from "@/components/documents/platform-legal-documents-card";
 
 interface DocumentRequest {
   id: string;
@@ -806,6 +807,8 @@ function DocumentsPageContent() {
         </Dialog>
         </div>
       </div>
+
+      <PlatformLegalDocumentsCard />
 
       {/* Master Service Agreement (signed) */}
       {userProfile?.msaClientDetails && userProfile?.msaEffectiveDate && (

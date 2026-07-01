@@ -171,6 +171,28 @@ export function MemberManagement({
 
       await updateDoc(doc(db, "users", user.uid), updateData);
 
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (token && user.email) {
+          await fetch("/api/email/account", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              type: "approved",
+              userId: user.uid,
+              email: user.email,
+              contactName: user.name || "there",
+              companyName: user.companyName || "your company",
+            }),
+          });
+        }
+      } catch (emailError) {
+        console.error("Approval email failed:", emailError);
+      }
+
       toast({
         title: "Success",
         description: `User "${user.name}" has been approved!`,

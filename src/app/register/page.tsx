@@ -8,7 +8,7 @@ import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { generateClientId } from "@/lib/client-id";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,50 +26,80 @@ import { auth, db } from "@/lib/firebase";
 import { findDefaultWarehouseLocationId } from "@/lib/default-warehouse";
 import { Logo } from "@/components/logo";
 import { Loader2 } from "lucide-react";
-import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { PhoneInput } from "@/components/ui/phone-input";
+import type { PlatformDocumentSlug, PlatformDocumentSummary } from "@/lib/platform-documents-types";
+import { PLATFORM_DOCUMENT_LABELS, PLATFORM_DOCUMENT_SLUGS } from "@/lib/platform-documents-types";
+
 const formSchema = z.object({
-  fullName: z.string().min(2, { message: "Name must be at least 2 characters." }),
+  contactName: z.string().min(2, { message: "Contact name must be at least 2 characters." }),
+  companyName: z.string().min(1, { message: "Company name is required." }),
   phone: z.string().min(10, { message: "Please enter a valid phone number." }),
   email: z.string().email({ message: "Invalid email address." }),
-  password: z.string().min(6, { message: "Password must be at least 6 characters." }),
-  companyName: z.string().min(1, { message: "Company name is required." }),
-  ein: z.string().min(1, { message: "EIN is required." }),
-  address: z.string().min(1, { message: "Address is required." }),
-  city: z.string().min(1, { message: "City is required." }),
-  state: z.string().min(1, { message: "State is required." }),
-  country: z.string().min(1, { message: "Country is required." }),
-  zipCode: z.string().min(5, { message: "Zip code must be at least 5 characters." }),
   referralCode: z.string().optional(),
-  /** Location IDs – at least one required when active locations exist (validated in submit). */
-  locations: z.array(z.string()).optional().default([]),
-  termsAccepted: z.boolean().refine((val) => val === true, {
-    message: "You must accept the terms and conditions.",
+  password: z.string().min(6, { message: "Password must be at least 6 characters." }),
+  documentsAccepted: z.boolean().refine((val) => val === true, {
+    message: "You must agree to the listed documents.",
+  }),
+  authorizedRepresentative: z.boolean().refine((val) => val === true, {
+    message: "You must confirm you are authorized to accept on behalf of your company.",
   }),
 });
+
+function DocumentViewLink({ slug, label }: { slug: PlatformDocumentSlug; label: string }) {
+  return (
+    <a
+      href={`/api/platform-documents/${slug}/pdf`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary underline underline-offset-2 hover:text-primary/80"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {label}
+    </a>
+  );
+}
 
 export default function RegisterPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [documentVersions, setDocumentVersions] = useState<
+    Partial<Record<PlatformDocumentSlug, number>>
+  >({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/platform-documents");
+        const data = await res.json();
+        if (!cancelled && res.ok && Array.isArray(data.documents)) {
+          const map: Partial<Record<PlatformDocumentSlug, number>> = {};
+          for (const doc of data.documents as PlatformDocumentSummary[]) {
+            map[doc.slug] = doc.version;
+          }
+          setDocumentVersions(map);
+        }
+      } catch {
+        // Defaults applied on submit if fetch fails
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      fullName: "",
+      contactName: "",
+      companyName: "",
       phone: "",
       email: "",
-      password: "",
-      companyName: "",
-      ein: "",
-      address: "",
-      city: "",
-      state: "",
-      country: "",
-      zipCode: "",
       referralCode: "",
-      termsAccepted: false,
+      password: "",
+      documentsAccepted: false,
+      authorizedRepresentative: false,
     },
   });
 
@@ -77,8 +107,7 @@ export default function RegisterPage() {
     setIsLoading(true);
     try {
       let referredByAgentId: string | null = null;
-      
-      // Validate referral code if provided
+
       if (values.referralCode && values.referralCode.trim() !== "") {
         const referralCode = values.referralCode.trim().toUpperCase();
         const agentsQuery = query(
@@ -88,7 +117,7 @@ export default function RegisterPage() {
           where("status", "==", "approved")
         );
         const agentsSnapshot = await getDocs(agentsQuery);
-        
+
         if (!agentsSnapshot.empty) {
           referredByAgentId = agentsSnapshot.docs[0].id;
         } else {
@@ -102,31 +131,40 @@ export default function RegisterPage() {
         }
       }
 
-      const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        values.email,
+        values.password
+      );
       const user = userCredential.user;
 
-      const userData: any = {
+      const acceptedDocuments = Object.fromEntries(
+        PLATFORM_DOCUMENT_SLUGS.map((slug) => [
+          slug,
+          { version: documentVersions[slug] ?? 1 },
+        ])
+      );
+
+      const userData: Record<string, unknown> = {
         uid: user.uid,
-        name: values.fullName,
+        name: values.contactName.trim(),
         email: values.email,
         phone: values.phone,
         password: values.password,
-        companyName: values.companyName,
-        ein: values.ein,
-        address: values.address,
-        city: values.city,
-        state: values.state,
-        country: values.country,
-        zipCode: values.zipCode,
+        companyName: values.companyName.trim(),
         role: "user",
         roles: ["user"],
-        features: [], // No features until user accepts MSA (Activate Account)
+        features: [],
         status: "pending",
         createdAt: new Date(),
         clientId: await generateClientId(),
+        platformAgreementsAccepted: {
+          acceptedAt: new Date(),
+          authorizedRepresentative: true,
+          documents: acceptedDocuments,
+        },
       };
 
-      // Add referral information if referral code was provided
       if (values.referralCode && values.referralCode.trim() !== "" && referredByAgentId) {
         userData.referredBy = values.referralCode.trim().toUpperCase();
         userData.referredByAgentId = referredByAgentId;
@@ -139,17 +177,36 @@ export default function RegisterPage() {
 
       await setDoc(doc(db, "users", user.uid), userData);
 
+      try {
+        const token = await user.getIdToken();
+        await fetch("/api/email/account", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            type: "welcome",
+            contactName: values.contactName.trim(),
+            companyName: values.companyName.trim(),
+            email: values.email,
+          }),
+        });
+      } catch {
+        // Account created; email failure is non-blocking
+      }
+
       toast({
-        title: "Registration Successful",
-        description: "You can now log in with your credentials.",
+        title: "Account created",
+        description:
+          "Your account is under review. We emailed you confirmation and will notify you when approved.",
       });
       router.push("/login");
-
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: "destructive",
         title: "Registration Failed",
-        description: error.message || "An unexpected error occurred.",
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
       });
     } finally {
       setIsLoading(false);
@@ -158,32 +215,49 @@ export default function RegisterPage() {
 
   return (
     <div className="w-full min-h-screen relative">
-      {/* Gradient background */}
       <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-indigo-950 dark:via-purple-950 dark:to-pink-950 -z-10">
-        {/* Animated gradient orbs */}
-        <div className="absolute top-0 left-0 w-96 h-96 bg-indigo-300/30 dark:bg-indigo-700/20 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-0 right-0 w-96 h-96 bg-purple-300/30 dark:bg-purple-700/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-pink-300/20 dark:bg-pink-700/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }}></div>
+        <div className="absolute top-0 left-0 w-96 h-96 bg-indigo-300/30 dark:bg-indigo-700/20 rounded-full blur-3xl animate-pulse" />
+        <div
+          className="absolute bottom-0 right-0 w-96 h-96 bg-purple-300/30 dark:bg-purple-700/20 rounded-full blur-3xl animate-pulse"
+          style={{ animationDelay: "1s" }}
+        />
+        <div
+          className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-pink-300/20 dark:bg-pink-700/10 rounded-full blur-3xl animate-pulse"
+          style={{ animationDelay: "2s" }}
+        />
       </div>
       <div className="flex items-center justify-center py-12 min-h-screen">
         <div className="mx-auto grid w-full max-w-[500px] gap-6 px-4">
           <div className="grid gap-2 text-center">
             <Logo variant="auth" />
-            <h1 className="text-3xl font-bold font-headline mt-4">Onboarding form</h1>
+            <h1 className="text-3xl font-bold font-headline mt-4">Create Your Account</h1>
             <p className="text-balance text-muted-foreground">
-              Enter your information to complete the onboarding form
+              Register your company to access the PrepCorex client portal
             </p>
           </div>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
               <FormField
                 control={form.control}
-                name="fullName"
+                name="contactName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Full Name</FormLabel>
+                    <FormLabel>Contact Name *</FormLabel>
                     <FormControl>
                       <Input placeholder="John Doe" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="companyName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Company Name *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="ABC Company Inc." {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -194,7 +268,7 @@ export default function RegisterPage() {
                 name="phone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Phone Number</FormLabel>
+                    <FormLabel>Phone *</FormLabel>
                     <FormControl>
                       <PhoneInput
                         value={field.value}
@@ -211,102 +285,9 @@ export default function RegisterPage() {
                 name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Email</FormLabel>
+                    <FormLabel>Email *</FormLabel>
                     <FormControl>
                       <Input placeholder="m@example.com" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="companyName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Company Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="ABC Company Inc." {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="ein"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>EIN</FormLabel>
-                    <FormControl>
-                      <Input placeholder="12-3456789" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Complete Address</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder="123 Main Street, Suite 100" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="city"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>City</FormLabel>
-                      <FormControl>
-                        <Input placeholder="New York" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="state"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>State</FormLabel>
-                      <FormControl>
-                        <Input placeholder="NY" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={form.control}
-                name="country"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Country</FormLabel>
-                    <FormControl>
-                      <Input placeholder="United States" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="zipCode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Zip Code</FormLabel>
-                    <FormControl>
-                      <Input placeholder="10001" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -319,8 +300,8 @@ export default function RegisterPage() {
                   <FormItem>
                     <FormLabel>Referral Code (Optional)</FormLabel>
                     <FormControl>
-                      <Input 
-                        placeholder="Enter referral code if you have one" 
+                      <Input
+                        placeholder="Enter referral code if you have one"
                         {...field}
                         className="uppercase"
                         onChange={(e) => field.onChange(e.target.value.toUpperCase())}
@@ -335,50 +316,59 @@ export default function RegisterPage() {
                 name="password"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Password</FormLabel>
+                    <FormLabel>Password *</FormLabel>
                     <FormControl>
-                      <Input type="password" {...field} />
+                      <Input type="password" autoComplete="new-password" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              {/* Terms and Conditions */}
-              <div className="space-y-3 border rounded-lg p-4 bg-muted/50">
-                <h3 className="text-sm font-semibold">Terms & Conditions</h3>
-                <ScrollArea className="h-[200px] w-full pr-4">
-                  <div className="text-xs text-muted-foreground space-y-2">
-                    <p>
-                      Please read and agree to the terms and conditions before submitting. By submitting this form, you agree that all information provided is accurate. Our services are governed by our service policy and liability terms as discussed with your assigned representative. Prep Services FBA is not responsible for any shipment delays caused by carriers.
-                    </p>
-                    <ul className="list-disc list-inside space-y-1 ml-2">
-                      <li>
-                        Always use authentic shipping labels. Fake/Forged labels lead to product confiscation, severe penalities ($5,000 - $10,000), and legal action.
-                      </li>
-                      <li>
-                        Payments are on daily basis unless you have paid in advance before the shipment. No Payment! No Shipment!
-                      </li>
-                      <li>
-                        If invoice didn't get processed in 24-48 hours, there will be $19 late payment fee will be applied.
-                      </li>
-                    </ul>
-                  </div>
-                </ScrollArea>
+              <div className="space-y-3 rounded-lg border bg-muted/40 p-4">
                 <FormField
                   control={form.control}
-                  name="termsAccepted"
+                  name="documentsAccepted"
                   render={({ field }) => (
                     <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                       <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
+                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                      <div className="space-y-2 leading-none">
+                        <FormLabel className="text-sm font-normal cursor-pointer">
+                          I have read and agree to the following documents:
+                        </FormLabel>
+                        <ul className="space-y-1 text-sm text-muted-foreground">
+                          <li>
+                            {PLATFORM_DOCUMENT_LABELS.msa.shortLabel} (
+                            <DocumentViewLink slug="msa" label="View" />)
+                          </li>
+                          <li>
+                            {PLATFORM_DOCUMENT_LABELS.terms.shortLabel} (
+                            <DocumentViewLink slug="terms" label="View" />)
+                          </li>
+                          <li>
+                            {PLATFORM_DOCUMENT_LABELS.privacy.shortLabel} (
+                            <DocumentViewLink slug="privacy" label="View" />)
+                          </li>
+                        </ul>
+                        <FormMessage />
+                      </div>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="authorizedRepresentative"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                      <FormControl>
+                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                       </FormControl>
                       <div className="space-y-1 leading-none">
                         <FormLabel className="text-sm font-normal cursor-pointer">
-                          I have read and agree to the terms and conditions.
+                          I confirm that I am authorized to create this account and accept these
+                          agreements on behalf of my company.
                         </FormLabel>
                         <FormMessage />
                       </div>
@@ -410,4 +400,3 @@ export default function RegisterPage() {
     </div>
   );
 }
-

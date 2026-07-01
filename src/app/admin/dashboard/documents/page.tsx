@@ -10,7 +10,7 @@ import { useManagedUsers } from "@/hooks/use-managed-users";
 import { doc, updateDoc, Timestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
-import { FileText, Upload, Loader2, CheckCircle, Clock, Download, User, Search, FileStack, CalendarCheck, FileSignature } from "lucide-react";
+import { FileText, Upload, Loader2, CheckCircle, Clock, Download, User, Search, FileStack, CalendarCheck, FileSignature, BookOpen } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { generateMSAPDF } from "@/lib/msa-pdf-generator";
 import { generateFulfillmentAgreementPDF } from "@/lib/fulfillment-agreement-pdf-generator";
@@ -37,6 +37,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CUSTOM_DOCUMENT_REQUEST_LABEL } from "@/lib/document-request-labels";
+import { PlatformDocumentsManagement } from "@/components/admin/platform-documents-management";
 
 interface DocumentRequest {
   id: string;
@@ -569,7 +570,7 @@ export default function DocumentRequestsPage() {
     <div className="container mx-auto py-6 space-y-6">
       <Tabs value={managementTab} onValueChange={setManagementTab} className="space-y-6">
         <div className="rounded-lg border bg-card p-1.5 shadow-sm">
-          <TabsList className="grid h-auto w-full max-w-2xl grid-cols-2 gap-1.5 bg-muted/50 p-1">
+          <TabsList className="grid h-auto w-full max-w-3xl grid-cols-3 gap-1.5 bg-muted/50 p-1">
             <TabsTrigger
               value="requests"
               className="gap-2 rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:text-foreground"
@@ -589,6 +590,13 @@ export default function DocumentRequestsPage() {
               >
                 {usersWithMSA.length}
               </Badge>
+            </TabsTrigger>
+            <TabsTrigger
+              value="platform-legal"
+              className="gap-2 rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:text-foreground"
+            >
+              <BookOpen className="h-4 w-4 shrink-0" />
+              Legal Templates
             </TabsTrigger>
           </TabsList>
         </div>
@@ -1143,6 +1151,9 @@ export default function DocumentRequestsPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+        <TabsContent value="platform-legal" className="mt-0">
+          <PlatformDocumentsManagement />
         </TabsContent>
       </Tabs>
 

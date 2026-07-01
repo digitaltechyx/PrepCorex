@@ -80,7 +80,8 @@ export default function PendingApprovalPage() {
           {/* Status Message */}
           <div className="text-center space-y-2">
             <p className="text-sm text-muted-foreground">
-              An administrator will review your account and approve it soon.
+              Your account is under review. Most accounts are approved within 1 business day.
+              We will email you when your account is ready.
             </p>
             <p className="text-xs text-muted-foreground">
               {userProfile?.role === "commission_agent" 
