@@ -180,7 +180,7 @@ export default function LoginPage() {
             <div>
               New here?{" "}
               <Link href="/register" className="underline text-primary font-medium">
-                Complete onboarding to create your account.
+                Create your account
               </Link>
             </div>
             <div>
