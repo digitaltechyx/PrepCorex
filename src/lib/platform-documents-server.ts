@@ -18,6 +18,19 @@ import {
 
 const COLLECTION = "platformDocuments";
 
+function toFirestoreDocument(
+  doc: PlatformDocument | Record<string, unknown>,
+  extra?: Record<string, unknown>
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = { ...extra };
+  for (const [key, value] of Object.entries(doc)) {
+    if (value !== undefined) {
+      payload[key] = value;
+    }
+  }
+  return payload;
+}
+
 function mapControlRows(value: unknown): PlatformDocumentControlRow[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value
@@ -94,10 +107,9 @@ export async function ensurePlatformDocument(slug: PlatformDocumentSlug): Promis
   const seed = getDefaultPlatformDocument(slug);
 
   if (!snap.exists) {
-    await ref.set({
-      ...seed,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+    await ref.set(
+      toFirestoreDocument(seed, { updatedAt: FieldValue.serverTimestamp() })
+    );
     return seed;
   }
 
@@ -116,10 +128,7 @@ export async function ensurePlatformDocument(slug: PlatformDocumentSlug): Promis
   };
 
   await ref.set(
-    {
-      ...migrated,
-      updatedAt: FieldValue.serverTimestamp(),
-    },
+    toFirestoreDocument(migrated, { updatedAt: FieldValue.serverTimestamp() }),
     { merge: true }
   );
 
@@ -172,11 +181,12 @@ export async function savePlatformDocument(
 
   await ref.set(payload, { merge: true });
 
-  await ref.collection("versions").doc(String(existing.version)).set({
-    ...existing,
-    archivedAt: FieldValue.serverTimestamp(),
-    archivedBy: admin.uid,
-  });
+  await ref.collection("versions").doc(String(existing.version)).set(
+    toFirestoreDocument(existing, {
+      archivedAt: FieldValue.serverTimestamp(),
+      archivedBy: admin.uid,
+    })
+  );
 
   const updated = await ref.get();
   return mapDoc(slug, updated.data()!);
