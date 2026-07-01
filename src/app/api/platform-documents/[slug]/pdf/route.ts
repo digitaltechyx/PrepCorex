@@ -22,7 +22,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const buffer = Buffer.from(await blob.arrayBuffer());
     const filename = platformDocumentPdfFilename(document);
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

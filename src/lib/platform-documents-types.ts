@@ -1,17 +1,41 @@
 export const PLATFORM_DOCUMENT_SLUGS = ["msa", "terms", "privacy"] as const;
 export type PlatformDocumentSlug = (typeof PLATFORM_DOCUMENT_SLUGS)[number];
 
+export const PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION = 2;
+
 export type PlatformDocumentSection = {
   title: string;
   body: string;
+};
+
+export type PlatformDocumentControlRow = {
+  field: string;
+  value: string;
+};
+
+export type PlatformDocumentRevisionRow = {
+  version: string;
+  date: string;
+  changes: string;
 };
 
 export type PlatformDocument = {
   slug: PlatformDocumentSlug;
   title: string;
   subtitle?: string;
+  headerLine?: string;
+  footerLine?: string;
+  showDocumentControlHeading?: boolean;
+  coverTitle?: string;
+  coverSubtitle?: string;
+  documentControl?: PlatformDocumentControlRow[];
+  revisionHistory?: PlatformDocumentRevisionRow[];
+  preamble?: string;
+  intro?: string;
+  tableOfContents?: string;
   sections: PlatformDocumentSection[];
   version: number;
+  contentSchemaVersion?: number;
   updatedAt?: string;
   updatedBy?: string;
   updatedByName?: string;
