@@ -777,3 +777,16 @@ body *::-webkit-scrollbar,
   background: #94a3b8;
   border-radius: 9999px;
 }
+
+.ProseMirror {
+  min-height: 180px;
+  outline: none;
+}
+
+.ProseMirror p {
+  margin: 0 0 0.5rem;
+}
+
+.ProseMirror p:last-child {
+  margin-bottom: 0;
+}

@@ -1,7 +1,7 @@
 export const PLATFORM_DOCUMENT_SLUGS = ["msa", "terms", "privacy"] as const;
 export type PlatformDocumentSlug = (typeof PLATFORM_DOCUMENT_SLUGS)[number];
 
-export const PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION = 2;
+export const PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION = 3;
 
 export type PlatformDocumentSection = {
   title: string;
@@ -35,6 +35,7 @@ export type PlatformDocument = {
   tableOfContents?: string;
   sections: PlatformDocumentSection[];
   version: number;
+  effectiveAt?: string;
   contentSchemaVersion?: number;
   updatedAt?: string;
   updatedBy?: string;

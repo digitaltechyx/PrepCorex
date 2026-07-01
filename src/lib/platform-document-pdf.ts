@@ -2,8 +2,13 @@ import jsPDF from "jspdf";
 import type {
   PlatformDocument,
   PlatformDocumentControlRow,
-  PlatformDocumentRevisionRow,
 } from "./platform-documents-types";
+import { withResolvedDocumentMetadata } from "./platform-document-control";
+import {
+  applyRunStyle,
+  htmlToRichTextRuns,
+  isRichTextContent,
+} from "./platform-document-rich-text-pdf";
 
 const HEADER_COLOR: [number, number, number] = [30, 58, 95];
 const TABLE_HEADER_BG: [number, number, number] = [30, 58, 95];
@@ -66,6 +71,8 @@ function drawPageChrome(layout: PdfLayout, doc: PlatformDocument, page: number, 
 
   pdf.setFontSize(7);
   pdf.setTextColor(100, 100, 100);
+  pdf.setDrawColor(200, 200, 200);
+  pdf.line(MARGIN, FOOTER_Y - 3, pageWidth - MARGIN, FOOTER_Y - 3);
   pdf.text(footerText(doc, page, total), pageWidth / 2, FOOTER_Y, { align: "center" });
   pdf.setTextColor(0, 0, 0);
 }
@@ -76,7 +83,6 @@ function ensureSpace(layout: PdfLayout, needed: number, doc: PlatformDocument, p
   pageRef.current += 1;
   pageRef.total += 1;
   layout.y = CONTENT_TOP;
-  drawPageChrome(layout, doc, pageRef.current, pageRef.total);
 }
 
 function addParagraph(
@@ -100,6 +106,79 @@ function addParagraph(
     layout.y += lineHeight;
   }
   layout.y += 2;
+}
+
+function addRichTextBody(
+  layout: PdfLayout,
+  html: string,
+  defaultFontSize: number,
+  doc: PlatformDocument,
+  pageRef: { current: number; total: number }
+) {
+  const runs = htmlToRichTextRuns(html, defaultFontSize);
+  if (!runs.length) return;
+
+  const lineHeightFactor = 0.42;
+  let y = layout.y;
+  let cursorX = layout.margin;
+  const rightEdge = layout.margin + layout.maxWidth;
+
+  const ensureLineSpace = (fontSize: number) => {
+    if (y + fontSize * lineHeightFactor > CONTENT_BOTTOM) {
+      layout.pdf.addPage();
+      pageRef.current += 1;
+      pageRef.total += 1;
+      y = CONTENT_TOP;
+      cursorX = layout.margin;
+    }
+  };
+
+  for (const run of runs) {
+    const fontSize = run.fontSize || defaultFontSize;
+
+    if (run.text === "\n") {
+      cursorX = layout.margin;
+      y += fontSize * lineHeightFactor;
+      ensureLineSpace(fontSize);
+      continue;
+    }
+
+    applyRunStyle(layout.pdf, run);
+    const parts = run.text.split(/(\s+)/);
+
+    for (const part of parts) {
+      if (!part) continue;
+      ensureLineSpace(fontSize);
+      const width = layout.pdf.getTextWidth(part);
+      if (cursorX + width > rightEdge && cursorX > layout.margin) {
+        cursorX = layout.margin;
+        y += fontSize * lineHeightFactor;
+        ensureLineSpace(fontSize);
+      }
+      layout.pdf.text(part, cursorX, y);
+      if (run.underline && part.trim()) {
+        layout.pdf.setDrawColor(0, 0, 0);
+        layout.pdf.line(cursorX, y + 0.8, cursorX + width, y + 0.8);
+      }
+      cursorX += width;
+    }
+  }
+
+  layout.y = y + defaultFontSize * lineHeightFactor + 2;
+}
+
+function addBodyContent(
+  layout: PdfLayout,
+  text: string,
+  fontSize: number,
+  doc: PlatformDocument,
+  pageRef: { current: number; total: number }
+) {
+  if (isRichTextContent(text)) {
+    addRichTextBody(layout, text, fontSize, doc, pageRef);
+    return;
+  }
+  addParagraph(layout, text, fontSize, false, doc, pageRef);
 }
 
 function drawKeyValueTable(
@@ -156,106 +235,55 @@ function drawKeyValueTable(
   layout.y += 4;
 }
 
-function drawRevisionTable(
-  layout: PdfLayout,
-  rows: PlatformDocumentRevisionRow[],
-  doc: PlatformDocument,
-  pageRef: { current: number; total: number }
-) {
-  if (!rows.length) return;
-  addParagraph(layout, "Revision History", 11, true, doc, pageRef);
-
-  const cols = [22, 38, layout.maxWidth - 60];
-  const rowHeight = 7;
-
-  ensureSpace(layout, rowHeight + 4, doc, pageRef);
-  layout.pdf.setFillColor(...TABLE_HEADER_BG);
-  layout.pdf.rect(layout.margin, layout.y - 4.5, layout.maxWidth, rowHeight, "F");
-  layout.pdf.setTextColor(255, 255, 255);
-  layout.pdf.setFontSize(8);
-  layout.pdf.setFont("helvetica", "bold");
-  let x = layout.margin + 2;
-  layout.pdf.text("Version", x, layout.y);
-  x += cols[0];
-  layout.pdf.text("Date", x, layout.y);
-  x += cols[1];
-  layout.pdf.text("Changes", x, layout.y);
-  layout.pdf.setTextColor(0, 0, 0);
-  layout.y += rowHeight;
-
-  for (const row of rows) {
-    ensureSpace(layout, rowHeight + 2, doc, pageRef);
-    layout.pdf.setDrawColor(210, 210, 210);
-    layout.pdf.rect(layout.margin, layout.y - 4.5, layout.maxWidth, rowHeight);
-    layout.pdf.setFontSize(8);
-    layout.pdf.setFont("helvetica", "normal");
-    x = layout.margin + 2;
-    layout.pdf.text(row.version, x, layout.y);
-    x += cols[0];
-    layout.pdf.text(row.date, x, layout.y);
-    x += cols[1];
-    const changeLines = layout.pdf.splitTextToSize(row.changes, cols[2] - 4);
-    layout.pdf.text(changeLines[0] || "", x, layout.y);
-    layout.y += rowHeight;
-  }
-  layout.y += 4;
-}
-
 export async function generatePlatformDocumentPDF(doc: PlatformDocument): Promise<Blob> {
+  const resolved = withResolvedDocumentMetadata(doc);
   const pdf = new jsPDF("p", "mm", "a4");
   const layout = createLayout(pdf);
   const pageRef = { current: 1, total: 1 };
 
-  drawPageChrome(layout, doc, pageRef.current, pageRef.total);
-
-  if (doc.coverTitle) {
-    addParagraph(layout, doc.coverTitle, 16, true, doc, pageRef, 0.5);
+  if (resolved.coverTitle) {
+    addParagraph(layout, resolved.coverTitle, 16, true, doc, pageRef, 0.5);
     layout.y += 2;
   }
-  if (doc.coverSubtitle) {
-    addParagraph(layout, doc.coverSubtitle, 10, false, doc, pageRef);
+  if (resolved.coverSubtitle) {
+    addParagraph(layout, resolved.coverSubtitle, 10, false, doc, pageRef);
     layout.y += 2;
   }
 
-  if (doc.documentControl?.length) {
+  if (resolved.documentControl?.length) {
     drawKeyValueTable(
       layout,
-      doc.documentControl,
+      resolved.documentControl,
       doc,
       pageRef,
-      doc.showDocumentControlHeading ?? doc.slug === "msa"
+      resolved.showDocumentControlHeading ?? resolved.slug === "msa"
     );
   }
 
-  if (doc.revisionHistory?.length) {
-    drawRevisionTable(layout, doc.revisionHistory, doc, pageRef);
-  }
-
-  if (doc.preamble) {
+  if (resolved.preamble) {
     addParagraph(layout, "Important Notice", 11, true, doc, pageRef);
-    addParagraph(layout, doc.preamble, 9, false, doc, pageRef);
+    addBodyContent(layout, resolved.preamble, 9, doc, pageRef);
   }
 
-  if (doc.intro) {
-    addParagraph(layout, doc.intro, 9, false, doc, pageRef);
+  if (resolved.intro) {
+    addBodyContent(layout, resolved.intro, 9, doc, pageRef);
   }
 
-  if (doc.tableOfContents) {
+  if (resolved.tableOfContents) {
     addParagraph(layout, "Table of Contents", 11, true, doc, pageRef);
-    addParagraph(layout, doc.tableOfContents, 8.5, false, doc, pageRef);
+    addBodyContent(layout, resolved.tableOfContents, 8.5, doc, pageRef);
   }
 
-  for (const section of doc.sections) {
+  for (const section of resolved.sections) {
     addParagraph(layout, section.title, 10, true, doc, pageRef);
-    addParagraph(layout, section.body, 9, false, doc, pageRef);
+    addBodyContent(layout, section.body, 9, doc, pageRef);
   }
 
   const totalPages = pdf.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     pdf.setPage(i);
-    drawPageChrome(layout, doc, i, totalPages);
+    drawPageChrome(layout, resolved, i, totalPages);
   }
-  pageRef.total = totalPages;
 
   return pdf.output("blob");
 }
