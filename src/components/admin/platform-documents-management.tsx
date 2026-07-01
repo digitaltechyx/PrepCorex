@@ -163,20 +163,7 @@ export function PlatformDocumentsManagement() {
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label>Sections</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setSections((prev) => [...prev, { title: `Section ${prev.length + 1}`, body: "" }])
-                  }
-                >
-                  <Plus className="mr-1 h-4 w-4" />
-                  Add section
-                </Button>
-              </div>
+              <Label>Sections</Label>
               {sections.map((section, index) => (
                 <div key={index} className="space-y-2 rounded-lg border p-4">
                   <div className="flex items-center justify-between gap-2">
@@ -207,6 +194,19 @@ export function PlatformDocumentsManagement() {
                   />
                 </div>
               ))}
+              <div className="flex justify-end pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setSections((prev) => [...prev, { title: `Section ${prev.length + 1}`, body: "" }])
+                  }
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add section
+                </Button>
+              </div>
             </div>
           </>
         )}

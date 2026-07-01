@@ -1,0 +1,473 @@
+{
+  "msa": {
+    "headerLine": "PREP SERVICES FBA LLC | Master Service Agreement",
+    "showDocumentControlHeading": true,
+    "coverTitle": "MASTER SERVICE AGREEMENT",
+    "coverSubtitle": "Enterprise Client Agreement for Warehouse Services and PrepCorex WMS",
+    "documentControl": [
+      {
+        "field": "Document",
+        "value": "Master Service Agreement"
+      },
+      {
+        "field": "Version",
+        "value": "1.0"
+      },
+      {
+        "field": "Effective Date",
+        "value": "July 01, 2026"
+      },
+      {
+        "field": "Last Updated",
+        "value": "July 01, 2026"
+      },
+      {
+        "field": "Supersedes",
+        "value": "N/A"
+      },
+      {
+        "field": "Approved By",
+        "value": "Prep Services FBA LLC"
+      },
+      {
+        "field": "Document Owner",
+        "value": "Operations Department"
+      },
+      {
+        "field": "Classification",
+        "value": "Client Agreement"
+      },
+      {
+        "field": "Status",
+        "value": "Active"
+      }
+    ],
+    "revisionHistory": [
+      {
+        "version": "1.0 ",
+        "date": "July 01, 2026 ",
+        "changes": "Initial enterprise release."
+      }
+    ],
+    "preamble": "This Master Service Agreement (\"Agreement\") is a legally binding contract between Prep Services FBA LLC, a New\nJersey limited liability company (\"Prep Services FBA,\" \"Company,\" \"Service Provider,\" \"we,\" \"our,\" or \"us\"), and the\nindividual or legal entity accepting this Agreement (\"Client,\" \"Customer,\" \"you,\" or \"your\").\nBy creating an account, electronically accepting this Agreement, using the PrepCorex Warehouse Management System\n(\"PrepCorex\"), delivering inventory to a warehouse, requesting any services, or otherwise engaging Prep Services FBA,\nClient acknowledges that Client has read, understood, and agrees to be legally bound by this Agreement and all\nincorporated Schedules.\nIf the individual accepting this Agreement is acting on behalf of a company or other legal entity, such individual\nrepresents and warrants that he or she has full authority to bind that entity to this Agreement.\nIf Client does not agree to this Agreement, Client must not use the Services, deliver Inventory, access PrepCorex, or\nrequest warehouse processing.",
+    "tableOfContents": "",
+    "sections": [
+      {
+        "title": "1. Definitions",
+        "body": "1.1 Company\n\"Company\" means Prep Services FBA LLC, including its employees, contractors, affiliates, representatives, warehouse\npersonnel, technology providers, and authorized agents acting on behalf of the Company.\n1.2 Client\n\"Client\" means the individual, company, partnership, corporation, limited liability company, or other legal entity utilizing\nthe Company's warehouse, fulfillment, logistics, or software services.\n1.3 PrepCorex\n\"PrepCorex\" means the proprietary Warehouse Management System, client portal, dashboards, APIs, integrations,\nreports, software, mobile interfaces, databases, audit logs, workflow tools, and related technologies operated by or for\nPrep Services FBA.\n1.4 Services\n\"Services\" means all warehousing, receiving, product inspection, Amazon FBA preparation, FBM fulfillment, Shopify\nfulfillment, Walmart WFS preparation, TikTok Shop fulfillment, eBay fulfillment, cross-docking, storage, barcode labeling,\npoly bagging, bundling, kitting, quality control, photography, returns processing, container unloading, pallet forwarding,\nbox forwarding, shipping coordination, inventory reporting, and any additional services provided by the Company.\n1.5 Inventory\n\"Inventory\" means all products, cartons, pallets, packaging materials, inserts, accessories, documentation, labels,\ncontainers, samples, returns, and related goods delivered to or handled by the Company.\n1.6 Warehouse\n\"Warehouse\" means any facility owned, leased, managed, contracted, or operated by Prep Services FBA for the\nperformance of Services.\n1.7 Business Day\n\"Business Day\" means Monday through Friday, excluding United States federal holidays and Company-observed\nclosures, unless otherwise stated in writing.\n1.8 Portal\n\"Portal\" means the secure online client portal operated through PrepCorex.\n1.9 Authorized User\n\"Authorized User\" means an employee, contractor, representative, or agent authorized by Client to access PrepCorex or\ncommunicate with the Company on Client's behalf.\n1.10 Activity Log\n\"Activity Log\" means the electronic operational record maintained by PrepCorex, including time stamps, user actions,\nbarcode scans, photos, inventory movements, processing steps, status changes, and system audit events."
+      },
+      {
+        "title": "2. Scope of Services",
+        "body": "Prep Services FBA agrees to provide warehousing, inventory management, fulfillment, preparation, logistics,\ntechnology-enabled reporting, and related services requested by Client, subject to this Agreement, the incorporated\nSchedules, the Client's assigned pricing profile, and the Company's then-current operational policies.\nThe Company may provide receiving, inspection, barcode labeling, Amazon FBA preparation, FBM fulfillment, Walmart\nWFS preparation, Shopify order fulfillment, TikTok Shop fulfillment, eBay fulfillment, storage, pick and pack, returns\nprocessing, cross-docking, container unloading, inventory reporting, shipping coordination, and other mutually agreed\nlogistics-related services.\nThe Company reserves the right to modify, discontinue, expand, or introduce Services at its discretion, provided that\nany material pricing changes will be handled in accordance with this Agreement and Schedule A."
+      },
+      {
+        "title": "3. Client Account & Portal Access",
+        "body": "3.1 Account Registration\nClient shall provide accurate, complete, and current information during registration and throughout the business\nrelationship. The Company may reject, suspend, or terminate any registration or account that contains inaccurate,\nincomplete, misleading, or fraudulent information.\n3.2 Account Approval\nCreating an account does not automatically establish a business relationship. All accounts are subject to administrative\nreview and approval. The Company reserves the right to approve, reject, suspend, or request additional information\nfrom any applicant without obligation to disclose internal evaluation criteria.\n3.3 Client ID\nUpon approval, the Company shall assign a unique Client Identification Number. Client ID shall be used for shipment\nidentification, warehouse processing, invoicing, communication, and operational tracking.\n3.4 User Accounts\nClient is responsible for maintaining the confidentiality of login credentials and for all activity occurring under Client's\naccount, including activity by Authorized Users. Passwords shall not be shared outside Client's authorized personnel.\n3.5 Unauthorized Access\nClient shall immediately notify the Company of any suspected unauthorized access, security breach, credential\ncompromise, or misuse of Client's account."
+      },
+      {
+        "title": "4. PrepCorex Software License",
+        "body": "Subject to compliance with this Agreement, Prep Services FBA grants Client a limited, non-exclusive, non-transferable,\nrevocable license to access and use PrepCorex solely for managing Client's relationship with Prep Services FBA and\nrequesting or monitoring Services.\nClient shall not copy, modify, reverse engineer, decompile, sell, lease, redistribute, sublicense, attempt unauthorized\naccess, circumvent security controls, scrape data, interfere with system performance, or use PrepCorex for any unlawful\nor competitive purpose.\nThe Company retains all ownership rights, copyrights, trademarks, trade secrets, patents, database rights, workflows,\ndesigns, operational processes, and intellectual property relating to PrepCorex. The Company may update, modify,\nsuspend, or discontinue software functionality as needed for security, performance, compliance, or business reasons."
+      },
+      {
+        "title": "5. Warehouse Receiving Procedures",
+        "body": "5.1 Shipment Notification\nClient shall submit all inbound shipments through PrepCorex before shipment arrival unless otherwise approved in\nwriting. Inbound requests should include shipment type, carrier name, tracking number, carton or pallet count, estimated\narrival date, purchase order, Amazon Shipment ID if applicable, product information, and special handling instructions.\n5.2 Shipment Identification\nEach shipment delivered to the Warehouse must be clearly identified using Client ID, company name, purchase order\nnumber, Amazon Shipment ID, or warehouse reference number. Shipments received without proper identification may\nbe delayed until ownership is verified.\n5.3 Receiving Hours\nReceiving appointments shall be accepted only during the Company's published receiving hours unless otherwise\napproved. The Company may refuse or reschedule deliveries arriving outside scheduled receiving hours.\n5.4 Partial Deliveries\nIf a shipment arrives incomplete or in multiple deliveries, each delivery may be processed independently. Storage\ncharges and service fees may begin when the first portion of Inventory is received.\n\n5.5 Oversized Deliveries\nThe Company may require special appointments for containers, floor-loaded trailers, oversized freight, heavy items, and\nhigh-volume inbound shipments. Additional handling fees may apply."
+      },
+      {
+        "title": "6. Inventory Inspection & Acceptance",
+        "body": "6.1 Initial Receiving Inspection\nUpon receipt, the Company may perform a visual inspection for carton count, visible damage, packaging condition,\nwater damage, external labeling, and shipment identification. This inspection is limited to external observations unless\nadditional inspection services are purchased.\n6.2 Product Inspection\nDetailed product inspection is performed only when requested by Client or included within the selected service package.\nSuch inspection may include product verification, quantity verification, barcode verification, label verification, expiration\ndate review, packaging integrity review, or functional checks where applicable.\n6.3 Shortages\nThe Company shall not be responsible for shortages originating before Warehouse receipt. Shortages identified during\nreceiving may be documented within PrepCorex and communicated to Client.\n6.4 Damaged Inventory\nVisible damage identified during receiving may be documented through photographs, inspection notes, quantity\naffected, date and time, and receiving employee record. Such documentation may be made available within PrepCorex.\n6.5 Refusal of Inventory\nThe Company may refuse Inventory that violates law, presents safety hazards, is contaminated, is improperly packaged,\ncontains prohibited goods, lacks required documentation, or cannot be safely stored."
+      },
+      {
+        "title": "7. Inventory Storage",
+        "body": "7.1 Storage Services\nThe Company provides warehouse storage based upon the pricing schedule assigned to Client. Storage may include\nbin storage, shelf storage, rack storage, pallet storage, or bulk floor storage. The Company determines appropriate\nstorage locations based upon operational efficiency and safety.\n7.2 Storage Charges\nStorage fees begin in accordance with Client's assigned pricing schedule. Charges may be calculated based upon\npallets, cartons, cubic feet, shelf space, bin space, oversized inventory, minimums, or other methods identified in\nSchedule A or Client's pricing profile.\n7.3 Inventory Ownership\nClient retains ownership of Inventory stored within the Warehouse. Nothing in this Agreement transfers ownership of\nInventory to the Company, except as may occur through lawful lien enforcement, abandonment procedures, disposal\nauthorization, or other lawful remedy.\n7.4 Inventory Relocation\nThe Company may relocate Inventory within the Warehouse for operational efficiency, safety, inventory optimization,\nconsolidation, cycle count, quarantine, or warehouse reconfiguration. Inventory movements shall be recorded in\nPrepCorex whenever operationally practical.\n7.5 Inventory Status\nInventory may be assigned statuses including available, reserved, receiving, inspection, quarantine, hold, pending\nshipment, shipped, returned, disposed, lost, damaged, or other operational statuses. Status updates shall be reflected\nwithin PrepCorex where operationally practical.\n\n7.6 Inventory Counts\nInventory quantities maintained within PrepCorex represent operational records. Although the Company uses\nreasonable efforts to maintain accurate records, counts remain subject to verification. Cycle counts or full audits may be\nrequested by Client and may incur additional charges.\n7.7 Abandoned Inventory\nInventory remaining in the Warehouse after account termination, prolonged inactivity, or extended non-payment may be\ndeemed abandoned in accordance with applicable law and this Agreement. The Company may continue charging\nstorage, refuse release, dispose of Inventory, liquidate Inventory, or recover outstanding balances using lawful\nremedies, subject to required notices and applicable New Jersey law."
+      },
+      {
+        "title": "8. Warehouse Operating Policies",
+        "body": "8.1 Warehouse Access\nThe Warehouse is not open to the general public. Client visits are by appointment only unless otherwise authorized by\nthe Company.\n8.2 Safety\nClients and visitors entering the Warehouse shall comply with all safety requirements, including personal protective\nequipment where required, restricted area access, traffic rules, and employee instructions. Failure to comply may result\nin removal from the premises.\n8.3 Photography\nThe Company may photograph Inventory during receiving, inspection, damage documentation, quality control, packing,\nshipping, or claims investigation. Photographs become part of Client's operational records and may be accessible\nthrough PrepCorex.\n8.4 Barcode Identification\nThe Company may assign internal warehouse barcodes, pallet labels, location identifiers, carton IDs, or other\noperational tracking methods. Such identifiers remain the property of the Company.\n8.5 System of Record\nPrepCorex serves as the Company's official operational system of record. Inventory status, receiving history, shipment\nrequests, photographs, invoices, activity logs, and processing updates maintained within PrepCorex constitute the\nCompany's official warehouse records.\n8.6 Operational Activity Log\nThe Company may record receiving, inspection, putaway, inventory movement, picking, packing, shipping, returns,\nadjustments, user actions, and support interactions. Records may include timestamps, employee identification, device\ninformation, warehouse location, notes, and system-generated audit logs.\n8.7 Processing Priorities\nUnless otherwise agreed in writing, Inventory shall be processed according to operational workload, service level\ntargets, available information, account status, and the order in which valid requests are received. Priority processing\nmay be available at additional cost."
+      },
+      {
+        "title": "9. Fulfillment Services",
+        "body": "9.1 Service Scope\nThe Company may provide Amazon FBA preparation, Amazon FBM fulfillment, Walmart WFS preparation, Shopify\nfulfillment, TikTok Shop fulfillment, eBay fulfillment, wholesale fulfillment, DTC fulfillment, pick and pack, kitting,\nbundling, poly bagging, FNSKU labeling, transparency labeling, pallet preparation, carton preparation, cross-docking,\ntransfers, and additional mutually agreed services.\n\n9.2 Fulfillment Requests\nAll fulfillment requests shall be submitted through PrepCorex unless otherwise approved by the Company. The\nCompany may refuse verbal, text message, or email requests that bypass the official workflow when such requests\ncreate operational risk or lack required information.\n9.3 Client Instructions\nClient is solely responsible for ensuring fulfillment instructions are complete, accurate, current, and compliant. Prep\nServices FBA shall not be liable for errors resulting from incomplete, inaccurate, outdated, or conflicting instructions.\n9.4 Packaging Materials\nUnless otherwise agreed, the Company may determine appropriate packaging materials, including boxes, poly bags,\nbubble wrap, air pillows, kraft paper, tape, labels, pallets, and stretch wrap. Materials and special packaging may incur\nadditional charges.\n9.5 Marketplace Compliance\nClient remains solely responsible for compliance with Amazon, Walmart, Shopify, TikTok Shop, eBay, Etsy, carriers, and\nall third-party marketplace requirements. The Company prepares shipments based upon information provided by Client\nbut does not guarantee marketplace acceptance or reimbursement."
+      },
+      {
+        "title": "10. Shipping Services",
+        "body": "10.1 Shipping Labels\nClient may upload shipping labels, purchase labels through the Company where available, or connect approved\nshipping integrations. Client remains responsible for the accuracy and legality of all shipping labels.\n10.2 Carrier Selection\nUnless otherwise instructed, the Company may use commercially reasonable methods to prepare shipments for the\ncarrier selected by Client. Carrier performance remains outside the Company's control.\n10.3 Tracking Information\nTracking numbers shall be made available through PrepCorex when available. The Company is not responsible for\ncarrier delays in updating tracking information.\n10.4 Shipping Delays\nThe Company shall not be liable for delays caused by weather, carrier congestion, customs, government agencies,\nmarketplace restrictions, labor disputes, transportation disruptions, incorrect information, or events outside the\nCompany's reasonable control.\n10.5 Lost Shipments\nOnce shipments are transferred to the carrier and scanned for pickup, responsibility transfers in accordance with the\napplicable carrier's terms and conditions. Carrier loss claims generally must be pursued with the applicable carrier\nunless otherwise agreed in writing."
+      },
+      {
+        "title": "11. Returns Processing",
+        "body": "11.1 Returns Services\nThe Company may provide Amazon returns processing, customer returns intake, inspection, restocking, disposal,\nrefurbishment coordination, repackaging, relabeling, and related services.\n11.2 Inspection\nReturned Inventory shall be inspected only to the level purchased by Client. The Company does not warrant\nmerchantability, functionality, resale condition, or marketplace eligibility of returned products.\n11.3 Disposition Instructions\nClient shall provide written disposition instructions for returned Inventory, including restock, hold, dispose, return to\nClient, repackage, relabel, or other approved action.\n\n11.4 Disposal\nThe Company may dispose of Inventory where required by law, requested by Client, presenting health or safety risks, or\ndeemed abandoned in accordance with this Agreement. Disposal charges may apply."
+      },
+      {
+        "title": "12. Billing & Payment Terms",
+        "body": "12.1 Service Fees\nClient agrees to pay all fees associated with receiving, storage, fulfillment, returns, shipping, packaging, materials,\nspecial handling, and additional services. Current pricing shall be available through PrepCorex, Client's pricing profile,\nSchedule A, or other written pricing schedules.\n12.2 Invoice Generation\nInvoices may be generated daily, weekly, bi-weekly, monthly, per shipment, or at other intervals determined by the\nCompany or agreed with Client.\n12.3 Payment Due Date\nUnless otherwise agreed in writing, invoices are due within forty-eight (48) hours of issuance.\n12.4 Late Fees\nInvoices remaining unpaid after forty-eight (48) hours may incur a $19.00 administrative late fee per overdue invoice\nand interest on overdue balances at the lesser of 1.5% per month (18% annually) or the maximum rate permitted by\napplicable law. The Company may suspend services while balances remain outstanding.\n12.5 Taxes\nClient is responsible for applicable taxes except taxes imposed directly on the Company's income. Tax-exempt\ncustomers must provide valid exemption documentation before invoicing.\n12.6 Chargebacks\nClient agrees to contact the Company to resolve billing questions before initiating any chargeback, ACH reversal, or\npayment dispute. Improper chargebacks may result in immediate suspension, collection activity, recovery of costs, or\ntermination.\n12.7 Collections\nThe Company reserves the right to pursue lawful collection remedies for unpaid balances, including collection agencies,\nattorneys, or legal proceedings. Client shall be responsible for reasonable costs of collection where permitted by law."
+      },
+      {
+        "title": "13. Pricing Changes",
+        "body": "The Company reserves the right to modify pricing from time to time. Unless otherwise governed by a separate written\nagreement, pricing changes become effective upon thirty (30) days' prior notice provided through email, PrepCorex\nnotifications, updated pricing schedules, website announcements, or other written communication. Continued use of\nServices after the effective date constitutes acceptance of revised pricing."
+      },
+      {
+        "title": "14. Warehouseman's Lien",
+        "body": "To the fullest extent permitted by applicable law, including the New Jersey Uniform Commercial Code, Prep Services\nFBA reserves a warehouseman's lien and security interest against all Inventory in its possession for storage fees,\nfulfillment charges, shipping costs, packaging charges, administrative fees, interest, collection costs, and any other\namounts lawfully owed by Client.\nThe Company may refuse release of Inventory until outstanding balances are paid in full. Where authorized by law, the\nCompany may enforce such lien through sale or other lawful disposition of Inventory after providing any notices required\nby applicable law."
+      },
+      {
+        "title": "15. Turnaround Times & Service Levels",
+        "body": "The Company will use commercially reasonable efforts to meet published turnaround times. Unless expressly agreed in\na written Service Level Agreement or enterprise addendum, all turnaround times are estimates and operational targets\nonly, not guarantees.\nProcessing times may be affected by shipment condition, volume fluctuations, product complexity, missing\ndocumentation, carrier schedules, marketplace requirements, holidays, staffing constraints, payment issues, force\nmajeure events, or other operational realities. Expedited processing may be available at additional cost and subject to\ncapacity."
+      },
+      {
+        "title": "16. Client Responsibilities",
+        "body": "16.1 Accurate Information\nClient shall provide complete, accurate, and current information regarding Inventory, shipment contents, quantities,\nproduct descriptions, shipping instructions, marketplace requirements, hazard classifications, compliance documents,\nand special handling needs.\n16.2 Product Ownership\nClient represents and warrants that it is the lawful owner of the Inventory or has legal authority to store and ship the\nInventory, has all necessary licenses and rights, and has authority to instruct the Company regarding handling and\ndisposition.\n16.3 Product Authenticity\nClient represents and warrants that all products delivered to the Company are genuine, authentic, legally obtained, and\nnot counterfeit, stolen, infringing, unauthorized, or subject to unlawful restrictions.\n16.4 Label Accuracy\nClient is solely responsible for ensuring FNSKU labels, UPCs, ASIN mappings, shipping labels, carton labels, pallet\nlabels, and product identifiers are accurate and correspond to correct products.\n16.5 Packaging Compliance\nUnless packaging services are purchased from the Company, Client remains responsible for ensuring products are\npackaged in accordance with applicable marketplace, carrier, and regulatory requirements."
+      },
+      {
+        "title": "17. Prohibited Goods",
+        "body": "The Company may refuse, quarantine, return, suspend, report, or dispose of prohibited goods. Unless approved in\nwriting, prohibited Inventory includes illegal products, counterfeit goods, weapons, firearms, ammunition, explosives,\nhazardous chemicals, illegal drugs, controlled substances, tobacco products, alcohol, live animals, human remains,\nradioactive materials, flammable or explosive materials, recalled products, stolen property, goods subject to government\nseizure, and any Inventory prohibited by applicable law.\nAcceptance of Inventory shall not constitute approval, verification, or confirmation that such Inventory is lawful,\ncompliant, safe, or permissible."
+      },
+      {
+        "title": "18. Regulatory Compliance",
+        "body": "Client is solely responsible for ensuring compliance with all applicable laws, regulations, carrier rules, and marketplace\nrequirements, including FDA, USDA, CPSC, FCC, EPA, U.S. Customs and Border Protection, Amazon policies,\nWalmart Marketplace policies, carrier requirements, consumer protection laws, import laws, and export laws.\nPrep Services FBA does not provide legal, tax, import, export, product safety, or regulatory compliance advice."
+      },
+      {
+        "title": "19. Insurance",
+        "body": "19.1 Client Insurance\nClient is strongly encouraged to maintain adequate insurance, including inventory insurance, cargo insurance, product\nliability insurance, commercial general liability insurance, and business interruption insurance. Unless otherwise agreed\nin writing, the Company does not insure Client's Inventory.\n19.2 Carrier Insurance\nCarrier insurance, if any, is governed solely by carrier terms and conditions. The Company makes no representation\nregarding carrier insurance coverage, limitations, exclusions, or claim outcomes."
+      },
+      {
+        "title": "20. Risk of Loss",
+        "body": "Risk of loss shall remain with Client except to the extent directly caused by the Company's gross negligence or willful\nmisconduct, as determined by a court of competent jurisdiction.\nThe Company shall not be responsible for losses resulting from carrier delays, customs inspections, government\nactions, Amazon receiving discrepancies, marketplace inventory adjustments, manufacturer defects, improper\npackaging supplied by Client, natural disasters, theft by third parties, civil unrest, force majeure events, or other events\noutside the Company's reasonable control."
+      },
+      {
+        "title": "21. Limitation of Liability",
+        "body": "To the maximum extent permitted by applicable law, the Company's total cumulative liability arising out of or relating to\nany claim shall not exceed the amount of service fees actually paid by Client to Prep Services FBA for the specific\nservices directly giving rise to the claim during the thirty (30) days preceding the event.\nUnder no circumstances shall Prep Services FBA be liable for lost profits, lost sales, loss of business opportunities, loss\nof goodwill, loss of marketplace rankings, Amazon account suspension, indirect damages, incidental damages,\nconsequential damages, punitive damages, special damages, or exemplary damages.\nThis limitation applies regardless of legal theory, including contract, tort, negligence, strict liability, or otherwise, except\nwhere prohibited by applicable law."
+      },
+      {
+        "title": "22. Claims Procedure",
+        "body": "22.1 Notice of Claim\nClient shall notify Prep Services FBA in writing of any alleged loss, shortage, or damage within seven (7) calendar days\nof delivery for outbound shipments or within seven (7) calendar days after Client becomes aware, or reasonably should\nhave become aware, of the issue for warehouse-related claims.\n22.2 Supporting Documentation\nClaims must include sufficient documentation, including photographs, tracking numbers, purchase orders, packing lists,\ncommercial invoices, proof of value, and a description of alleged loss or damage.\n22.3 Investigation\nThe Company may investigate any claim and request additional information before making a determination. Submission\nof a claim does not constitute acceptance of liability."
+      },
+      {
+        "title": "23. Indemnification",
+        "body": "Client agrees to defend, indemnify, and hold harmless Prep Services FBA LLC, its owners, officers, employees,\ncontractors, affiliates, and agents from and against any third-party claims, damages, liabilities, fines, penalties, costs,\nand reasonable attorneys' fees arising out of or relating to Client's Inventory, breach of this Agreement, violation of law,\nintellectual property infringement by Client's products, product defects, recalls, mislabeling, regulatory non-compliance,\nor Client's negligent or wrongful acts or omissions. This obligation survives termination."
+      },
+      {
+        "title": "24. Fraud & Zero-Tolerance Policy",
+        "body": "The Company maintains a zero-tolerance policy for fraud, including counterfeit products, fraudulent shipping labels,\nchargeback abuse, identity fraud, money laundering, false declarations, shipment manipulation, intentional\nmisrepresentation, and illegal activity. Violations may result in immediate suspension or termination. The Company may\ncooperate with law enforcement and regulatory authorities where required or appropriate."
+      },
+      {
+        "title": "25. Account Suspension",
+        "body": "The Company may suspend or restrict Client account, with or without prior notice where legally permissible, for\nnon-payment, fraud, regulatory concerns, security incidents, repeated policy violations, abusive conduct, misuse of\nPrepCorex, or material breach. During suspension, the Company may withhold processing or Inventory release until\napplicable issues are resolved, subject to applicable law."
+      },
+      {
+        "title": "26. Confidentiality",
+        "body": "26.1 Confidential Information\nEach party may receive confidential or proprietary information including customer lists, supplier information, pricing,\nbusiness strategies, financial information, inventory information, warehouse procedures, software architecture, API\ndocumentation, source code, trade secrets, login credentials, reports, and operational processes.\n26.2 Protection\nEach party shall protect confidential information using commercially reasonable safeguards, use it solely for purposes of\nthis Agreement, and not disclose it to third parties except as required by law or with prior written consent.\n26.3 Exceptions\nConfidential information does not include information that is publicly available through no fault of the receiving party,\nlawfully known before disclosure, independently developed, or required to be disclosed by law or court order."
+      },
+      {
+        "title": "27. Data Privacy & Security",
+        "body": "27.1 Client Data\nClient retains ownership of business data submitted to Prep Services FBA, including inventory records, product\ninformation, shipment requests, reports, documents, and customer information submitted by Client.\n27.2 PrepCorex Data\nPrepCorex collects and stores operational information including inventory movements, warehouse activities, user logins,\naudit logs, device information, IP addresses, shipment history, billing history, and system activity for operational,\nsecurity, compliance, billing, reporting, and improvement purposes.\n27.3 Security\nThe Company implements commercially reasonable administrative, technical, and physical safeguards designed to\nprotect Client data. However, no internet-based system is completely secure, and the Company does not guarantee\nuninterrupted, error-free, or breach-free operation of PrepCorex.\n27.4 Backups\nPrepCorex performs periodic backups for operational recovery. Client remains responsible for maintaining copies of\ninformation it considers business critical."
+      },
+      {
+        "title": "28. Intellectual Property",
+        "body": "PrepCorex, including its software, interface, branding, logos, documentation, databases, workflows, APIs, reports,\nsource code, designs, algorithms, business logic, and operational processes, remain the exclusive property of Prep\nServices FBA LLC. Nothing transfers ownership of Company intellectual property to Client.\n\n28.1 Restrictions\nClient shall not reverse engineer, copy, modify, sell, license, redistribute, mirror, decompile, circumvent security, or\nattempt unauthorized access to PrepCorex or related systems."
+      },
+      {
+        "title": "29. Term",
+        "body": "This Agreement becomes effective upon electronic acceptance, written signature, delivery of Inventory, use of\nPrepCorex, or request for Services, whichever occurs first, and remains in effect until terminated in accordance with this\nAgreement."
+      },
+      {
+        "title": "30. Termination",
+        "body": "Either party may terminate this Agreement upon thirty (30) days' written notice unless otherwise agreed. The Company\nmay immediately suspend or terminate Services for fraud, illegal activity, non-payment, material breach, repeated policy\nviolations, threats or abusive conduct toward employees, security concerns, or other conduct creating operational or\nlegal risk. Termination does not relieve either party of obligations accrued before termination."
+      },
+      {
+        "title": "31. Effect of Termination",
+        "body": "Upon termination, outstanding invoices become immediately due; storage fees continue until Inventory is removed;\nInventory release is subject to payment of all outstanding charges; PrepCorex access may be revoked; and operational\nrecords may be retained for legal, tax, compliance, billing, audit, and business continuity purposes."
+      },
+      {
+        "title": "32. Force Majeure",
+        "body": "Neither party shall be liable for delays or failures caused by events beyond reasonable control, including natural\ndisasters, fire, flood, earthquake, hurricane, pandemic, government action, labor strikes, civil unrest, war, terrorism,\npower failures, internet outages, cybersecurity incidents, transportation disruptions, carrier failures, or marketplace\noutages. Performance shall resume as soon as reasonably practicable."
+      },
+      {
+        "title": "33. Governing Law",
+        "body": "This Agreement shall be governed by and construed in accordance with the laws of the State of New Jersey, without\nregard to conflict of law principles."
+      },
+      {
+        "title": "34. Dispute Resolution",
+        "body": "The parties agree to first attempt to resolve disputes through good-faith negotiations. If a dispute cannot be resolved\ninformally, the parties agree to submit the dispute to mediation before initiating litigation, unless immediate court action\nis necessary to protect legal rights, enforce a lien, prevent irreparable harm, collect unpaid amounts, or preserve\nevidence. Unless otherwise required by applicable law, courts located in the State of New Jersey shall have exclusive\njurisdiction over disputes arising under this Agreement."
+      },
+      {
+        "title": "35. Electronic Communications",
+        "body": "Client agrees that electronic communications, including emails, portal notifications, electronic invoices, electronic\napprovals, system messages, digital records, and electronic notices, satisfy any legal requirement that communications\nbe in writing to the fullest extent permitted by law."
+      },
+      {
+        "title": "36. Electronic Acceptance",
+        "body": "By clicking \"I Agree,\" \"Accept,\" \"Create Account,\" \"Activate Account,\" or any similar electronic confirmation within\nPrepCorex, Client acknowledges and agrees that Client has read this Agreement, understands its terms, is authorized\nto bind the business identified during registration, and agrees that electronic acceptance has the same legal effect as a\nhandwritten signature to the fullest extent permitted by law.\n\nPrep Services FBA may maintain an electronic audit record of acceptance including Client ID, company name, user\nname, email address, date and time, IP address, browser information, device information, agreement version, and\nsystem audit log ID."
+      },
+      {
+        "title": "37. Entire Agreement",
+        "body": "This Agreement, together with incorporated Schedules, policies, pricing documents, electronic records, and written\namendments, constitutes the entire agreement between the parties and supersedes all prior discussions, proposals,\nunderstandings, and agreements relating to its subject matter."
+      },
+      {
+        "title": "38. Amendments",
+        "body": "The Company may update this Agreement and its Schedules from time to time. Material changes will be communicated\nthrough PrepCorex notifications, email, client portal announcements, or other written means. Continued use of Services\nafter the effective date of an updated Agreement constitutes acceptance of revised terms, except where additional\naffirmative acceptance is required by applicable law."
+      },
+      {
+        "title": "39. Severability",
+        "body": "If any provision of this Agreement is determined to be invalid or unenforceable, the remaining provisions shall remain in\nfull force and effect, and the invalid or unenforceable provision shall be interpreted or replaced to best accomplish its\nintended purpose to the extent permitted by law."
+      },
+      {
+        "title": "40. Assignment",
+        "body": "Client may not assign or transfer this Agreement without prior written consent of Prep Services FBA. The Company may\nassign this Agreement in connection with a merger, acquisition, sale of assets, corporate reorganization, or transfer of\nsubstantially all relevant business operations."
+      },
+      {
+        "title": "41. No Waiver",
+        "body": "Failure by either party to enforce any provision shall not constitute a waiver of future enforcement of that or any other\nprovision. A waiver is effective only if in writing and signed or electronically confirmed by the waiving party."
+      },
+      {
+        "title": "42. Survival",
+        "body": "The following provisions survive termination to the extent applicable: payment obligations, confidentiality, intellectual\nproperty, indemnification, limitation of liability, risk of loss, claims procedure, governing law, dispute resolution, record\nretention, electronic records, and any provisions that by their nature should survive."
+      },
+      {
+        "title": "43. Notices",
+        "body": "Official notices may be delivered through the PrepCorex Client Portal, registered email address, certified mail, courier\nservice, or other written means. Client is responsible for keeping contact information current. Notices become effective\nupon email transmission unless delivery failure is received, upon posting to PrepCorex, or three (3) business days after\ncertified mailing."
+      },
+      {
+        "title": "44. Independent Contractor",
+        "body": "The relationship between Prep Services FBA and Client is solely that of independent contracting parties. Nothing in this\nAgreement creates a partnership, joint venture, agency, employment relationship, franchise, fiduciary relationship, or\nother relationship beyond independent contracting parties."
+      },
+      {
+        "title": "45. Non-Exclusivity",
+        "body": "Nothing in this Agreement prevents either party from providing or obtaining similar services from third parties. Neither\nparty grants exclusivity unless expressly agreed in a written agreement signed by both parties."
+      },
+      {
+        "title": "46. Non-Solicitation",
+        "body": "During the Agreement and for twelve (12) months following termination, Client shall not directly or indirectly recruit, hire,\nsolicit, or induce any employee or contractor of Prep Services FBA to leave the Company without written consent. This\nprovision does not restrict general public job postings not targeted at Company personnel."
+      },
+      {
+        "title": "47. Electronic Records",
+        "body": "The parties agree that electronic records maintained by PrepCorex, including activity logs, barcode scans, inventory\nhistory, audit logs, user actions, uploaded documents, digital photos, GPS records where applicable, device information,\nand timestamps, constitute valid business records maintained in the ordinary course of operations and may be relied\nupon in resolving operational, billing, or legal disputes."
+      },
+      {
+        "title": "48. Feedback",
+        "body": "Any feedback, suggestions, enhancement requests, recommendations, workflow ideas, or product ideas submitted by\nClient relating to PrepCorex, warehouse processes, automation, dashboards, reporting, or Services may be used by the\nCompany without restriction, compensation, attribution, or obligation to Client."
+      },
+      {
+        "title": "49. Publicity",
+        "body": "Unless Client objects in writing, Prep Services FBA may identify Client as a customer and display Client's company\nname or logo on its website, presentations, and marketing materials. Confidential business information, pricing, volume,\ninventory, operational data, and performance information shall not be disclosed without authorization."
+      },
+      {
+        "title": "50. Record Retention",
+        "body": "Prep Services FBA may retain operational records for up to seven (7) years or longer where required by law or\nlegitimate business need. Such records may include shipment history, receiving logs, inventory logs, billing records,\nactivity logs, photographs, audit trails, support communications, electronic acceptance records, and system records."
+      },
+      {
+        "title": "51. Incorporated Schedules",
+        "body": "The following Schedules are incorporated by reference and form part of this Agreement: Schedule A - Pricing &\nCommercial Terms; Schedule B - Warehouse Operating Rules & Policies; Schedule C - Service Level Agreement; and\nSchedule D - Privacy, Data Processing & Information Security Policy.\nIn the event of a conflict between this Agreement and a Schedule, the Agreement controls unless the Schedule\nexpressly states that it modifies a specific section of this Agreement. In the event of a conflict between Schedule A and\na separately executed written pricing agreement signed or electronically accepted by both parties, the specific written\npricing agreement controls for the applicable services."
+      },
+      {
+        "title": "52. Contact Information",
+        "body": "Prep Services FBA LLC, New Jersey, USA. Website: www.prepservicesfba.com. Client Portal: portal.prepcorex.com or\nthe then-current PrepCorex portal URL. Support Email: support@prepservicesfba.com. Sales Email:\nsales@prepservicesfba.com. Notices to Client may be sent to the registered account email and posted within\nPrepCorex.\n\nSchedule Reference Summary\nSchedule \tDocument Name \tPurpose\nSchedule A \tPricing & Commercial Terms \tPricing framework, billing rules,\nminimums, storage billing, late\npayment, and client-specific pricing\nprofiles.\nSchedule B \tWarehouse Operating Rules &\nPolicies\nReceiving requirements, labeling\nstandards, safety rules, warehouse\nworkflows, inventory status\ndefinitions, and release rules.\nSchedule C \tService Level Agreement \tOperational service targets, support\nresponse targets, communication\nchannels, maintenance, and service\nexceptions.\nSchedule D \tPrivacy, Data Processing &\nInformation Security Policy\nData collection, processing,\nretention, security controls,\nintegrations, client rights, and privacy\ngovernance.\nSurvival Summary\nProvision \tSurvives Termination\nPayment Obligations \tYes\nConfidentiality \tYes\nIntellectual Property \tYes\nIndemnification \tYes\nLimitation of Liability \tYes\nClaims Procedure \tYes\nGoverning Law \tYes\nDispute Resolution \tYes\nElectronic Records \tYes\nRecord Retention \tYes\n\nElectronic Acceptance Record\nAgreement Version: ______________________________\nClient Name: ______________________________\nCompany Name: ______________________________\nClient ID: ______________________________\nAuthorized Representative: ______________________________\nDate Accepted: ______________________________\nIP Address: ______________________________\nBrowser: ______________________________\nDevice: ______________________________\nPrepCorex Audit Log ID: ______________________________\n☐ I certify that I am authorized to enter into this Agreement on behalf of Client.\n☐ I have read and understood the Master Service Agreement.\n☐ I agree to be legally bound by this Agreement and all incorporated Schedules.\nSignature Page (Optional for Enterprise Clients)\nPrep Services FBA LLC:\n____________________________\nClient:\n____________________________\nAuthorized Representative:\n____________________________\nAuthorized Representative:\n____________________________\nTitle:\n____________________________\nTitle:\n____________________________\nSignature:\n____________________________\nSignature:\n____________________________\nDate:\n____________________________\nDate:\n____________________________"
+      }
+    ],
+    "footerLine": "Confidential Client Agreement"
+  },
+  "terms": {
+    "headerLine": "SCHEDULE A - PRICING & COMMERCIAL TERMS",
+    "showDocumentControlHeading": false,
+    "coverSubtitle": "Master Service Agreement Schedule A",
+    "documentControl": [
+      {
+        "field": "Document",
+        "value": "Master Service Agreement"
+      },
+      {
+        "field": "Version",
+        "value": "1.0"
+      },
+      {
+        "field": "Effective Date",
+        "value": "July 01, 2026"
+      },
+      {
+        "field": "Last Updated",
+        "value": "July 01, 2026"
+      },
+      {
+        "field": "Approved By",
+        "value": "Prep Services FBA LLC"
+      },
+      {
+        "field": "Document Owner",
+        "value": "Operations Department"
+      },
+      {
+        "field": "Classification",
+        "value": "Client Agreement"
+      },
+      {
+        "field": "Status",
+        "value": "Active"
+      }
+    ],
+    "intro": "This Schedule A forms part of the Master Service Agreement (\"MSA\") between Prep Services\nFBA LLC (\"Company\") and the Client.",
+    "sections": [
+      {
+        "title": "1. PURPOSE",
+        "body": "This Schedule establishes the Company's pricing structure, billing policies, commercial terms,\npayment requirements, and service charges applicable to services provided by Prep Services\nFBA.\nUnless otherwise agreed in writing, all services shall be billed in accordance with this Schedule."
+      },
+      {
+        "title": "2. CLIENT-SPECIFIC PRICING",
+        "body": "Each Client shall be assigned a customized pricing profile within PrepCorex based on factors\nincluding:\n● Monthly shipment volume\n● Monthly storage requirements\n● Service complexity\n● Product type\n● Packaging requirements\n\n● Contracted service levels\n● Enterprise agreements\n● Promotional pricing\n● Custom negotiated rates\nThe Client's assigned pricing profile shall be accessible through the PrepCorex Client Portal."
+      },
+      {
+        "title": "3. STANDARD SERVICE CATEGORIES",
+        "body": "Service fees may apply to, but are not limited to:\nReceiving Services\n● Carton Receiving\n● Pallet Receiving\n● Container Receiving\n● Floor Loaded Trailer Receiving\n● Appointment Handling\nInventory Services\n● Product Inspection\n● Inventory Verification\n● Barcode Labeling\n● Transparency Labeling\n● Poly Bagging\n● Bubble Wrapping\n● Bundling\n● Kitting\n● Rework\n● Product Photography\nFulfillment Services\n● Amazon FBA Prep\n● Amazon FBM Fulfillment\n● Walmart WFS Prep\n● Shopify Fulfillment\n● TikTok Shop Fulfillment\n● eBay Fulfillment\n● Pick & Pack\n● Wholesale Orders\n1\n\nStorage Services\n● Bin Storage\n● Shelf Storage\n● Pallet Storage\n● Bulk Storage\n● Oversized Storage\nReturns Services\n● Returns Receiving\n● Product Inspection\n● Restocking\n● Disposal\n● Relabeling\n● Refurbishment Coordination\nShipping Services\n● Box Forwarding\n● Pallet Forwarding\n● LTL Coordination\n● FTL Coordination\n● Freight Documentation\n● Shipping Label Management"
+      },
+      {
+        "title": "4. ADDITIONAL SERVICE FEES",
+        "body": "Additional charges may apply for:\n● Expedited processing\n● Same-day processing\n● Weekend processing\n● Holiday processing\n● Oversized inventory\n● Non-standard packaging\n● Manual data entry\n● Special projects\n● Inventory audits\n● Cycle counts\n● Emergency requests\n● Long-term storage\n● Inventory disposal\n2\n\nApplicable charges will be communicated before services are performed whenever reasonably\npracticable."
+      },
+      {
+        "title": "5. PAYMENT TERMS",
+        "body": "Unless otherwise agreed in writing:\n● Invoices are payable within 48 hours from the invoice date.\n● Services may be suspended for overdue balances.\n● Inventory may be held until outstanding balances are paid, subject to applicable law and\nthe MSA.\nAccepted payment methods may include:\n● ACH\n● Wire Transfer\n● Credit Card\n● Wise\n● Other approved payment methods"
+      },
+      {
+        "title": "6. LATE PAYMENT",
+        "body": "Invoices not paid by the due date may incur:\n● A $19 administrative late fee per overdue invoice; and\n● Interest on overdue balances at the lesser of 1.5% per month (18% annually) or the\nmaximum rate permitted by applicable law.\nPrep Services FBA reserves the right to suspend services or withhold inventory release until all\noutstanding balances have been paid."
+      },
+      {
+        "title": "7. TAXES",
+        "body": "All pricing is exclusive of applicable taxes unless expressly stated otherwise.\nThe Client is responsible for all applicable federal, state, and local taxes.\nTax-exempt Clients must provide valid exemption documentation before invoicing."
+      },
+      {
+        "title": "8. STORAGE BILLING",
+        "body": "Storage charges shall be calculated according to the Client's assigned pricing profile.\n3\n\nStorage may be billed based on:\n● Pallet count\n● Carton count\n● Bin usage\n● Shelf space\n● Cubic volume\n● Contracted minimums\nStorage billing begins in accordance with the Client's agreement and service plan."
+      },
+      {
+        "title": "9. MINIMUM CHARGES",
+        "body": "Prep Services FBA reserves the right to establish:\n● Minimum invoice amounts\n● Minimum monthly service commitments\n● Minimum storage commitments\n● Minimum project fees\nAny applicable minimums will be communicated during onboarding or contract negotiations."
+      },
+      {
+        "title": "10. VOLUME DISCOUNTS",
+        "body": "Pricing adjustments may be offered based on factors such as:\n● Monthly unit volume\n● Monthly pallet volume\n● Annual shipping commitments\n● Long-term service agreements\n● Enterprise partnerships\nVolume discounts are not automatic and apply only when confirmed in writing or reflected in the\nClient's pricing profile."
+      },
+      {
+        "title": "11. PRICING ADJUSTMENTS",
+        "body": "Prep Services FBA may revise pricing from time to time.\nUnless otherwise specified in a separate written agreement:\n● Pricing changes become effective upon 30 days' prior written notice.\n● Notice may be provided through email, PrepCorex, or other written communication.\n4\n\n● Continued use of the Services after the effective date constitutes acceptance of the\nrevised pricing."
+      },
+      {
+        "title": "12. CLIENT PRICING PROFILE",
+        "body": "Each Client's customized pricing shall be maintained within PrepCorex and may include:\n● Service Name\n● Unit of Measure\n● Standard Rate\n● Discounted Rate\n● Volume Breaks\n● Minimum Charges\n● Effective Date\n● Expiration Date (if applicable)\n● Notes\nThis pricing profile forms part of this Schedule and governs the commercial relationship\nbetween the parties."
+      },
+      {
+        "title": "13. ENTIRE SCHEDULE",
+        "body": "This Schedule A should be read together with:\n● Master Service Agreement (MSA)\n● Schedule B – Warehouse Operating Rules\n● Schedule C – Service Level Agreement (SLA)\n● Schedule D – Privacy Policy & Data Processing\nIn the event of a conflict between this Schedule and a separately executed written pricing\nagreement signed by both parties, the signed pricing agreement shall control for the applicable\nservices."
+      }
+    ],
+    "footerLine": "Schedule A – Pricing & Commercial Terms"
+  },
+  "privacy": {
+    "headerLine": "SCHEDULE D - PRIVACY, DATA PROCESSING & INFORMATION SECURITY POLICY",
+    "showDocumentControlHeading": false,
+    "coverSubtitle": "Master Service Agreement – Schedule D",
+    "documentControl": [
+      {
+        "field": "Document",
+        "value": "Master Service Agreement"
+      },
+      {
+        "field": "Version",
+        "value": "1.0"
+      },
+      {
+        "field": "Effective Date",
+        "value": "July 01, 2026"
+      },
+      {
+        "field": "Last Updated",
+        "value": "July 01, 2026"
+      },
+      {
+        "field": "Approved By",
+        "value": "Prep Services FBA LLC"
+      },
+      {
+        "field": "Document Owner",
+        "value": "Operations Department"
+      },
+      {
+        "field": "Classification",
+        "value": "Client Agreement"
+      },
+      {
+        "field": "Status",
+        "value": "Active"
+      }
+    ],
+    "intro": "This Schedule D forms part of the Master Service Agreement (\"MSA\") between Prep Services\nFBA LLC (\"Company\") and the Client. It describes how Prep Services FBA collects, processes,\nstores, protects, and manages information through PrepCorex, the Client Portal, and related\nservices.",
+    "tableOfContents": "",
+    "sections": [
+      {
+        "title": "1. PURPOSE",
+        "body": "This Privacy, Data Processing & Information Security Policy explains how Prep Services FBA\ncollects, uses, stores, protects, and processes information in connection with its warehouse\noperations, PrepCorex platform, and related services."
+      },
+      {
+        "title": "2. INFORMATION WE COLLECT",
+        "body": "Depending on the services used, we may collect:\nBusiness Information\n● Company Name\n● Contact Information\n● Billing Information\n● Tax Information\n● Business Address\n● Warehouse Preferences\nOperational Information\n● Shipment Requests\n● Inventory Data\n● SKU Information\n● Purchase Orders\n● Tracking Numbers\n● Warehouse Locations\n● Order History\n● Returns Data\n● Inventory Movements\nAccount Information\n● Username\n● Email Address\n● Password (encrypted)\n1\n\n● User Roles\n● Login History\n● Client ID\nTechnical Information\n● IP Address\n● Browser Type\n● Device Information\n● Operating System\n● Login Timestamp\n● Session Information\nBilling Information\n● Invoice History\n● Payment Status\n● Transaction Records\n● Credits\n● Discounts"
+      },
+      {
+        "title": "3. CLIENT DATA OWNERSHIP",
+        "body": "The Client retains ownership of all business data submitted to Prep Services FBA.\nPrep Services FBA retains ownership of:\n● PrepCorex software\n● Database structure\n● Warehouse workflows\n● Operational processes\n● Reports generated by the system\n● Audit logs\n● System analytics\n● Intellectual property"
+      },
+      {
+        "title": "4. HOW WE USE INFORMATION",
+        "body": "Information may be used to:\n● Operate warehouse services\n● Process inventory\n● Generate invoices\n2\n\n● Communicate with Clients\n● Improve PrepCorex\n● Monitor system security\n● Detect fraud\n● Improve operational efficiency\n● Comply with legal obligations\nPrep Services FBA does not sell Client business information."
+      },
+      {
+        "title": "5. PREPCOREX ACTIVITY LOGS",
+        "body": "PrepCorex may automatically record operational activities including:\n● Login history\n● Inventory updates\n● Shipment creation\n● Order fulfillment\n● Barcode scans\n● User actions\n● Document uploads\n● Invoice generation\n● Payment history\n● Support communications\nThese logs help ensure transparency, operational accuracy, and security."
+      },
+      {
+        "title": "6. COOKIES & WEBSITE TECHNOLOGIES",
+        "body": "Our websites and PrepCorex may use cookies and similar technologies to:\n● Maintain login sessions\n● Remember preferences\n● Improve website performance\n● Analyze usage\n● Enhance security\nUsers may control cookie preferences through their browser settings; however, disabling\ncookies may affect certain platform functionality."
+      },
+      {
+        "title": "7. INFORMATION SHARING",
+        "body": "Prep Services FBA may share information only when reasonably necessary with:\n3\n\n● Shipping carriers\n● Payment processors\n● Cloud hosting providers\n● Technology vendors\n● Professional advisors\n● Government authorities when required by law\nWe do not sell Client information to third parties."
+      },
+      {
+        "title": "8. INFORMATION SECURITY",
+        "body": "Prep Services FBA implements commercially reasonable safeguards including:\n● Encrypted passwords\n● Secure user authentication\n● Role-based permissions\n● Audit logging\n● Backup procedures\n● Network security controls\n● Access controls\n● Security monitoring\nNo internet-based system can be guaranteed to be completely secure."
+      },
+      {
+        "title": "9. DATA RETENTION",
+        "body": "Prep Services FBA may retain records including:\n● Shipment history\n● Inventory history\n● Invoices\n● Payment records\n● Audit logs\n● Support communications\n● Operational reports\nRecords may be retained for operational, legal, tax, compliance, and business continuity\npurposes."
+      },
+      {
+        "title": "10. CLIENT RESPONSIBILITIES",
+        "body": "The Client is responsible for:\n4\n\n● Maintaining password confidentiality\n● Protecting account credentials\n● Keeping contact information current\n● Promptly reporting suspected unauthorized access\n● Ensuring only authorized personnel access PrepCorex"
+      },
+      {
+        "title": "11. THIRD-PARTY INTEGRATIONS",
+        "body": "PrepCorex may integrate with third-party platforms such as:\n● Amazon\n● Walmart\n● Shopify\n● TikTok Shop\n● eBay\n● ShipStation\n● ShipHero\n● Shipping carriers\n● Payment providers\n● Accounting software\nUse of third-party services remains subject to the applicable third-party terms and privacy\npolicies."
+      },
+      {
+        "title": "12. ARTIFICIAL INTELLIGENCE & AUTOMATION",
+        "body": "PrepCorex may use automation and artificial intelligence features to assist with:\n● Inventory management\n● Operational workflows\n● Notifications\n● Reporting\n● Analytics\n● Customer support\n● Workflow optimization\nAI-generated recommendations are intended to assist operations and should not be considered\nlegal, financial, or regulatory advice."
+      },
+      {
+        "title": "13. MARKETING COMMUNICATIONS",
+        "body": "Prep Services FBA may send:\n5\n\n● Service announcements\n● System updates\n● Security notifications\n● Maintenance notices\n● Product enhancements\n● Educational content\nClients may opt out of promotional communications while continuing to receive essential\noperational and account-related notices."
+      },
+      {
+        "title": "14. CLIENT RIGHTS",
+        "body": "Subject to applicable law, Clients may request to:\n● Review certain personal information\n● Correct inaccurate information\n● Update account information\n● Request deletion of personal information where legally permissible\n● Request a copy of certain account information\nCertain records may be retained where required by law or necessary for legitimate business\npurposes."
+      },
+      {
+        "title": "15. INTERNATIONAL DATA",
+        "body": "Clients located outside the United States acknowledge that information may be processed and\nstored in the United States or other jurisdictions where Prep Services FBA or its service\nproviders operate."
+      },
+      {
+        "title": "16. POLICY UPDATES",
+        "body": "Prep Services FBA may update this Schedule D from time to time to reflect:\n● Changes in law\n● New services\n● Security enhancements\n● Operational improvements\n● Platform enhancements\nUpdated versions will be published through PrepCorex or otherwise communicated to Clients."
+      },
+      {
+        "title": "17. CONTACT INFORMATION",
+        "body": "6\n\nFor questions regarding privacy, data processing, or information security:\nPrep Services FBA LLC\nNew Jersey, USA\nGeneral Support: support@prepservicesfba.com\nPrivacy Requests: privacy@prepservicesfba.com (or support@prepservicesfba.com until you\ncreate a dedicated address)\nWebsite: www.prepservicesfba.com\nPrepCorex Portal: portal.prepcorex.com (replace with your production URL)\nAPPENDIX A – INFORMATION CATEGORIES\nCategory \tExamples\nBusiness Information Company Name, Contact Details\nOperational Data \tInventory, Orders, Shipments\nFinancial Data \tInvoices, Payments\nTechnical Data \tIP Address, Browser, Device\nPortal Activity \tLogins, Audit Logs, User Actions\nDocuments \tResale Certificates, Business Licenses, Shipping\nDocuments\nAPPENDIX B – SECURITY CONTROLS\nPrep Services FBA strives to implement:\n● Role-Based Access Control (RBAC)\n● Secure Authentication\n● Password Encryption\n● Audit Logs\n● Backup Procedures\n● Activity Monitoring\n● Session Management\n● Secure Cloud Infrastructure\n● Disaster Recovery Procedures\n7\n\n● Employee Access Controls\nAPPENDIX C – PREPCOREX DATA LIFECYCLE\nClient Registration\n│\nData Collection\n│\nSecure Storage\n│\nOperational Processing\n│\nWarehouse Activity\n│\nBilling & Reporting\n│\nRecord Retention\n│\nArchiving / Lawful Deletion"
+      }
+    ],
+    "footerLine": "Schedule D – Privacy, Data Processing & Information Security Policy"
+  }
+}

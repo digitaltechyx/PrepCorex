@@ -53,6 +53,7 @@ firestore-debug.log
 credentials/
 *.json
 !firestore.indexes.json
+!src/lib/platform-documents-pdf-content.json
 google-drive-credentials.json
 
 # local backups / scratch files
