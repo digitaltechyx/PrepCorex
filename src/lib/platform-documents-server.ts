@@ -4,10 +4,9 @@ import {
   getDefaultPlatformDocument,
   minimumSectionCount,
 } from "@/lib/platform-documents-seed";
+import { withResolvedDocumentMetadata } from "@/lib/platform-document-control";
 import type {
   PlatformDocument,
-  PlatformDocumentControlRow,
-  PlatformDocumentRevisionRow,
   PlatformDocumentSlug,
   PlatformDocumentSummary,
 } from "@/lib/platform-documents-types";
@@ -31,34 +30,20 @@ function toFirestoreDocument(
   return payload;
 }
 
-function mapControlRows(value: unknown): PlatformDocumentControlRow[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  return value
-    .map((row) => ({
-      field: String((row as { field?: string }).field || "").trim(),
-      value: String((row as { value?: string }).value || "").trim(),
-    }))
-    .filter((row) => row.field && row.value);
-}
-
-function mapRevisionRows(value: unknown): PlatformDocumentRevisionRow[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  return value
-    .map((row) => ({
-      version: String((row as { version?: string }).version || "").trim(),
-      date: String((row as { date?: string }).date || "").trim(),
-      changes: String((row as { changes?: string }).changes || "").trim(),
-    }))
-    .filter((row) => row.version || row.date || row.changes);
-}
-
 function mapDoc(slug: PlatformDocumentSlug, data: FirebaseFirestore.DocumentData): PlatformDocument {
   const updatedAt = data.updatedAt;
+  const effectiveAt = data.effectiveAt;
   let updatedAtIso: string | undefined;
+  let effectiveAtIso: string | undefined;
   if (updatedAt instanceof Timestamp) {
     updatedAtIso = updatedAt.toDate().toISOString();
   } else if (typeof updatedAt === "string") {
     updatedAtIso = updatedAt;
+  }
+  if (effectiveAt instanceof Timestamp) {
+    effectiveAtIso = effectiveAt.toDate().toISOString();
+  } else if (typeof effectiveAt === "string") {
+    effectiveAtIso = effectiveAt;
   }
 
   return {
@@ -73,8 +58,6 @@ function mapDoc(slug: PlatformDocumentSlug, data: FirebaseFirestore.DocumentData
         : slug === "msa",
     coverTitle: data.coverTitle ? String(data.coverTitle) : undefined,
     coverSubtitle: data.coverSubtitle ? String(data.coverSubtitle) : undefined,
-    documentControl: mapControlRows(data.documentControl),
-    revisionHistory: mapRevisionRows(data.revisionHistory),
     preamble: data.preamble ? String(data.preamble) : undefined,
     intro: data.intro ? String(data.intro) : undefined,
     tableOfContents: data.tableOfContents ? String(data.tableOfContents) : undefined,
@@ -85,6 +68,7 @@ function mapDoc(slug: PlatformDocumentSlug, data: FirebaseFirestore.DocumentData
         }))
       : [],
     version: Number(data.version) || 1,
+    effectiveAt: effectiveAtIso || updatedAtIso,
     contentSchemaVersion: Number(data.contentSchemaVersion) || 1,
     updatedAt: updatedAtIso,
     updatedBy: data.updatedBy ? String(data.updatedBy) : undefined,
@@ -94,8 +78,8 @@ function mapDoc(slug: PlatformDocumentSlug, data: FirebaseFirestore.DocumentData
 
 function needsContentMigration(doc: PlatformDocument): boolean {
   if ((doc.contentSchemaVersion || 1) < PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION) return true;
-  if (!doc.documentControl?.length) return true;
   if (!doc.headerLine) return true;
+  if (!doc.effectiveAt && !doc.updatedAt) return true;
   if (doc.sections.length < minimumSectionCount(doc.slug)) return true;
   return false;
 }
@@ -108,31 +92,42 @@ export async function ensurePlatformDocument(slug: PlatformDocumentSlug): Promis
 
   if (!snap.exists) {
     await ref.set(
-      toFirestoreDocument(seed, { updatedAt: FieldValue.serverTimestamp() })
+      toFirestoreDocument(seed, {
+        updatedAt: FieldValue.serverTimestamp(),
+        effectiveAt: FieldValue.serverTimestamp(),
+      })
     );
-    return seed;
+    const created = await ref.get();
+    return withResolvedDocumentMetadata(mapDoc(slug, created.data()!));
   }
 
   const existing = mapDoc(slug, snap.data()!);
   if (!needsContentMigration(existing)) {
-    return existing;
+    return withResolvedDocumentMetadata(existing);
   }
 
   const migrated: PlatformDocument = {
     ...seed,
     version: existing.version || seed.version,
     updatedAt: existing.updatedAt || seed.updatedAt,
+    effectiveAt: existing.effectiveAt || existing.updatedAt || seed.effectiveAt,
     updatedBy: existing.updatedBy,
     updatedByName: existing.updatedByName || "System",
     contentSchemaVersion: PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION,
   };
 
   await ref.set(
-    toFirestoreDocument(migrated, { updatedAt: FieldValue.serverTimestamp() }),
+    toFirestoreDocument(migrated, {
+      updatedAt: FieldValue.serverTimestamp(),
+      effectiveAt: migrated.effectiveAt
+        ? migrated.effectiveAt
+        : FieldValue.serverTimestamp(),
+    }),
     { merge: true }
   );
 
-  return migrated;
+  const refreshed = await ref.get();
+  return withResolvedDocumentMetadata(mapDoc(slug, refreshed.data()!));
 }
 
 export async function getPlatformDocument(slug: PlatformDocumentSlug): Promise<PlatformDocument> {
@@ -175,6 +170,7 @@ export async function savePlatformDocument(
     version: nextVersion,
     contentSchemaVersion: existing.contentSchemaVersion || PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION,
     updatedAt: FieldValue.serverTimestamp(),
+    effectiveAt: FieldValue.serverTimestamp(),
     updatedBy: admin.uid,
     updatedByName: admin.name || "Admin",
   };
@@ -189,5 +185,5 @@ export async function savePlatformDocument(
   );
 
   const updated = await ref.get();
-  return mapDoc(slug, updated.data()!);
+  return withResolvedDocumentMetadata(mapDoc(slug, updated.data()!));
 }

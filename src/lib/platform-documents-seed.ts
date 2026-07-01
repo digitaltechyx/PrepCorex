@@ -1,4 +1,5 @@
 import pdfContent from "./platform-documents-pdf-content.json";
+import { getDocumentControlHeading } from "./platform-document-control";
 import type {
   PlatformDocument,
   PlatformDocumentSection,
@@ -17,8 +18,6 @@ type PdfContentEntry = {
   showDocumentControlHeading?: boolean;
   coverTitle?: string;
   coverSubtitle?: string;
-  documentControl?: { field: string; value: string }[];
-  revisionHistory?: { version: string; date: string; changes: string }[];
   preamble?: string;
   intro?: string;
   tableOfContents?: string;
@@ -52,23 +51,15 @@ function buildFromPdfContent(slug: PlatformDocumentSlug): PlatformDocument {
     subtitle: raw.coverSubtitle,
     headerLine: raw.headerLine,
     footerLine: raw.footerLine,
-    showDocumentControlHeading: raw.showDocumentControlHeading ?? slug === "msa",
+    showDocumentControlHeading: getDocumentControlHeading(slug),
     coverTitle: raw.coverTitle,
     coverSubtitle: raw.coverSubtitle,
-    documentControl: raw.documentControl?.map((row) => ({
-      field: row.field.trim(),
-      value: row.value.trim(),
-    })),
-    revisionHistory: raw.revisionHistory?.map((row) => ({
-      version: row.version.trim(),
-      date: row.date.trim(),
-      changes: row.changes.trim(),
-    })),
     preamble: raw.preamble ? cleanBody(raw.preamble) : undefined,
     intro: raw.intro ? cleanBody(raw.intro) : undefined,
     tableOfContents: raw.tableOfContents ? cleanBody(raw.tableOfContents) : undefined,
     sections: mapSections(raw.sections),
     version: 1,
+    effectiveAt: now,
     contentSchemaVersion: PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION,
     updatedAt: now,
     updatedByName: "System",

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor } from "@/components/admin/rich-text-editor";
 import {
   Select,
   SelectContent,
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import type { PlatformDocument, PlatformDocumentSection, PlatformDocumentSlug } from "@/lib/platform-documents-types";
+import type { PlatformDocument, PlatformDocumentControlRow, PlatformDocumentSection, PlatformDocumentSlug } from "@/lib/platform-documents-types";
 import { PLATFORM_DOCUMENT_LABELS, PLATFORM_DOCUMENT_SLUGS } from "@/lib/platform-documents-types";
 import { ExternalLink, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { format } from "date-fns";
@@ -29,6 +29,8 @@ export function PlatformDocumentsManagement() {
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [sections, setSections] = useState<PlatformDocumentSection[]>([]);
+  const [documentControl, setDocumentControl] = useState<PlatformDocumentControlRow[]>([]);
+  const [showDocumentControlHeading, setShowDocumentControlHeading] = useState(false);
   const [meta, setMeta] = useState<Pick<PlatformDocument, "version" | "updatedAt" | "updatedByName">>({
     version: 1,
   });
@@ -43,6 +45,8 @@ export function PlatformDocumentsManagement() {
       setTitle(doc.title);
       setSubtitle(doc.subtitle || "");
       setSections(doc.sections.length > 0 ? doc.sections : [{ title: "Section 1", body: "" }]);
+      setDocumentControl(doc.documentControl || []);
+      setShowDocumentControlHeading(doc.showDocumentControlHeading ?? slug === "msa");
       setMeta({ version: doc.version, updatedAt: doc.updatedAt, updatedByName: doc.updatedByName });
     } catch (e) {
       toast({
@@ -76,6 +80,8 @@ export function PlatformDocumentsManagement() {
       if (!res.ok) throw new Error(data.error || "Failed to save");
       const doc = data.document as PlatformDocument;
       setMeta({ version: doc.version, updatedAt: doc.updatedAt, updatedByName: doc.updatedByName });
+      setDocumentControl(doc.documentControl || []);
+      setShowDocumentControlHeading(doc.showDocumentControlHeading ?? slug === "msa");
       toast({
         title: "Document saved",
         description: `Version ${doc.version} is now live for PDF generation.`,
@@ -100,8 +106,8 @@ export function PlatformDocumentsManagement() {
       <CardHeader>
         <CardTitle>Platform legal documents</CardTitle>
         <CardDescription>
-          Edit agreement content in-app. Each save creates a new version and archives the previous one.
-          Users see PDFs generated from the current version.
+          Edit agreement content in-app with rich text formatting. Each save creates a new version
+          and archives the previous one. Users see PDFs generated from the current version.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -162,6 +168,35 @@ export function PlatformDocumentsManagement() {
               <Input id="doc-subtitle" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} />
             </div>
 
+            {documentControl.length > 0 ? (
+              <div className="space-y-2 rounded-lg border p-4">
+                {showDocumentControlHeading ? (
+                  <p className="text-sm font-semibold text-primary">Document Control</p>
+                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  Auto-generated for this document. Version and dates update when you save a new version.
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-primary text-primary-foreground">
+                        <th className="px-3 py-2 text-left font-semibold">Field</th>
+                        <th className="px-3 py-2 text-left font-semibold">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {documentControl.map((row) => (
+                        <tr key={row.field} className="border-b last:border-0">
+                          <td className="px-3 py-2 font-medium">{row.field}</td>
+                          <td className="px-3 py-2">{row.value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+
             <div className="space-y-4">
               <Label>Sections</Label>
               {sections.map((section, index) => (
@@ -186,11 +221,11 @@ export function PlatformDocumentsManagement() {
                     onChange={(e) => updateSection(index, { title: e.target.value })}
                     placeholder="Section title"
                   />
-                  <Textarea
+                  <RichTextEditor
+                    label="Section body"
                     value={section.body}
-                    onChange={(e) => updateSection(index, { body: e.target.value })}
+                    onChange={(html) => updateSection(index, { body: html })}
                     placeholder="Section body"
-                    className="min-h-[120px]"
                   />
                 </div>
               ))}
