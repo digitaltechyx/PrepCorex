@@ -21,7 +21,7 @@ import { format } from "date-fns";
 import type { UserProfile } from "@/types";
 import { EditUserForm } from "./edit-user-form";
 import { RoleFeatureManagement } from "./role-feature-management";
-import { getDefaultFeaturesForRole, getUserRoles } from "@/lib/permissions";
+import { getUserRoles } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 
 interface MemberManagementProps {
@@ -143,65 +143,44 @@ export function MemberManagement({
 
   const handleApproveUser = async (user: UserProfile) => {
     try {
-      const userRoles = getUserRoles(user);
-      const updateData: any = {
-        status: "approved",
-        approvedAt: new Date(),
-      };
-
-      // If user doesn't have features yet, give them default features based on their role
-      if (!user.features || user.features.length === 0) {
-        // Get all default features for all user roles
-        const defaultFeatures: string[] = [];
-        userRoles.forEach((role) => {
-          const roleFeatures = getDefaultFeaturesForRole(role);
-          roleFeatures.forEach((feature) => {
-            if (!defaultFeatures.includes(feature)) {
-              defaultFeatures.push(feature);
-            }
-          });
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        toast({
+          variant: "destructive",
+          title: "Not signed in",
+          description: "Please sign in again and retry approval.",
         });
-        updateData.features = defaultFeatures;
+        return;
       }
 
-      // Ensure roles array is set
-      if (!user.roles || user.roles.length === 0) {
-        updateData.roles = userRoles.length > 0 ? userRoles : [user.role || "user"];
-      }
-
-      await updateDoc(doc(db, "users", user.uid), updateData);
-
-      try {
-        const token = await auth.currentUser?.getIdToken();
-        if (token && user.email) {
-          await fetch("/api/email/account", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              type: "approved",
-              userId: user.uid,
-              email: user.email,
-              contactName: user.name || "there",
-              companyName: user.companyName || "your company",
-            }),
-          });
-        }
-      } catch (emailError) {
-        console.error("Approval email failed:", emailError);
-      }
-
-      toast({
-        title: "Success",
-        description: `User "${user.name}" has been approved!`,
+      const res = await fetch(`/api/admin/users/${user.uid}/approve`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
       });
-    } catch (error: any) {
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to approve user.");
+      }
+
+      if (data.emailSent) {
+        toast({
+          title: "Success",
+          description: `User "${user.name}" has been approved and notified by email.`,
+        });
+      } else {
+        toast({
+          title: "User approved",
+          description:
+            data.emailError ||
+            `User "${user.name}" was approved, but the approval email could not be sent.`,
+          variant: "destructive",
+        });
+      }
+    } catch (error: unknown) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Failed to approve user.",
+        description: error instanceof Error ? error.message : "Failed to approve user.",
       });
     }
   };
