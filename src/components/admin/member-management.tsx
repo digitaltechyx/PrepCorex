@@ -15,12 +15,13 @@ import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { deleteUser } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, User, Calendar, Phone, Mail, Eye, Trash2, UserCheck, RotateCcw, Search, X, ArrowUpDown, Edit, Shield } from "lucide-react";
+import { CheckCircle, XCircle, User, Calendar, Phone, Mail, Eye, Trash2, UserCheck, RotateCcw, Search, X, ArrowUpDown, Edit, Shield, ScrollText } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
 import type { UserProfile } from "@/types";
 import { EditUserForm } from "./edit-user-form";
 import { RoleFeatureManagement } from "./role-feature-management";
+import { UserAuditTrailPanel } from "./user-audit-trail-panel";
 import { getUserRoles } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 
@@ -272,7 +273,7 @@ export function MemberManagement({
   const UserCard = ({ user, showActions = false, showRestore = false, isAdmin = false }: { user: UserProfile; showActions?: boolean; showRestore?: boolean; isAdmin?: boolean }) => {
     const [isUserDialogOpen, setIsUserDialogOpen] = useState(false);
     const [isUserEditMode, setIsUserEditMode] = useState(false);
-    const [activeTab, setActiveTab] = useState<"details" | "roles">("details");
+    const [activeTab, setActiveTab] = useState<"details" | "roles" | "audit">("details");
 
     const getAvatarSrc = () => {
       if (user.profilePictureUrl) {
@@ -388,8 +389,8 @@ export function MemberManagement({
                         onCancel={() => setIsUserEditMode(false)}
                       />
                     ) : isAdmin ? (
-                      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "details" | "roles")} className="w-full">
-                        <TabsList className="grid w-full grid-cols-2">
+                      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "details" | "roles" | "audit")} className="w-full">
+                        <TabsList className="grid w-full grid-cols-3">
                           <TabsTrigger value="details" className="flex items-center gap-2">
                             <User className="h-4 w-4" />
                             Details
@@ -397,6 +398,10 @@ export function MemberManagement({
                           <TabsTrigger value="roles" className="flex items-center gap-2">
                             <Shield className="h-4 w-4" />
                             Roles & Features
+                          </TabsTrigger>
+                          <TabsTrigger value="audit" className="flex items-center gap-2">
+                            <ScrollText className="h-4 w-4" />
+                            Audit Trail
                           </TabsTrigger>
                         </TabsList>
                         <TabsContent value="details" className="mt-4">
@@ -522,6 +527,9 @@ export function MemberManagement({
                               // Refresh will happen automatically via useCollection
                             }}
                           />
+                        </TabsContent>
+                        <TabsContent value="audit" className="mt-4">
+                          <UserAuditTrailPanel userId={user.uid} userName={user.name} />
                         </TabsContent>
                       </Tabs>
                     ) : (

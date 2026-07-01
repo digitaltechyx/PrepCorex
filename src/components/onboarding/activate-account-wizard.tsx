@@ -25,6 +25,7 @@ import {
 } from "@/lib/onboarding-options";
 import { formatMsaAgreementVersionLabel } from "@/lib/platform-document-control";
 import { getDefaultFeaturesForRole, hasRole, isAccountActivated } from "@/lib/permissions";
+import { logUserAuditEvent } from "@/lib/user-audit-trail-client";
 import type { PlatformDocument } from "@/lib/platform-documents-types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -188,6 +189,14 @@ export function ActivateAccountWizard() {
       setSubmitting(true);
       try {
         await saveProfilePartial();
+        await logUserAuditEvent("profile_completed", {
+          description: "Completed business profile and services onboarding steps.",
+          metadata: {
+            businessType: businessType.trim(),
+            servicesNeeded,
+            salesVolume: salesVolume.trim(),
+          },
+        });
         setStep(3);
       } catch (err) {
         toast({
@@ -263,6 +272,13 @@ export function ActivateAccountWizard() {
       }
 
       await updateDoc(doc(db, "users", userProfile.uid), updateData);
+      await logUserAuditEvent("account_activated", {
+        description: "Accepted MSA and activated account.",
+        metadata: {
+          msaVersion: msaDocument.version,
+          legalName: legalName.trim(),
+        },
+      });
       toast({
         title: "Account activated",
         description: "Welcome to PrepCorex! Your dashboard is now ready.",

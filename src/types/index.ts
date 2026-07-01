@@ -452,6 +452,38 @@ export interface UserProfile {
   } | null;
 }
 
+/** User account audit trail event types (`users/{uid}/auditTrail`). */
+export type UserAuditEventType =
+  | "account_created"
+  | "sign_in"
+  | "sign_out"
+  | "account_approved"
+  | "profile_completed"
+  | "account_activated"
+  | "user_action";
+
+export interface UserAuditEvent {
+  id: string;
+  userId: string;
+  type: UserAuditEventType;
+  /** Human-readable label for `user_action` and optional detail for lifecycle events. */
+  action?: string | null;
+  description?: string | null;
+  occurredAt: string;
+  ipAddress?: string | null;
+  region?: string | null;
+  userAgent?: string | null;
+  sessionId?: string | null;
+  sessionStartedAt?: string | null;
+  /** Elapsed ms from session start at time of event. */
+  sessionDurationMs?: number | null;
+  /** Admin uid when an admin performed an action on behalf of / for this user. */
+  performedByUid?: string | null;
+  metadata?: Record<string, unknown> | null;
+  /** True when reconstructed from profile timestamps (no live log existed). */
+  synthetic?: boolean;
+}
+
 export interface InventoryItem {
   id: string;
   productName: string;

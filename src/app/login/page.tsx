@@ -73,9 +73,27 @@ export default function LoginPage() {
         }
         
         const { getPostLoginPath } = await import("@/lib/auth-redirect");
+        const { beginAuditSession, logUserAuditEvent } = await import("@/lib/user-audit-trail-client");
+        const session = beginAuditSession();
+        await logUserAuditEvent("sign_in", {
+          description: "Successful sign in.",
+          session,
+          metadata: {
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+          },
+        });
         router.push(getPostLoginPath(userProfile));
       } else {
         // If no profile exists, redirect to regular dashboard
+        const { beginAuditSession, logUserAuditEvent } = await import("@/lib/user-audit-trail-client");
+        const session = beginAuditSession();
+        await logUserAuditEvent("sign_in", {
+          description: "Successful sign in.",
+          session,
+          metadata: {
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+          },
+        });
         router.push("/dashboard");
       }
     } catch (error: any) {

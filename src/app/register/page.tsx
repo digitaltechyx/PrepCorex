@@ -196,6 +196,28 @@ export default function RegisterPage() {
         // Account created; email failure is non-blocking
       }
 
+      try {
+        const token = await user.getIdToken();
+        await fetch("/api/audit/log", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            type: "account_created",
+            description: `Account registered for ${values.companyName.trim()}.`,
+            metadata: {
+              companyName: values.companyName.trim(),
+              email: values.email,
+              userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+            },
+          }),
+        });
+      } catch {
+        // Non-blocking
+      }
+
       toast({
         title: "Account created",
         description:

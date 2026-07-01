@@ -11,6 +11,7 @@ import {
   SidebarInset,
 } from "@/components/ui/sidebar";
 import { hasRole } from "@/lib/permissions";
+import { UserAuditActivityTracker } from "@/components/audit/user-audit-activity-tracker";
 
 export default function AdminDashboardLayout({
   children,
@@ -52,6 +53,7 @@ export default function AdminDashboardLayout({
 
   return (
     <SidebarProvider>
+      <UserAuditActivityTracker />
       <div className="flex min-h-screen w-full">
         <AdminSidebar />
         <SidebarInset className="flex flex-col flex-1 min-w-0 overflow-x-hidden">
