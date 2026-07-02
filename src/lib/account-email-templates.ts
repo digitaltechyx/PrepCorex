@@ -99,3 +99,38 @@ PrepCorex Team`;
 
   return { subject, text, html };
 }
+
+export function buildEmailVerificationEmail(input: {
+  contactName?: string;
+  verificationUrl: string;
+}) {
+  const greetingName = input.contactName?.trim() || "there";
+  const subject = "Verify your PrepCorex email address";
+  const text = `Hello ${greetingName},
+
+Please verify your email address to continue setting up your PrepCorex account.
+
+Verify your email:
+${input.verificationUrl}
+
+If you did not create a PrepCorex account, you can ignore this message.
+
+Thanks,
+PrepCorex Team
+Prep Services FBA LLC`;
+
+  const html = emailShell(
+    "Verify your email",
+    `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Hello <strong>${greetingName}</strong>,</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Thanks for registering with <strong>PrepCorex</strong>. Please confirm your email address to continue setting up your account.</p>
+<p style="margin:0 0 24px;">
+  <a href="${input.verificationUrl}" style="display:inline-block;background:#4338ca;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;font-size:14px;">Verify email address</a>
+</p>
+<p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#4b5563;">If the button does not work, copy and paste this link into your browser:</p>
+<p style="margin:0 0 20px;font-size:13px;line-height:1.5;word-break:break-all;color:#4338ca;">${input.verificationUrl}</p>
+<p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#4b5563;">If you did not create a PrepCorex account, you can safely ignore this email.</p>
+<p style="margin:0;font-size:14px;line-height:1.6;color:#4b5563;">Thanks,<br /><strong>PrepCorex Team</strong></p>`
+  );
+
+  return { subject, text, html };
+}

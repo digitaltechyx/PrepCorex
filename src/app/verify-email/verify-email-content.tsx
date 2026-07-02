@@ -64,7 +64,7 @@ export default function VerifyEmailPage() {
       await sendUserVerificationEmail(user);
       toast({
         title: "Verification email sent",
-        description: "Check your inbox and spam folder for the confirmation link.",
+        description: "Check your inbox for a message from PrepCorex with the confirmation link.",
       });
     } catch (err) {
       toast({

@@ -5,6 +5,7 @@ export type SendMailInput = {
   subject: string;
   text: string;
   html: string;
+  fromName?: string;
 };
 
 function getSmtpConfig() {
@@ -42,7 +43,7 @@ export async function sendTransactionalEmail(input: SendMailInput): Promise<void
 
   await transporter.verify();
   await transporter.sendMail({
-    from: `${cfg.smtpFromName} <${cfg.smtpFrom}>`,
+    from: `${input.fromName || cfg.smtpFromName} <${cfg.smtpFrom}>`,
     to: input.to,
     replyTo: cfg.smtpFrom,
     subject: input.subject,
