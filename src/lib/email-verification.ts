@@ -1,4 +1,4 @@
-import { sendEmailVerification, type User } from "firebase/auth";
+import type { User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import type { UserProfile } from "@/types";
 
@@ -27,10 +27,19 @@ export function getEmailVerificationContinueUrl(): string {
 }
 
 export async function sendUserVerificationEmail(firebaseUser: User): Promise<void> {
-  await sendEmailVerification(firebaseUser, {
-    url: getEmailVerificationContinueUrl(),
-    handleCodeInApp: false,
+  const token = await firebaseUser.getIdToken();
+  const res = await fetch("/api/auth/send-verification-email", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
   });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      typeof data.error === "string" ? data.error : "Failed to send verification email."
+    );
+  }
 }
 
 export async function reloadAuthUser(): Promise<void> {
