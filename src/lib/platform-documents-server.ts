@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
 import {
+  getBlankPlatformDocument,
   getDefaultPlatformDocument,
   minimumSectionCount,
 } from "@/lib/platform-documents-seed";
@@ -77,6 +78,19 @@ function mapDoc(slug: PlatformDocumentSlug, data: FirebaseFirestore.DocumentData
   };
 }
 
+/** Admin-edited documents use sections only — drop legacy seed blocks that duplicate section content. */
+function stripSeedTemplateOverlay(doc: PlatformDocument): PlatformDocument {
+  if (!doc.updatedBy) return doc;
+  return {
+    ...doc,
+    coverTitle: undefined,
+    coverSubtitle: undefined,
+    preamble: undefined,
+    intro: undefined,
+    tableOfContents: undefined,
+  };
+}
+
 function needsContentMigration(doc: PlatformDocument): boolean {
   // Admin-published versions must never be replaced by seed content on read.
   if (doc.updatedBy) return false;
@@ -103,11 +117,6 @@ function mergeLegacyDocumentWithSeed(
     headerLine: existing.headerLine || seed.headerLine,
     footerLine: existing.footerLine || seed.footerLine,
     showDocumentControlHeading: existing.showDocumentControlHeading ?? seed.showDocumentControlHeading,
-    coverTitle: existing.coverTitle || seed.coverTitle,
-    coverSubtitle: existing.coverSubtitle || seed.coverSubtitle,
-    preamble: existing.preamble || seed.preamble,
-    intro: existing.intro || seed.intro,
-    tableOfContents: existing.tableOfContents || seed.tableOfContents,
     sections: keepExistingSections ? existing.sections : seed.sections,
     version: existing.version || seed.version,
     updatedAt: existing.updatedAt || seed.updatedAt,
@@ -122,7 +131,7 @@ export async function ensurePlatformDocument(slug: PlatformDocumentSlug): Promis
   const db = adminDb();
   const ref = db.collection(COLLECTION).doc(slug);
   const snap = await ref.get();
-  const seed = getDefaultPlatformDocument(slug);
+  const seed = getBlankPlatformDocument(slug);
 
   if (!snap.exists) {
     await ref.set(
@@ -167,7 +176,7 @@ export async function getPlatformDocument(slug: PlatformDocumentSlug): Promise<P
 
   const existing = mapDoc(slug, snap.data()!);
   if (existing.updatedBy) {
-    return withResolvedDocumentMetadata(existing);
+    return withResolvedDocumentMetadata(stripSeedTemplateOverlay(existing));
   }
 
   return ensurePlatformDocument(slug);
@@ -255,7 +264,7 @@ export async function savePlatformDocument(
   const db = adminDb();
   const ref = db.collection(COLLECTION).doc(slug);
   const existing = await ensurePlatformDocument(slug);
-  const seed = getDefaultPlatformDocument(slug);
+  const seed = getBlankPlatformDocument(slug);
   const nextVersion = input.version;
 
   if (!Number.isFinite(nextVersion) || nextVersion <= 0) {
@@ -282,11 +291,11 @@ export async function savePlatformDocument(
     headerLine: existing.headerLine || seed.headerLine || null,
     footerLine: existing.footerLine || seed.footerLine || null,
     showDocumentControlHeading: existing.showDocumentControlHeading ?? seed.showDocumentControlHeading,
-    coverTitle: existing.coverTitle || seed.coverTitle || null,
-    coverSubtitle: existing.coverSubtitle || seed.coverSubtitle || null,
-    preamble: existing.preamble || seed.preamble || null,
-    intro: existing.intro || seed.intro || null,
-    tableOfContents: existing.tableOfContents || seed.tableOfContents || null,
+    coverTitle: FieldValue.delete(),
+    coverSubtitle: FieldValue.delete(),
+    preamble: FieldValue.delete(),
+    intro: FieldValue.delete(),
+    tableOfContents: FieldValue.delete(),
     sections: input.sections.map((s) => ({
       title: s.title.trim(),
       body: s.body.trim(),
@@ -309,7 +318,7 @@ export async function savePlatformDocument(
   );
 
   const updated = await ref.get();
-  return withResolvedDocumentMetadata(mapDoc(slug, updated.data()!));
+  return withResolvedDocumentMetadata(stripSeedTemplateOverlay(mapDoc(slug, updated.data()!)));
 }
 
 export async function deletePlatformDocumentVersion(
