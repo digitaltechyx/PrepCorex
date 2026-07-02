@@ -78,11 +78,44 @@ function mapDoc(slug: PlatformDocumentSlug, data: FirebaseFirestore.DocumentData
 }
 
 function needsContentMigration(doc: PlatformDocument): boolean {
+  // Admin-published versions must never be replaced by seed content on read.
+  if (doc.updatedBy) return false;
   if ((doc.contentSchemaVersion || 1) < PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION) return true;
   if (!doc.headerLine) return true;
   if (!doc.effectiveAt && !doc.updatedAt) return true;
   if (doc.sections.length < minimumSectionCount(doc.slug)) return true;
   return false;
+}
+
+function mergeLegacyDocumentWithSeed(
+  slug: PlatformDocumentSlug,
+  existing: PlatformDocument,
+  seed: PlatformDocument
+): PlatformDocument {
+  const keepExistingSections =
+    existing.sections.length > 0 &&
+    (existing.sections.length >= minimumSectionCount(slug) || Boolean(existing.updatedBy));
+
+  return {
+    ...seed,
+    title: existing.title?.trim() ? existing.title : seed.title,
+    subtitle: existing.subtitle ?? seed.subtitle,
+    headerLine: existing.headerLine || seed.headerLine,
+    footerLine: existing.footerLine || seed.footerLine,
+    showDocumentControlHeading: existing.showDocumentControlHeading ?? seed.showDocumentControlHeading,
+    coverTitle: existing.coverTitle || seed.coverTitle,
+    coverSubtitle: existing.coverSubtitle || seed.coverSubtitle,
+    preamble: existing.preamble || seed.preamble,
+    intro: existing.intro || seed.intro,
+    tableOfContents: existing.tableOfContents || seed.tableOfContents,
+    sections: keepExistingSections ? existing.sections : seed.sections,
+    version: existing.version || seed.version,
+    updatedAt: existing.updatedAt || seed.updatedAt,
+    effectiveAt: existing.effectiveAt || existing.updatedAt || seed.effectiveAt,
+    updatedBy: existing.updatedBy,
+    updatedByName: existing.updatedByName || "System",
+    contentSchemaVersion: PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION,
+  };
 }
 
 export async function ensurePlatformDocument(slug: PlatformDocumentSlug): Promise<PlatformDocument> {
@@ -107,15 +140,7 @@ export async function ensurePlatformDocument(slug: PlatformDocumentSlug): Promis
     return withResolvedDocumentMetadata(existing);
   }
 
-  const migrated: PlatformDocument = {
-    ...seed,
-    version: existing.version || seed.version,
-    updatedAt: existing.updatedAt || seed.updatedAt,
-    effectiveAt: existing.effectiveAt || existing.updatedAt || seed.effectiveAt,
-    updatedBy: existing.updatedBy,
-    updatedByName: existing.updatedByName || "System",
-    contentSchemaVersion: PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION,
-  };
+  const migrated = mergeLegacyDocumentWithSeed(slug, existing, seed);
 
   await ref.set(
     toFirestoreDocument(migrated, {
@@ -132,6 +157,19 @@ export async function ensurePlatformDocument(slug: PlatformDocumentSlug): Promis
 }
 
 export async function getPlatformDocument(slug: PlatformDocumentSlug): Promise<PlatformDocument> {
+  const db = adminDb();
+  const ref = db.collection(COLLECTION).doc(slug);
+  const snap = await ref.get();
+
+  if (!snap.exists) {
+    return ensurePlatformDocument(slug);
+  }
+
+  const existing = mapDoc(slug, snap.data()!);
+  if (existing.updatedBy) {
+    return withResolvedDocumentMetadata(existing);
+  }
+
   return ensurePlatformDocument(slug);
 }
 
@@ -217,6 +255,7 @@ export async function savePlatformDocument(
   const db = adminDb();
   const ref = db.collection(COLLECTION).doc(slug);
   const existing = await ensurePlatformDocument(slug);
+  const seed = getDefaultPlatformDocument(slug);
   const nextVersion = input.version;
 
   if (!Number.isFinite(nextVersion) || nextVersion <= 0) {
@@ -240,12 +279,20 @@ export async function savePlatformDocument(
     slug,
     title: input.title.trim(),
     subtitle: input.subtitle?.trim() || null,
+    headerLine: existing.headerLine || seed.headerLine || null,
+    footerLine: existing.footerLine || seed.footerLine || null,
+    showDocumentControlHeading: existing.showDocumentControlHeading ?? seed.showDocumentControlHeading,
+    coverTitle: existing.coverTitle || seed.coverTitle || null,
+    coverSubtitle: existing.coverSubtitle || seed.coverSubtitle || null,
+    preamble: existing.preamble || seed.preamble || null,
+    intro: existing.intro || seed.intro || null,
+    tableOfContents: existing.tableOfContents || seed.tableOfContents || null,
     sections: input.sections.map((s) => ({
       title: s.title.trim(),
       body: s.body.trim(),
     })),
     version: nextVersion,
-    contentSchemaVersion: existing.contentSchemaVersion || PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION,
+    contentSchemaVersion: PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION,
     updatedAt: FieldValue.serverTimestamp(),
     effectiveAt: FieldValue.serverTimestamp(),
     updatedBy: admin.uid,

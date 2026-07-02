@@ -213,9 +213,13 @@ export function PlatformDocumentsManagement() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" asChild>
-              <a href={`/api/platform-documents/${slug}/pdf`} target="_blank" rel="noopener noreferrer">
+              <a
+                href={`/api/platform-documents/${slug}/pdf?version=${meta.version ?? 1}&t=${encodeURIComponent(meta.updatedAt || "")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 <ExternalLink className="mr-2 h-4 w-4" />
-                Preview PDF
+                Preview live PDF
               </a>
             </Button>
             <Button onClick={() => void handleSave()} disabled={saving || loading}>

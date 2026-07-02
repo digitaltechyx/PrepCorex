@@ -16,7 +16,14 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
   try {
     const document = await getPlatformDocument(slug);
-    return NextResponse.json({ document });
+    return NextResponse.json(
+      { document },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
+    );
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Failed to load document" },

@@ -117,7 +117,7 @@ export function ActivateAccountWizard() {
     (async () => {
       setLoadingMsa(true);
       try {
-        const res = await fetch("/api/platform-documents/msa");
+        const res = await fetch("/api/platform-documents/msa", { cache: "no-store" });
         const data = await res.json();
         if (!cancelled && res.ok) {
           setMsaDocument(data.document as PlatformDocument);
@@ -615,7 +615,15 @@ export function ActivateAccountWizard() {
                   </Button>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <Button variant="outline" asChild>
-                      <a href="/api/platform-documents/msa/pdf" target="_blank" rel="noopener noreferrer">
+                      <a
+                        href={
+                          msaDocument
+                            ? `/api/platform-documents/msa/pdf?version=${msaDocument.version}&t=${encodeURIComponent(msaDocument.updatedAt || "")}`
+                            : "/api/platform-documents/msa/pdf"
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
                         View full PDF
                       </a>
                     </Button>
