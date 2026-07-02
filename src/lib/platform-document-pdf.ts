@@ -6,8 +6,10 @@ import type {
 import { withResolvedDocumentMetadata } from "./platform-document-control";
 import {
   applyRunStyle,
-  htmlToRichTextRuns,
+  htmlToRichTextSegments,
   isRichTextContent,
+  type RichTextRun,
+  type RichTextTable,
 } from "./platform-document-rich-text-pdf";
 
 const HEADER_COLOR: [number, number, number] = [30, 58, 95];
@@ -108,14 +110,74 @@ function addParagraph(
   layout.y += 2;
 }
 
-function addRichTextBody(
+function drawRichTextTable(
   layout: PdfLayout,
-  html: string,
+  table: RichTextTable,
+  fontSize: number,
+  doc: PlatformDocument,
+  pageRef: { current: number; total: number }
+) {
+  if (!table.rows.length) return;
+
+  const colCount = Math.max(...table.rows.map((row) => row.length));
+  const colWidth = layout.maxWidth / colCount;
+  const lineHeight = fontSize * 0.42;
+  const padding = 1.5;
+
+  for (let rowIndex = 0; rowIndex < table.rows.length; rowIndex++) {
+    const row = table.rows[rowIndex];
+    const isHeader = table.hasHeaderRow && rowIndex === 0;
+
+    layout.pdf.setFontSize(fontSize);
+    layout.pdf.setFont("helvetica", isHeader ? "bold" : "normal");
+
+    const cellLineCounts = row.map((cell) => {
+      const lines = layout.pdf.splitTextToSize(cell || " ", Math.max(colWidth - padding * 2, 8));
+      return Math.max(1, lines.length);
+    });
+    const rowHeight = Math.max(...cellLineCounts) * lineHeight + padding * 2;
+
+    ensureSpace(layout, rowHeight + 2, doc, pageRef);
+
+    let x = layout.margin;
+    for (let colIndex = 0; colIndex < colCount; colIndex++) {
+      const cellText = row[colIndex] || "";
+
+      layout.pdf.setDrawColor(210, 210, 210);
+      if (isHeader) {
+        layout.pdf.setFillColor(...TABLE_HEADER_BG);
+        layout.pdf.rect(x, layout.y - 4, colWidth, rowHeight, "FD");
+        layout.pdf.setTextColor(255, 255, 255);
+      } else {
+        layout.pdf.rect(x, layout.y - 4, colWidth, rowHeight);
+        layout.pdf.setTextColor(0, 0, 0);
+      }
+
+      layout.pdf.setFont("helvetica", isHeader ? "bold" : "normal");
+      const lines = layout.pdf.splitTextToSize(cellText || " ", Math.max(colWidth - padding * 2, 8));
+      let textY = layout.y;
+      for (const line of lines) {
+        layout.pdf.text(line, x + padding, textY);
+        textY += lineHeight;
+      }
+
+      x += colWidth;
+    }
+
+    layout.y += rowHeight;
+    layout.pdf.setTextColor(0, 0, 0);
+  }
+
+  layout.y += 4;
+}
+
+function drawRichTextRunsOnLayout(
+  layout: PdfLayout,
+  runs: RichTextRun[],
   defaultFontSize: number,
   doc: PlatformDocument,
   pageRef: { current: number; total: number }
 ) {
-  const runs = htmlToRichTextRuns(html, defaultFontSize);
   if (!runs.length) return;
 
   const lineHeightFactor = 0.42;
@@ -165,6 +227,25 @@ function addRichTextBody(
   }
 
   layout.y = y + defaultFontSize * lineHeightFactor + 2;
+}
+
+function addRichTextBody(
+  layout: PdfLayout,
+  html: string,
+  defaultFontSize: number,
+  doc: PlatformDocument,
+  pageRef: { current: number; total: number }
+) {
+  const segments = htmlToRichTextSegments(html, defaultFontSize);
+  if (!segments.length) return;
+
+  for (const segment of segments) {
+    if (segment.type === "table") {
+      drawRichTextTable(layout, segment.table, defaultFontSize, doc, pageRef);
+      continue;
+    }
+    drawRichTextRunsOnLayout(layout, segment.runs, defaultFontSize, doc, pageRef);
+  }
 }
 
 function addBodyContent(
@@ -344,8 +425,11 @@ export async function generatePlatformDocumentPDF(
   }
 
   for (const section of resolved.sections) {
+    ensureSpace(layout, 14, doc, pageRef);
     addParagraph(layout, section.title, 10, true, doc, pageRef);
+    layout.y += 1;
     addBodyContent(layout, section.body, 9, doc, pageRef);
+    layout.y += 4;
   }
 
   if (options?.signedMsaAcceptance) {

@@ -3,11 +3,23 @@
 import { useEffect } from "react";
 import { Color } from "@tiptap/extension-color";
 import { FontFamily } from "@tiptap/extension-font-family";
+import { Table } from "@tiptap/extension-table";
+import { TableCell } from "@tiptap/extension-table-cell";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableRow } from "@tiptap/extension-table-row";
 import { TextStyle } from "@tiptap/extension-text-style";
 import { Underline } from "@tiptap/extension-underline";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { Bold, Italic, Underline as UnderlineIcon } from "lucide-react";
+import {
+  Bold,
+  Italic,
+  List,
+  ListOrdered,
+  Table as TableIcon,
+  Trash2,
+  Underline as UnderlineIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -61,12 +73,26 @@ export function RichTextEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [2, 3] },
+        bulletList: {
+          keepMarks: true,
+          keepAttributes: false,
+        },
+        orderedList: {
+          keepMarks: true,
+          keepAttributes: false,
+        },
       }),
       Underline,
       TextStyle,
       Color,
       FontFamily,
       FontSize,
+      Table.configure({
+        resizable: true,
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
     ],
     content: toEditorHtml(value),
     editorProps: {
@@ -139,6 +165,90 @@ export function RichTextEditor({
           >
             <UnderlineIcon className="h-4 w-4" />
           </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant={editor.isActive("bulletList") ? "default" : "outline"}
+            className="h-8 w-8 p-0"
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            title="Bullet list"
+          >
+            <List className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={editor.isActive("orderedList") ? "default" : "outline"}
+            className="h-8 w-8 p-0"
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            title="Numbered list"
+          >
+            <ListOrdered className="h-4 w-4" />
+          </Button>
+
+          <Button
+            type="button"
+            size="sm"
+            variant={editor.isActive("table") ? "default" : "outline"}
+            className="h-8 w-8 p-0"
+            onClick={() =>
+              editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+            }
+            title="Insert table"
+          >
+            <TableIcon className="h-4 w-4" />
+          </Button>
+          {editor.isActive("table") ? (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => editor.chain().focus().addRowAfter().run()}
+              >
+                + Row
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => editor.chain().focus().addColumnAfter().run()}
+              >
+                + Col
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => editor.chain().focus().deleteRow().run()}
+              >
+                − Row
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={() => editor.chain().focus().deleteColumn().run()}
+              >
+                − Col
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 w-8 p-0 text-destructive"
+                onClick={() => editor.chain().focus().deleteTable().run()}
+                title="Delete table"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </>
+          ) : null}
 
           <Select
             value={currentFont}
