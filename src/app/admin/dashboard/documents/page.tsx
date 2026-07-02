@@ -12,7 +12,9 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { FileText, Upload, Loader2, CheckCircle, Clock, Download, User, Search, FileStack, CalendarCheck, FileSignature, BookOpen } from "lucide-react";
 import { format, subDays } from "date-fns";
-import { generateMSAPDF } from "@/lib/msa-pdf-generator";
+import { generateSignedMsaPdfForUser } from "@/lib/signed-msa-pdf";
+import { formatPlatformVersionLabel } from "@/lib/platform-document-control";
+import { getAcceptedMsaVersion } from "@/lib/document-version-utils";
 import { generateFulfillmentAgreementPDF } from "@/lib/fulfillment-agreement-pdf-generator";
 import { generatePartnershipAgreementPDF } from "@/lib/partnership-agreement-pdf-generator";
 import type { UserProfile } from "@/types";
@@ -137,7 +139,30 @@ export default function DocumentRequestsPage() {
   const [msaSearchQuery, setMsaSearchQuery] = useState("");
   const [msaSelectedCompany, setMsaSelectedCompany] = useState<string>("all");
   const [msaDateFilter, setMsaDateFilter] = useState<string>("all");
+  const [msaVersionFilter, setMsaVersionFilter] = useState<string>("all");
+  const [msaSortOrder, setMsaSortOrder] = useState<
+    "newest" | "oldest" | "name_asc" | "name_desc"
+  >("newest");
   const [msaPage, setMsaPage] = useState(1);
+
+  function msaSortTimestamp(u: UserProfile): number {
+    const activated = u.accountActivatedAt;
+    if (activated && typeof activated === "object" && "seconds" in activated) {
+      return activated.seconds * 1000;
+    }
+    if (activated instanceof Date) {
+      return activated.getTime();
+    }
+    if (u.msaEffectiveDate) {
+      const d = new Date(u.msaEffectiveDate);
+      if (!Number.isNaN(d.getTime())) return d.getTime();
+    }
+    return 0;
+  }
+
+  function msaDisplayName(u: UserProfile): string {
+    return (u.name || u.email || u.msaClientDetails?.companyName || "").trim();
+  }
 
   // Search matches: documentType, userName, userEmail, companyName, contact, email, notes
   const matchesSearch = useMemo(() => {
@@ -456,15 +481,29 @@ export default function DocumentRequestsPage() {
     return Array.from(companies).sort((a, b) => a.localeCompare(b));
   }, [usersWithMSA]);
 
+  const msaVersionOptions = useMemo(() => {
+    const versions = new Set<number>();
+    usersWithMSA.forEach((u) => {
+      const v = getAcceptedMsaVersion(u);
+      if (v != null) versions.add(v);
+    });
+    return Array.from(versions).sort((a, b) => b - a);
+  }, [usersWithMSA]);
+
   const filteredMSAUsers = useMemo(() => {
     const q = msaSearchQuery.trim().toLowerCase();
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
 
-    return usersWithMSA.filter((u) => {
+    const filtered = usersWithMSA.filter((u) => {
       const company = (u.msaClientDetails?.companyName || "").trim();
       const matchesCompany = msaSelectedCompany === "all" || company === msaSelectedCompany;
       if (!matchesCompany) return false;
+
+      if (msaVersionFilter !== "all") {
+        const acceptedVersion = getAcceptedMsaVersion(u);
+        if (String(acceptedVersion ?? "") !== msaVersionFilter) return false;
+      }
 
       const matchesSearch =
         q.length === 0 ||
@@ -482,7 +521,25 @@ export default function DocumentRequestsPage() {
       if (msaDateFilter === "month") return diffDays <= 30;
       return true;
     });
-  }, [usersWithMSA, msaSearchQuery, msaSelectedCompany, msaDateFilter]);
+
+    return [...filtered].sort((a, b) => {
+      switch (msaSortOrder) {
+        case "oldest":
+          return msaSortTimestamp(a) - msaSortTimestamp(b);
+        case "name_asc":
+          return msaDisplayName(a).localeCompare(msaDisplayName(b), undefined, {
+            sensitivity: "base",
+          });
+        case "name_desc":
+          return msaDisplayName(b).localeCompare(msaDisplayName(a), undefined, {
+            sensitivity: "base",
+          });
+        case "newest":
+        default:
+          return msaSortTimestamp(b) - msaSortTimestamp(a);
+      }
+    });
+  }, [usersWithMSA, msaSearchQuery, msaSelectedCompany, msaDateFilter, msaVersionFilter, msaSortOrder]);
 
   const msaItemsPerPage = 10;
   const totalMsaPages = Math.max(1, Math.ceil(filteredMSAUsers.length / msaItemsPerPage));
@@ -491,10 +548,13 @@ export default function DocumentRequestsPage() {
 
   useEffect(() => {
     setMsaPage(1);
-  }, [msaSearchQuery, msaSelectedCompany, msaDateFilter]);
+  }, [msaSearchQuery, msaSelectedCompany, msaDateFilter, msaVersionFilter, msaSortOrder]);
 
   const hasMsaActiveFilters =
-    msaSearchQuery.trim() !== "" || msaSelectedCompany !== "all" || msaDateFilter !== "all";
+    msaSearchQuery.trim() !== "" ||
+    msaSelectedCompany !== "all" ||
+    msaDateFilter !== "all" ||
+    msaVersionFilter !== "all";
 
   const handleDownloadMSA = async (user: UserProfile) => {
     if (!user.msaClientDetails || !user.msaEffectiveDate) return;
@@ -503,7 +563,7 @@ export default function DocumentRequestsPage() {
       const acceptedAt = user.accountActivatedAt && typeof user.accountActivatedAt === "object" && "seconds" in user.accountActivatedAt
         ? format(new Date((user.accountActivatedAt as { seconds: number }).seconds * 1000), "MMMM d, yyyy")
         : undefined;
-      const blob = await generateMSAPDF({
+      const blob = await generateSignedMsaPdfForUser(user, {
         effectiveDate: user.msaEffectiveDate,
         clientDetails: user.msaClientDetails,
         acceptedAt,
@@ -1021,6 +1081,26 @@ export default function DocumentRequestsPage() {
                         <SelectItem value="month">Last 30 days</SelectItem>
                       </SelectContent>
                     </Select>
+                    <Select value={msaVersionFilter} onValueChange={setMsaVersionFilter}>
+                      <SelectTrigger><SelectValue placeholder="MSA version" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All versions</SelectItem>
+                        {msaVersionOptions.map((version) => (
+                          <SelectItem key={version} value={String(version)}>
+                            {formatPlatformVersionLabel(version)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={msaSortOrder} onValueChange={(v) => setMsaSortOrder(v as typeof msaSortOrder)}>
+                      <SelectTrigger><SelectValue placeholder="Sort by" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="newest">Newest to oldest</SelectItem>
+                        <SelectItem value="oldest">Oldest to newest</SelectItem>
+                        <SelectItem value="name_asc">Name A → Z</SelectItem>
+                        <SelectItem value="name_desc">Name Z → A</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <div className="flex items-center gap-2">
                       {hasMsaActiveFilters && (
                         <Button
@@ -1029,6 +1109,8 @@ export default function DocumentRequestsPage() {
                             setMsaSearchQuery("");
                             setMsaSelectedCompany("all");
                             setMsaDateFilter("all");
+                            setMsaVersionFilter("all");
+                            setMsaSortOrder("newest");
                           }}
                         >
                           Reset
@@ -1050,6 +1132,9 @@ export default function DocumentRequestsPage() {
                           <p className="font-medium">{u.name ?? u.email}</p>
                           <p className="text-sm text-muted-foreground">
                             {u.msaClientDetails!.companyName} · Effective {u.msaEffectiveDate}
+                            {getAcceptedMsaVersion(u) != null && (
+                              <> · Signed {formatPlatformVersionLabel(getAcceptedMsaVersion(u)!)}</>
+                            )}
                           </p>
                         </div>
                         <Button

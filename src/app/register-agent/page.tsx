@@ -28,6 +28,7 @@ import { Logo } from "@/components/logo";
 import { Loader2 } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { Textarea } from "@/components/ui/textarea";
+import { sendUserVerificationEmail } from "@/lib/email-verification";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
@@ -83,6 +84,7 @@ export default function RegisterAgentPage() {
         password: values.password,
         role: "commission_agent",
         status: "pending",
+        emailVerificationRequired: true,
         createdAt: new Date(),
         // Additional agent registration fields
         country: values.country || "",
@@ -92,11 +94,18 @@ export default function RegisterAgentPage() {
         referralSource: values.referralSource || "",
       });
 
+      try {
+        await sendUserVerificationEmail(user);
+      } catch {
+        // Non-blocking; user can resend from verify-email page
+      }
+
       toast({
         title: "Registration Successful",
-        description: "Your commission agent application has been submitted. You will be notified once approved.",
+        description:
+          "Verify your email, then wait for admin approval. Check your inbox for the confirmation link.",
       });
-      router.push("/login");
+      router.push(`/verify-email?email=${encodeURIComponent(values.email)}`);
 
     } catch (error: any) {
       toast({

@@ -24,6 +24,12 @@ import { auth, db } from "@/lib/firebase";
 import { Loader2, UserPlus, Shield, Zap, MapPin, Users } from "lucide-react";
 import { getDefaultFeaturesForRole } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
+import { buildUserUniqueFieldKeys } from "@/lib/user-unique-fields";
+import {
+  checkUserFieldsUniqueClient,
+  claimUserFieldUniquesClient,
+  uniquenessConflictMessage,
+} from "@/lib/user-uniqueness-client";
 import type { UserProfile, UserRole, UserFeature } from "@/types";
 
 const createUserSchema = z.object({
@@ -112,6 +118,21 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
   async function onSubmit(values: z.infer<typeof createUserSchema>) {
     setIsLoading(true);
     try {
+      const uniqueCheck = await checkUserFieldsUniqueClient({
+        companyName: values.companyName,
+        ein: values.ein,
+        phone: values.phone,
+      });
+      if (!uniqueCheck.ok) {
+        toast({
+          variant: "destructive",
+          title: "Duplicate information",
+          description: uniquenessConflictMessage(uniqueCheck),
+        });
+        setIsLoading(false);
+        return;
+      }
+
       // Create the user account in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(
         auth,
@@ -130,6 +151,12 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
         userFeatures = getDefaultFeaturesForRole(values.role);
       }
 
+      const uniqueKeys = buildUserUniqueFieldKeys({
+        companyName: values.companyName,
+        ein: values.ein,
+        phone: values.phone,
+      });
+
       const profileData: Record<string, unknown> = {
         uid: userCredential.user.uid,
         name: values.name,
@@ -138,6 +165,7 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
         password: values.password,
         companyName: values.companyName,
         ein: values.ein,
+        ...uniqueKeys,
         address: values.address,
         city: values.city,
         state: values.state,
@@ -147,6 +175,7 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
         roles: [values.role],
         features: userFeatures,
         status: values.role === "sub_admin" ? "approved" : "pending",
+        emailVerificationRequired: false,
         createdAt: new Date(),
         clientId: await generateClientId(),
       };
@@ -159,6 +188,17 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
         profileData.locations = [defaultWarehouseId];
       }
       await setDoc(doc(db, "users", userCredential.user.uid), profileData);
+
+      try {
+        const token = await userCredential.user.getIdToken();
+        await claimUserFieldUniquesClient(token, {
+          companyName: values.companyName,
+          ein: values.ein,
+          phone: values.phone,
+        });
+      } catch {
+        // Non-blocking; registry can be reconciled by admin
+      }
 
       toast({
         title: "Success",

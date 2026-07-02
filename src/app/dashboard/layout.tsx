@@ -10,6 +10,7 @@ import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { ClientFeatureGate } from "@/components/dashboard/client-feature-gate";
 import { DashboardNavProvider } from "@/contexts/dashboard-nav-context";
 import { hasRole, getUserRoles, isAccountActivated, hasFeature } from "@/lib/permissions";
+import { userRequiresEmailVerification } from "@/lib/email-verification";
 import {
   SidebarProvider,
   SidebarInset,
@@ -99,6 +100,12 @@ export default function DashboardLayout({
       } else if (userRoles.length === 0) {
         // Unknown role, redirect to login
         router.replace("/login");
+      } else if (
+        userRequiresEmailVerification(userProfile) &&
+        user &&
+        !user.emailVerified
+      ) {
+        router.replace("/verify-email");
       } else if (userProfile.status === "pending") {
         // Redirect pending users to a waiting page
         router.replace("/pending-approval");
