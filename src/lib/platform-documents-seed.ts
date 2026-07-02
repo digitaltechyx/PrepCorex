@@ -70,6 +70,31 @@ export function getDefaultPlatformDocument(slug: PlatformDocumentSlug): Platform
   return buildFromPdfContent(slug);
 }
 
+/** Empty starting point for new platform documents — admin fills sections in the editor. */
+export function getBlankPlatformDocument(slug: PlatformDocumentSlug): PlatformDocument {
+  const labels = PLATFORM_DOCUMENT_LABELS[slug];
+  const now = new Date().toISOString();
+  const headerLines: Record<PlatformDocumentSlug, string> = {
+    msa: "PREP SERVICES FBA LLC | Master Service Agreement",
+    terms: "PREP SERVICES FBA LLC | Schedule A — Pricing & Commercial Terms",
+    privacy: "PREP SERVICES FBA LLC | Schedule D — Privacy Policy",
+  };
+
+  return {
+    slug,
+    title: labels.title,
+    headerLine: headerLines[slug],
+    footerLine: "Prep Services FBA LLC",
+    showDocumentControlHeading: getDocumentControlHeading(slug),
+    sections: [{ title: "Section 1", body: "" }],
+    version: 1,
+    effectiveAt: now,
+    contentSchemaVersion: PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION,
+    updatedAt: now,
+    updatedByName: "System",
+  };
+}
+
 export function getAllDefaultPlatformDocuments(): PlatformDocument[] {
   return (["msa", "terms", "privacy"] as PlatformDocumentSlug[]).map(getDefaultPlatformDocument);
 }

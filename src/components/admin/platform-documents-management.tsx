@@ -189,9 +189,10 @@ export function PlatformDocumentsManagement() {
       <CardHeader>
         <CardTitle>Platform legal documents</CardTitle>
         <CardDescription>
-          Edit agreement content in-app with rich text formatting. When you save, enter the version
-          number you want published. The previous live version is archived automatically. Users see
-          PDFs generated from the current version.
+          Edit agreement content in-app with rich text formatting. The PDF and client views use only
+          the sections you enter below (plus the auto-generated Document Control table). When you
+          save, enter the version number you want published. The previous live version is archived
+          automatically.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
