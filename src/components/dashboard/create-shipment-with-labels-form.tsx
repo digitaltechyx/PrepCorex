@@ -14,12 +14,12 @@ import { Loader2, X, Plus, ChevronDown, Upload } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import type { InventoryItem, ServiceType, ProductType, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserAdditionalServicesPricing } from "@/types";
+import type { InventoryItem, ServiceType, ProductType, UserProfile } from "@/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCollection } from "@/hooks/use-collection";
-import { calculatePrepUnitPrice, type FbaPackAddOnConfig } from "@/lib/pricing-utils";
+import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
+import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
 import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
 import imageCompression from "browser-image-compression";
 import { ImageIcon } from "lucide-react";
@@ -37,7 +37,7 @@ const shipmentItemSchema = z.object({
   unitPrice: z.coerce.number().nonnegative("Unit price must be a non-negative number."),
   totalPrice: z.coerce.number().nonnegative("Total price must be a non-negative number."),
   // Per-line type/details (product shipments only; validated in group superRefine)
-  productType: z.enum(["Standard", "Large", "Custom"]).optional(),
+  productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   // Additional Services per product - user only selects which services they want (boolean flags)
   // Admin will add quantities during approval
@@ -105,6 +105,7 @@ interface CreateShipmentWithLabelsFormProps {
    */
   targetUserId?: string;
   targetUserName?: string;
+  targetUserProfile?: Pick<UserProfile, "uid" | "pricingProfileId">;
 }
 
 interface LabelItem {
@@ -118,18 +119,31 @@ interface LabelUploadState {
   isUploading: boolean;
 }
 
-type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & { id: string; updatedAt?: any; createdAt?: any };
-
 export function CreateShipmentWithLabelsForm({
   inventory,
   targetUserId,
   targetUserName,
+  targetUserProfile,
 }: CreateShipmentWithLabelsFormProps) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const ownerId = targetUserId ?? user?.uid ?? "";
   const ownerDisplayName =
     (targetUserName ?? userProfile?.name ?? "").trim() || "Unknown User";
+
+  const pricingUser = useMemo(() => {
+    if (!ownerId) return null;
+    if (targetUserProfile?.uid === ownerId) return targetUserProfile;
+    if (userProfile?.uid === ownerId) return userProfile;
+    return { uid: ownerId, pricingProfileId: targetUserProfile?.pricingProfileId };
+  }, [ownerId, targetUserProfile, userProfile]);
+
+  const {
+    pricingRules: effectivePricingRules,
+    boxForwardingPricing: effectiveBoxForwardingPricing,
+    palletForwardingPricing: effectivePalletForwardingPricing,
+    additionalServicesPricing: effectiveAdditionalServicesPricing,
+  } = useUserPricingCollections(pricingUser);
 
   const [isLoading, setIsLoading] = useState(false);
   const [query, setQuery] = useState("");
@@ -174,67 +188,6 @@ export function CreateShipmentWithLabelsForm({
     control: form.control,
     name: "shipmentGroups",
   });
-
-  // Fetch pricing for the inventory owner (client), including when admin targets a user
-  const { data: pricingRules } = useCollection<UserPricing>(
-    ownerId ? `users/${ownerId}/pricing` : ""
-  );
-  const { data: defaultPricingRules } = useCollection<UserPricing>("defaultPricing");
-
-  const { data: boxForwardingPricing } = useCollection<UserBoxForwardingPricing>(
-    ownerId ? `users/${ownerId}/boxForwardingPricing` : ""
-  );
-  const { data: defaultBoxForwardingPricing } = useCollection<UserBoxForwardingPricing>("defaultBoxForwardingPricing");
-
-  const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    ownerId ? `users/${ownerId}/palletForwardingPricing` : ""
-  );
-  const { data: defaultPalletForwardingPricing } = useCollection<UserPalletForwardingPricing>("defaultPalletForwardingPricing");
-
-  const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    ownerId ? `users/${ownerId}/additionalServicesPricing` : ""
-  );
-  const { data: defaultAdditionalServicesPricing } = useCollection<UserAdditionalServicesPricing>("defaultAdditionalServicesPricing");
-  const { data: fbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
-    ownerId ? `users/${ownerId}/fbaPackAddOnPricing` : ""
-  );
-  const { data: defaultFbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>("defaultFbaPackAddOnPricing");
-
-  const effectivePricingRules = useMemo(
-    () => (pricingRules && pricingRules.length > 0 ? pricingRules : (defaultPricingRules || [])),
-    [pricingRules, defaultPricingRules]
-  );
-  const effectiveBoxForwardingPricing = useMemo(
-    () => (boxForwardingPricing && boxForwardingPricing.length > 0 ? boxForwardingPricing : (defaultBoxForwardingPricing || [])),
-    [boxForwardingPricing, defaultBoxForwardingPricing]
-  );
-  const effectivePalletForwardingPricing = useMemo(
-    () => (palletForwardingPricing && palletForwardingPricing.length > 0 ? palletForwardingPricing : (defaultPalletForwardingPricing || [])),
-    [palletForwardingPricing, defaultPalletForwardingPricing]
-  );
-  const effectiveAdditionalServicesPricing = useMemo(
-    () => (additionalServicesPricing && additionalServicesPricing.length > 0 ? additionalServicesPricing : (defaultAdditionalServicesPricing || [])),
-    [additionalServicesPricing, defaultAdditionalServicesPricing]
-  );
-  const effectiveFbaPackAddOnPricing = useMemo(
-    () => (fbaPackAddOnPricing && fbaPackAddOnPricing.length > 0 ? fbaPackAddOnPricing : (defaultFbaPackAddOnPricing || [])),
-    [fbaPackAddOnPricing, defaultFbaPackAddOnPricing]
-  );
-
-  const latestFbaPackAddOnConfig = useMemo<FbaPackAddOnConfig | undefined>(() => {
-    if (!effectiveFbaPackAddOnPricing || effectiveFbaPackAddOnPricing.length === 0) return undefined;
-    const latest = [...effectiveFbaPackAddOnPricing].sort((a, b) => {
-      const aUpdated = typeof a.updatedAt === "string" ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
-      const bUpdated = typeof b.updatedAt === "string" ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
-      return bUpdated - aUpdated;
-    })[0];
-    return latest
-      ? {
-          pack2to3: typeof latest.pack2to3 === "number" ? latest.pack2to3 : undefined,
-          pack4to12: typeof latest.pack4to12 === "number" ? latest.pack4to12 : undefined,
-        }
-      : undefined;
-  }, [effectiveFbaPackAddOnPricing]);
 
   const latestAdditionalServicesPricingDoc = useMemo(() => {
     if (!effectiveAdditionalServicesPricing || effectiveAdditionalServicesPricing.length === 0) return null;
@@ -302,9 +255,7 @@ export function CreateShipmentWithLabelsForm({
             effectivePricingRules,
             service,
             lineProductType,
-            quantity, // Use quantity, not totalUnits, to get consistent unit price
-            packOf,
-            latestFbaPackAddOnConfig
+            quantity
           );
           if (calculatedPrice && calculatedPrice.rate !== undefined && calculatedPrice.rate !== null) {
             finalUnitPrice = calculatedPrice.rate;
@@ -366,27 +317,7 @@ export function CreateShipmentWithLabelsForm({
         if (shipmentType === "product" && lineProductType === "Custom") {
           calculatedTotal = 1;
         } else if (shipmentType === "product" && finalUnitPrice > 0 && quantity > 0) {
-          const baseTotal = finalUnitPrice * quantity; // Unit price Ã— quantity (not multiplied by packOf)
-          let packOfPrice = 0;
-          if (service && lineProductType && effectivePricingRules && effectivePricingRules.length > 0) {
-            // Look up packOfPrice based on quantity only, not totalUnits
-            // This ensures packOfPrice doesn't change when packOf changes
-            const calculatedPriceForPackOf = calculatePrepUnitPrice(
-              effectivePricingRules,
-              service,
-              lineProductType,
-              quantity, // Use quantity, not totalUnits, to get the correct packOfPrice
-              packOf,
-              latestFbaPackAddOnConfig
-            );
-            if (calculatedPriceForPackOf) {
-              packOfPrice = calculatedPriceForPackOf.packOf || 0; // Charge per pack (beyond the first pack)
-            }
-          }
-          // Fixed pack surcharge by bucket:
-          // pack 1 => +0, pack 2-3 => +0.35, pack 4-12 => +0.75
-          const packCharge = packOfPrice;
-          calculatedTotal = parseFloat((baseTotal + packCharge).toFixed(2));
+          calculatedTotal = parseFloat((finalUnitPrice * quantity).toFixed(2));
         } else if (finalUnitPrice > 0 && quantity > 0) {
           calculatedTotal = parseFloat((finalUnitPrice * quantity).toFixed(2));
         }
@@ -1729,11 +1660,9 @@ export function CreateShipmentWithLabelsForm({
                                                 <span className="truncate">
                                                   {field.value === "Standard"
                                                     ? "Standard (6×6×6) - <3lbs"
-                                                    : field.value === "Large"
-                                                      ? "Large (10×10×10) - <6lbs"
-                                                      : field.value === "Custom"
-                                                        ? "Custom"
-                                                        : "Select"}
+                                                    : field.value === "Custom"
+                                                      ? "Custom"
+                                                      : "Select"}
                                                 </span>
                                                 <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
                                               </Button>
@@ -1746,7 +1675,7 @@ export function CreateShipmentWithLabelsForm({
                                                 </DialogDescription>
                                               </DialogHeader>
                                               <div className="space-y-2 py-2">
-                                                {(["Standard", "Large", "Custom"] as const).map((opt) => (
+                                                {(["Standard", "Custom"] as const).map((opt) => (
                                                   <Button
                                                     key={opt}
                                                     type="button"
@@ -1768,9 +1697,7 @@ export function CreateShipmentWithLabelsForm({
                                                   >
                                                     {opt === "Standard"
                                                       ? "Standard (6×6×6) - <3lbs"
-                                                      : opt === "Large"
-                                                        ? "Large (10×10×10) - <6lbs"
-                                                        : "Custom"}
+                                                      : "Custom"}
                                                   </Button>
                                                 ))}
                                               </div>
@@ -1914,9 +1841,7 @@ export function CreateShipmentWithLabelsForm({
                                         effectivePricingRules,
                                         groupService,
                                         lineProductType,
-                                        lineQuantity,
-                                        linePackOf,
-                                        latestFbaPackAddOnConfig
+                                        lineQuantity
                                       );
 
                                       if (
@@ -1930,25 +1855,7 @@ export function CreateShipmentWithLabelsForm({
 
                                     let calculatedTotal = 0;
                                     if (groupShipmentType === "product" && unitPrice > 0 && lineQuantity > 0) {
-                                      const baseTotal = unitPrice * lineQuantity;
-                                      let packOfPrice = 0;
-
-                                      if (groupService && lineProductType && effectivePricingRules && effectivePricingRules.length > 0) {
-                                        const calculatedPriceForPackOf = calculatePrepUnitPrice(
-                                          effectivePricingRules,
-                                          groupService,
-                                          lineProductType,
-                                          lineQuantity,
-                                          linePackOf,
-                                          latestFbaPackAddOnConfig
-                                        );
-                                        if (calculatedPriceForPackOf) {
-                                          packOfPrice = calculatedPriceForPackOf.packOf || 0;
-                                        }
-                                      }
-
-                                      const packCharge = packOfPrice;
-                                      calculatedTotal = parseFloat((baseTotal + packCharge).toFixed(2));
+                                      calculatedTotal = parseFloat((unitPrice * lineQuantity).toFixed(2));
                                     } else if (unitPrice > 0 && lineQuantity > 0) {
                                       calculatedTotal = parseFloat((unitPrice * lineQuantity).toFixed(2));
                                     }

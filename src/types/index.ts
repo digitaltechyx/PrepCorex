@@ -459,6 +459,10 @@ export interface UserProfile {
     authorityConfirmed: boolean;
     legalName?: string | null;
   } | null;
+  /** Assigned pricing profile id (`standard`, `wholesale`, … or `custom_{uid}`). */
+  pricingProfileId?: string | null;
+  /** Product-base vs pallet-base storage billing (PrepCorex). */
+  storageType?: "product_base" | "pallet_base" | null;
 }
 
 /** User account audit trail event types (`users/{uid}/auditTrail`). */
@@ -1189,4 +1193,90 @@ export interface LabelPurchase {
   paymentCompletedAt?: Date;
   labelPurchasedAt?: Date;
   shippedItemId?: string;
+}
+
+// ——— Pricing (prep, storage, forwarding) ———
+
+export type ServiceType = "FBA/WFS/TFS" | "FBM";
+export type PackageType = string;
+export type QuantityRange = string;
+/** FBA/FBM prep pricing uses Standard only; Custom may appear on legacy shipment rows. */
+export type ProductType = "Standard" | "Large" | "Custom";
+export type StorageType = "product_base" | "pallet_base";
+export type ContainerSize = "20ft" | "40ft";
+
+export interface UserPricing {
+  id: string;
+  userId?: string;
+  service: ServiceType;
+  package: PackageType;
+  quantityRange: QuantityRange;
+  productType: ProductType;
+  rate: number;
+  packOf: number;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+}
+
+export interface UserStoragePricing {
+  id: string;
+  userId?: string;
+  storageType: StorageType;
+  price: number;
+  palletCount?: number;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+}
+
+export interface UserBoxForwardingPricing {
+  id: string;
+  userId?: string;
+  price: number;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+}
+
+export interface UserPalletForwardingPricing {
+  id: string;
+  userId?: string;
+  price: number;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+}
+
+export interface UserPalletExistingInventoryPricing {
+  id: string;
+  userId?: string;
+  price: number;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+}
+
+export interface UserContainerHandlingPricing {
+  id: string;
+  userId?: string;
+  containerSize: ContainerSize;
+  price: number;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+}
+
+export interface UserAdditionalServicesPricing {
+  id: string;
+  userId?: string;
+  bubbleWrapPrice?: number;
+  stickerRemovalPrice?: number;
+  warningLabelPrice?: number;
+  extraServices?: unknown;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+}
+
+export interface PricingProfileMeta {
+  id: string;
+  kind: "global" | "custom";
+  label: string;
+  userId?: string | null;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }

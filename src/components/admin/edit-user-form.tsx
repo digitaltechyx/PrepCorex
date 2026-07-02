@@ -21,6 +21,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2 } from "lucide-react";
 import type { UserProfile, UserRole } from "@/types";
 import { getUserRoles } from "@/lib/permissions";
+import {
+  CUSTOM_PRICING_PROFILE_OPTION,
+  GLOBAL_PRICING_PROFILES,
+  pricingProfileIdFromSelect,
+  pricingProfileSelectValue,
+} from "@/lib/pricing-profiles";
 
 const editUserSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -35,6 +41,7 @@ const editUserSchema = z.object({
   zipCode: z.string().optional(),
   role: z.enum(["admin", "sub_admin", "user", "commission_agent", "warehouse_operator"]),
   status: z.enum(["pending", "approved", "deleted"]).optional(),
+  pricingProfile: z.string().optional(),
 });
 
 type EditUserFormValues = z.infer<typeof editUserSchema>;
@@ -64,6 +71,7 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
       zipCode: user.zipCode || "",
       role: user.role || "user",
       status: user.status || "approved",
+      pricingProfile: pricingProfileSelectValue(user),
     },
   });
 
@@ -135,6 +143,11 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
         role: values.role,
         roles: nextRoles,
         status: values.status || "approved",
+        ...(values.role === "user" && values.pricingProfile
+          ? {
+              pricingProfileId: pricingProfileIdFromSelect(values.pricingProfile, user.uid),
+            }
+          : {}),
       });
 
       toast({
@@ -225,6 +238,37 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
                       <SelectItem value="admin">Admin</SelectItem>
                     </SelectContent>
                   </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="pricingProfile"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Pricing profile</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select pricing profile" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {GLOBAL_PRICING_PROFILES.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.label}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value={CUSTOM_PRICING_PROFILE_OPTION.id}>
+                        {CUSTOM_PRICING_PROFILE_OPTION.label}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Custom assigns a per-user pricing table. Edit custom rates under Pricing → Custom.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

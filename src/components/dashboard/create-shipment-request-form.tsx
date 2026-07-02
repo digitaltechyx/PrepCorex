@@ -31,6 +31,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCollection } from "@/hooks/use-collection";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { getUserPricingProfilePaths } from "@/lib/pricing-profiles";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -47,7 +48,7 @@ const formSchema = z.object({
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
-  productType: z.enum(["Standard", "Large", "Custom"]).optional(),
+  productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
   // Additional Services
@@ -119,16 +120,16 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
 
   // Fetch user's pricing rules
   const { data: pricingRules } = useCollection<UserPricing>(
-    userProfile ? `users/${userProfile.uid}/pricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).prep : ""
   );
   
   // Fetch forwarding pricing
   const { data: boxForwardingPricing, loading: boxForwardingPricingLoading } = useCollection<UserBoxForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/boxForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).boxForwarding : ""
   );
   
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/palletForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).palletForwarding : ""
   );
   
   const { data: palletExistingInventoryPricing } = useCollection<UserPalletExistingInventoryPricing>(
@@ -137,7 +138,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
   
   // Fetch additional services pricing
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    userProfile ? `users/${userProfile.uid}/additionalServicesPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).additionalServices : ""
   );
 
   // Watch form values for auto-calculation
@@ -240,7 +241,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
           );
 
           if (calculatedPrice) {
-            const { rate, packOf: packOfPrice = 0 } = calculatedPrice;
+            const { rate } = calculatedPrice;
             // Base unit price (without pack charge)
             finalUnitPrice = rate;
           }
@@ -302,26 +303,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         // Base total = prep unit price × total units
         const baseTotal = finalUnitPrice * totalUnits;
         
-        // Get pack of price from pricing rules
-        let packOfPrice = 0;
-        if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-          const calculatedPrice = calculatePrepUnitPrice(
-            pricingRules,
-            service as ServiceType,
-            productType,
-            totalUnits
-          );
-          if (calculatedPrice) {
-            packOfPrice = calculatedPrice.packOf || 0;
-          }
-        }
-        
-        // Pack charge = pack of price × (pack of value - 1)
-        // Example: pack of 2 → add pack of price 1 time, pack of 3 → add pack of price 2 times
-        const packCharge = packOfPrice * Math.max(0, packOf - 1);
-        
-        // Total = base total + pack charge
-        totalPrice = parseFloat((baseTotal + packCharge).toFixed(2));
+        totalPrice = parseFloat(baseTotal.toFixed(2));
       } else if (finalUnitPrice > 0 && quantity > 0) {
         // For box/pallet: simple multiplication
         totalPrice = parseFloat((finalUnitPrice * quantity).toFixed(2));
@@ -1152,29 +1134,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                                               const packOfValue = form.watch(`shipments.${index}.packOf`) || 1;
                                               const totalUnitsCalc = quantity * packOfValue;
                                               const baseTotal = unitPrice * totalUnitsCalc;
-                                              
-                                              // Get pack of price
-                                              let packOfPrice = 0;
-                                              if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-                                                const calculatedPrice = calculatePrepUnitPrice(
-                                                  pricingRules,
-                                                  service as ServiceType,
-                                                  productType,
-                                                  totalUnitsCalc
-                                                );
-                                                if (calculatedPrice) {
-                                                  packOfPrice = calculatedPrice.packOf || 0;
-                                                }
-                                              }
-                                              
-                                              // Pack charge = pack of price × (pack of value - 1)
-                                              const packCharge = packOfPrice * Math.max(0, packOfValue - 1);
-                                              
-                                              if (packOfPrice > 0 && packOfValue > 1) {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)} + (pack of ${packOfValue} charge: $${packOfPrice.toFixed(2)} × ${packOfValue - 1}) = $${calculatedTotal.toFixed(2)}`;
-                                              } else {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${calculatedTotal.toFixed(2)}`;
-                                              }
+                                              return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)}`;
                                             })()}
                                           </p>
                                         )}
@@ -1236,7 +1196,6 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="Standard">Standard (6x6x6) - &lt;3lbs</SelectItem>
-                          <SelectItem value="Large">Large (10x10x10) - &lt;6lbs</SelectItem>
                           <SelectItem value="Custom">Custom</SelectItem>
                         </SelectContent>
                       </Select>
@@ -1520,6 +1479,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCollection } from "@/hooks/use-collection";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { getUserPricingProfilePaths } from "@/lib/pricing-profiles";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -1536,7 +1496,7 @@ const formSchema = z.object({
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
-  productType: z.enum(["Standard", "Large", "Custom"]).optional(),
+  productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
   // Additional Services
@@ -1608,16 +1568,16 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
 
   // Fetch user's pricing rules
   const { data: pricingRules } = useCollection<UserPricing>(
-    userProfile ? `users/${userProfile.uid}/pricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).prep : ""
   );
   
   // Fetch forwarding pricing
   const { data: boxForwardingPricing, loading: boxForwardingPricingLoading } = useCollection<UserBoxForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/boxForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).boxForwarding : ""
   );
   
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/palletForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).palletForwarding : ""
   );
   
   const { data: palletExistingInventoryPricing } = useCollection<UserPalletExistingInventoryPricing>(
@@ -1626,7 +1586,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
   
   // Fetch additional services pricing
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    userProfile ? `users/${userProfile.uid}/additionalServicesPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).additionalServices : ""
   );
 
   // Watch form values for auto-calculation
@@ -1729,7 +1689,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
           );
 
           if (calculatedPrice) {
-            const { rate, packOf: packOfPrice = 0 } = calculatedPrice;
+            const { rate } = calculatedPrice;
             // Base unit price (without pack charge)
             finalUnitPrice = rate;
           }
@@ -1791,26 +1751,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         // Base total = prep unit price × total units
         const baseTotal = finalUnitPrice * totalUnits;
         
-        // Get pack of price from pricing rules
-        let packOfPrice = 0;
-        if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-          const calculatedPrice = calculatePrepUnitPrice(
-            pricingRules,
-            service as ServiceType,
-            productType,
-            totalUnits
-          );
-          if (calculatedPrice) {
-            packOfPrice = calculatedPrice.packOf || 0;
-          }
-        }
-        
-        // Pack charge = pack of price × (pack of value - 1)
-        // Example: pack of 2 → add pack of price 1 time, pack of 3 → add pack of price 2 times
-        const packCharge = packOfPrice * Math.max(0, packOf - 1);
-        
-        // Total = base total + pack charge
-        totalPrice = parseFloat((baseTotal + packCharge).toFixed(2));
+        totalPrice = parseFloat(baseTotal.toFixed(2));
       } else if (finalUnitPrice > 0 && quantity > 0) {
         // For box/pallet: simple multiplication
         totalPrice = parseFloat((finalUnitPrice * quantity).toFixed(2));
@@ -2641,29 +2582,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                                               const packOfValue = form.watch(`shipments.${index}.packOf`) || 1;
                                               const totalUnitsCalc = quantity * packOfValue;
                                               const baseTotal = unitPrice * totalUnitsCalc;
-                                              
-                                              // Get pack of price
-                                              let packOfPrice = 0;
-                                              if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-                                                const calculatedPrice = calculatePrepUnitPrice(
-                                                  pricingRules,
-                                                  service as ServiceType,
-                                                  productType,
-                                                  totalUnitsCalc
-                                                );
-                                                if (calculatedPrice) {
-                                                  packOfPrice = calculatedPrice.packOf || 0;
-                                                }
-                                              }
-                                              
-                                              // Pack charge = pack of price × (pack of value - 1)
-                                              const packCharge = packOfPrice * Math.max(0, packOfValue - 1);
-                                              
-                                              if (packOfPrice > 0 && packOfValue > 1) {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)} + (pack of ${packOfValue} charge: $${packOfPrice.toFixed(2)} × ${packOfValue - 1}) = $${calculatedTotal.toFixed(2)}`;
-                                              } else {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${calculatedTotal.toFixed(2)}`;
-                                              }
+                                              return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)}`;
                                             })()}
                                           </p>
                                         )}
@@ -2725,7 +2644,6 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="Standard">Standard (6x6x6) - &lt;3lbs</SelectItem>
-                          <SelectItem value="Large">Large (10x10x10) - &lt;6lbs</SelectItem>
                           <SelectItem value="Custom">Custom</SelectItem>
                         </SelectContent>
                       </Select>
@@ -3009,6 +2927,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCollection } from "@/hooks/use-collection";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { getUserPricingProfilePaths } from "@/lib/pricing-profiles";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -3025,7 +2944,7 @@ const formSchema = z.object({
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
-  productType: z.enum(["Standard", "Large", "Custom"]).optional(),
+  productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
   // Additional Services
@@ -3097,16 +3016,16 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
 
   // Fetch user's pricing rules
   const { data: pricingRules } = useCollection<UserPricing>(
-    userProfile ? `users/${userProfile.uid}/pricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).prep : ""
   );
   
   // Fetch forwarding pricing
   const { data: boxForwardingPricing, loading: boxForwardingPricingLoading } = useCollection<UserBoxForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/boxForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).boxForwarding : ""
   );
   
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/palletForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).palletForwarding : ""
   );
   
   const { data: palletExistingInventoryPricing } = useCollection<UserPalletExistingInventoryPricing>(
@@ -3115,7 +3034,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
   
   // Fetch additional services pricing
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    userProfile ? `users/${userProfile.uid}/additionalServicesPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).additionalServices : ""
   );
 
   // Watch form values for auto-calculation
@@ -3218,7 +3137,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
           );
 
           if (calculatedPrice) {
-            const { rate, packOf: packOfPrice = 0 } = calculatedPrice;
+            const { rate } = calculatedPrice;
             // Base unit price (without pack charge)
             finalUnitPrice = rate;
           }
@@ -3280,26 +3199,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         // Base total = prep unit price × total units
         const baseTotal = finalUnitPrice * totalUnits;
         
-        // Get pack of price from pricing rules
-        let packOfPrice = 0;
-        if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-          const calculatedPrice = calculatePrepUnitPrice(
-            pricingRules,
-            service as ServiceType,
-            productType,
-            totalUnits
-          );
-          if (calculatedPrice) {
-            packOfPrice = calculatedPrice.packOf || 0;
-          }
-        }
-        
-        // Pack charge = pack of price × (pack of value - 1)
-        // Example: pack of 2 → add pack of price 1 time, pack of 3 → add pack of price 2 times
-        const packCharge = packOfPrice * Math.max(0, packOf - 1);
-        
-        // Total = base total + pack charge
-        totalPrice = parseFloat((baseTotal + packCharge).toFixed(2));
+        totalPrice = parseFloat(baseTotal.toFixed(2));
       } else if (finalUnitPrice > 0 && quantity > 0) {
         // For box/pallet: simple multiplication
         totalPrice = parseFloat((finalUnitPrice * quantity).toFixed(2));
@@ -4130,29 +4030,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                                               const packOfValue = form.watch(`shipments.${index}.packOf`) || 1;
                                               const totalUnitsCalc = quantity * packOfValue;
                                               const baseTotal = unitPrice * totalUnitsCalc;
-                                              
-                                              // Get pack of price
-                                              let packOfPrice = 0;
-                                              if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-                                                const calculatedPrice = calculatePrepUnitPrice(
-                                                  pricingRules,
-                                                  service as ServiceType,
-                                                  productType,
-                                                  totalUnitsCalc
-                                                );
-                                                if (calculatedPrice) {
-                                                  packOfPrice = calculatedPrice.packOf || 0;
-                                                }
-                                              }
-                                              
-                                              // Pack charge = pack of price × (pack of value - 1)
-                                              const packCharge = packOfPrice * Math.max(0, packOfValue - 1);
-                                              
-                                              if (packOfPrice > 0 && packOfValue > 1) {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)} + (pack of ${packOfValue} charge: $${packOfPrice.toFixed(2)} × ${packOfValue - 1}) = $${calculatedTotal.toFixed(2)}`;
-                                              } else {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${calculatedTotal.toFixed(2)}`;
-                                              }
+                                              return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)}`;
                                             })()}
                                           </p>
                                         )}
@@ -4214,7 +4092,6 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="Standard">Standard (6x6x6) - &lt;3lbs</SelectItem>
-                          <SelectItem value="Large">Large (10x10x10) - &lt;6lbs</SelectItem>
                           <SelectItem value="Custom">Custom</SelectItem>
                         </SelectContent>
                       </Select>
@@ -4498,6 +4375,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCollection } from "@/hooks/use-collection";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { getUserPricingProfilePaths } from "@/lib/pricing-profiles";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -4514,7 +4392,7 @@ const formSchema = z.object({
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
-  productType: z.enum(["Standard", "Large", "Custom"]).optional(),
+  productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
   // Additional Services
@@ -4586,16 +4464,16 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
 
   // Fetch user's pricing rules
   const { data: pricingRules } = useCollection<UserPricing>(
-    userProfile ? `users/${userProfile.uid}/pricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).prep : ""
   );
   
   // Fetch forwarding pricing
   const { data: boxForwardingPricing, loading: boxForwardingPricingLoading } = useCollection<UserBoxForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/boxForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).boxForwarding : ""
   );
   
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/palletForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).palletForwarding : ""
   );
   
   const { data: palletExistingInventoryPricing } = useCollection<UserPalletExistingInventoryPricing>(
@@ -4604,7 +4482,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
   
   // Fetch additional services pricing
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    userProfile ? `users/${userProfile.uid}/additionalServicesPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).additionalServices : ""
   );
 
   // Watch form values for auto-calculation
@@ -4707,7 +4585,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
           );
 
           if (calculatedPrice) {
-            const { rate, packOf: packOfPrice = 0 } = calculatedPrice;
+            const { rate } = calculatedPrice;
             // Base unit price (without pack charge)
             finalUnitPrice = rate;
           }
@@ -4769,26 +4647,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         // Base total = prep unit price × total units
         const baseTotal = finalUnitPrice * totalUnits;
         
-        // Get pack of price from pricing rules
-        let packOfPrice = 0;
-        if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-          const calculatedPrice = calculatePrepUnitPrice(
-            pricingRules,
-            service as ServiceType,
-            productType,
-            totalUnits
-          );
-          if (calculatedPrice) {
-            packOfPrice = calculatedPrice.packOf || 0;
-          }
-        }
-        
-        // Pack charge = pack of price × (pack of value - 1)
-        // Example: pack of 2 → add pack of price 1 time, pack of 3 → add pack of price 2 times
-        const packCharge = packOfPrice * Math.max(0, packOf - 1);
-        
-        // Total = base total + pack charge
-        totalPrice = parseFloat((baseTotal + packCharge).toFixed(2));
+        totalPrice = parseFloat(baseTotal.toFixed(2));
       } else if (finalUnitPrice > 0 && quantity > 0) {
         // For box/pallet: simple multiplication
         totalPrice = parseFloat((finalUnitPrice * quantity).toFixed(2));
@@ -5619,29 +5478,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                                               const packOfValue = form.watch(`shipments.${index}.packOf`) || 1;
                                               const totalUnitsCalc = quantity * packOfValue;
                                               const baseTotal = unitPrice * totalUnitsCalc;
-                                              
-                                              // Get pack of price
-                                              let packOfPrice = 0;
-                                              if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-                                                const calculatedPrice = calculatePrepUnitPrice(
-                                                  pricingRules,
-                                                  service as ServiceType,
-                                                  productType,
-                                                  totalUnitsCalc
-                                                );
-                                                if (calculatedPrice) {
-                                                  packOfPrice = calculatedPrice.packOf || 0;
-                                                }
-                                              }
-                                              
-                                              // Pack charge = pack of price × (pack of value - 1)
-                                              const packCharge = packOfPrice * Math.max(0, packOfValue - 1);
-                                              
-                                              if (packOfPrice > 0 && packOfValue > 1) {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)} + (pack of ${packOfValue} charge: $${packOfPrice.toFixed(2)} × ${packOfValue - 1}) = $${calculatedTotal.toFixed(2)}`;
-                                              } else {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${calculatedTotal.toFixed(2)}`;
-                                              }
+                                              return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)}`;
                                             })()}
                                           </p>
                                         )}
@@ -5703,7 +5540,6 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="Standard">Standard (6x6x6) - &lt;3lbs</SelectItem>
-                          <SelectItem value="Large">Large (10x10x10) - &lt;6lbs</SelectItem>
                           <SelectItem value="Custom">Custom</SelectItem>
                         </SelectContent>
                       </Select>
@@ -5987,6 +5823,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCollection } from "@/hooks/use-collection";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { getUserPricingProfilePaths } from "@/lib/pricing-profiles";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -6003,7 +5840,7 @@ const formSchema = z.object({
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
-  productType: z.enum(["Standard", "Large", "Custom"]).optional(),
+  productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
   // Additional Services
@@ -6075,16 +5912,16 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
 
   // Fetch user's pricing rules
   const { data: pricingRules } = useCollection<UserPricing>(
-    userProfile ? `users/${userProfile.uid}/pricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).prep : ""
   );
   
   // Fetch forwarding pricing
   const { data: boxForwardingPricing, loading: boxForwardingPricingLoading } = useCollection<UserBoxForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/boxForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).boxForwarding : ""
   );
   
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/palletForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).palletForwarding : ""
   );
   
   const { data: palletExistingInventoryPricing } = useCollection<UserPalletExistingInventoryPricing>(
@@ -6093,7 +5930,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
   
   // Fetch additional services pricing
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    userProfile ? `users/${userProfile.uid}/additionalServicesPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).additionalServices : ""
   );
 
   // Watch form values for auto-calculation
@@ -6196,7 +6033,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
           );
 
           if (calculatedPrice) {
-            const { rate, packOf: packOfPrice = 0 } = calculatedPrice;
+            const { rate } = calculatedPrice;
             // Base unit price (without pack charge)
             finalUnitPrice = rate;
           }
@@ -6258,26 +6095,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         // Base total = prep unit price × total units
         const baseTotal = finalUnitPrice * totalUnits;
         
-        // Get pack of price from pricing rules
-        let packOfPrice = 0;
-        if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-          const calculatedPrice = calculatePrepUnitPrice(
-            pricingRules,
-            service as ServiceType,
-            productType,
-            totalUnits
-          );
-          if (calculatedPrice) {
-            packOfPrice = calculatedPrice.packOf || 0;
-          }
-        }
-        
-        // Pack charge = pack of price × (pack of value - 1)
-        // Example: pack of 2 → add pack of price 1 time, pack of 3 → add pack of price 2 times
-        const packCharge = packOfPrice * Math.max(0, packOf - 1);
-        
-        // Total = base total + pack charge
-        totalPrice = parseFloat((baseTotal + packCharge).toFixed(2));
+        totalPrice = parseFloat(baseTotal.toFixed(2));
       } else if (finalUnitPrice > 0 && quantity > 0) {
         // For box/pallet: simple multiplication
         totalPrice = parseFloat((finalUnitPrice * quantity).toFixed(2));
@@ -7108,29 +6926,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                                               const packOfValue = form.watch(`shipments.${index}.packOf`) || 1;
                                               const totalUnitsCalc = quantity * packOfValue;
                                               const baseTotal = unitPrice * totalUnitsCalc;
-                                              
-                                              // Get pack of price
-                                              let packOfPrice = 0;
-                                              if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-                                                const calculatedPrice = calculatePrepUnitPrice(
-                                                  pricingRules,
-                                                  service as ServiceType,
-                                                  productType,
-                                                  totalUnitsCalc
-                                                );
-                                                if (calculatedPrice) {
-                                                  packOfPrice = calculatedPrice.packOf || 0;
-                                                }
-                                              }
-                                              
-                                              // Pack charge = pack of price × (pack of value - 1)
-                                              const packCharge = packOfPrice * Math.max(0, packOfValue - 1);
-                                              
-                                              if (packOfPrice > 0 && packOfValue > 1) {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)} + (pack of ${packOfValue} charge: $${packOfPrice.toFixed(2)} × ${packOfValue - 1}) = $${calculatedTotal.toFixed(2)}`;
-                                              } else {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${calculatedTotal.toFixed(2)}`;
-                                              }
+                                              return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)}`;
                                             })()}
                                           </p>
                                         )}
@@ -7192,7 +6988,6 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="Standard">Standard (6x6x6) - &lt;3lbs</SelectItem>
-                          <SelectItem value="Large">Large (10x10x10) - &lt;6lbs</SelectItem>
                           <SelectItem value="Custom">Custom</SelectItem>
                         </SelectContent>
                       </Select>
@@ -7476,6 +7271,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCollection } from "@/hooks/use-collection";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { getUserPricingProfilePaths } from "@/lib/pricing-profiles";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -7492,7 +7288,7 @@ const formSchema = z.object({
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
-  productType: z.enum(["Standard", "Large", "Custom"]).optional(),
+  productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
   // Additional Services
@@ -7564,16 +7360,16 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
 
   // Fetch user's pricing rules
   const { data: pricingRules } = useCollection<UserPricing>(
-    userProfile ? `users/${userProfile.uid}/pricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).prep : ""
   );
   
   // Fetch forwarding pricing
   const { data: boxForwardingPricing, loading: boxForwardingPricingLoading } = useCollection<UserBoxForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/boxForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).boxForwarding : ""
   );
   
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/palletForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).palletForwarding : ""
   );
   
   const { data: palletExistingInventoryPricing } = useCollection<UserPalletExistingInventoryPricing>(
@@ -7582,7 +7378,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
   
   // Fetch additional services pricing
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    userProfile ? `users/${userProfile.uid}/additionalServicesPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).additionalServices : ""
   );
 
   // Watch form values for auto-calculation
@@ -7685,7 +7481,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
           );
 
           if (calculatedPrice) {
-            const { rate, packOf: packOfPrice = 0 } = calculatedPrice;
+            const { rate } = calculatedPrice;
             // Base unit price (without pack charge)
             finalUnitPrice = rate;
           }
@@ -7747,26 +7543,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         // Base total = prep unit price × total units
         const baseTotal = finalUnitPrice * totalUnits;
         
-        // Get pack of price from pricing rules
-        let packOfPrice = 0;
-        if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-          const calculatedPrice = calculatePrepUnitPrice(
-            pricingRules,
-            service as ServiceType,
-            productType,
-            totalUnits
-          );
-          if (calculatedPrice) {
-            packOfPrice = calculatedPrice.packOf || 0;
-          }
-        }
-        
-        // Pack charge = pack of price × (pack of value - 1)
-        // Example: pack of 2 → add pack of price 1 time, pack of 3 → add pack of price 2 times
-        const packCharge = packOfPrice * Math.max(0, packOf - 1);
-        
-        // Total = base total + pack charge
-        totalPrice = parseFloat((baseTotal + packCharge).toFixed(2));
+        totalPrice = parseFloat(baseTotal.toFixed(2));
       } else if (finalUnitPrice > 0 && quantity > 0) {
         // For box/pallet: simple multiplication
         totalPrice = parseFloat((finalUnitPrice * quantity).toFixed(2));
@@ -8597,29 +8374,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                                               const packOfValue = form.watch(`shipments.${index}.packOf`) || 1;
                                               const totalUnitsCalc = quantity * packOfValue;
                                               const baseTotal = unitPrice * totalUnitsCalc;
-                                              
-                                              // Get pack of price
-                                              let packOfPrice = 0;
-                                              if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-                                                const calculatedPrice = calculatePrepUnitPrice(
-                                                  pricingRules,
-                                                  service as ServiceType,
-                                                  productType,
-                                                  totalUnitsCalc
-                                                );
-                                                if (calculatedPrice) {
-                                                  packOfPrice = calculatedPrice.packOf || 0;
-                                                }
-                                              }
-                                              
-                                              // Pack charge = pack of price × (pack of value - 1)
-                                              const packCharge = packOfPrice * Math.max(0, packOfValue - 1);
-                                              
-                                              if (packOfPrice > 0 && packOfValue > 1) {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)} + (pack of ${packOfValue} charge: $${packOfPrice.toFixed(2)} × ${packOfValue - 1}) = $${calculatedTotal.toFixed(2)}`;
-                                              } else {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${calculatedTotal.toFixed(2)}`;
-                                              }
+                                              return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)}`;
                                             })()}
                                           </p>
                                         )}
@@ -8681,7 +8436,6 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="Standard">Standard (6x6x6) - &lt;3lbs</SelectItem>
-                          <SelectItem value="Large">Large (10x10x10) - &lt;6lbs</SelectItem>
                           <SelectItem value="Custom">Custom</SelectItem>
                         </SelectContent>
                       </Select>
@@ -8965,6 +8719,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCollection } from "@/hooks/use-collection";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { getUserPricingProfilePaths } from "@/lib/pricing-profiles";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -8981,7 +8736,7 @@ const formSchema = z.object({
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
-  productType: z.enum(["Standard", "Large", "Custom"]).optional(),
+  productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
   // Additional Services
@@ -9053,16 +8808,16 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
 
   // Fetch user's pricing rules
   const { data: pricingRules } = useCollection<UserPricing>(
-    userProfile ? `users/${userProfile.uid}/pricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).prep : ""
   );
   
   // Fetch forwarding pricing
   const { data: boxForwardingPricing, loading: boxForwardingPricingLoading } = useCollection<UserBoxForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/boxForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).boxForwarding : ""
   );
   
   const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    userProfile ? `users/${userProfile.uid}/palletForwardingPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).palletForwarding : ""
   );
   
   const { data: palletExistingInventoryPricing } = useCollection<UserPalletExistingInventoryPricing>(
@@ -9071,7 +8826,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
   
   // Fetch additional services pricing
   const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    userProfile ? `users/${userProfile.uid}/additionalServicesPricing` : ""
+    userProfile ? getUserPricingProfilePaths(userProfile).additionalServices : ""
   );
 
   // Watch form values for auto-calculation
@@ -9174,7 +8929,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
           );
 
           if (calculatedPrice) {
-            const { rate, packOf: packOfPrice = 0 } = calculatedPrice;
+            const { rate } = calculatedPrice;
             // Base unit price (without pack charge)
             finalUnitPrice = rate;
           }
@@ -9236,26 +8991,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         // Base total = prep unit price × total units
         const baseTotal = finalUnitPrice * totalUnits;
         
-        // Get pack of price from pricing rules
-        let packOfPrice = 0;
-        if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-          const calculatedPrice = calculatePrepUnitPrice(
-            pricingRules,
-            service as ServiceType,
-            productType,
-            totalUnits
-          );
-          if (calculatedPrice) {
-            packOfPrice = calculatedPrice.packOf || 0;
-          }
-        }
-        
-        // Pack charge = pack of price × (pack of value - 1)
-        // Example: pack of 2 → add pack of price 1 time, pack of 3 → add pack of price 2 times
-        const packCharge = packOfPrice * Math.max(0, packOf - 1);
-        
-        // Total = base total + pack charge
-        totalPrice = parseFloat((baseTotal + packCharge).toFixed(2));
+        totalPrice = parseFloat(baseTotal.toFixed(2));
       } else if (finalUnitPrice > 0 && quantity > 0) {
         // For box/pallet: simple multiplication
         totalPrice = parseFloat((finalUnitPrice * quantity).toFixed(2));
@@ -10086,29 +9822,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                                               const packOfValue = form.watch(`shipments.${index}.packOf`) || 1;
                                               const totalUnitsCalc = quantity * packOfValue;
                                               const baseTotal = unitPrice * totalUnitsCalc;
-                                              
-                                              // Get pack of price
-                                              let packOfPrice = 0;
-                                              if (service && (service === "FBA/WFS/TFS" || service === "FBM") && productType && pricingRules.length > 0) {
-                                                const calculatedPrice = calculatePrepUnitPrice(
-                                                  pricingRules,
-                                                  service as ServiceType,
-                                                  productType,
-                                                  totalUnitsCalc
-                                                );
-                                                if (calculatedPrice) {
-                                                  packOfPrice = calculatedPrice.packOf || 0;
-                                                }
-                                              }
-                                              
-                                              // Pack charge = pack of price × (pack of value - 1)
-                                              const packCharge = packOfPrice * Math.max(0, packOfValue - 1);
-                                              
-                                              if (packOfPrice > 0 && packOfValue > 1) {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)} + (pack of ${packOfValue} charge: $${packOfPrice.toFixed(2)} × ${packOfValue - 1}) = $${calculatedTotal.toFixed(2)}`;
-                                              } else {
-                                                return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${calculatedTotal.toFixed(2)}`;
-                                              }
+                                              return `Auto-calculated: $${unitPrice.toFixed(2)} × ${totalUnitsCalc} units = $${baseTotal.toFixed(2)}`;
                                             })()}
                                           </p>
                                         )}
@@ -10170,7 +9884,6 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="Standard">Standard (6x6x6) - &lt;3lbs</SelectItem>
-                          <SelectItem value="Large">Large (10x10x10) - &lt;6lbs</SelectItem>
                           <SelectItem value="Custom">Custom</SelectItem>
                         </SelectContent>
                       </Select>

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import type { ShipmentRequest, UserProfile, InventoryItem, UserAdditionalServicesPricing, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, InventoryTransfer } from "@/types";
+import type { ShipmentRequest, UserProfile, InventoryItem, InventoryTransfer, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserAdditionalServicesPricing } from "@/types";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
-import { calculatePrepUnitPrice, type FbaPackAddOnConfig } from "@/lib/pricing-utils";
+import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
+import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
 import {
   catalogFromPricingDoc,
   unitPriceForServiceKey,
@@ -47,7 +48,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DatePicker } from "@/components/ui/date-picker";
 import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
 
-type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & { id: string; updatedAt?: any; createdAt?: any };
 type LocationDoc = { id: string; name?: string; active?: boolean };
 
 function formatDate(date: ShipmentRequest["date"] | ShipmentRequest["requestedAt"]) {
@@ -153,65 +153,14 @@ export function ShipmentRequestsManagement({
     }
   }, [didAutoOpen, initialRequestId, requests]);
 
-  const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    isValidUserId ? `users/${userId}/additionalServicesPricing` : ""
-  );
-  const { data: defaultAdditionalServicesPricing } = useCollection<UserAdditionalServicesPricing>("defaultAdditionalServicesPricing");
+  const pricingUser = isValidUserId ? selectedUser : null;
+  const {
+    pricingRules: effectivePricingRules,
+    additionalServicesPricing: effectiveAdditionalServicesPricing,
+    boxForwardingPricing: effectiveBoxForwardingPricing,
+    palletForwardingPricing: effectivePalletForwardingPricing,
+  } = useUserPricingCollections(pricingUser);
 
-  const { data: pricingRules } = useCollection<UserPricing>(
-    isValidUserId ? `users/${userId}/pricing` : ""
-  );
-  const { data: defaultPricingRules } = useCollection<UserPricing>("defaultPricing");
-  
-  // Get box and pallet forwarding pricing
-  const { data: boxForwardingPricing } = useCollection<UserBoxForwardingPricing>(
-    isValidUserId ? `users/${userId}/boxForwardingPricing` : ""
-  );
-  const { data: defaultBoxForwardingPricing } = useCollection<UserBoxForwardingPricing>("defaultBoxForwardingPricing");
-  
-  const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    isValidUserId ? `users/${userId}/palletForwardingPricing` : ""
-  );
-  const { data: defaultPalletForwardingPricing } = useCollection<UserPalletForwardingPricing>("defaultPalletForwardingPricing");
-  const { data: fbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
-    isValidUserId ? `users/${userId}/fbaPackAddOnPricing` : ""
-  );
-  const { data: defaultFbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>("defaultFbaPackAddOnPricing");
-  const effectivePricingRules = useMemo(
-    () => (pricingRules && pricingRules.length > 0 ? pricingRules : (defaultPricingRules || [])),
-    [pricingRules, defaultPricingRules]
-  );
-  const effectiveAdditionalServicesPricing = useMemo(
-    () => (additionalServicesPricing && additionalServicesPricing.length > 0 ? additionalServicesPricing : (defaultAdditionalServicesPricing || [])),
-    [additionalServicesPricing, defaultAdditionalServicesPricing]
-  );
-  const effectiveBoxForwardingPricing = useMemo(
-    () => (boxForwardingPricing && boxForwardingPricing.length > 0 ? boxForwardingPricing : (defaultBoxForwardingPricing || [])),
-    [boxForwardingPricing, defaultBoxForwardingPricing]
-  );
-  const effectivePalletForwardingPricing = useMemo(
-    () => (palletForwardingPricing && palletForwardingPricing.length > 0 ? palletForwardingPricing : (defaultPalletForwardingPricing || [])),
-    [palletForwardingPricing, defaultPalletForwardingPricing]
-  );
-  const effectiveFbaPackAddOnPricing = useMemo(
-    () => (fbaPackAddOnPricing && fbaPackAddOnPricing.length > 0 ? fbaPackAddOnPricing : (defaultFbaPackAddOnPricing || [])),
-    [fbaPackAddOnPricing, defaultFbaPackAddOnPricing]
-  );
-  const latestFbaPackAddOnConfig = useMemo<FbaPackAddOnConfig | undefined>(() => {
-    if (!effectiveFbaPackAddOnPricing || effectiveFbaPackAddOnPricing.length === 0) return undefined;
-    const latest = [...effectiveFbaPackAddOnPricing].sort((a, b) => {
-      const aUpdated = typeof a.updatedAt === "string" ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
-      const bUpdated = typeof b.updatedAt === "string" ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
-      return bUpdated - aUpdated;
-    })[0];
-    return latest
-      ? {
-          pack2to3: typeof latest.pack2to3 === "number" ? latest.pack2to3 : undefined,
-          pack4to12: typeof latest.pack4to12 === "number" ? latest.pack4to12 : undefined,
-        }
-      : undefined;
-  }, [effectiveFbaPackAddOnPricing]);
-  
   const filteredRequests = useMemo(() => {
     let filtered =
       statusFilter === "all"
@@ -827,7 +776,6 @@ export function ShipmentRequestsManagement({
           pricingRules={effectivePricingRules || []}
           boxForwardingPricing={effectiveBoxForwardingPricing}
           palletForwardingPricing={effectivePalletForwardingPricing}
-          fbaPackAddOnConfig={latestFbaPackAddOnConfig}
         />
       )}
 
@@ -862,7 +810,6 @@ function ReviewShipmentDialog({
   pricingRules,
   boxForwardingPricing,
   palletForwardingPricing,
-  fbaPackAddOnConfig,
 }: {
   request: ShipmentRequest;
   inventory: InventoryItem[];
@@ -893,7 +840,6 @@ function ReviewShipmentDialog({
   pricingRules: UserPricing[] | null;
   boxForwardingPricing?: UserBoxForwardingPricing[] | null;
   palletForwardingPricing?: UserPalletForwardingPricing[] | null;
-  fbaPackAddOnConfig?: FbaPackAddOnConfig;
 }) {
   const { toast } = useToast();
   const [adminRemarks, setAdminRemarks] = useState("");
@@ -1491,14 +1437,11 @@ function ReviewShipmentDialog({
                       pricingRules,
                       request.service,
                       request.productType,
-                      shipment.quantity, // Use quantity to get correct pricing tier
-                      shipment.packOf || 1,
-                      fbaPackAddOnConfig
+                      shipment.quantity
                     );
                     if (calculatedPrice) {
-                      // Use the calculated rate from pricing rules (this is the correct unit price)
                       unitPrice = calculatedPrice.rate || shipment.unitPrice || 0;
-                      packOfPrice = calculatedPrice.packOf || 0;
+                      packOfPrice = 0;
                     }
                   }
                 }
@@ -1512,9 +1455,7 @@ function ReviewShipmentDialog({
                 // Formula: (Unit Price x Quantity) + fixed pack add-on.
                 const isCustom = String(request.productType || "").toLowerCase() === "custom";
                 const baseTotal = isCustom ? unitPrice * shipment.quantity : unitPrice * shipment.quantity; // unitPrice is per-box
-                const packCharge = isCustom
-                  ? packOfPrice
-                  : packOfPrice;
+                const packCharge = isCustom ? packOfPrice : 0;
                 // Always recalculate total - don't use stored shipment.totalPrice as it may be incorrect
                 const productTotal = baseTotal + packCharge;
 
@@ -1931,13 +1872,11 @@ function ReviewShipmentDialog({
                   pricingRules,
                   request.service,
                   request.productType,
-                  shipment.quantity,
-                  shipment.packOf || 1,
-                  fbaPackAddOnConfig
+                  shipment.quantity
                 );
                 if (calculatedPrice) {
                   unitPrice = calculatedPrice.rate || shipment.unitPrice || 0;
-                  packOfPrice = calculatedPrice.packOf || 0;
+                  packOfPrice = 0;
                 }
               }
               // Formula: (Unit Price Ã— Quantity) + (Pack Of Price Ã— (Pack Of - 1))

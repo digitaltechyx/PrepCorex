@@ -2321,6 +2321,7 @@ export function AdminInventoryManagement({
                   inventory={inventory}
                   targetUserId={selectedUser.uid}
                   targetUserName={selectedUser.name ?? selectedUser.email ?? "User"}
+                  targetUserProfile={selectedUser}
                 />
               </TabsContent>
             </Tabs>

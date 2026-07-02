@@ -229,6 +229,12 @@ service cloud.firestore {
       allow write: if isAdminOrSubAdmin();
     }
 
+    // ---- PRICING PROFILES (global + custom per-user tables) ----
+    match /pricingProfiles/{profileId}/{collectionId}/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdminOrSubAdmin();
+    }
+
     // ---- UPLOADED PDFs ----
     match /uploadedPDFs/{pdfId} {
       allow read: if signedIn() && (resource.data.uploadedBy == request.auth.uid || isAdminOrSubAdmin());

@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useCollection } from "@/hooks/use-collection";
+import { usePricingProfileSettings } from "@/hooks/use-pricing-profile-settings";
 import type { UserProfile, UserPricing, ServiceType, PackageType, QuantityRange, ProductType, UserStoragePricing, StorageType, UserBoxForwardingPricing, UserPalletForwardingPricing, UserContainerHandlingPricing, ContainerSize, UserAdditionalServicesPricing } from "@/types";
 import {
   Card,
@@ -12,6 +13,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -23,10 +26,25 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
 import { formatUserDisplayName } from "@/lib/format-user-display";
-import { collection, addDoc, updateDoc, doc, Timestamp, writeBatch } from "firebase/firestore";
+import {
+  CUSTOM_PRICING_PROFILE_OPTION,
+  GLOBAL_PRICING_PROFILES,
+  customProfileIdForUser,
+  getPricingProfileCollectionPath,
+  getPricingProfileLabel,
+  resolveUserPricingProfileId,
+} from "@/lib/pricing-profiles";
+import {
+  DEFAULT_FBA_INCLUDED_ITEMS,
+  DEFAULT_FBM_INCLUDED_ITEMS,
+  getPricingProfileSettingsPath,
+  includedItemsToText,
+  parseIncludedItemsText,
+} from "@/lib/pricing-profile-settings";
+import { collection, addDoc, updateDoc, doc, Timestamp, writeBatch, setDoc } from "firebase/firestore";
 import type { AdditionalServiceCatalogItem } from "@/lib/additional-services-catalog";
 import { DEFAULT_ADDITIONAL_SERVICES, catalogFromPricingDoc } from "@/lib/additional-services-catalog";
-import { Users, ChevronsUpDown, Search, X, Loader2, Save } from "lucide-react";
+import { Users, ChevronsUpDown, Search, X, Loader2, Save, UserPlus } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -38,15 +56,6 @@ interface PricingManagementProps {
 }
 
 type AdditionalServiceItem = AdditionalServiceCatalogItem;
-
-type FbaPackAddOnPricingDoc = {
-  id: string;
-  userId?: string;
-  pack2to3?: number;
-  pack4to12?: number;
-  updatedAt?: any;
-  createdAt?: any;
-};
 
 type PalletStorageCycleLite = {
   id: string;
@@ -84,25 +93,18 @@ const FBM_PACKAGES = [
   { package: "Tier 3" as PackageType, quantityRange: "25-49" as QuantityRange },
   { package: "Tier 4" as PackageType, quantityRange: "50+" as QuantityRange },
 ];
-const PRODUCT_TYPES: ProductType[] = ["Standard", "Large"]; // Removed Custom
+const PRODUCT_TYPES: ProductType[] = ["Standard"];
 
 const DEFAULT_FBA_RATES: Record<string, number> = {
   "1-999|Standard": 0.65,
   "1000-2499|Standard": 0.45,
   "2500+|Standard": 0.35,
-  "1-999|Large": 0.85,
-  "1000-2499|Large": 0.65,
-  "2500+|Large": 0.5,
 };
 const DEFAULT_FBM_RATES: Record<string, number> = {
   "1-10|Standard": 2.25,
   "11-24|Standard": 2.0,
   "25-49|Standard": 1.75,
   "50+|Standard": 1.5,
-  "1-10|Large": 2.5,
-  "11-24|Large": 2.25,
-  "25-49|Large": 2.0,
-  "50+|Large": 1.75,
 };
 
 interface PricingRow {
@@ -111,14 +113,14 @@ interface PricingRow {
   quantityRange: QuantityRange;
   productType: ProductType;
   rate: string;
-  packOf: string;
   pricingId?: string; // For existing pricing rules
 }
 
 export function PricingManagement({ users }: PricingManagementProps) {
   const { toast } = useToast();
   const { userProfile: adminUserProfile } = useAuth();
-  const [editingGlobalDefaults, setEditingGlobalDefaults] = useState(false);
+  const [selectedProfileSlug, setSelectedProfileSlug] = useState<string>("standard");
+  const [customUserId, setCustomUserId] = useState<string>("");
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState("");
@@ -150,9 +152,37 @@ export function PricingManagement({ users }: PricingManagementProps) {
   // Additional Services Pricing (single catalog; legacy bubble/sticker/warning prices sync from catalog on save)
   const [additionalServicesPricingId, setAdditionalServicesPricingId] = useState<string | null>(null);
   const [additionalServiceItems, setAdditionalServiceItems] = useState<AdditionalServiceItem[]>(DEFAULT_ADDITIONAL_SERVICES);
-  const [fbaPack2to3, setFbaPack2to3] = useState<string>("0.35");
-  const [fbaPack4to12, setFbaPack4to12] = useState<string>("0.75");
-  const [fbaPackPricingId, setFbaPackPricingId] = useState<string | null>(null);
+
+  const [isMigratingProfiles, setIsMigratingProfiles] = useState(false);
+  const [fbaIncludedText, setFbaIncludedText] = useState(includedItemsToText(undefined, DEFAULT_FBA_INCLUDED_ITEMS));
+  const [fbmIncludedText, setFbmIncludedText] = useState(includedItemsToText(undefined, DEFAULT_FBM_INCLUDED_ITEMS));
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [assignSearchQuery, setAssignSearchQuery] = useState("");
+  const [selectedAssignUserIds, setSelectedAssignUserIds] = useState<string[]>([]);
+  const [isAssigningProfile, setIsAssigningProfile] = useState(false);
+
+  const runPricingProfileMigration = async () => {
+    setIsMigratingProfiles(true);
+    try {
+      const res = await fetch("/api/admin/pricing-profiles/migrate", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Migration failed.");
+      }
+      toast({
+        title: "Pricing profiles migrated",
+        description: `Seeded ${data.seededCategories ?? 0} categories; updated ${data.usersUpdated ?? 0} users to Standard.`,
+      });
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Migration failed",
+        description: e instanceof Error ? e.message : "Could not migrate pricing profiles.",
+      });
+    } finally {
+      setIsMigratingProfiles(false);
+    }
+  };
 
   // Filter approved users (excluding admins and deleted users)
   const selectableUsers = useMemo(() => {
@@ -168,16 +198,51 @@ export function PricingManagement({ users }: PricingManagementProps) {
   }, [users]);
 
   const selectedUser = selectableUsers.find((u) => u.uid === selectedUserId) || selectableUsers[0];
-  const targetOwnerId = selectedUser?.uid || "";
-  const targetPricingPath = editingGlobalDefaults ? "defaultPricing" : targetOwnerId ? `users/${targetOwnerId}/pricing` : "";
-  const targetStoragePricingPath = editingGlobalDefaults ? "defaultStoragePricing" : targetOwnerId ? `users/${targetOwnerId}/storagePricing` : "";
-  const targetBoxPricingPath = editingGlobalDefaults ? "defaultBoxForwardingPricing" : targetOwnerId ? `users/${targetOwnerId}/boxForwardingPricing` : "";
-  const targetPalletPricingPath = editingGlobalDefaults ? "defaultPalletForwardingPricing" : targetOwnerId ? `users/${targetOwnerId}/palletForwardingPricing` : "";
-  const targetContainerPricingPath = editingGlobalDefaults ? "defaultContainerHandlingPricing" : targetOwnerId ? `users/${targetOwnerId}/containerHandlingPricing` : "";
-  const targetAdditionalPricingPath = editingGlobalDefaults ? "defaultAdditionalServicesPricing" : targetOwnerId ? `users/${targetOwnerId}/additionalServicesPricing` : "";
-  const targetFbaPackPath = editingGlobalDefaults ? "defaultFbaPackAddOnPricing" : targetOwnerId ? `users/${targetOwnerId}/fbaPackAddOnPricing` : "";
+  const editingCustomProfile = selectedProfileSlug === CUSTOM_PRICING_PROFILE_OPTION.id;
+  const effectiveProfileId = editingCustomProfile
+    ? customUserId
+      ? customProfileIdForUser(customUserId)
+      : ""
+    : selectedProfileSlug;
+
+  const { settings: profileSettings } = usePricingProfileSettings(effectiveProfileId || undefined);
+
+  const usersOnCurrentProfile = useMemo(() => {
+    if (!effectiveProfileId) return [];
+    return selectableUsers.filter((u) => resolveUserPricingProfileId(u) === effectiveProfileId);
+  }, [selectableUsers, effectiveProfileId]);
+
+  const assignDialogUsers = useMemo(() => {
+    if (!assignSearchQuery.trim()) return selectableUsers;
+    const q = assignSearchQuery.toLowerCase();
+    return selectableUsers.filter(
+      (u) =>
+        u.name?.toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q) ||
+        u.clientId?.toLowerCase().includes(q)
+    );
+  }, [selectableUsers, assignSearchQuery]);
+
+  const targetPricingPath = effectiveProfileId
+    ? getPricingProfileCollectionPath(effectiveProfileId, "prep")
+    : "";
+  const targetStoragePricingPath = effectiveProfileId
+    ? getPricingProfileCollectionPath(effectiveProfileId, "storage")
+    : "";
+  const targetBoxPricingPath = effectiveProfileId
+    ? getPricingProfileCollectionPath(effectiveProfileId, "boxForwarding")
+    : "";
+  const targetPalletPricingPath = effectiveProfileId
+    ? getPricingProfileCollectionPath(effectiveProfileId, "palletForwarding")
+    : "";
+  const targetContainerPricingPath = effectiveProfileId
+    ? getPricingProfileCollectionPath(effectiveProfileId, "containerHandling")
+    : "";
+  const targetAdditionalPricingPath = effectiveProfileId
+    ? getPricingProfileCollectionPath(effectiveProfileId, "additionalServices")
+    : "";
   const palletStorageCyclesPath =
-    editingGlobalDefaults || !targetOwnerId ? "" : `users/${targetOwnerId}/palletStorageCycles`;
+    editingCustomProfile && customUserId ? `users/${customUserId}/palletStorageCycles` : "";
 
   // Fetch pricing for selected user
   const { data: pricingList, loading: pricingLoading } = useCollection<UserPricing>(
@@ -207,9 +272,6 @@ export function PricingManagement({ users }: PricingManagementProps) {
   // Fetch additional services pricing
   const { data: additionalServicesPricingList, loading: additionalServicesPricingLoading } = useCollection<UserAdditionalServicesPricing>(
     targetAdditionalPricingPath
-  );
-  const { data: fbaPackAddOnPricingList } = useCollection<FbaPackAddOnPricingDoc>(
-    targetFbaPackPath
   );
   const { data: palletStorageCycles } = useCollection<PalletStorageCycleLite>(palletStorageCyclesPath);
 
@@ -242,7 +304,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   // Initialize pricing rows with all combinations
   useEffect(() => {
-    if (!editingGlobalDefaults && !selectedUser) return;
+    if (!effectiveProfileId) return;
 
     // Generate all combinations
     const allCombinations: PricingRow[] = [];
@@ -258,7 +320,6 @@ export function PricingManagement({ users }: PricingManagementProps) {
           rate: (
             DEFAULT_FBA_RATES[`${pkgInfo.quantityRange}|${productType}`] ?? 0
           ).toFixed(2),
-          packOf: "",
         });
       });
     });
@@ -274,7 +335,6 @@ export function PricingManagement({ users }: PricingManagementProps) {
           rate: (
             DEFAULT_FBM_RATES[`${pkgInfo.quantityRange}|${productType}`] ?? 0
           ).toFixed(2),
-          packOf: "",
         });
       });
     });
@@ -291,18 +351,17 @@ export function PricingManagement({ users }: PricingManagementProps) {
         );
         if (existing) {
           row.rate = existing.rate.toString();
-          row.packOf = existing.packOf.toString();
           row.pricingId = existing.id;
         }
       });
     }
 
     setPricingRows(allCombinations);
-  }, [selectedUser, pricingList]);
+  }, [effectiveProfileId, pricingList]);
 
   // Initialize storage pricing when user changes
   useEffect(() => {
-    if (!editingGlobalDefaults && !selectedUser) return;
+    if (!effectiveProfileId) return;
     
     // Set admin selected storage type from user profile
     setAdminSelectedStorageType("pallet_base" as StorageType);
@@ -348,7 +407,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   // Initialize box forwarding pricing when user changes or data loads
   useEffect(() => {
-    if (!editingGlobalDefaults && !selectedUser) {
+    if (!effectiveProfileId) {
       setBoxForwardingPrice("");
       setBoxForwardingPricingId(null);
       return;
@@ -378,7 +437,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   // Initialize pallet forwarding pricing when user changes or data loads
   useEffect(() => {
-    if (!editingGlobalDefaults && !selectedUser) {
+    if (!effectiveProfileId) {
       setPalletForwardingPrice("");
       setPalletForwardingPricingId(null);
       return;
@@ -409,7 +468,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   // Initialize container handling pricing when user changes
   useEffect(() => {
-    if (!editingGlobalDefaults && !selectedUser) return;
+    if (!effectiveProfileId) return;
     
     if (container20ftPricing) {
       setContainer20ftPrice(container20ftPricing.price.toString());
@@ -442,23 +501,10 @@ export function PricingManagement({ users }: PricingManagementProps) {
     });
     return sorted[0];
   }, [additionalServicesPricingList]);
-  const latestFbaPackPricing = useMemo(() => {
-    if (!fbaPackAddOnPricingList || fbaPackAddOnPricingList.length === 0) return null;
-    const sorted = [...fbaPackAddOnPricingList].sort((a, b) => {
-      const aUpdated = typeof a.updatedAt === "string"
-        ? new Date(a.updatedAt).getTime()
-        : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
-      const bUpdated = typeof b.updatedAt === "string"
-        ? new Date(b.updatedAt).getTime()
-        : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
-      return bUpdated - aUpdated;
-    });
-    return sorted[0];
-  }, [fbaPackAddOnPricingList]);
 
   // Initialize additional services pricing when user changes
   useEffect(() => {
-    if (!editingGlobalDefaults && !selectedUser) return;
+    if (!effectiveProfileId) return;
     
     if (latestAdditionalServicesPricing) {
       setAdditionalServicesPricingId(latestAdditionalServicesPricing.id);
@@ -470,41 +516,82 @@ export function PricingManagement({ users }: PricingManagementProps) {
   }, [selectedUser, latestAdditionalServicesPricing]);
 
   useEffect(() => {
-    if (!editingGlobalDefaults && !selectedUser) return;
-    if (latestFbaPackPricing) {
-      setFbaPack2to3(
-        typeof latestFbaPackPricing.pack2to3 === "number"
-          ? latestFbaPackPricing.pack2to3.toFixed(2)
-          : "0.35"
-      );
-      setFbaPack4to12(
-        typeof latestFbaPackPricing.pack4to12 === "number"
-          ? latestFbaPackPricing.pack4to12.toFixed(2)
-          : "0.75"
-      );
-      setFbaPackPricingId(latestFbaPackPricing.id);
-    } else {
-      setFbaPack2to3("0.35");
-      setFbaPack4to12("0.75");
-      setFbaPackPricingId(null);
-    }
-  }, [selectedUser, latestFbaPackPricing]);
+    if (!effectiveProfileId) return;
+    setFbaIncludedText(
+      includedItemsToText(profileSettings?.fbaIncludedItems, DEFAULT_FBA_INCLUDED_ITEMS)
+    );
+    setFbmIncludedText(
+      includedItemsToText(profileSettings?.fbmIncludedItems, DEFAULT_FBM_INCLUDED_ITEMS)
+    );
+  }, [effectiveProfileId, profileSettings]);
 
-  const handleUserSelect = (user: UserProfile) => {
-    setSelectedUserId(user.uid);
-    setUserDialogOpen(false);
-    setUserSearchQuery("");
+  const assignUsersToProfile = async (userIds: string[], profileId: string) => {
+    if (!userIds.length || !profileId) return;
+    setIsAssigningProfile(true);
+    try {
+      const batch = writeBatch(db);
+      for (const uid of userIds) {
+        batch.update(doc(db, "users", uid), { pricingProfileId: profileId });
+      }
+      await batch.commit();
+      toast({
+        title: "Profile assigned",
+        description: `Updated ${userIds.length} user(s) to ${getPricingProfileLabel(profileId)}.`,
+      });
+      setAssignDialogOpen(false);
+      setSelectedAssignUserIds([]);
+      setAssignSearchQuery("");
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Assignment failed",
+        description: error instanceof Error ? error.message : "Could not assign profile.",
+      });
+    } finally {
+      setIsAssigningProfile(false);
+    }
   };
 
-  const handleRateChange = (index: number, field: "rate" | "packOf", value: string) => {
+  const handleUserSelect = async (user: UserProfile) => {
+    setSelectedUserId(user.uid);
+    setCustomUserId(user.uid);
+    setUserDialogOpen(false);
+    setUserSearchQuery("");
+
+    if (editingCustomProfile) {
+      try {
+        await updateDoc(doc(db, "users", user.uid), {
+          pricingProfileId: customProfileIdForUser(user.uid),
+        });
+        toast({
+          title: "Custom profile assigned",
+          description: `${formatUserDisplayName(user, { showEmail: false })} is now on the Custom pricing plan.`,
+        });
+      } catch (error: unknown) {
+        toast({
+          variant: "destructive",
+          title: "Could not assign Custom profile",
+          description: error instanceof Error ? error.message : "Update failed.",
+        });
+      }
+    }
+  };
+
+  const openAssignDialog = () => {
+    setSelectedAssignUserIds(usersOnCurrentProfile.map((u) => u.uid));
+    setAssignSearchQuery("");
+    setAssignDialogOpen(true);
+  };
+
+  const handleRateChange = (index: number, value: string) => {
     const updated = [...pricingRows];
-    updated[index] = { ...updated[index], [field]: value };
+    updated[index] = { ...updated[index], rate: value };
     setPricingRows(updated);
   };
 
   const handleSave = async () => {
-    if (!editingGlobalDefaults && !selectedUser) return;
-    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
+    if (!effectiveProfileId) return;
+    const ownerId = effectiveProfileId;
 
     setIsSaving(true);
     try {
@@ -517,7 +604,6 @@ export function PricingManagement({ users }: PricingManagementProps) {
         if (!row.rate || row.rate.trim() === "") continue;
 
         const rate = parseFloat(row.rate);
-        const packOf = parseFloat(row.packOf || "0");
 
         if (isNaN(rate) || rate < 0) continue;
 
@@ -528,7 +614,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
           quantityRange: row.quantityRange,
           productType: row.productType,
           rate,
-          packOf: isNaN(packOf) ? 0 : packOf,
+          packOf: 0,
           updatedAt: now,
         };
         
@@ -555,29 +641,20 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
       await batch.commit();
 
-      const pack2to3 = parseFloat(fbaPack2to3);
-      const pack4to12 = parseFloat(fbaPack4to12);
-      if (!isNaN(pack2to3) && !isNaN(pack4to12) && pack2to3 >= 0 && pack4to12 >= 0) {
-        const packPayload = {
-          userId: ownerId,
-          pack2to3,
-          pack4to12,
+      await setDoc(
+        doc(db, getPricingProfileSettingsPath(ownerId)),
+        {
+          profileId: ownerId,
+          fbaIncludedItems: parseIncludedItemsText(fbaIncludedText),
+          fbmIncludedItems: parseIncludedItemsText(fbmIncludedText),
           updatedAt: now,
-        };
-        if (fbaPackPricingId) {
-          await updateDoc(doc(db, targetFbaPackPath, fbaPackPricingId), packPayload);
-        } else {
-          const created = await addDoc(collection(db, targetFbaPackPath), {
-            ...packPayload,
-            createdAt: now,
-          });
-          setFbaPackPricingId(created.id);
-        }
-      }
+        },
+        { merge: true }
+      );
 
       toast({
         title: "Success",
-        description: "Pricing rates saved successfully.",
+        description: "Pricing rates and plan details saved successfully.",
       });
     } catch (error: any) {
       toast({
@@ -591,26 +668,18 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSaveStorageType = async () => {
-    if (editingGlobalDefaults) {
+    if (!editingCustomProfile || !customUserId) {
       toast({
         variant: "destructive",
         title: "Not supported",
-        description: "Storage type is user-specific and cannot be set globally.",
-      });
-      return;
-    }
-    if (!selectedUser) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please select a user first.",
+        description: "Storage type is user-specific. Select Custom profile and a user first.",
       });
       return;
     }
 
     setIsSavingStorageType(true);
     try {
-      const userRef = doc(db, "users", selectedUser.uid);
+      const userRef = doc(db, "users", customUserId);
       await updateDoc(userRef, {
         storageType: "pallet_base",
       });
@@ -636,8 +705,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSaveBoxForwarding = async () => {
-    if (!editingGlobalDefaults && !selectedUser) return;
-    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
+    if (!effectiveProfileId) return;
+    const ownerId = effectiveProfileId;
 
     if (!boxForwardingPrice || boxForwardingPrice.trim() === "") {
       toast({
@@ -699,8 +768,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSavePalletForwarding = async () => {
-    if (!editingGlobalDefaults && !selectedUser) return;
-    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
+    if (!effectiveProfileId) return;
+    const ownerId = effectiveProfileId;
 
     if (!palletForwardingPrice || palletForwardingPrice.trim() === "") {
       toast({
@@ -758,8 +827,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSaveContainerHandling = async (containerSize: ContainerSize, priceStr: string, pricingId: string | null) => {
-    if (!editingGlobalDefaults && !selectedUser) return;
-    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
+    if (!effectiveProfileId) return;
+    const ownerId = effectiveProfileId;
 
     if (!priceStr || priceStr.trim() === "") {
       toast({
@@ -816,8 +885,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSaveAdditionalServices = async () => {
-    if (!editingGlobalDefaults && !selectedUser) return;
-    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
+    if (!effectiveProfileId) return;
+    const ownerId = effectiveProfileId;
 
     const invalidRow = additionalServiceItems.some(
       (svc) =>
@@ -891,11 +960,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleAssignManualPallets = async () => {
-    if (editingGlobalDefaults || !selectedUser || !adminUserProfile?.uid) {
+    if (!editingCustomProfile || !customUserId || !adminUserProfile?.uid) {
       toast({
         variant: "destructive",
         title: "Not available",
-        description: "Select a user (not global defaults) to assign pallets.",
+        description: "Select Custom profile and a user to assign pallets.",
       });
       return;
     }
@@ -911,7 +980,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
     setIsMutatingPallets(true);
     try {
-      const uid = selectedUser.uid;
+      const uid = customUserId;
       const now = Timestamp.now();
       const nextInvoice = Timestamp.fromMillis(Date.now() + PALLET_CYCLE_THIRTY_DAYS_MS);
       const col = collection(db, `users/${uid}/palletStorageCycles`);
@@ -954,11 +1023,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleRemoveManualPallets = async () => {
-    if (editingGlobalDefaults || !selectedUser) {
+    if (!editingCustomProfile || !customUserId) {
       toast({
         variant: "destructive",
         title: "Not available",
-        description: "Select a user to remove manual pallets.",
+        description: "Select Custom profile and a user to remove manual pallets.",
       });
       return;
     }
@@ -988,7 +1057,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
     const removeCount = Math.min(n, activeManual.length);
     setIsMutatingPallets(true);
     try {
-      const uid = selectedUser.uid;
+      const uid = customUserId;
       const now = Timestamp.now();
       for (let i = 0; i < removeCount; i += 1) {
         const c = activeManual[i];
@@ -1025,8 +1094,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleSaveStorage = async () => {
-    if (!editingGlobalDefaults && !selectedUser) return;
-    const ownerId = editingGlobalDefaults ? "__default__" : (selectedUser?.uid || "");
+    if (!effectiveProfileId) return;
+    const ownerId = effectiveProfileId;
 
     const storageTypeToUse: StorageType = "pallet_base";
 
@@ -1056,9 +1125,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
         userId: ownerId,
         storageType: storageTypeToUse,
         price,
-        palletCount: editingGlobalDefaults
-          ? (latestStoragePricing?.palletCount ?? 0)
-          : palletStats.total,
+        palletCount: editingCustomProfile ? palletStats.total : (latestStoragePricing?.palletCount ?? 0),
         updatedAt: now,
       };
 
@@ -1110,118 +1177,262 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   return (
     <div className="space-y-6">
-      {/* User Selection */}
+      {/* Profile selection */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
-            User Pricing Management
+            Pricing Profiles
           </CardTitle>
           <CardDescription>
-            Set global default pricing or override pricing for a specific user.
+            Edit rates for each pricing profile. Assign profiles to users from user management.
           </CardDescription>
+          <div className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isMigratingProfiles}
+              onClick={() => void runPricingProfileMigration()}
+            >
+              {isMigratingProfiles ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Migrating…
+                </>
+              ) : (
+                "Seed profiles from legacy defaults"
+              )}
+            </Button>
+          </div>
         </CardHeader>
-        <CardContent>
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant={!editingGlobalDefaults ? "default" : "outline"}
-              onClick={() => setEditingGlobalDefaults(false)}
-            >
-              Per User Override
-            </Button>
-            <Button
-              type="button"
-              variant={editingGlobalDefaults ? "default" : "outline"}
-              onClick={() => setEditingGlobalDefaults(true)}
-            >
-              Global Default Pricing
-            </Button>
-          </div>
-          {!editingGlobalDefaults && (
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <Label className="text-sm font-medium mb-2 block">Select User</Label>
-              <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
-                <DialogContent className="sm:max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Select User</DialogTitle>
-                    <DialogDescription>Choose a user to manage their pricing</DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 mt-4">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search users..."
-                        value={userSearchQuery}
-                        onChange={(e) => setUserSearchQuery(e.target.value)}
-                        className="pl-10"
-                      />
-                      {userSearchQuery && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                          onClick={() => setUserSearchQuery("")}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
-                    <div className="max-h-[400px] overflow-y-auto space-y-1">
-                      {filteredUsers.map((user) => (
-                        <Button
-                          key={user.uid}
-                          variant="ghost"
-                          className="w-full justify-start"
-                          onClick={() => handleUserSelect(user)}
-                        >
-                          <div className="flex flex-col items-start">
-                            <span className="font-medium">{formatUserDisplayName(user, { showEmail: false })}</span>
-                            <span className="text-xs text-muted-foreground">{user.email}</span>
-                          </div>
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {GLOBAL_PRICING_PROFILES.map((profile) => (
               <Button
-                variant="outline"
-                className="w-full justify-between"
-                onClick={() => setUserDialogOpen(true)}
+                key={profile.id}
+                type="button"
+                variant={selectedProfileSlug === profile.id ? "default" : "outline"}
+                onClick={() => setSelectedProfileSlug(profile.id)}
               >
-                <span>
-                  {selectedUser
-                    ? formatUserDisplayName(selectedUser, { showEmail: true })
-                    : "Select a user"}
-                </span>
-                <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                {profile.label}
               </Button>
-            </div>
+            ))}
+            <Button
+              type="button"
+              variant={editingCustomProfile ? "default" : "outline"}
+              onClick={() => setSelectedProfileSlug(CUSTOM_PRICING_PROFILE_OPTION.id)}
+            >
+              {CUSTOM_PRICING_PROFILE_OPTION.label}
+            </Button>
           </div>
+
+          {editingCustomProfile && (
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <Label className="text-sm font-medium mb-2 block">User for custom profile</Label>
+                <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Select user</DialogTitle>
+                      <DialogDescription>
+                        Choose the user whose custom pricing table you want to edit.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 mt-4">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search users..."
+                          value={userSearchQuery}
+                          onChange={(e) => setUserSearchQuery(e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                      <div className="max-h-[400px] overflow-y-auto space-y-1">
+                        {filteredUsers.map((user) => (
+                          <Button
+                            key={user.uid}
+                            variant="ghost"
+                            className="w-full justify-start"
+                            onClick={() => handleUserSelect(user)}
+                          >
+                            <div className="flex flex-col items-start">
+                              <span className="font-medium">
+                                {formatUserDisplayName(user, { showEmail: false })}
+                              </span>
+                              <span className="text-xs text-muted-foreground">{user.email}</span>
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+                <Button
+                  variant="outline"
+                  className="w-full justify-between"
+                  onClick={() => setUserDialogOpen(true)}
+                >
+                  <span>
+                    {selectedUser
+                      ? formatUserDisplayName(selectedUser, { showEmail: true })
+                      : "Select a user"}
+                  </span>
+                  <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                </Button>
+              </div>
+            </div>
           )}
-          {editingGlobalDefaults && (
+
+          {!editingCustomProfile && (
             <p className="text-sm text-muted-foreground">
-              You are editing global defaults used for all users who do not have custom overrides.
+              Editing the <span className="font-medium">{getPricingProfileLabel(selectedProfileSlug)}</span>{" "}
+              profile. Changes apply to all users assigned to this profile.
             </p>
           )}
         </CardContent>
       </Card>
 
+      {effectiveProfileId && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <UserPlus className="h-4 w-4" />
+              Assign users to this profile
+            </CardTitle>
+            <CardDescription>
+              {editingCustomProfile
+                ? "Select a user above to assign Custom and edit their rates. Assignment happens automatically when you pick a user."
+                : `${usersOnCurrentProfile.length} client user(s) currently on ${getPricingProfileLabel(selectedProfileSlug)}.`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!editingCustomProfile && (
+              <>
+                {usersOnCurrentProfile.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {usersOnCurrentProfile.slice(0, 8).map((user) => (
+                      <span
+                        key={user.uid}
+                        className="rounded-full border bg-muted px-3 py-1 text-xs"
+                      >
+                        {formatUserDisplayName(user, { showEmail: false })}
+                      </span>
+                    ))}
+                    {usersOnCurrentProfile.length > 8 && (
+                      <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
+                        +{usersOnCurrentProfile.length - 8} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No users assigned yet.</p>
+                )}
+                <Button type="button" variant="outline" size="sm" onClick={openAssignDialog}>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Assign users to {getPricingProfileLabel(selectedProfileSlug)}
+                </Button>
+              </>
+            )}
+            {editingCustomProfile && selectedUser && (
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {formatUserDisplayName(selectedUser, { showEmail: true })}
+                </span>{" "}
+                is selected for custom pricing. Picking a different user re-assigns Custom to that user.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Assign {getPricingProfileLabel(selectedProfileSlug)} profile</DialogTitle>
+            <DialogDescription>
+              Selected users will use this profile&apos;s pricing tables and what&apos;s included text.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search users..."
+                value={assignSearchQuery}
+                onChange={(e) => setAssignSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <div className="max-h-[320px] space-y-1 overflow-y-auto">
+              {assignDialogUsers.map((user) => {
+                const checked = selectedAssignUserIds.includes(user.uid);
+                const currentProfile = getPricingProfileLabel(resolveUserPricingProfileId(user));
+                return (
+                  <label
+                    key={user.uid}
+                    className="flex cursor-pointer items-start gap-3 rounded-md border p-3 hover:bg-muted/50"
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(value) => {
+                        setSelectedAssignUserIds((prev) =>
+                          value
+                            ? [...prev, user.uid]
+                            : prev.filter((id) => id !== user.uid)
+                        );
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-sm">
+                        {formatUserDisplayName(user, { showEmail: false })}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{user.email}</div>
+                      <div className="text-xs text-muted-foreground">Current: {currentProfile}</div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setAssignDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={isAssigningProfile || selectedAssignUserIds.length === 0}
+                onClick={() => void assignUsersToProfile(selectedAssignUserIds, selectedProfileSlug)}
+              >
+                {isAssigningProfile ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Assigning...
+                  </>
+                ) : (
+                  `Assign ${selectedAssignUserIds.length} user(s)`
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Pricing Form */}
-      {(editingGlobalDefaults || selectedUser) && (
+      {effectiveProfileId && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>
-                  Pricing Rates for {editingGlobalDefaults ? "Global Defaults" : selectedUser?.name}
+                  {editingCustomProfile
+                    ? `Custom pricing — ${selectedUser?.name ?? "select user"}`
+                    : `${getPricingProfileLabel(selectedProfileSlug)} profile rates`}
                 </CardTitle>
                 <CardDescription>
-                  {editingGlobalDefaults
-                    ? "Set default rates used across all users unless overridden."
-                    : "Enter rates for each combination. Only filled rates will be saved."}
+                  {editingCustomProfile
+                    ? "Special rates for this user only. Selecting a user assigns the Custom profile automatically."
+                    : "Enter rates for each service. Only filled rates will be saved."}
                 </CardDescription>
               </div>
               <Button onClick={handleSave} disabled={isSaving || pricingLoading}>
@@ -1296,129 +1507,71 @@ export function PricingManagement({ users }: PricingManagementProps) {
                 </div>
                 
                 <TabsContent value="FBA/WFS/TFS" className="mt-4">
-                  <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
-                    <div className="mb-2 font-semibold">Pack add-on pricing (applies to shipment calculations)</div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-blue-800">Pack 2-3 ($)</Label>
-                        <Input
-                          type="text"
-                          value={fbaPack2to3}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            if (value === "" || /^\d*\.?\d*$/.test(value)) setFbaPack2to3(value);
-                          }}
-                          onBlur={(e) => {
-                            const value = e.target.value;
-                            if (value && !isNaN(parseFloat(value))) setFbaPack2to3(parseFloat(value).toFixed(2));
-                          }}
-                          className="h-8 w-28 bg-white"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-blue-800">Pack 4-12 ($)</Label>
-                        <Input
-                          type="text"
-                          value={fbaPack4to12}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            if (value === "" || /^\d*\.?\d*$/.test(value)) setFbaPack4to12(value);
-                          }}
-                          onBlur={(e) => {
-                            const value = e.target.value;
-                            if (value && !isNaN(parseFloat(value))) setFbaPack4to12(parseFloat(value).toFixed(2));
-                          }}
-                          className="h-8 w-28 bg-white"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid gap-5 md:grid-cols-2">
-                    {([
-                      { title: "Standard Units", productType: "Standard" as const },
-                      { title: "Large/Heavy Units", productType: "Large" as const },
-                    ]).map((plan) => (
-                      <Card
-                        key={plan.title}
-                        className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
-                      >
-                        <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 pb-3">
-                          <CardTitle className="text-xl text-blue-700">{plan.title}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-5 p-5 text-sm">
-                          <div className="grid grid-cols-2 gap-3 border-b pb-4">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Monthly Volume</div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
-                            {([
-                              { pkg: "Starter", range: "1-999", label: "1-999 units" },
-                              { pkg: "Standard", range: "1000-2499", label: "1,000-2,499 units" },
-                              { pkg: "Premium", range: "2500+", label: "2,500+ units" },
-                            ]).map((tier) => {
-                              const globalIndex = pricingRows.findIndex(
-                                (r) =>
-                                  r.service === "FBA/WFS/TFS" &&
-                                  r.package === tier.pkg &&
-                                  r.quantityRange === tier.range &&
-                                  r.productType === plan.productType
-                              );
-                              const row = globalIndex >= 0 ? pricingRows[globalIndex] : null;
-                              return (
-                                <div key={`${plan.productType}-${tier.range}`} className="contents">
-                                  <div className="text-[15px]">{tier.label}</div>
-                                  <div>
-                                    <Input
-                                      type="text"
-                                      placeholder="0.00"
-                                      value={row?.rate ?? ""}
-                                      onChange={(e) => {
-                                        const value = e.target.value;
-                                        if (globalIndex >= 0 && (value === "" || /^\d*\.?\d*$/.test(value))) {
-                                          handleRateChange(globalIndex, "rate", value);
-                                        }
-                                      }}
-                                      onBlur={(e) => {
-                                        if (globalIndex < 0) return;
-                                        const value = e.target.value;
-                                        if (value && !isNaN(parseFloat(value))) {
-                                          handleRateChange(globalIndex, "rate", parseFloat(value).toFixed(2));
-                                        } else if (value === "") {
-                                          handleRateChange(globalIndex, "rate", "");
-                                        }
-                                      }}
-                                      className="h-8 w-28"
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-                            <div className="mb-2 text-sm font-semibold text-emerald-800">Pack Add-on Pricing</div>
-                            <div className="text-sm text-emerald-900">${(parseFloat(fbaPack2to3 || "0") || 0).toFixed(2)} for pack 2-3</div>
-                            <div className="text-sm text-emerald-900">${(parseFloat(fbaPack4to12 || "0") || 0).toFixed(2)} for pack 4-12</div>
-                          </div>
-
-                          <div>
-                            <div className="mb-2 text-sm font-semibold">What's Included</div>
-                            <div className="space-y-1.5 text-[15px]">
-                              {[
-                                "Receiving & inspection",
-                                "Labeling & standard prep",
-                                "Packaging & forwarding",
-                                "24-72 hour turnaround",
-                              ].map((item) => (
-                                <div key={item} className="flex items-start gap-2">
-                                  <span className="mt-0.5 text-emerald-600">{"\u2713"}</span>
-                                  <span>{item}</span>
-                                </div>
-                              ))}
+                  <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm">
+                    <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 pb-3">
+                      <CardTitle className="text-xl text-blue-700">Standard units</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-5 p-5 text-sm">
+                      <div className="grid grid-cols-2 gap-3 border-b pb-4">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Monthly Volume</div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
+                        {([
+                          { pkg: "Starter", range: "1-999", label: "1-999 units" },
+                          { pkg: "Standard", range: "1000-2499", label: "1,000-2,499 units" },
+                          { pkg: "Premium", range: "2500+", label: "2,500+ units" },
+                        ]).map((tier) => {
+                          const globalIndex = pricingRows.findIndex(
+                            (r) =>
+                              r.service === "FBA/WFS/TFS" &&
+                              r.package === tier.pkg &&
+                              r.quantityRange === tier.range &&
+                              r.productType === "Standard"
+                          );
+                          const row = globalIndex >= 0 ? pricingRows[globalIndex] : null;
+                          return (
+                            <div key={`Standard-${tier.range}`} className="contents">
+                              <div className="text-[15px]">{tier.label}</div>
+                              <div>
+                                <Input
+                                  type="text"
+                                  placeholder="0.00"
+                                  value={row?.rate ?? ""}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (globalIndex >= 0 && (value === "" || /^\d*\.?\d*$/.test(value))) {
+                                      handleRateChange(globalIndex, value);
+                                    }
+                                  }}
+                                  onBlur={(e) => {
+                                    if (globalIndex < 0) return;
+                                    const value = e.target.value;
+                                    if (value && !isNaN(parseFloat(value))) {
+                                      handleRateChange(globalIndex, parseFloat(value).toFixed(2));
+                                    }
+                                  }}
+                                  className="h-9"
+                                />
+                              </div>
                             </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-sm font-semibold">What&apos;s included</Label>
+                        <p className="text-xs text-muted-foreground">
+                          One item per line. Shown to clients on the FBA pricing tab.
+                        </p>
+                        <Textarea
+                          value={fbaIncludedText}
+                          onChange={(e) => setFbaIncludedText(e.target.value)}
+                          rows={5}
+                          placeholder={"Receiving & inspection\nLabeling & standard prep"}
+                          className="resize-y text-sm"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
                 </TabsContent>
 
                 <TabsContent value="FBM" className="mt-4">
@@ -1445,10 +1598,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-3 border-b pb-4">
+                      <div className="grid grid-cols-2 gap-3 border-b pb-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Volume (Daily)</div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price (Standard)</div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Large Items</div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
                         {([
                           { pkg: "Tier 1", range: "1-10", label: "1-10" },
                           { pkg: "Tier 2", range: "11-24", label: "11-24" },
@@ -1462,15 +1614,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                               r.quantityRange === tier.range &&
                               r.productType === "Standard"
                           );
-                          const largeIndex = pricingRows.findIndex(
-                            (r) =>
-                              r.service === "FBM" &&
-                              r.package === tier.pkg &&
-                              r.quantityRange === tier.range &&
-                              r.productType === "Large"
-                          );
                           const standardRow = standardIndex >= 0 ? pricingRows[standardIndex] : null;
-                          const largeRow = largeIndex >= 0 ? pricingRows[largeIndex] : null;
                           return (
                             <div key={tier.range} className="contents">
                               <div className="text-[15px]">{tier.label}</div>
@@ -1482,39 +1626,16 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                   onChange={(e) => {
                                     const value = e.target.value;
                                     if (standardIndex >= 0 && (value === "" || /^\d*\.?\d*$/.test(value))) {
-                                      handleRateChange(standardIndex, "rate", value);
+                                      handleRateChange(standardIndex, value);
                                     }
                                   }}
                                   onBlur={(e) => {
                                     if (standardIndex < 0) return;
                                     const value = e.target.value;
                                     if (value && !isNaN(parseFloat(value))) {
-                                      handleRateChange(standardIndex, "rate", parseFloat(value).toFixed(2));
+                                      handleRateChange(standardIndex, parseFloat(value).toFixed(2));
                                     } else if (value === "") {
-                                      handleRateChange(standardIndex, "rate", "");
-                                    }
-                                  }}
-                                  className="h-8 w-28"
-                                />
-                              </div>
-                              <div>
-                                <Input
-                                  type="text"
-                                  placeholder="0.00"
-                                  value={largeRow?.rate ?? ""}
-                                  onChange={(e) => {
-                                    const value = e.target.value;
-                                    if (largeIndex >= 0 && (value === "" || /^\d*\.?\d*$/.test(value))) {
-                                      handleRateChange(largeIndex, "rate", value);
-                                    }
-                                  }}
-                                  onBlur={(e) => {
-                                    if (largeIndex < 0) return;
-                                    const value = e.target.value;
-                                    if (value && !isNaN(parseFloat(value))) {
-                                      handleRateChange(largeIndex, "rate", parseFloat(value).toFixed(2));
-                                    } else if (value === "") {
-                                      handleRateChange(largeIndex, "rate", "");
+                                      handleRateChange(standardIndex, "");
                                     }
                                   }}
                                   className="h-8 w-28"
@@ -1525,20 +1646,18 @@ export function PricingManagement({ users }: PricingManagementProps) {
                         })}
                       </div>
 
-                      <div>
-                        <div className="mb-2 text-sm font-semibold">What's Included</div>
-                        <div className="space-y-1.5 text-[15px]">
-                          {[
-                            "Pick, pack, packaging, labeling",
-                            "Same-day shipping (before cutoff)",
-                            "24-48 hr guaranteed turnaround",
-                          ].map((item) => (
-                            <div key={item} className="flex items-start gap-2">
-                              <span className="mt-0.5 text-emerald-600">{"\u2713"}</span>
-                              <span>{item}</span>
-                            </div>
-                          ))}
-                        </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-semibold">What&apos;s included</Label>
+                        <p className="text-xs text-muted-foreground">
+                          One item per line. Shown to clients on the FBM pricing tab.
+                        </p>
+                        <Textarea
+                          value={fbmIncludedText}
+                          onChange={(e) => setFbmIncludedText(e.target.value)}
+                          rows={5}
+                          placeholder={"Pick, pack, packaging, labeling\nSame-day shipping (before cutoff)"}
+                          className="resize-y text-sm"
+                        />
                       </div>
                     </CardContent>
                   </Card>
@@ -1611,7 +1730,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                   Price per individual pallet per 30-day cycle.
                                 </p>
                               </div>
-                              {!editingGlobalDefaults && selectedUser && (
+                              {editingCustomProfile && customUserId && (
                                 <div className="pt-2 border-t space-y-3">
                                   <div className="text-sm">
                                     <span className="font-medium">Active pallet cycles: </span>
@@ -1682,12 +1801,6 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                   </p>
                                 </div>
                               )}
-                              {editingGlobalDefaults && (
-                                <p className="text-xs text-muted-foreground">
-                                  Per-user pallet assignment is available when editing a specific user (not global defaults).
-                                </p>
-                              )}
-                              
                               <Button 
                                 onClick={handleSaveStorage} 
                                 disabled={isSaving || storagePricingLoading}

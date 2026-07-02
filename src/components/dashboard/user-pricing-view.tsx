@@ -3,11 +3,18 @@
  import { useMemo, useState, type ReactNode } from "react";
  import { useAuth } from "@/hooks/use-auth";
  import { useCollection } from "@/hooks/use-collection";
+ import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
+ import { usePricingProfileSettings } from "@/hooks/use-pricing-profile-settings";
+ import {
+   DEFAULT_FBA_INCLUDED_ITEMS,
+   DEFAULT_FBM_INCLUDED_ITEMS,
+   resolveIncludedItems,
+ } from "@/lib/pricing-profile-settings";
  import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
  import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
  import { Skeleton } from "@/components/ui/skeleton";
 import { Sparkles } from "lucide-react";
-import type { FbaPackAddOnConfig } from "@/lib/pricing-utils";
+import { Badge } from "@/components/ui/badge";
 import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
 
  type PricingRuleDoc = {
@@ -80,7 +87,7 @@ const FBA_PACKAGES = [
   { package: "Tier 4", quantityRange: "50+" },
  ] as const;
 
- const PRODUCT_TYPES = ["Standard", "Large"] as const;
+ const PRODUCT_TYPES = ["Standard"] as const;
 
 const DEFAULT_FBA_RATES: Record<string, number> = {
   "1-999|Standard": 0.65,
@@ -99,12 +106,6 @@ const DEFAULT_FBM_RATES: Record<string, number> = {
   "11-24|Large": 2.25,
   "25-49|Large": 2.0,
   "50+|Large": 1.75,
-};
-
-type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & {
-  id: string;
-  updatedAt?: any;
-  createdAt?: any;
 };
 
 type ShippedOrderDoc = {
@@ -152,15 +153,6 @@ type ShippedOrderDoc = {
    return [...docs].sort((a, b) => toMs(b.updatedAt || b.createdAt) - toMs(a.updatedAt || a.createdAt))[0] ?? null;
  }
 
-function pickLatestWithFallback<T extends { updatedAt?: any; createdAt?: any }>(
-  userDocs: T[] | undefined,
-  defaultDocs: T[] | undefined
-): T | null {
-  const userLatest = pickLatest(userDocs || []);
-  if (userLatest) return userLatest;
-  return pickLatest(defaultDocs || []);
-}
-
  function normalizeSize(input: unknown): string {
    const raw = (typeof input === "string" ? input : "").toLowerCase();
    const compact = raw.replace(/\s+/g, "");
@@ -199,80 +191,63 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
    const uid = userProfile?.uid || "";
    const [activeTab, setActiveTab] = useState<string>("FBA/WFS/TFS");
 
-   const { data: pricingList, loading: pricingLoading, error: pricingError } = useCollection<PricingRuleDoc>(
-     uid ? `users/${uid}/pricing` : ""
+   const {
+     profileLabel,
+     profileId,
+     pricingRules: pricingList,
+     storagePricingList,
+     boxForwardingPricing: boxForwardingPricingList,
+     palletForwardingPricing: palletForwardingPricingList,
+     containerHandlingPricing: containerHandlingPricingList,
+     additionalServicesPricing: additionalServicesPricingList,
+     loading: isLoading,
+   } = useUserPricingCollections(userProfile);
+
+   const { settings: profileSettings } = usePricingProfileSettings(profileId);
+
+   const fbaIncludedItems = useMemo(
+     () => resolveIncludedItems(profileSettings?.fbaIncludedItems, DEFAULT_FBA_INCLUDED_ITEMS),
+     [profileSettings?.fbaIncludedItems]
    );
-  const { data: defaultPricingList } = useCollection<PricingRuleDoc>("defaultPricing");
-   const { data: storagePricingList, loading: storageLoading } = useCollection<StoragePricingDoc>(
-     uid ? `users/${uid}/storagePricing` : ""
+   const fbmIncludedItems = useMemo(
+     () => resolveIncludedItems(profileSettings?.fbmIncludedItems, DEFAULT_FBM_INCLUDED_ITEMS),
+     [profileSettings?.fbmIncludedItems]
    );
-  const { data: defaultStoragePricingList } = useCollection<StoragePricingDoc>("defaultStoragePricing");
-   const { data: boxForwardingPricingList, loading: boxLoading } = useCollection<SimplePriceDoc>(
-     uid ? `users/${uid}/boxForwardingPricing` : ""
+
+   const { data: shippedOrders } = useCollection<ShippedOrderDoc>(
+     uid ? `users/${uid}/shipped` : ""
    );
-  const { data: defaultBoxForwardingPricingList } = useCollection<SimplePriceDoc>("defaultBoxForwardingPricing");
-   const { data: palletForwardingPricingList, loading: palletLoading } = useCollection<SimplePriceDoc>(
-     uid ? `users/${uid}/palletForwardingPricing` : ""
+   const { data: palletStorageCycles } = useCollection<PalletStorageCycleDoc>(
+     uid ? `users/${uid}/palletStorageCycles` : ""
    );
-  const { data: defaultPalletForwardingPricingList } = useCollection<SimplePriceDoc>("defaultPalletForwardingPricing");
-   const { data: containerHandlingPricingList, loading: containerLoading } = useCollection<ContainerHandlingDoc>(
-     uid ? `users/${uid}/containerHandlingPricing` : ""
-   );
-  const { data: defaultContainerHandlingPricingList } = useCollection<ContainerHandlingDoc>("defaultContainerHandlingPricing");
-   const { data: additionalServicesPricingList, loading: additionalLoading } = useCollection<AdditionalServicesDoc>(
-     uid ? `users/${uid}/additionalServicesPricing` : ""
-   );
-  const { data: defaultAdditionalServicesPricingList } = useCollection<AdditionalServicesDoc>("defaultAdditionalServicesPricing");
-  const { data: fbaPackAddOnPricingList, loading: fbaPackLoading } = useCollection<FbaPackAddOnPricingDoc>(
-    uid ? `users/${uid}/fbaPackAddOnPricing` : ""
-  );
-  const { data: defaultFbaPackAddOnPricingList } = useCollection<FbaPackAddOnPricingDoc>("defaultFbaPackAddOnPricing");
-  const { data: shippedOrders } = useCollection<ShippedOrderDoc>(
-    uid ? `users/${uid}/shipped` : ""
-  );
-  const { data: palletStorageCycles } = useCollection<PalletStorageCycleDoc>(
-    uid ? `users/${uid}/palletStorageCycles` : ""
-  );
 
    const pricingByKey = useMemo(() => {
      const map = new Map<string, PricingRuleDoc>();
-    for (const d of defaultPricingList || []) {
-      if (!d.service || !d.package || !d.quantityRange || !d.productType) continue;
-      const key = `${d.service}|${d.package}|${d.quantityRange}|${d.productType}`;
-      map.set(key, d);
-    }
     for (const d of pricingList || []) {
        if (!d.service || !d.package || !d.quantityRange || !d.productType) continue;
        const key = `${d.service}|${d.package}|${d.quantityRange}|${d.productType}`;
       map.set(key, d);
      }
      return map;
-  }, [pricingList, defaultPricingList]);
+  }, [pricingList]);
 
-  const latestStorage = useMemo(() => pickLatestWithFallback(storagePricingList, defaultStoragePricingList), [storagePricingList, defaultStoragePricingList]);
-  const latestBox = useMemo(() => pickLatestWithFallback(boxForwardingPricingList, defaultBoxForwardingPricingList), [boxForwardingPricingList, defaultBoxForwardingPricingList]);
-  const latestPallet = useMemo(() => pickLatestWithFallback(palletForwardingPricingList, defaultPalletForwardingPricingList), [palletForwardingPricingList, defaultPalletForwardingPricingList]);
-  const latestAdditional = useMemo(() => pickLatestWithFallback(additionalServicesPricingList, defaultAdditionalServicesPricingList), [additionalServicesPricingList, defaultAdditionalServicesPricingList]);
+  const latestStorage = useMemo(() => pickLatest(storagePricingList), [storagePricingList]);
+  const latestBox = useMemo(() => pickLatest(boxForwardingPricingList), [boxForwardingPricingList]);
+  const latestPallet = useMemo(() => pickLatest(palletForwardingPricingList), [palletForwardingPricingList]);
+  const latestAdditional = useMemo(() => pickLatest(additionalServicesPricingList), [additionalServicesPricingList]);
   const additionalServicesCatalogRows = useMemo(
     () => catalogFromPricingDoc(latestAdditional as AdditionalServicesDoc | null),
     [latestAdditional]
   );
-  const latestFbaPack = useMemo(() => pickLatestWithFallback(fbaPackAddOnPricingList, defaultFbaPackAddOnPricingList), [fbaPackAddOnPricingList, defaultFbaPackAddOnPricingList]);
 
    const containerBySize = useMemo(() => {
      const m = new Map<string, ContainerHandlingDoc>();
-    for (const d of defaultContainerHandlingPricingList || []) {
-      const size = normalizeSize(d.containerSize);
-      m.set(size, d);
-    }
     for (const d of containerHandlingPricingList || []) {
        const size = normalizeSize(d.containerSize);
       m.set(size, d);
      }
      return m;
-  }, [containerHandlingPricingList, defaultContainerHandlingPricingList]);
-
-  const isLoading = pricingLoading || storageLoading || boxLoading || palletLoading || containerLoading || additionalLoading || fbaPackLoading;
+  }, [containerHandlingPricingList]);
   const sortedPalletCycles = useMemo(
     () =>
       [...(palletStorageCycles || [])].sort(
@@ -305,15 +280,6 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
      );
    }
 
-   if (pricingError) {
-     return (
-       <div className="text-sm">
-         <div className="font-medium text-destructive">Pricing couldn’t be loaded.</div>
-         <div className="text-muted-foreground mt-1">This is usually a Firestore permission/rules issue.</div>
-       </div>
-     );
-   }
-
    const renderServiceTable = (service: "FBA/WFS/TFS" | "FBM") => {
      const pkgs = service === "FBM" ? FBM_PACKAGES : FBA_PACKAGES;
      return (
@@ -325,7 +291,6 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
                <th className="text-left p-2 text-sm font-medium">Range</th>
                <th className="text-left p-2 text-sm font-medium">Product Type</th>
                <th className="text-left p-2 text-sm font-medium">Rate ($)</th>
-                    <th className="text-left p-2 text-sm font-medium">Pack Add-on</th>
              </tr>
            </thead>
            <tbody>
@@ -345,11 +310,6 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
                      <td className="p-2 text-sm">{pkg.quantityRange}</td>
                      <td className="p-2 text-sm">{productTypeLabel(pt)}</td>
                     <td className="p-2 text-sm font-medium">{money(rateToShow)}</td>
-                    <td className="p-2 text-sm font-medium">
-                      {service === "FBA/WFS/TFS"
-                        ? "$0.35 (2-3) / $0.75 (4-12)"
-                        : money(rule?.packOf)}
-                    </td>
                    </tr>
                  );
                })
@@ -361,13 +321,13 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
    };
 
   const renderFbaPlans = () => {
-    const getFbaPrice = (range: (typeof FBA_PACKAGES)[number]["quantityRange"], productType: "Standard" | "Large") => {
+    const getFbaPrice = (range: (typeof FBA_PACKAGES)[number]["quantityRange"]) => {
       const pkg = FBA_PACKAGES.find((p) => p.quantityRange === range);
       if (!pkg) return undefined;
-      const key = `FBA/WFS/TFS|${pkg.package}|${pkg.quantityRange}|${productType}`;
+      const key = `FBA/WFS/TFS|${pkg.package}|${pkg.quantityRange}|Standard`;
       const rule = pricingByKey.get(key);
       if (rule?.rate !== undefined && rule?.rate !== null) return rule.rate;
-      return DEFAULT_FBA_RATES[`${range}|${productType}`];
+      return DEFAULT_FBA_RATES[`${range}|Standard`];
     };
 
     const volumeRows: Array<{ range: "1-999" | "1000-2499" | "2500+"; label: string }> = [
@@ -376,23 +336,13 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
       { range: "2500+", label: "2,500+ units" },
     ];
 
-    const includedItems = [
-      "Receiving & inspection",
-      "Labeling & standard prep",
-      "Packaging & forwarding",
-      "24-72 hour turnaround",
-    ];
+    const includedItems = fbaIncludedItems;
 
-    const plans: Array<{ title: string; productType: "Standard" | "Large" }> = [
-      { title: "Standard Units", productType: "Standard" },
-      { title: "Large/Heavy Units", productType: "Large" },
-    ];
-    const pack2to3 = typeof latestFbaPack?.pack2to3 === "number" ? latestFbaPack.pack2to3 : 0.35;
-    const pack4to12 = typeof latestFbaPack?.pack4to12 === "number" ? latestFbaPack.pack4to12 : 0.75;
+    const plans = [{ title: "Standard Units" }];
 
     return (
       <div className="space-y-4">
-        <div className="grid gap-5 md:grid-cols-2">
+        <div className="grid gap-5 md:grid-cols-1 max-w-xl">
           {plans.map((plan) => (
             <Card
               key={plan.title}
@@ -406,19 +356,13 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Monthly Volume</div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
                   {volumeRows.map((row) => (
-                    <div key={`${plan.productType}-${row.range}`} className="contents">
+                    <div key={row.range} className="contents">
                       <div className="text-[15px]">{row.label}</div>
                       <div className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">
-                        {money(getFbaPrice(row.range, plan.productType))}/unit
+                        {money(getFbaPrice(row.range))}/unit
                       </div>
                     </div>
                   ))}
-                </div>
-
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-                  <div className="mb-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">Pack Add-on Pricing</div>
-                  <div className="text-sm text-emerald-900 dark:text-emerald-200">{money(pack2to3)} for pack 2-3</div>
-                  <div className="text-sm text-emerald-900 dark:text-emerald-200">{money(pack4to12)} for pack 4-12</div>
                 </div>
 
                 <div>
@@ -447,20 +391,16 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
       { range: "25-49", label: "25-49" },
       { range: "50+", label: "50+" },
     ];
-    const getFbmPrice = (range: (typeof rows)[number]["range"], productType: "Standard" | "Large") => {
+    const getFbmPrice = (range: (typeof rows)[number]["range"]) => {
       const pkg = FBM_PACKAGES.find((p) => p.quantityRange === range);
       if (!pkg) return undefined;
-      const key = `FBM|${pkg.package}|${pkg.quantityRange}|${productType}`;
+      const key = `FBM|${pkg.package}|${pkg.quantityRange}|Standard`;
       const rule = pricingByKey.get(key);
       if (rule?.rate !== undefined && rule?.rate !== null) return rule.rate;
-      return DEFAULT_FBM_RATES[`${range}|${productType}`];
+      return DEFAULT_FBM_RATES[`${range}|Standard`];
     };
 
-    const includedItems = [
-      "Pick, pack, packaging, labeling",
-      "Same-day shipping (before cutoff)",
-      "24-48 hr guaranteed turnaround",
-    ];
+    const includedItems = fbmIncludedItems;
 
     const weeklyOrderStats = (() => {
       const now = Date.now();
@@ -492,13 +432,13 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
                 <div className="font-medium">
                   You are currently in: <span className="font-semibold">{currentRange} orders/day</span>{" "}
                   {"->"}{" "}
-                  <span className="font-semibold">{money(getFbmPrice(currentRange, "Standard"))}</span> (Standard)
+                  <span className="font-semibold">{money(getFbmPrice(currentRange))}</span>
                 </div>
                 {nextRange ? (
                   <div>
                     Weekly avg: <span className="font-semibold">{weeklyOrderStats.avgDailyOrders.toFixed(1)} orders/day</span>. Reach{" "}
                     <span className="font-semibold">{nextRange.range} orders/day</span> to unlock:{" "}
-                    <span className="font-semibold">{money(getFbmPrice(nextRange.range, "Standard"))}</span> pricing.
+                    <span className="font-semibold">{money(getFbmPrice(nextRange.range))}</span> pricing.
                   </div>
                 ) : (
                   <div>
@@ -509,15 +449,13 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 border-b pb-4">
+          <div className="grid grid-cols-2 gap-3 border-b pb-4">
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Volume (Daily)</div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price (Standard)</div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Large Items</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
             {rows.map((row) => (
               <div key={row.range} className="contents">
                 <div className="text-[15px]">{row.label}</div>
-                <div className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">{money(getFbmPrice(row.range, "Standard"))}</div>
-                <div className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">{money(getFbmPrice(row.range, "Large"))}</div>
+                <div className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">{money(getFbmPrice(row.range))}</div>
               </div>
             ))}
           </div>
@@ -539,6 +477,13 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
   };
 
    return (
+     <div className="space-y-4">
+       <div className="flex flex-wrap items-center gap-2">
+         <span className="text-sm text-muted-foreground">Your pricing plan:</span>
+         <Badge variant="secondary" className="text-sm font-medium">
+           {profileLabel}
+         </Badge>
+       </div>
      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v)} className="w-full">
        <div className="overflow-x-auto mb-4">
          <TabsList className="inline-flex min-w-full w-auto h-auto p-1 bg-muted rounded-lg">
@@ -762,6 +707,7 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
          </Card>
        </TabsContent>
      </Tabs>
+     </div>
    );
  }
 

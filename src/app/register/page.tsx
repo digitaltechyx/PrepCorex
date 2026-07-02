@@ -36,6 +36,7 @@ import {
 import { sendUserVerificationEmail } from "@/lib/email-verification";
 import type { PlatformDocumentSlug, PlatformDocumentSummary } from "@/lib/platform-documents-types";
 import { PLATFORM_DOCUMENT_LABELS } from "@/lib/platform-documents-types";
+import { DEFAULT_PRICING_PROFILE_ID } from "@/lib/pricing-profiles";
 
 const REGISTRATION_DOCUMENT_SLUGS = ["terms", "privacy"] as const satisfies readonly PlatformDocumentSlug[];
 
@@ -185,6 +186,8 @@ export default function RegisterPage() {
         roles: ["user"],
         features: [],
         status: "pending",
+        storageType: values.storageType,
+        pricingProfileId: DEFAULT_PRICING_PROFILE_ID,
         emailVerificationRequired: true,
         createdAt: new Date(),
         clientId: await generateClientId(),
@@ -224,7 +227,7 @@ export default function RegisterPage() {
           return;
         }
       } catch {
-        // Registry claim failed after account creation — admin can reconcile
+        // Registry claim failed after account creation ? admin can reconcile
       }
 
       try {

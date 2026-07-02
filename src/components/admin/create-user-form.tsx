@@ -24,6 +24,7 @@ import { auth, db } from "@/lib/firebase";
 import { Loader2, UserPlus, Shield, Zap, MapPin, Users, Package } from "lucide-react";
 import { getDefaultFeaturesForRole } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
+import { DEFAULT_PRICING_PROFILE_ID } from "@/lib/pricing-profiles";
 import { buildUserUniqueFieldKeys } from "@/lib/user-unique-fields";
 import {
   checkUserFieldsUniqueClient,
@@ -198,6 +199,7 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
         features: userFeatures,
         status: values.role === "sub_admin" || isOps ? "approved" : "pending",
         emailVerificationRequired: false,
+        pricingProfileId: values.role === "user" ? DEFAULT_PRICING_PROFILE_ID : undefined,
         createdAt: new Date(),
         clientId: await generateClientId(),
       };
