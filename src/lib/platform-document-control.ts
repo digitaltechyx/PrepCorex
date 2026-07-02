@@ -45,6 +45,10 @@ function formatControlVersion(version?: number): string {
   return Number.isInteger(v) ? `${v}.0` : String(v);
 }
 
+export function formatPlatformVersionLabel(version?: number): string {
+  return `v${formatControlVersion(version)}`;
+}
+
 export function buildDocumentControlRows(
   slug: PlatformDocumentSlug,
   doc: Pick<PlatformDocument, "version" | "updatedAt" | "effectiveAt">

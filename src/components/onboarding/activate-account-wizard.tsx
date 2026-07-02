@@ -26,6 +26,13 @@ import {
 import { formatMsaAgreementVersionLabel } from "@/lib/platform-document-control";
 import { getDefaultFeaturesForRole, hasRole, isAccountActivated } from "@/lib/permissions";
 import { logUserAuditEvent } from "@/lib/user-audit-trail-client";
+import { createMsaDocumentSnapshot } from "@/lib/signed-msa-pdf";
+import {
+  checkUserFieldsUniqueClient,
+  claimUserFieldUniquesClient,
+  uniquenessConflictMessage,
+} from "@/lib/user-uniqueness-client";
+import { auth } from "@/lib/firebase";
 import type { PlatformDocument } from "@/lib/platform-documents-types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -140,6 +147,30 @@ export function ActivateAccountWizard() {
 
   const saveProfilePartial = async () => {
     if (!userProfile?.uid) return;
+
+    const uniqueCheck = await checkUserFieldsUniqueClient(
+      {
+        companyName: userProfile.companyName,
+        ein: ein.trim(),
+        phone: userProfile.phone,
+      },
+      userProfile.uid
+    );
+    if (!uniqueCheck.ok) {
+      throw new Error(uniquenessConflictMessage(uniqueCheck));
+    }
+
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) throw new Error("Not authenticated.");
+    const claim = await claimUserFieldUniquesClient(token, {
+      companyName: userProfile.companyName,
+      ein: ein.trim(),
+      phone: userProfile.phone,
+    });
+    if (!claim.ok) {
+      throw new Error(uniquenessConflictMessage(claim));
+    }
+
     await updateDoc(doc(db, "users", userProfile.uid), {
       businessType: businessType.trim(),
       ein: ein.trim(),
@@ -155,11 +186,11 @@ export function ActivateAccountWizard() {
   };
 
   const validateBusiness = () => {
-    if (!businessType || !address.trim() || !city.trim() || !state.trim() || !country.trim() || !zipCode.trim()) {
+    if (!businessType || !ein.trim() || !address.trim() || !city.trim() || !state.trim() || !country.trim() || !zipCode.trim()) {
       toast({
         variant: "destructive",
         title: "Business information required",
-        description: "Please complete all required business fields.",
+        description: "Please complete all required business fields, including EIN.",
       });
       return false;
     }
@@ -266,9 +297,21 @@ export function ActivateAccountWizard() {
           authorityConfirmed: true,
           legalName: legalName.trim(),
         },
+        msaDocumentSnapshot: createMsaDocumentSnapshot(msaDocument),
       };
       if (!hasExistingFeatures) {
         updateData.features = getDefaultFeaturesForRole("user");
+      }
+
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error("Not authenticated.");
+      const claim = await claimUserFieldUniquesClient(token, {
+        companyName: userProfile.companyName,
+        ein: ein.trim(),
+        phone: userProfile.phone,
+      });
+      if (!claim.ok) {
+        throw new Error(uniquenessConflictMessage(claim));
       }
 
       await updateDoc(doc(db, "users", userProfile.uid), updateData);
@@ -382,7 +425,7 @@ export function ActivateAccountWizard() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="ein">EIN</Label>
+                <Label htmlFor="ein">EIN *</Label>
                 <Input id="ein" value={ein} onChange={(e) => setEin(e.target.value)} placeholder="XX-XXXXXXX" />
               </div>
               <div className="space-y-2">

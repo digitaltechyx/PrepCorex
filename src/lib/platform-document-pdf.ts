@@ -235,7 +235,76 @@ function drawKeyValueTable(
   layout.y += 4;
 }
 
-export async function generatePlatformDocumentPDF(doc: PlatformDocument): Promise<Blob> {
+export type SignedMsaAcceptanceData = {
+  effectiveDate: string;
+  clientDetails: {
+    legalName: string;
+    companyName: string;
+    address: string;
+    email: string;
+    phone: string;
+  };
+  acceptedAt?: string;
+};
+
+function drawSignedMsaAcceptance(
+  layout: PdfLayout,
+  doc: PlatformDocument,
+  pageRef: { current: number; total: number },
+  acceptance: SignedMsaAcceptanceData
+) {
+  layout.y += 8;
+  addParagraph(layout, "Execution and acceptance", 11, true, doc, pageRef);
+  addParagraph(
+    layout,
+    `This Master Service Agreement is entered into as of ${acceptance.effectiveDate}.`,
+    9,
+    false,
+    doc,
+    pageRef
+  );
+
+  addParagraph(layout, "Client", 10, true, doc, pageRef);
+  addParagraph(layout, acceptance.clientDetails.companyName, 9, false, doc, pageRef);
+  addParagraph(layout, acceptance.clientDetails.address, 9, false, doc, pageRef);
+  addParagraph(
+    layout,
+    `${acceptance.clientDetails.email} | ${acceptance.clientDetails.phone}`,
+    9,
+    false,
+    doc,
+    pageRef
+  );
+
+  addParagraph(
+    layout,
+    "ACCEPTANCE: This Agreement may be executed electronically and shall be deemed legally binding upon digital acceptance through the PrepCorex client portal.",
+    9,
+    true,
+    doc,
+    pageRef
+  );
+  addParagraph(
+    layout,
+    `Accepted by: ${acceptance.clientDetails.legalName}`,
+    9,
+    false,
+    doc,
+    pageRef
+  );
+  if (acceptance.acceptedAt) {
+    addParagraph(layout, `Date: ${acceptance.acceptedAt}`, 9, false, doc, pageRef);
+  }
+}
+
+export type GeneratePlatformDocumentPdfOptions = {
+  signedMsaAcceptance?: SignedMsaAcceptanceData;
+};
+
+export async function generatePlatformDocumentPDF(
+  doc: PlatformDocument,
+  options?: GeneratePlatformDocumentPdfOptions
+): Promise<Blob> {
   const resolved = withResolvedDocumentMetadata(doc);
   const pdf = new jsPDF("p", "mm", "a4");
   const layout = createLayout(pdf);
@@ -277,6 +346,10 @@ export async function generatePlatformDocumentPDF(doc: PlatformDocument): Promis
   for (const section of resolved.sections) {
     addParagraph(layout, section.title, 10, true, doc, pageRef);
     addBodyContent(layout, section.body, 9, doc, pageRef);
+  }
+
+  if (options?.signedMsaAcceptance) {
+    drawSignedMsaAcceptance(layout, resolved, pageRef, options.signedMsaAcceptance);
   }
 
   const totalPages = pdf.getNumberOfPages();

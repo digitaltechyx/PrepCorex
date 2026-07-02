@@ -24,6 +24,12 @@ import { auth, db } from "@/lib/firebase";
 import { Loader2, UserPlus, Shield, Zap, MapPin, Users, Package } from "lucide-react";
 import { getDefaultFeaturesForRole } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
+import { buildUserUniqueFieldKeys } from "@/lib/user-unique-fields";
+import {
+  checkUserFieldsUniqueClient,
+  claimUserFieldUniquesClient,
+  uniquenessConflictMessage,
+} from "@/lib/user-uniqueness-client";
 import { OPS_FEATURES_CONFIG, OPS_FEATURE_PRESETS } from "@/lib/warehouse-ops-permissions";
 import type { UserProfile, UserRole, UserFeature, WarehouseDoc } from "@/types";
 
@@ -127,6 +133,24 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
     }
     setIsLoading(true);
     try {
+      const isOps = values.role === "warehouse_operator";
+      if (!isOps) {
+        const uniqueCheck = await checkUserFieldsUniqueClient({
+          companyName: values.companyName,
+          ein: values.ein,
+          phone: values.phone,
+        });
+        if (!uniqueCheck.ok) {
+          toast({
+            variant: "destructive",
+            title: "Duplicate information",
+            description: uniquenessConflictMessage(uniqueCheck),
+          });
+          setIsLoading(false);
+          return;
+        }
+      }
+
       // Create the user account in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(
         auth,
@@ -147,15 +171,23 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
         userFeatures = getDefaultFeaturesForRole(values.role);
       }
 
-      const isOps = values.role === "warehouse_operator";
+      const companyName = isOps ? values.companyName?.trim() || "PrepCorex Ops" : values.companyName;
+      const einValue = isOps ? values.ein?.trim() || "N/A" : values.ein;
+      const uniqueKeys = buildUserUniqueFieldKeys({
+        companyName,
+        ein: einValue,
+        phone: values.phone,
+      });
+
       const profileData: Record<string, unknown> = {
         uid: userCredential.user.uid,
         name: values.name,
         email: values.email,
         phone: values.phone,
         password: values.password,
-        companyName: isOps ? values.companyName?.trim() || "PrepCorex Ops" : values.companyName,
-        ein: isOps ? values.ein?.trim() || "N/A" : values.ein,
+        companyName,
+        ein: einValue,
+        ...uniqueKeys,
         address: isOps ? values.address?.trim() || "N/A" : values.address,
         city: isOps ? values.city?.trim() || "N/A" : values.city,
         state: isOps ? values.state?.trim() || "N/A" : values.state,
@@ -165,6 +197,7 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
         roles: [values.role],
         features: userFeatures,
         status: values.role === "sub_admin" || isOps ? "approved" : "pending",
+        emailVerificationRequired: false,
         createdAt: new Date(),
         clientId: await generateClientId(),
       };
@@ -180,6 +213,19 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
         profileData.locations = [defaultWarehouseId];
       }
       await setDoc(doc(db, "users", userCredential.user.uid), profileData);
+
+      if (!isOps) {
+        try {
+          const token = await userCredential.user.getIdToken();
+          await claimUserFieldUniquesClient(token, {
+            companyName,
+            ein: einValue,
+            phone: values.phone,
+          });
+        } catch {
+          // Non-blocking; registry can be reconciled by admin
+        }
+      }
 
       toast({
         title: "Success",

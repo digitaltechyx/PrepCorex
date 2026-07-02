@@ -1,5 +1,8 @@
-import jsPDF from "jspdf";
-import { MSA_SERVICE_PROVIDER, MSA_AGREEMENT_SECTIONS } from "./msa-content";
+import type { PlatformDocument } from "@/lib/platform-documents-types";
+import {
+  generatePlatformDocumentPDF,
+  type SignedMsaAcceptanceData,
+} from "@/lib/platform-document-pdf";
 
 export interface MSAClientDetails {
   legalName: string;
@@ -16,9 +19,23 @@ export interface MSAExportData {
 }
 
 /**
- * Generates MSA PDF for download. Uses client details and effective date from user profile.
+ * Generates signed MSA PDF. Uses platform legal template when provided; otherwise legacy static text.
  */
-export async function generateMSAPDF(data: MSAExportData): Promise<Blob> {
+export async function generateMSAPDF(
+  data: MSAExportData,
+  platformDoc?: PlatformDocument | null
+): Promise<Blob> {
+  if (platformDoc) {
+    const acceptance: SignedMsaAcceptanceData = {
+      effectiveDate: data.effectiveDate,
+      clientDetails: data.clientDetails,
+      acceptedAt: data.acceptedAt,
+    };
+    return generatePlatformDocumentPDF(platformDoc, { signedMsaAcceptance: acceptance });
+  }
+
+  const { default: jsPDF } = await import("jspdf");
+  const { MSA_SERVICE_PROVIDER, MSA_AGREEMENT_SECTIONS } = await import("./msa-content");
   const doc = new jsPDF("p", "mm", "a4");
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 18;

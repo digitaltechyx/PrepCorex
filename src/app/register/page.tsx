@@ -27,8 +27,17 @@ import { findDefaultWarehouseLocationId } from "@/lib/default-warehouse";
 import { Logo } from "@/components/logo";
 import { Loader2 } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
+import { buildUserUniqueFieldKeys } from "@/lib/user-unique-fields";
+import {
+  checkUserFieldsUniqueClient,
+  claimUserFieldUniquesClient,
+  uniquenessConflictMessage,
+} from "@/lib/user-uniqueness-client";
+import { sendUserVerificationEmail } from "@/lib/email-verification";
 import type { PlatformDocumentSlug, PlatformDocumentSummary } from "@/lib/platform-documents-types";
-import { PLATFORM_DOCUMENT_LABELS, PLATFORM_DOCUMENT_SLUGS } from "@/lib/platform-documents-types";
+import { PLATFORM_DOCUMENT_LABELS } from "@/lib/platform-documents-types";
+
+const REGISTRATION_DOCUMENT_SLUGS = ["terms", "privacy"] as const satisfies readonly PlatformDocumentSlug[];
 
 const formSchema = z.object({
   contactName: z.string().min(2, { message: "Contact name must be at least 2 characters." }),
@@ -131,6 +140,20 @@ export default function RegisterPage() {
         }
       }
 
+      const uniqueCheck = await checkUserFieldsUniqueClient({
+        companyName: values.companyName.trim(),
+        phone: values.phone,
+      });
+      if (!uniqueCheck.ok) {
+        toast({
+          variant: "destructive",
+          title: "Registration blocked",
+          description: uniquenessConflictMessage(uniqueCheck),
+        });
+        setIsLoading(false);
+        return;
+      }
+
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         values.email,
@@ -139,11 +162,16 @@ export default function RegisterPage() {
       const user = userCredential.user;
 
       const acceptedDocuments = Object.fromEntries(
-        PLATFORM_DOCUMENT_SLUGS.map((slug) => [
+        REGISTRATION_DOCUMENT_SLUGS.map((slug) => [
           slug,
           { version: documentVersions[slug] ?? 1 },
         ])
       );
+
+      const uniqueKeys = buildUserUniqueFieldKeys({
+        companyName: values.companyName.trim(),
+        phone: values.phone,
+      });
 
       const userData: Record<string, unknown> = {
         uid: user.uid,
@@ -152,10 +180,12 @@ export default function RegisterPage() {
         phone: values.phone,
         password: values.password,
         companyName: values.companyName.trim(),
+        ...uniqueKeys,
         role: "user",
         roles: ["user"],
         features: [],
         status: "pending",
+        emailVerificationRequired: true,
         createdAt: new Date(),
         clientId: await generateClientId(),
         platformAgreementsAccepted: {
@@ -176,6 +206,26 @@ export default function RegisterPage() {
       }
 
       await setDoc(doc(db, "users", user.uid), userData);
+
+      try {
+        const token = await user.getIdToken();
+        const claim = await claimUserFieldUniquesClient(token, {
+          companyName: values.companyName.trim(),
+          phone: values.phone,
+        });
+        if (!claim.ok) {
+          await user.delete();
+          toast({
+            variant: "destructive",
+            title: "Registration blocked",
+            description: uniquenessConflictMessage(claim),
+          });
+          setIsLoading(false);
+          return;
+        }
+      } catch {
+        // Registry claim failed after account creation — admin can reconcile
+      }
 
       try {
         const token = await user.getIdToken();
@@ -218,12 +268,22 @@ export default function RegisterPage() {
         // Non-blocking
       }
 
+      try {
+        await sendUserVerificationEmail(user);
+      } catch {
+        toast({
+          variant: "destructive",
+          title: "Could not send verification email",
+          description: "Your account was created. Use Resend on the next screen or contact support.",
+        });
+      }
+
       toast({
         title: "Account created",
         description:
-          "Your account is under review. We emailed you confirmation and will notify you when approved.",
+          "Check your email to verify your address. Your account is under review after verification.",
       });
-      router.push("/login");
+      router.push(`/verify-email?email=${encodeURIComponent(values.email)}`);
     } catch (error: unknown) {
       toast({
         variant: "destructive",
@@ -361,10 +421,6 @@ export default function RegisterPage() {
                           I have read and agree to the following documents:
                         </FormLabel>
                         <ul className="space-y-1 text-sm text-muted-foreground">
-                          <li>
-                            {PLATFORM_DOCUMENT_LABELS.msa.shortLabel} (
-                            <DocumentViewLink slug="msa" label="View" />)
-                          </li>
                           <li>
                             {PLATFORM_DOCUMENT_LABELS.terms.shortLabel} (
                             <DocumentViewLink slug="terms" label="View" />)

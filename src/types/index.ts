@@ -1,4 +1,5 @@
 ﻿import type { User as FirebaseUser } from "firebase/auth";
+import type { PlatformDocument } from "@/lib/platform-documents-types";
 
 export type UserRole = "admin" | "user" | "commission_agent" | "sub_admin" | "warehouse_operator";
 export type UserStatus = "pending" | "approved" | "deleted";
@@ -402,6 +403,8 @@ export interface UserProfile {
   roles?: UserRole[]; // New array format for multiple roles
   features?: UserFeature[]; // Granted features
   status?: UserStatus; // Optional for backward compatibility
+  /** When true, user must verify email via Firebase before login (new registrations only). */
+  emailVerificationRequired?: boolean;
   createdAt?: Date;
   approvedAt?: Date;
   deletedAt?: Date;
@@ -432,12 +435,18 @@ export interface UserProfile {
   } | null;
   /** MSA effective date (ISO string). */
   msaEffectiveDate?: string | null;
+  /** Frozen MSA legal template content accepted at activation (for signed PDF export). */
+  msaDocumentSnapshot?: PlatformDocument | null;
   /** Client onboarding: business type selected at activation. */
   businessType?: string | null;
   /** Client onboarding: services the client needs. */
   servicesNeeded?: string[] | null;
   /** Client onboarding: estimated monthly sales volume band. */
   salesVolume?: string | null;
+  /** Normalized keys for uniqueness enforcement. */
+  companyNameKey?: string | null;
+  einKey?: string | null;
+  phoneKey?: string | null;
   /** Set when business + services profile steps are completed (before MSA). */
   onboardingProfileCompletedAt?: { seconds: number; nanoseconds: number } | Date | null;
   /** MSA acceptance record at account activation. */

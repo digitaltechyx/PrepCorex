@@ -47,6 +47,14 @@ export type PlatformDocumentSummary = Pick<
   "slug" | "title" | "subtitle" | "version" | "updatedAt"
 >;
 
+export type PlatformDocumentVersionEntry = {
+  version: number;
+  effectiveAt?: string;
+  updatedAt?: string;
+  updatedByName?: string;
+  isCurrent: boolean;
+};
+
 export const PLATFORM_DOCUMENT_LABELS: Record<
   PlatformDocumentSlug,
   { title: string; shortLabel: string }

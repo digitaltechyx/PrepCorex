@@ -6,6 +6,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { buildUserUniqueFieldKeys } from "@/lib/user-unique-fields";
+import {
+  checkUserFieldsUniqueClient,
+  claimUserFieldUniquesClient,
+  uniquenessConflictMessage,
+} from "@/lib/user-uniqueness-client";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +70,50 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
   async function onSubmit(values: EditUserFormValues) {
     setIsLoading(true);
     try {
+      const uniqueCheck = await checkUserFieldsUniqueClient(
+        {
+          companyName: values.companyName,
+          ein: values.ein,
+          phone: values.phone,
+        },
+        user.uid
+      );
+      if (!uniqueCheck.ok) {
+        toast({
+          variant: "destructive",
+          title: "Duplicate information",
+          description: uniquenessConflictMessage(uniqueCheck),
+        });
+        return;
+      }
+
+      const { auth } = await import("@/lib/firebase");
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error("Not authenticated.");
+      const claim = await claimUserFieldUniquesClient(
+        token,
+        {
+          companyName: values.companyName,
+          ein: values.ein,
+          phone: values.phone,
+        },
+        user.uid
+      );
+      if (!claim.ok) {
+        toast({
+          variant: "destructive",
+          title: "Duplicate information",
+          description: uniquenessConflictMessage(claim),
+        });
+        return;
+      }
+
+      const uniqueKeys = buildUserUniqueFieldKeys({
+        companyName: values.companyName,
+        ein: values.ein,
+        phone: values.phone,
+      });
+
       const existingRoles = getUserRoles(user);
       const nextRoles: UserRole[] = [
         values.role as UserRole,
@@ -76,6 +126,7 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
         phone: values.phone || null,
         companyName: values.companyName || null,
         ein: values.ein || null,
+        ...uniqueKeys,
         address: values.address || null,
         city: values.city || null,
         state: values.state || null,

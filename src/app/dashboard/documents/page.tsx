@@ -31,7 +31,13 @@ import { CUSTOM_DOCUMENT_REQUEST_LABEL } from "@/lib/document-request-labels";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
-import { generateMSAPDF } from "@/lib/msa-pdf-generator";
+import { generateSignedMsaPdfForUser } from "@/lib/signed-msa-pdf";
+import { PlatformDocumentVersionRow } from "@/components/documents/platform-document-version-row";
+import { formatPlatformVersionLabel } from "@/lib/platform-document-control";
+import {
+  getAcceptedMsaVersion,
+  isMsaVersionBehind,
+} from "@/lib/document-version-utils";
 import {
   Dialog,
   DialogContent,
@@ -44,7 +50,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlatformLegalDocumentsCard } from "@/components/documents/platform-legal-documents-card";
+import type { PlatformDocumentSlug, PlatformDocumentSummary } from "@/lib/platform-documents-types";
+import { PLATFORM_DOCUMENT_LABELS } from "@/lib/platform-documents-types";
+
+const AVAILABLE_PLATFORM_DOCUMENT_SLUGS = ["terms", "privacy"] as const satisfies readonly PlatformDocumentSlug[];
 
 interface DocumentRequest {
   id: string;
@@ -108,6 +117,8 @@ function DocumentsPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [msaDownloading, setMsaDownloading] = useState(false);
   const [requestListFilter, setRequestListFilter] = useState<RequestListFilter>("all");
+  const [platformDocuments, setPlatformDocuments] = useState<PlatformDocumentSummary[]>([]);
+  const [platformDocsLoading, setPlatformDocsLoading] = useState(true);
 
   useEffect(() => {
     const s = searchParams.get("status")?.toLowerCase();
@@ -115,6 +126,24 @@ function DocumentsPageContent() {
       setRequestListFilter(s);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/platform-documents");
+        const data = await res.json();
+        if (!cancelled && res.ok && Array.isArray(data.documents)) {
+          setPlatformDocuments(data.documents);
+        }
+      } finally {
+        if (!cancelled) setPlatformDocsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const { data: documentRequests, loading } = useCollection<DocumentRequest>(
     userProfile ? `users/${userProfile.uid}/documentRequests` : ""
@@ -321,7 +350,7 @@ function DocumentsPageContent() {
       const acceptedAt = userProfile.accountActivatedAt && "seconds" in userProfile.accountActivatedAt
         ? format(new Date(userProfile.accountActivatedAt.seconds * 1000), "MMMM d, yyyy")
         : undefined;
-      const blob = await generateMSAPDF({
+      const blob = await generateSignedMsaPdfForUser(userProfile, {
         effectiveDate: userProfile.msaEffectiveDate,
         clientDetails: userProfile.msaClientDetails,
         acceptedAt,
@@ -329,7 +358,7 @@ function DocumentsPageContent() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `MSA-${userProfile.msaClientDetails.companyName.replace(/\s+/g, "-")}-${userProfile.msaEffectiveDate}.pdf`;
+      link.download = `MSA-${userProfile.msaClientDetails.companyName.replace(/\s+/g, "-")}-${userProfile.msaEffectiveDate}${acceptedMsaVersion != null ? `-v${acceptedMsaVersion}` : ""}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
       toast({ title: "Download started", description: "Your MSA has been downloaded." });
@@ -347,11 +376,27 @@ function DocumentsPageContent() {
   const pendingRequests = documentRequests.filter((req) => req.status === "pending");
   const completedRequests = documentRequests.filter((req) => req.status === "complete");
 
+  const availablePlatformDocuments: PlatformDocumentSummary[] = AVAILABLE_PLATFORM_DOCUMENT_SLUGS.map(
+    (slug) => {
+      const found = platformDocuments.find((d) => d.slug === slug);
+      if (found) return found;
+      return {
+        slug,
+        title: PLATFORM_DOCUMENT_LABELS[slug].title,
+        version: 1,
+      };
+    }
+  );
+
   const showPendingCard =
     requestListFilter === "pending" ||
     (requestListFilter === "all" && pendingRequests.length > 0);
   const showCompletedCard =
     requestListFilter === "complete" || requestListFilter === "all";
+
+  const acceptedMsaVersion = getAcceptedMsaVersion(userProfile);
+  const currentMsaVersion = platformDocuments.find((d) => d.slug === "msa")?.version ?? null;
+  const msaVersionBehind = isMsaVersionBehind(acceptedMsaVersion, currentMsaVersion);
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -808,8 +853,6 @@ function DocumentsPageContent() {
         </div>
       </div>
 
-      <PlatformLegalDocumentsCard />
-
       {/* Master Service Agreement (signed) */}
       {userProfile?.msaClientDetails && userProfile?.msaEffectiveDate && (
         <Card>
@@ -819,16 +862,33 @@ function DocumentsPageContent() {
               Master Service Agreement
             </CardTitle>
             <CardDescription>
-              Your accepted agreement (effective {userProfile.msaEffectiveDate}). You can download a copy below.
+              Your accepted agreement (effective {userProfile.msaEffectiveDate}
+              {acceptedMsaVersion != null
+                ? ` · ${formatPlatformVersionLabel(acceptedMsaVersion)}`
+                : ""}
+              ). Download the exact version you signed.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            {msaVersionBehind && currentMsaVersion != null && acceptedMsaVersion != null && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                A newer platform MSA is available ({formatPlatformVersionLabel(currentMsaVersion)}).
+                Your signed copy remains {formatPlatformVersionLabel(acceptedMsaVersion)} until you
+                accept an updated agreement.
+              </div>
+            )}
             <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-4">
               <div>
                 <p className="font-medium">{userProfile.msaClientDetails.companyName}</p>
                 <p className="text-sm text-muted-foreground">
-                  Accepted by {userProfile.msaClientDetails.legalName} · Effective {userProfile.msaEffectiveDate}
+                  Accepted by {userProfile.msaClientDetails.legalName} · Effective{" "}
+                  {userProfile.msaEffectiveDate}
                 </p>
+                {acceptedMsaVersion != null && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Signed version: {formatPlatformVersionLabel(acceptedMsaVersion)}
+                  </p>
+                )}
               </div>
               <Button variant="outline" size="sm" onClick={handleDownloadMSA} disabled={msaDownloading}>
                 {msaDownloading ? (
@@ -905,15 +965,15 @@ function DocumentsPageContent() {
             Available Documents
           </CardTitle>
           <CardDescription>
-            Documents that have been uploaded and are ready to download
+            Platform legal documents and uploaded agreements ready to view or download
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {loading || platformDocsLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : completedRequests.length === 0 ? (
+          ) : completedRequests.length === 0 && availablePlatformDocuments.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No documents available yet.</p>
@@ -923,6 +983,9 @@ function DocumentsPageContent() {
             </div>
           ) : (
             <div className="space-y-4">
+              {availablePlatformDocuments.map((doc) => (
+                <PlatformDocumentVersionRow key={doc.slug} doc={doc} />
+              ))}
               {completedRequests.map((request) => (
                 <div
                   key={request.id}

@@ -3,21 +3,27 @@ import {
   generatePlatformDocumentPDF,
   platformDocumentPdfFilename,
 } from "@/lib/platform-document-pdf";
-import { getPlatformDocument } from "@/lib/platform-documents-server";
+import { getPlatformDocument, getPlatformDocumentByVersion } from "@/lib/platform-documents-server";
 import { isPlatformDocumentSlug } from "@/lib/platform-documents-types";
 
 export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ slug: string }> };
 
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function GET(request: NextRequest, context: RouteContext) {
   const { slug } = await context.params;
   if (!isPlatformDocumentSlug(slug)) {
     return NextResponse.json({ error: "Invalid document slug." }, { status: 400 });
   }
 
+  const versionParam = request.nextUrl.searchParams.get("version");
+  const requestedVersion = versionParam ? Number(versionParam) : null;
+
   try {
-    const document = await getPlatformDocument(slug);
+    const document =
+      requestedVersion && Number.isFinite(requestedVersion)
+        ? await getPlatformDocumentByVersion(slug, requestedVersion)
+        : await getPlatformDocument(slug);
     const blob = await generatePlatformDocumentPDF(document);
     const buffer = Buffer.from(await blob.arrayBuffer());
     const filename = platformDocumentPdfFilename(document);

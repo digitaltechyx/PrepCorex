@@ -7,8 +7,8 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +26,9 @@ import { Logo } from "@/components/logo";
 import { PlaceHolderImages } from "@/lib/placeholder-images";
 import { Loader2 } from "lucide-react";
 import type { UserProfile } from "@/types";
+import {
+  isEmailVerificationSatisfied,
+} from "@/lib/email-verification";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
@@ -33,10 +36,34 @@ const formSchema = z.object({
 });
 
 export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <LoginPageContent />
+    </Suspense>
+  );
+}
+
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const authBg = PlaceHolderImages.find(p => p.id === 'auth-background');
+
+  useEffect(() => {
+    if (searchParams.get("verified") === "1") {
+      toast({
+        title: "Email verified",
+        description: "Thank you! You can sign in once your account has been approved.",
+      });
+    }
+  }, [searchParams, toast]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -69,6 +96,15 @@ export default function LoginPage() {
             description: "Your account has been deleted. Please contact an administrator.",
           });
           await signOut(auth);
+          return;
+        }
+
+        if (!isEmailVerificationSatisfied(userProfile, user)) {
+          toast({
+            title: "Verify your email",
+            description: "Please confirm your email address before signing in.",
+          });
+          router.push(`/verify-email?email=${encodeURIComponent(values.email)}`);
           return;
         }
         

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-admin-auth";
+import { parseDocumentVersionInput } from "@/lib/document-version-utils";
 import { getPlatformDocument, savePlatformDocument } from "@/lib/platform-documents-server";
 import { isPlatformDocumentSlug } from "@/lib/platform-documents-types";
 
@@ -40,6 +41,15 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const title = String(body.title || "").trim();
     const subtitle = body.subtitle != null ? String(body.subtitle) : undefined;
     const sections = Array.isArray(body.sections) ? body.sections : [];
+    let version: number;
+    try {
+      version = parseDocumentVersionInput(String(body.version ?? ""));
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Invalid version." },
+        { status: 400 }
+      );
+    }
 
     if (!title) {
       return NextResponse.json({ error: "Title is required." }, { status: 400 });
@@ -53,6 +63,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       {
         title,
         subtitle,
+        version,
         sections: sections.map((s: { title?: string; body?: string }) => ({
           title: String(s.title || ""),
           body: String(s.body || ""),

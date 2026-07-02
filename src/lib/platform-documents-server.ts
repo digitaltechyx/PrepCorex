@@ -9,6 +9,7 @@ import type {
   PlatformDocument,
   PlatformDocumentSlug,
   PlatformDocumentSummary,
+  PlatformDocumentVersionEntry,
 } from "@/lib/platform-documents-types";
 import {
   PLATFORM_DOCUMENT_CONTENT_SCHEMA_VERSION,
@@ -134,6 +135,64 @@ export async function getPlatformDocument(slug: PlatformDocumentSlug): Promise<P
   return ensurePlatformDocument(slug);
 }
 
+function timestampToIso(value: unknown): string | undefined {
+  if (value instanceof Timestamp) return value.toDate().toISOString();
+  if (typeof value === "string") return value;
+  return undefined;
+}
+
+export async function listPlatformDocumentVersions(
+  slug: PlatformDocumentSlug
+): Promise<PlatformDocumentVersionEntry[]> {
+  const current = await getPlatformDocument(slug);
+  const db = adminDb();
+  const snap = await db.collection(COLLECTION).doc(slug).collection("versions").get();
+
+  const archived = snap.docs
+    .map((d) => {
+      const data = d.data();
+      return {
+        version: Number(data.version) || Number(d.id) || 1,
+        effectiveAt: timestampToIso(data.effectiveAt) || timestampToIso(data.updatedAt),
+        updatedAt: timestampToIso(data.updatedAt),
+        updatedByName: data.updatedByName ? String(data.updatedByName) : undefined,
+        isCurrent: false,
+      };
+    })
+    .filter((entry) => entry.version !== current.version);
+
+  const entries = [
+    {
+      version: current.version,
+      effectiveAt: current.effectiveAt || current.updatedAt,
+      updatedAt: current.updatedAt,
+      updatedByName: current.updatedByName,
+      isCurrent: true,
+    },
+    ...archived,
+  ];
+
+  return entries.sort((a, b) => b.version - a.version);
+}
+
+export async function getPlatformDocumentByVersion(
+  slug: PlatformDocumentSlug,
+  version: number
+): Promise<PlatformDocument> {
+  const current = await getPlatformDocument(slug);
+  if (version === current.version) {
+    return current;
+  }
+
+  const db = adminDb();
+  const snap = await db.collection(COLLECTION).doc(slug).collection("versions").doc(String(version)).get();
+  if (!snap.exists) {
+    throw new Error(`Document version ${version} not found.`);
+  }
+
+  return withResolvedDocumentMetadata(mapDoc(slug, snap.data()!));
+}
+
 export async function listPlatformDocumentSummaries(): Promise<PlatformDocumentSummary[]> {
   const docs = await Promise.all(PLATFORM_DOCUMENT_SLUGS.map((slug) => ensurePlatformDocument(slug)));
   return docs.map(({ slug, title, subtitle, version, updatedAt }) => ({
@@ -151,13 +210,31 @@ export async function savePlatformDocument(
     title: string;
     subtitle?: string;
     sections: { title: string; body: string }[];
+    version: number;
   },
   admin: { uid: string; name?: string }
 ): Promise<PlatformDocument> {
   const db = adminDb();
   const ref = db.collection(COLLECTION).doc(slug);
   const existing = await ensurePlatformDocument(slug);
-  const nextVersion = (existing.version || 1) + 1;
+  const nextVersion = input.version;
+
+  if (!Number.isFinite(nextVersion) || nextVersion <= 0) {
+    throw new Error("Invalid version number.");
+  }
+  if (nextVersion === existing.version) {
+    throw new Error(
+      `Version ${nextVersion} is already the current live version. Enter a different version number.`
+    );
+  }
+
+  const archiveRef = ref.collection("versions").doc(String(nextVersion));
+  const archiveSnap = await archiveRef.get();
+  if (archiveSnap.exists) {
+    throw new Error(
+      `Version ${nextVersion} already exists in the archive. Choose a different version number.`
+    );
+  }
 
   const payload = {
     slug,
@@ -186,4 +263,23 @@ export async function savePlatformDocument(
 
   const updated = await ref.get();
   return withResolvedDocumentMetadata(mapDoc(slug, updated.data()!));
+}
+
+export async function deletePlatformDocumentVersion(
+  slug: PlatformDocumentSlug,
+  version: number
+): Promise<void> {
+  const current = await getPlatformDocument(slug);
+  if (version === current.version) {
+    throw new Error("Cannot delete the current live version.");
+  }
+
+  const db = adminDb();
+  const ref = db.collection(COLLECTION).doc(slug).collection("versions").doc(String(version));
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new Error(`Archived version ${version} not found.`);
+  }
+
+  await ref.delete();
 }
