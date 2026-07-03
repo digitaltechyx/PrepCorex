@@ -1086,14 +1086,30 @@ export function AddInventoryRequestForm({
     }
   };
 
-  const handleBulkRowsImported = (rows: InboundBulkValidatedRow[]) => {
-    setDraftLines((prev) => [
-      ...prev,
-      ...rows.map((row) => ({
-        draftId: `draft-${row.rowNumber}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        ...bulkRowToLineInput(row),
-      })),
-    ]);
+  const handleBulkRowsImported = async (
+    rows: InboundBulkValidatedRow[],
+    onProgress?: (progress: { processed: number; total: number }) => void
+  ) => {
+    const chunkSize = 1000;
+    const importId = Date.now();
+    onProgress?.({ processed: 0, total: rows.length });
+
+    for (let start = 0; start < rows.length; start += chunkSize) {
+      const chunk = rows.slice(start, start + chunkSize);
+      setDraftLines((prev) => [
+        ...prev,
+        ...chunk.map((row) => ({
+          draftId: `draft-${row.rowNumber}-${importId}-${Math.random().toString(36).slice(2, 7)}`,
+          ...bulkRowToLineInput(row),
+        })),
+      ]);
+
+      const processed = Math.min(start + chunk.length, rows.length);
+      onProgress?.({ processed, total: rows.length });
+
+      // Yield between chunks so the browser can paint progress and stay responsive.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
   };
 
   const createsMultipleInboundRequests =

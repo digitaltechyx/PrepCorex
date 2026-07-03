@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useCollection } from "@/hooks/use-collection";
 import type { InventoryItem, InventoryRequest } from "@/types";
@@ -30,7 +31,10 @@ type InboundBulkImportDialogProps = {
   ownerId: string | undefined;
   ownerName: string;
   /** Valid rows are passed back to the parent form for review — not submitted here. */
-  onRowsImported: (rows: InboundBulkValidatedRow[]) => void;
+  onRowsImported: (
+    rows: InboundBulkValidatedRow[],
+    onProgress?: (progress: { processed: number; total: number }) => void
+  ) => void | Promise<void>;
 };
 
 export function InboundBulkImportDialog({
@@ -46,6 +50,8 @@ export function InboundBulkImportDialog({
   const [validRows, setValidRows] = useState<InboundBulkValidatedRow[]>([]);
   const [rowErrors, setRowErrors] = useState<InboundBulkRowError[]>([]);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [isAddingRows, setIsAddingRows] = useState(false);
+  const [addProgress, setAddProgress] = useState({ processed: 0, total: 0 });
 
   const { data: inventory } = useCollection<InventoryItem>(
     ownerId ? `users/${ownerId}/inventory` : ""
@@ -59,10 +65,13 @@ export function InboundBulkImportDialog({
     setValidRows([]);
     setRowErrors([]);
     setParseErrors([]);
+    setIsAddingRows(false);
+    setAddProgress({ processed: 0, total: 0 });
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
 
   const handleOpenChange = (next: boolean) => {
+    if (isAddingRows) return;
     if (!next) resetState();
     onOpenChange(next);
   };
@@ -105,15 +114,30 @@ export function InboundBulkImportDialog({
     return { valid: validRows.length, invalid: rowErrors.length };
   }, [validRows.length, rowErrors.length, parseErrors.length]);
 
-  const handleAddToList = () => {
+  const handleAddToList = async () => {
     if (validRows.length === 0 || rowErrors.length > 0 || parseErrors.length > 0) return;
-    onRowsImported(validRows);
-    toast({
-      title: "Added to request",
-      description: `${validRows.length} row${validRows.length === 1 ? "" : "s"} added. Review the list in the form, then submit.`,
-    });
-    handleOpenChange(false);
+    setIsAddingRows(true);
+    setAddProgress({ processed: 0, total: validRows.length });
+    try {
+      await onRowsImported(validRows, setAddProgress);
+      toast({
+        title: "Added to request",
+        description: `${validRows.length} row${validRows.length === 1 ? "" : "s"} added. Review the list in the form, then submit.`,
+      });
+      handleOpenChange(false);
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Import failed",
+        description: error instanceof Error ? error.message : "Failed to add rows to the request list.",
+      });
+    } finally {
+      setIsAddingRows(false);
+    }
   };
+
+  const addProgressPercent =
+    addProgress.total > 0 ? Math.round((addProgress.processed / addProgress.total) * 100) : 0;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -131,7 +155,7 @@ export function InboundBulkImportDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <Button type="button" variant="outline" className="w-full" onClick={downloadInboundBulkTemplate}>
+          <Button type="button" variant="outline" className="w-full" disabled={isAddingRows} onClick={downloadInboundBulkTemplate}>
             <Download className="mr-2 h-4 w-4" />
             Download CSV template
           </Button>
@@ -151,7 +175,7 @@ export function InboundBulkImportDialog({
               type="button"
               variant="secondary"
               className="w-full"
-              disabled={!ownerId}
+              disabled={!ownerId || isAddingRows}
               onClick={() => fileInputRef.current?.click()}
             >
               <FileUp className="mr-2 h-4 w-4" />
@@ -233,19 +257,32 @@ export function InboundBulkImportDialog({
               )}
             </div>
           )}
+
+          {isAddingRows && (
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="font-medium">Adding rows to request list...</span>
+                <span className="tabular-nums text-muted-foreground">{addProgressPercent}%</span>
+              </div>
+              <Progress value={addProgressPercent} className="h-2" />
+              <p className="mt-2 text-xs text-muted-foreground">
+                {addProgress.processed.toLocaleString()} of {addProgress.total.toLocaleString()} rows processed
+              </p>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+          <Button type="button" variant="outline" disabled={isAddingRows} onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
           <Button
             type="button"
-            disabled={!ownerId || validRows.length === 0 || rowErrors.length > 0 || parseErrors.length > 0}
+            disabled={!ownerId || isAddingRows || validRows.length === 0 || rowErrors.length > 0 || parseErrors.length > 0}
             onClick={handleAddToList}
           >
             <ListPlus className="mr-2 h-4 w-4" />
-            Add {validRows.length > 0 ? `${validRows.length} ` : ""}to list
+            {isAddingRows ? "Adding..." : <>Add {validRows.length > 0 ? `${validRows.length} ` : ""}to list</>}
           </Button>
         </DialogFooter>
       </DialogContent>

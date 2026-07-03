@@ -26,7 +26,7 @@ type InboundBulkRestockDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   inventory: InventoryItem[];
-  onRowsImported: (rows: InboundBulkValidatedRow[]) => void;
+  onRowsImported: (rows: InboundBulkValidatedRow[]) => void | Promise<void>;
 };
 
 export function InboundBulkRestockDialog({
@@ -101,9 +101,9 @@ export function InboundBulkRestockDialog({
     return { valid: validRows.length, invalid: rowErrors.length, skipped: skippedEmpty };
   }, [validRows.length, rowErrors.length, parseErrors.length, skippedEmpty]);
 
-  const handleAddToList = () => {
+  const handleAddToList = async () => {
     if (validRows.length === 0 || rowErrors.length > 0 || parseErrors.length > 0) return;
-    onRowsImported(validRows);
+    await onRowsImported(validRows);
     toast({
       title: "Added to request",
       description: `${validRows.length} restock line${validRows.length === 1 ? "" : "s"} added. Review the list, then submit.`,
