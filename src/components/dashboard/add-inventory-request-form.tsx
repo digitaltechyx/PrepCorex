@@ -25,7 +25,8 @@ import { useToast } from "@/hooks/use-toast";
 import { db, storage } from "@/lib/firebase";
 import { Archive, Boxes, CircleHelp, ImagePlus, Loader2, Package, Plus, Trash2, Truck, Upload } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
-import type { InventoryType, ContainerSize, UserContainerHandlingPricing } from "@/types";
+import type { InventoryType, UserContainerHandlingPricing } from "@/types";
+import { CONTAINER_SIZE_OPTIONS } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import type { InventoryItem } from "@/types";
@@ -33,6 +34,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { InboundBulkImportDialog } from "@/components/dashboard/inbound-bulk-import-dialog";
+import { InboundBulkRestockDialog } from "@/components/dashboard/inbound-bulk-restock-dialog";
+import { filterRestockEligibleProducts } from "@/lib/inbound-bulk-restock";
+import {
+  InboundBatchDraftReview,
+  type InboundDraftLine,
+} from "@/components/dashboard/inbound-batch-draft-review";
+import {
+  bulkRowToLineInput,
+  INBOUND_LOAD_CONTENTS_OPTIONS,
+  INBOUND_SHIPMENT_TYPES,
+  submitInboundBatch,
+  type InboundBatchLineInput,
+} from "@/lib/inbound-batch";
+import type { InboundBulkValidatedRow } from "@/lib/inbound-bulk-import";
+import type { InboundLoadContents, InboundShipmentType } from "@/types";
 import {
   EMPTY_INBOUND_TRACKING,
   InboundTrackingFields,
@@ -103,7 +119,7 @@ const inventoryRequestSchema = z.object({
   productId: z.string().optional(), // For restock - selected product ID
   productName: z.string().optional(),
   sku: z.string().optional(),
-  containerSize: z.enum(["20 feet", "40 feet"]).optional(), // For container type
+  containerSize: z.enum(CONTAINER_SIZE_OPTIONS).optional(), // For container type (optional)
   quantity: z.coerce.number().int().positive("Quantity must be a positive number."),
   remarks: z.string().optional(), // Optional remarks field
   retailIdentifier: z.string().optional(),
@@ -211,6 +227,11 @@ export function AddInventoryRequestForm({
   const [newProductRows, setNewProductRows] = useState<NewProductRowState[]>([createEmptyNewProductRow()]);
   const [singleExpiryDate, setSingleExpiryDate] = useState<Date | undefined>(undefined);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [bulkRestockImportOpen, setBulkRestockImportOpen] = useState(false);
+  const [shipmentType, setShipmentType] = useState<InboundShipmentType | "">("");
+  const [loadContents, setLoadContents] = useState<InboundLoadContents | "">("");
+  const [productNotes, setProductNotes] = useState("");
+  const [draftLines, setDraftLines] = useState<InboundDraftLine[]>([]);
   const [inboundTrackingMode, setInboundTrackingMode] = useState<"shared" | "per_item">("shared");
   const [sharedInboundTracking, setSharedInboundTracking] =
     useState<InboundTrackingInput>(EMPTY_INBOUND_TRACKING);
@@ -220,15 +241,10 @@ export function AddInventoryRequestForm({
     ownerId ? `users/${ownerId}/inventory` : ""
   );
 
-  // Eligible for restock: real listed products in stock OR out of stock (exclude boxes/containers/pallets, exclude Pending/Rejected requests).
-  const availableProductsForRestock = useMemo(() => {
-    return existingInventory.filter(item => {
-      const inventoryType = (item as any).inventoryType;
-      const isExcludedType = inventoryType === "box" || inventoryType === "container" || inventoryType === "pallet";
-      if (isExcludedType) return false;
-      return item.status === "In Stock" || item.status === "Out of Stock";
-    });
-  }, [existingInventory]);
+  const availableProductsForRestock = useMemo(
+    () => filterRestockEligibleProducts(existingInventory),
+    [existingInventory]
+  );
 
   // Fetch container handling pricing
   const { data: containerHandlingPricingList } = useCollection<UserContainerHandlingPricing>(
@@ -674,6 +690,39 @@ export function AddInventoryRequestForm({
     resetImageStates();
   }, [inventoryType, productSubType]);
 
+  async function submitDraftBatch() {
+    if (!user || !ownerId || draftLines.length === 0) return;
+    setIsLoading(true);
+    try {
+      await submitInboundBatch({
+        userId: ownerId,
+        userName: ownerName,
+        shipmentType: shipmentType || undefined,
+        loadContents: isContainerOnlyDraft ? loadContents || undefined : undefined,
+        productNotes: isContainerOnlyDraft ? productNotes.trim() || undefined : undefined,
+        lines: draftLines.map(({ draftId: _draftId, ...line }) => line),
+      });
+      toast({
+        title: "Success",
+        description: `Inbound batch submitted (${draftLines.length} items). Waiting for admin approval.`,
+      });
+      setDraftLines([]);
+      setShipmentType("");
+      setLoadContents("");
+      setProductNotes("");
+      resetInboundTrackingState();
+      if (mode === "dialog") setOpen(false);
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to submit inbound batch.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function onSubmit(values: z.infer<typeof inventoryRequestSchema>) {
     if (!user || !ownerId) {
       toast({
@@ -714,9 +763,6 @@ export function AddInventoryRequestForm({
         }
       }
 
-      const addDate = Timestamp.now();
-      const requestedAt = Timestamp.now();
-
       // For restock, get product name from selected product
       let finalProductName = values.productName;
       if (values.inventoryType === "product" && values.productSubType === "restock" && values.productId) {
@@ -741,32 +787,6 @@ export function AddInventoryRequestForm({
         (isMultiNewProductSingle && newProductRows.length > 1);
       const usePerItemTracking = createsMultipleRequests && inboundTrackingMode === "per_item";
 
-      const trackingPairs: Array<{ requestId: string; trackingNumber?: string; carrier?: string }> =
-        [];
-
-      function queueSharedTracking(requestId: string) {
-        const tn = sharedInboundTracking.trackingNumber.trim();
-        if (!tn) return;
-        trackingPairs.push({
-          requestId,
-          trackingNumber: tn,
-          carrier: sharedInboundTracking.carrier,
-        });
-      }
-
-      function queueRowTracking(
-        requestId: string,
-        row: Pick<InboundTrackingInput, "trackingNumber" | "carrier">
-      ) {
-        const tn = row.trackingNumber.trim();
-        if (!tn) return;
-        trackingPairs.push({
-          requestId,
-          trackingNumber: tn,
-          carrier: row.carrier,
-        });
-      }
-
       let finalImageUrls: string[] = [];
       if (
         (values.inventoryType === "product" &&
@@ -784,40 +804,7 @@ export function AddInventoryRequestForm({
         }
       }
 
-      const baseRequestData: any = {
-        userId: ownerId,
-        userName: ownerName || "Unknown User",
-        inventoryType: values.inventoryType,
-        addDate,
-        status: "pending",
-        requestedBy: ownerId,
-        requestedAt,
-      };
-
-      // Only include productSubType and productId for product type requests
-      if (values.inventoryType === "product") {
-        if (values.productSubType) {
-          baseRequestData.productSubType = values.productSubType;
-        }
-        if (values.productId) {
-          baseRequestData.productId = values.productId;
-        }
-      }
-
-      // Only include containerSize for container type requests
-      if (values.inventoryType === "container" && values.containerSize) {
-        baseRequestData.containerSize = values.containerSize;
-      }
-
-      // Include remarks if provided (trim whitespace) — not for multi-product single mode (per-row remarks)
-      if (values.remarks && values.remarks.trim() && !isMultiNewProductSingle) {
-        baseRequestData.remarks = values.remarks.trim();
-      }
-
-      if (finalImageUrls.length > 0) {
-        baseRequestData.imageUrls = finalImageUrls;
-        baseRequestData.imageUrl = finalImageUrls[0];
-      }
+      const batchLines: InboundBatchLineInput[] = [];
 
       if (isVariantsNewProduct) {
         if (variantRows.length === 0) {
@@ -871,38 +858,39 @@ export function AddInventoryRequestForm({
           return;
         }
 
-        await Promise.all(
-          variantRows.map(async (row) => {
-            const doc: Record<string, unknown> = {
-              ...baseRequestData,
-              productName: finalProductName,
-              sku: row.sku.trim(),
-              quantity: row.quantity,
-              requestedQuantity: row.quantity,
-              color: row.color,
-              size: row.size,
-              variantLabel: `${row.color} / ${row.size}`,
-              parentProductName: finalProductName,
-              productEntryMode: "variants",
-            };
-            if (values.retailIdentifier?.trim()) {
-              doc.retailIdentifier = values.retailIdentifier.trim();
-            }
-            const productExpiry = optionalExpiryTimestampFromParts(undefined, singleExpiryDate);
-            if (productExpiry) doc.expiryDate = productExpiry;
-            if (row.imageFile) {
-              const urls = await uploadInventoryImageFile(ownerId, row.imageFile);
-              doc.imageUrls = urls;
-              doc.imageUrl = urls[0];
-            }
-            const ref = await addDoc(collection(db, `users/${ownerId}/inventoryRequests`), doc);
-            if (usePerItemTracking) {
-              queueRowTracking(ref.id, row);
-            } else {
-              queueSharedTracking(ref.id);
-            }
-          })
-        );
+        for (const row of variantRows) {
+          const line: InboundBatchLineInput = {
+            inventoryType: values.inventoryType,
+            productSubType: "new",
+            productEntryMode: "variants",
+            productName: finalProductName,
+            sku: row.sku.trim(),
+            quantity: row.quantity,
+            requestedQuantity: row.quantity,
+            color: row.color,
+            size: row.size,
+            variantLabel: `${row.color} / ${row.size}`,
+            parentProductName: finalProductName,
+          };
+          if (values.retailIdentifier?.trim()) {
+            line.retailIdentifier = values.retailIdentifier.trim();
+          }
+          const productExpiry = optionalExpiryTimestampFromParts(undefined, singleExpiryDate);
+          if (productExpiry) line.expiryDate = productExpiry;
+          if (row.imageFile) {
+            const urls = await uploadInventoryImageFile(ownerId, row.imageFile);
+            line.imageUrls = urls;
+            line.imageUrl = urls[0];
+          }
+          if (usePerItemTracking && row.trackingNumber.trim()) {
+            line.trackingNumber = row.trackingNumber.trim();
+            line.carrier = row.carrier;
+          } else if (!usePerItemTracking && sharedInboundTracking.trackingNumber.trim()) {
+            line.trackingNumber = sharedInboundTracking.trackingNumber.trim();
+            line.carrier = sharedInboundTracking.carrier;
+          }
+          batchLines.push(line);
+        }
       } else if (isMultiNewProductSingle) {
         const invalidRow = newProductRows.find(
           (row) => !row.productName.trim() || !row.sku.trim() || row.quantity <= 0
@@ -948,101 +936,90 @@ export function AddInventoryRequestForm({
           return;
         }
 
-        await Promise.all(
-          newProductRows.map(async (row) => {
-            const rowImageUrls = row.imageFile
-              ? await uploadInventoryImageFile(ownerId, row.imageFile)
-              : [];
-            const rowExpiry = optionalExpiryTimestampFromParts(undefined, row.expiryDate);
-            const doc: Record<string, unknown> = {
-              userId: ownerId,
-              userName: ownerName || "Unknown User",
-              inventoryType: values.inventoryType,
-              productSubType: "new",
-              addDate,
-              status: "pending",
-              requestedBy: ownerId,
-              requestedAt,
-              productName: row.productName.trim(),
-              sku: row.sku.trim(),
-              quantity: row.quantity,
-              requestedQuantity: row.quantity,
-              productEntryMode: "single",
-            };
-            if (row.retailIdentifier?.trim()) {
-              doc.retailIdentifier = row.retailIdentifier.trim();
-            }
-            if (row.remarks?.trim()) {
-              doc.remarks = row.remarks.trim();
-            }
-            if (rowExpiry) doc.expiryDate = rowExpiry;
-            if (rowImageUrls.length > 0) {
-              doc.imageUrls = rowImageUrls;
-              doc.imageUrl = rowImageUrls[0];
-            }
-            const ref = await addDoc(collection(db, `users/${ownerId}/inventoryRequests`), doc);
-            if (usePerItemTracking) {
-              queueRowTracking(ref.id, row);
-            } else {
-              queueSharedTracking(ref.id);
-            }
-          })
-        );
+        for (const row of newProductRows) {
+          const rowImageUrls = row.imageFile
+            ? await uploadInventoryImageFile(ownerId, row.imageFile)
+            : [];
+          const rowExpiry = optionalExpiryTimestampFromParts(undefined, row.expiryDate);
+          const line: InboundBatchLineInput = {
+            inventoryType: values.inventoryType,
+            productSubType: "new",
+            productEntryMode: "single",
+            productName: row.productName.trim(),
+            sku: row.sku.trim(),
+            quantity: row.quantity,
+            requestedQuantity: row.quantity,
+          };
+          if (row.retailIdentifier?.trim()) line.retailIdentifier = row.retailIdentifier.trim();
+          if (row.remarks?.trim()) line.remarks = row.remarks.trim();
+          if (rowExpiry) line.expiryDate = rowExpiry;
+          if (rowImageUrls.length > 0) {
+            line.imageUrls = rowImageUrls;
+            line.imageUrl = rowImageUrls[0];
+          }
+          if (usePerItemTracking && row.trackingNumber.trim()) {
+            line.trackingNumber = row.trackingNumber.trim();
+            line.carrier = row.carrier;
+          } else if (!usePerItemTracking && sharedInboundTracking.trackingNumber.trim()) {
+            line.trackingNumber = sharedInboundTracking.trackingNumber.trim();
+            line.carrier = sharedInboundTracking.carrier;
+          }
+          batchLines.push(line);
+        }
       } else {
-        const requestData: any = {
-          ...baseRequestData,
+        const line: InboundBatchLineInput = {
+          inventoryType: values.inventoryType,
           productName: finalProductName,
           quantity: values.quantity,
           requestedQuantity: values.quantity,
         };
-        // Only include SKU for new product type
+        if (values.inventoryType === "product" && values.productSubType) {
+          line.productSubType = values.productSubType;
+        }
+        if (values.productId) line.productId = values.productId;
         if (values.inventoryType === "product" && values.productSubType === "new" && values.sku) {
-          requestData.sku = values.sku;
+          line.sku = values.sku;
         } else if (values.inventoryType === "product" && values.productSubType === "restock" && values.productId) {
-          // For restock, get SKU from selected product
-          const selectedProduct = availableProductsForRestock.find(p => p.id === values.productId);
-          if (selectedProduct && (selectedProduct as any).sku) {
-            requestData.sku = (selectedProduct as any).sku;
+          const selectedProduct = availableProductsForRestock.find((p) => p.id === values.productId);
+          if (selectedProduct && (selectedProduct as InventoryItem & { sku?: string }).sku) {
+            line.sku = (selectedProduct as InventoryItem & { sku?: string }).sku;
           }
         }
-        if (values.retailIdentifier?.trim()) {
-          requestData.retailIdentifier = values.retailIdentifier.trim();
-        }
+        if (values.retailIdentifier?.trim()) line.retailIdentifier = values.retailIdentifier.trim();
+        if (values.remarks?.trim()) line.remarks = values.remarks.trim();
+        if (values.containerSize) line.containerSize = values.containerSize;
         const singleEx = optionalExpiryTimestampFromParts(undefined, singleExpiryDate);
-        if (singleEx) {
-          requestData.expiryDate = singleEx;
+        if (singleEx) line.expiryDate = singleEx;
+        if (finalImageUrls.length > 0) {
+          line.imageUrls = finalImageUrls;
+          line.imageUrl = finalImageUrls[0];
         }
-        const ref = await addDoc(collection(db, `users/${ownerId}/inventoryRequests`), requestData);
-        queueSharedTracking(ref.id);
+        if (sharedInboundTracking.trackingNumber.trim()) {
+          line.trackingNumber = sharedInboundTracking.trackingNumber.trim();
+          line.carrier = sharedInboundTracking.carrier;
+        }
+        batchLines.push(line);
       }
 
-      if (trackingPairs.length > 0) {
-        try {
-          await addInboundTrackingToRequests(user, ownerId, trackingPairs);
-        } catch (trackingError) {
-          toast({
-            variant: "destructive",
-            title: "Tracking not saved",
-            description:
-              trackingError instanceof Error
-                ? `${trackingError.message} You can add tracking from the inventory table.`
-                : "Requests were created but tracking could not be added.",
-          });
-        }
-      }
+      const isContainerBatch = batchLines.every((line) => line.inventoryType === "container");
 
-      const submittedCount = isVariantsNewProduct
-        ? variantRows.length
-        : isMultiNewProductSingle
-          ? newProductRows.length
-          : 1;
+      await submitInboundBatch({
+        userId: ownerId,
+        userName: ownerName,
+        shipmentType: shipmentType || undefined,
+        loadContents: isContainerBatch ? loadContents || undefined : undefined,
+        productNotes: isContainerBatch ? productNotes.trim() || undefined : undefined,
+        lines: batchLines,
+      });
+
+      const submittedCount = batchLines.length;
 
       toast({
         title: "Success",
         description:
           submittedCount > 1
-            ? `${submittedCount} inventory requests submitted successfully. Waiting for admin approval.`
-            : "Inventory request submitted successfully. Waiting for admin approval.",
+            ? `Inbound batch submitted (${submittedCount} items). Waiting for admin approval.`
+            : "Inbound batch submitted. Waiting for admin approval.",
       });
 
       form.reset({
@@ -1063,6 +1040,9 @@ export function AddInventoryRequestForm({
       clearAllVariantRows();
       clearAllNewProductRows();
       setSingleExpiryDate(undefined);
+      setShipmentType("");
+      setLoadContents("");
+      setProductNotes("");
       resetInboundTrackingState();
       if (mode === "dialog") setOpen(false);
     } catch (error: any) {
@@ -1106,6 +1086,16 @@ export function AddInventoryRequestForm({
     }
   };
 
+  const handleBulkRowsImported = (rows: InboundBulkValidatedRow[]) => {
+    setDraftLines((prev) => [
+      ...prev,
+      ...rows.map((row) => ({
+        draftId: `draft-${row.rowNumber}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        ...bulkRowToLineInput(row),
+      })),
+    ]);
+  };
+
   const createsMultipleInboundRequests =
     (inventoryType === "product" &&
       productSubType === "new" &&
@@ -1116,6 +1106,60 @@ export function AddInventoryRequestForm({
       productEntryMode === "single" &&
       newProductRows.length > 1);
 
+  const isContainerOnlyDraft = useMemo(
+    () => draftLines.length > 0 && draftLines.every((line) => line.inventoryType === "container"),
+    [draftLines]
+  );
+
+  useEffect(() => {
+    if (inventoryType !== "container" && !isContainerOnlyDraft) {
+      setLoadContents("");
+      setProductNotes("");
+    }
+  }, [inventoryType, isContainerOnlyDraft]);
+
+  const containerHandlingFields = (
+    <div className="space-y-4 rounded-xl border bg-card/90 p-4 shadow-sm">
+      <div className="space-y-2">
+        <Label className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+          What&apos;s inside? <span className="font-normal normal-case">(optional)</span>
+        </Label>
+        <p className="text-xs text-muted-foreground">Cartons, pallets, or both in this container.</p>
+        <Select
+          value={loadContents || "none"}
+          onValueChange={(v) => setLoadContents(v === "none" ? "" : (v as InboundLoadContents))}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select contents" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Not specified</SelectItem>
+            {INBOUND_LOAD_CONTENTS_OPTIONS.map((option) => (
+              <SelectItem key={option} value={option}>
+                {option === "both" ? "Carton & pallet" : option.charAt(0).toUpperCase() + option.slice(1)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+          About your products <span className="font-normal normal-case">(recommended)</span>
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          Tell us what you are sending — product types, mix of SKUs, quantities, or anything we should know.
+        </p>
+        <Textarea
+          value={productNotes}
+          onChange={(e) => setProductNotes(e.target.value)}
+          placeholder="e.g. 200 units restock across 15 SKUs, fragile items, mixed cartons and pallets…"
+          rows={3}
+          className="resize-y min-h-[80px]"
+        />
+      </div>
+    </div>
+  );
+
   const formBody = (
     <Form {...form}>
       <form
@@ -1124,6 +1168,39 @@ export function AddInventoryRequestForm({
       >
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
           <div className="space-y-5">
+            <div className="space-y-2 rounded-xl border bg-card/90 p-4 shadow-sm">
+              <Label className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Shipment type <span className="font-normal normal-case">(optional)</span>
+              </Label>
+              <p className="text-xs text-muted-foreground">How is your inventory coming?</p>
+              <Select
+                value={shipmentType || "none"}
+                onValueChange={(v) => setShipmentType(v === "none" ? "" : (v as InboundShipmentType))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select shipment type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not specified</SelectItem>
+                  {INBOUND_SHIPMENT_TYPES.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <InboundBatchDraftReview
+              lines={draftLines}
+              onRemove={(draftId) => setDraftLines((prev) => prev.filter((l) => l.draftId !== draftId))}
+              onClear={() => setDraftLines([])}
+            />
+
+            {isContainerOnlyDraft && draftLines.length > 0 ? containerHandlingFields : null}
+
+            {draftLines.length === 0 ? (
+            <>
             <FormField
               control={form.control}
               name="inventoryType"
@@ -1290,6 +1367,25 @@ export function AddInventoryRequestForm({
 
             {/* Restock: Product Selection */}
             {inventoryType === "product" && productSubType === "restock" && (
+              <div className="flex flex-col gap-3 rounded-xl border border-dashed bg-muted/20 p-4">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Bulk restock</p>
+                  <p className="text-xs text-muted-foreground">
+                    Download a CSV with your SKUs, fill quantities, and add multiple restock lines at once.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full sm:w-auto"
+                  onClick={() => setBulkRestockImportOpen(true)}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  Bulk restock import
+                </Button>
+              </div>
+            )}
+            {inventoryType === "product" && productSubType === "restock" && (
               <FormField
                 control={form.control}
                 name="productId"
@@ -1352,30 +1448,36 @@ export function AddInventoryRequestForm({
 
             {/* Container Size Selection */}
             {inventoryType === "container" && (
+              <>
               <FormField
                 control={form.control}
                 name="containerSize"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Container Size *</FormLabel>
+                    <FormLabel>Container Size <span className="font-normal text-muted-foreground">(optional)</span></FormLabel>
                     <Select 
                       onValueChange={field.onChange}
                       value={field.value}
                     >
                       <FormControl>
                         <SelectTrigger className="h-11 rounded-lg">
-                          <SelectValue placeholder="Select container size" />
+                          <SelectValue placeholder="Select container size (optional)" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="20 feet">20 Feet</SelectItem>
-                        <SelectItem value="40 feet">40 Feet</SelectItem>
+                        {CONTAINER_SIZE_OPTIONS.map((size) => (
+                          <SelectItem key={size} value={size}>
+                            {size.replace(" feet", " Feet")}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+              {draftLines.length === 0 ? containerHandlingFields : null}
+              </>
             )}
 
             {/* Product Name - hidden in single new product mode (use product rows instead) */}
@@ -1879,6 +1981,12 @@ export function AddInventoryRequestForm({
                 )}
               />
             )}
+            </>
+            ) : (
+              <p className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+                Your imported items are listed above. Review them, then submit one inbound batch to admin.
+              </p>
+            )}
           </div>
         </div>
         <div className="mt-auto flex shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-background/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85">
@@ -1922,9 +2030,16 @@ export function AddInventoryRequestForm({
           >
             Cancel
           </Button>
-          <Button type="submit" className="h-10 rounded-lg px-5 shadow-sm" disabled={isLoading}>
+          <Button
+            type={draftLines.length > 0 ? "button" : "submit"}
+            className="h-10 rounded-lg px-5 shadow-sm"
+            disabled={isLoading}
+            onClick={draftLines.length > 0 ? () => void submitDraftBatch() : undefined}
+          >
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Submit Request
+            {draftLines.length > 0
+              ? `Submit batch (${draftLines.length})`
+              : "Submit Request"}
           </Button>
         </div>
       </form>
@@ -1943,16 +2058,18 @@ export function AddInventoryRequestForm({
                   Submit an inventory request. Admin will review and approve it.
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={() => setBulkImportOpen(true)}
-              >
-                <Upload className="mr-1.5 h-4 w-4" />
-                Import
-              </Button>
+              {!(inventoryType === "product" && productSubType === "restock") && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => setBulkImportOpen(true)}
+                >
+                  <Upload className="mr-1.5 h-4 w-4" />
+                  Import
+                </Button>
+              )}
             </div>
           </div>
           <div className="flex min-h-0 flex-1 flex-col">{formBody}</div>
@@ -1962,6 +2079,13 @@ export function AddInventoryRequestForm({
           onOpenChange={setBulkImportOpen}
           ownerId={ownerId}
           ownerName={ownerName}
+          onRowsImported={handleBulkRowsImported}
+        />
+        <InboundBulkRestockDialog
+          open={bulkRestockImportOpen}
+          onOpenChange={setBulkRestockImportOpen}
+          inventory={existingInventory}
+          onRowsImported={handleBulkRowsImported}
         />
       </>
     );
@@ -1985,16 +2109,18 @@ export function AddInventoryRequestForm({
             <p className="inline-flex w-fit items-center rounded-full border border-primary/15 bg-primary/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-primary">
               Request Workspace
             </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0 -mt-0.5"
-              onClick={() => setBulkImportOpen(true)}
-            >
-              <Upload className="mr-1.5 h-4 w-4" />
-              Import
-            </Button>
+            {!(inventoryType === "product" && productSubType === "restock") && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0 -mt-0.5"
+                onClick={() => setBulkImportOpen(true)}
+              >
+                <Upload className="mr-1.5 h-4 w-4" />
+                Import
+              </Button>
+            )}
           </div>
           <SheetTitle className="text-[1.55rem] tracking-tight">Add Inventory Request</SheetTitle>
           <SheetDescription>
@@ -2009,7 +2135,13 @@ export function AddInventoryRequestForm({
       onOpenChange={setBulkImportOpen}
       ownerId={ownerId}
       ownerName={ownerName}
-      onSuccess={() => setOpen(false)}
+      onRowsImported={handleBulkRowsImported}
+    />
+    <InboundBulkRestockDialog
+      open={bulkRestockImportOpen}
+      onOpenChange={setBulkRestockImportOpen}
+      inventory={existingInventory}
+      onRowsImported={handleBulkRowsImported}
     />
     </>
   );

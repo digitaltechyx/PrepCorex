@@ -16,6 +16,7 @@
 import { Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
+import { CONTAINER_SIZE_OPTIONS, type ContainerSize } from "@/types";
 
  type PricingRuleDoc = {
    id: string;
@@ -158,9 +159,19 @@ type ShippedOrderDoc = {
    const compact = raw.replace(/\s+/g, "");
    if (compact.includes("20") && compact.includes("feet")) return "20feet";
    if (compact.includes("40") && compact.includes("feet")) return "40feet";
+   if (compact.includes("53") && compact.includes("feet")) return "53feet";
    if (compact.includes("20") && compact.includes("ft")) return "20feet";
    if (compact.includes("40") && compact.includes("ft")) return "40feet";
+   if (compact.includes("53") && compact.includes("ft")) return "53feet";
    return compact || "unknown";
+ }
+
+ function containerSizePricingKey(size: ContainerSize): string {
+   return size.replace(/\s+/g, "").toLowerCase();
+ }
+
+ function containerSizeShortLabel(size: ContainerSize): string {
+   return size.replace(" feet", " ft");
  }
 
 function fbmRangeForDailyOrders(avgDailyOrders: number): "1-10" | "11-24" | "25-49" | "50+" {
@@ -654,13 +665,27 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
              <div className="text-xs text-muted-foreground">
                Container handling rates are set by admin per container size.
              </div>
-            <PricingDefinitionRow label="20 ft">
-              <span className="font-semibold tabular-nums">{money(containerBySize.get("20feet")?.price)}</span>
-            </PricingDefinitionRow>
-            <PricingDefinitionRow label="40 ft">
-              <span className="font-semibold tabular-nums">{money(containerBySize.get("40feet")?.price)}</span>
-            </PricingDefinitionRow>
-             {!containerBySize.get("20feet") && !containerBySize.get("40feet") && (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b bg-muted">
+                    <th className="text-left p-2 text-sm font-medium">Container Size</th>
+                    <th className="text-left p-2 text-sm font-medium">Rate ($)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {CONTAINER_SIZE_OPTIONS.map((size) => (
+                    <tr key={size} className="border-b hover:bg-muted/30">
+                      <td className="p-2 text-sm">{containerSizeShortLabel(size)}</td>
+                      <td className="p-2 text-sm font-semibold tabular-nums">
+                        {money(containerBySize.get(containerSizePricingKey(size))?.price)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+             {!CONTAINER_SIZE_OPTIONS.some((size) => containerBySize.get(containerSizePricingKey(size))) && (
                <div className="text-xs text-muted-foreground">
                  Not configured by admin yet.
                </div>

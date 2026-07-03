@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import type { InventoryItem, InventoryRequest } from "@/types";
+import type { InventoryItem, InventoryRequest, InboundBatch } from "@/types";
 import {
   Card,
   CardContent,
@@ -54,6 +54,7 @@ import { doc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { formatInboundQuantityDisplay } from "@/lib/inventory-qty-display";
+import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath } from "@/lib/inbound-batch";
 import {
   formatInboundRequestRowQuantity,
   inboundRequestDisplayStatus,
@@ -539,6 +540,9 @@ export function InventoryTable({
   const { data: inventoryRequests } = useCollection<InventoryRequest>(
     effectiveUserId ? `users/${effectiveUserId}/inventoryRequests` : ""
   );
+  const { data: inboundBatches } = useCollection<InboundBatch>(
+    effectiveUserId ? inboundBatchesPath(effectiveUserId) : ""
+  );
 
   // Refresh stale carrier statuses (> 6 hours) when inventory loads
   useEffect(() => {
@@ -573,7 +577,11 @@ export function InventoryTable({
     };
   }, [user, effectiveUserId, toast]);
 
-  const pendingCount = inventoryRequests.filter(req => req.status === "pending").length;
+  const pendingCount =
+    inboundBatches.filter((b) => b.status === "pending" || b.status === "partial").length +
+    inventoryRequests.filter(
+      (req) => req.status === "pending" && !(req as InventoryRequest & { batchId?: string }).batchId
+    ).length;
   const awaitingReceivingCount = useMemo(
     () => inventoryRequests.filter((req) => shouldShowApprovedInboundRequestRow(req, data)).length,
     [inventoryRequests, data]
@@ -745,9 +753,47 @@ export function InventoryTable({
     // Get approved requests to match with inventory items for remarks
     const approvedRequests = inventoryRequests.filter(req => req.status === "approved");
     
-    // Convert pending requests to display format
+    const pendingBatchItems = inboundBatches
+      .filter((batch) => batch.status === "pending" || batch.status === "partial")
+      .map((batch) => ({
+        id: `batch-${batch.id}`,
+        productName: `Inbound batch (${batch.totalLines} items)`,
+        sku: [
+          formatShipmentTypeLabel(batch.shipmentType),
+          batch.loadContents ? formatLoadContentsLabel(batch.loadContents) : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "—",
+        variantLabel: undefined,
+        color: undefined,
+        size: undefined,
+        productEntryMode: undefined,
+        retailIdentifier: undefined,
+        expiryDate: undefined,
+        quantity: batch.totalLines,
+        dateAdded: batch.addDate,
+        receivingDate: undefined,
+        status: "Pending" as "Pending" | "In Stock" | "Out of Stock" | "Rejected",
+        inventoryType: "product" as const,
+        requestedBy: batch.requestedBy,
+        remarks: [
+          `${batch.pendingLines} pending · ${batch.approvedLines} approved · ${batch.rejectedLines} rejected`,
+          batch.productNotes?.trim() ? batch.productNotes.trim() : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        imageUrls: [] as string[],
+        isRequest: true,
+        isBatch: true,
+        batchId: batch.id,
+        batchData: batch,
+        inboundTrackings: undefined,
+        remarksPhotoAt: undefined,
+      }));
+
+    // Convert pending requests to display format (legacy single-line requests only)
     const pendingItems = inventoryRequests
-      .filter(req => req.status === "pending")
+      .filter((req) => req.status === "pending" && !(req as InventoryRequest & { batchId?: string }).batchId)
       .map(req => ({
         id: `request-${req.id}`,
         productName: req.productName,
@@ -853,8 +899,8 @@ export function InventoryTable({
 
     // Combine active inventory only — rejected/cancelled/OOS open in side panels via badges
     const activeInventoryItems = inventoryItems.filter((item) => item.status !== "Out of Stock");
-    return { combined: [...pendingItems, ...awaitingInboundItems, ...activeInventoryItems], outOfStockItems: inventoryItems.filter((item) => item.status === "Out of Stock") };
-  }, [data, inventoryRequests]);
+    return { combined: [...pendingBatchItems, ...pendingItems, ...awaitingInboundItems, ...activeInventoryItems], outOfStockItems: inventoryItems.filter((item) => item.status === "Out of Stock") };
+  }, [data, inventoryRequests, inboundBatches]);
 
   const combinedData = combinedInventory.combined;
   const outOfStockRows: OutOfStockInventoryRow[] = useMemo(

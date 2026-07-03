@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useCollection } from "@/hooks/use-collection";
 import { usePricingProfileSettings } from "@/hooks/use-pricing-profile-settings";
 import type { UserProfile, UserPricing, ServiceType, PackageType, QuantityRange, ProductType, UserStoragePricing, StorageType, UserBoxForwardingPricing, UserPalletForwardingPricing, UserContainerHandlingPricing, ContainerSize, UserAdditionalServicesPricing } from "@/types";
+import { CONTAINER_SIZE_OPTIONS } from "@/types";
 import {
   Card,
   CardContent,
@@ -95,6 +96,16 @@ const FBM_PACKAGES = [
 ];
 const PRODUCT_TYPES: ProductType[] = ["Standard"];
 
+type ContainerPriceState = { price: string; pricingId: string | null };
+
+function emptyContainerPrices(): Record<ContainerSize, ContainerPriceState> {
+  return {
+    "20 feet": { price: "", pricingId: null },
+    "40 feet": { price: "", pricingId: null },
+    "53 feet": { price: "", pricingId: null },
+  };
+}
+
 const DEFAULT_FBA_RATES: Record<string, number> = {
   "1-999|Standard": 0.65,
   "1000-2499|Standard": 0.45,
@@ -144,10 +155,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const [palletForwardingPricingId, setPalletForwardingPricingId] = useState<string | null>(null);
   
   // Container Handling Pricing
-  const [container20ftPrice, setContainer20ftPrice] = useState<string>("");
-  const [container20ftPricingId, setContainer20ftPricingId] = useState<string | null>(null);
-  const [container40ftPrice, setContainer40ftPrice] = useState<string>("");
-  const [container40ftPricingId, setContainer40ftPricingId] = useState<string | null>(null);
+  const [containerPrices, setContainerPrices] = useState<Record<ContainerSize, ContainerPriceState>>(
+    emptyContainerPrices
+  );
   
   // Additional Services Pricing (single catalog; legacy bubble/sticker/warning prices sync from catalog on save)
   const [additionalServicesPricingId, setAdditionalServicesPricingId] = useState<string | null>(null);
@@ -455,37 +465,19 @@ export function PricingManagement({ users }: PricingManagementProps) {
     }
   }, [selectedUser, latestPalletForwardingPricing, palletForwardingPricingLoading]);
 
-  // Get container handling pricing for 20ft and 40ft
-  const container20ftPricing = useMemo(() => {
-    if (!containerHandlingPricingList || containerHandlingPricingList.length === 0) return null;
-    return containerHandlingPricingList.find(p => p.containerSize === '20 feet');
-  }, [containerHandlingPricingList]);
-
-  const container40ftPricing = useMemo(() => {
-    if (!containerHandlingPricingList || containerHandlingPricingList.length === 0) return null;
-    return containerHandlingPricingList.find(p => p.containerSize === '40 feet');
-  }, [containerHandlingPricingList]);
-
   // Initialize container handling pricing when user changes
   useEffect(() => {
     if (!effectiveProfileId) return;
-    
-    if (container20ftPricing) {
-      setContainer20ftPrice(container20ftPricing.price.toString());
-      setContainer20ftPricingId(container20ftPricing.id);
-    } else {
-      setContainer20ftPrice("");
-      setContainer20ftPricingId(null);
+
+    const next = emptyContainerPrices();
+    for (const pricing of containerHandlingPricingList || []) {
+      const size = pricing.containerSize as ContainerSize;
+      if (size in next) {
+        next[size] = { price: pricing.price.toString(), pricingId: pricing.id };
+      }
     }
-    
-    if (container40ftPricing) {
-      setContainer40ftPrice(container40ftPricing.price.toString());
-      setContainer40ftPricingId(container40ftPricing.id);
-    } else {
-      setContainer40ftPrice("");
-      setContainer40ftPricingId(null);
-    }
-  }, [selectedUser, container20ftPricing, container40ftPricing]);
+    setContainerPrices(next);
+  }, [selectedUser, containerHandlingPricingList, effectiveProfileId]);
 
   // Get the most recent additional services pricing
   const latestAdditionalServicesPricing = useMemo(() => {
@@ -1928,100 +1920,75 @@ export function PricingManagement({ users }: PricingManagementProps) {
                 </TabsContent>
 
                 <TabsContent value="Container Handling" className="mt-4">
-                  <div className="space-y-6">
-                    {/* 20 Feet Container Section */}
-                    <div className="p-4 border rounded-lg bg-muted/50">
-                      <h3 className="text-lg font-semibold mb-4">20 Feet Container</h3>
-                      {containerHandlingPricingLoading ? (
-                        <div className="space-y-4">
-                          <Skeleton className="h-12 w-full" />
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          <div>
-                            <Label className="text-sm font-medium mb-2 block">
-                              Price per 20 Feet Container ($)
-                            </Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              value={container20ftPrice}
-                              onChange={(e) => setContainer20ftPrice(e.target.value)}
-                              className="w-48"
-                            />
-                            <p className="text-xs text-muted-foreground mt-1">
-                              This amount will be charged per 20 feet container when user adds container handling inventory.
-                            </p>
-                          </div>
-                          <Button 
-                            onClick={() => handleSaveContainerHandling('20 feet', container20ftPrice, container20ftPricingId)} 
-                            disabled={isSaving || containerHandlingPricingLoading}
-                            className="w-48"
-                          >
-                            {isSaving ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Saving...
-                              </>
-                            ) : (
-                              <>
-                                <Save className="mr-2 h-4 w-4" />
-                                Save 20ft Pricing
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 40 Feet Container Section */}
-                    <div className="p-4 border rounded-lg bg-muted/50">
-                      <h3 className="text-lg font-semibold mb-4">40 Feet Container</h3>
-                      {containerHandlingPricingLoading ? (
-                        <div className="space-y-4">
-                          <Skeleton className="h-12 w-full" />
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          <div>
-                            <Label className="text-sm font-medium mb-2 block">
-                              Price per 40 Feet Container ($)
-                            </Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              value={container40ftPrice}
-                              onChange={(e) => setContainer40ftPrice(e.target.value)}
-                              className="w-48"
-                            />
-                            <p className="text-xs text-muted-foreground mt-1">
-                              This amount will be charged per 40 feet container when user adds container handling inventory.
-                            </p>
-                          </div>
-                          <Button 
-                            onClick={() => handleSaveContainerHandling('40 feet', container40ftPrice, container40ftPricingId)} 
-                            disabled={isSaving || containerHandlingPricingLoading}
-                            className="w-48"
-                          >
-                            {isSaving ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Saving...
-                              </>
-                            ) : (
-                              <>
-                                <Save className="mr-2 h-4 w-4" />
-                                Save 40ft Pricing
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
+                  <div className="p-4 border rounded-lg bg-muted/50">
+                    <h3 className="text-lg font-semibold mb-2">Container Handling Pricing</h3>
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Set the price charged per container when a user adds container handling inventory.
+                    </p>
+                    {containerHandlingPricingLoading ? (
+                      <div className="space-y-4">
+                        <Skeleton className="h-12 w-full" />
+                        <Skeleton className="h-12 w-full" />
+                        <Skeleton className="h-12 w-full" />
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="border-b bg-muted">
+                              <th className="text-left p-2 text-sm font-medium">Container Size</th>
+                              <th className="text-left p-2 text-sm font-medium">Price per Container ($)</th>
+                              <th className="text-left p-2 text-sm font-medium w-32">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {CONTAINER_SIZE_OPTIONS.map((size) => {
+                              const row = containerPrices[size];
+                              return (
+                                <tr key={size} className="border-b hover:bg-muted/30">
+                                  <td className="p-2 text-sm font-medium">{size}</td>
+                                  <td className="p-2">
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      value={row.price}
+                                      onChange={(e) =>
+                                        setContainerPrices((prev) => ({
+                                          ...prev,
+                                          [size]: { ...prev[size], price: e.target.value },
+                                        }))
+                                      }
+                                      className="max-w-[180px]"
+                                    />
+                                  </td>
+                                  <td className="p-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() =>
+                                        handleSaveContainerHandling(size, row.price, row.pricingId)
+                                      }
+                                      disabled={isSaving || containerHandlingPricingLoading}
+                                    >
+                                      {isSaving ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <Save className="mr-1.5 h-4 w-4" />
+                                          Save
+                                        </>
+                                      )}
+                                    </Button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
 

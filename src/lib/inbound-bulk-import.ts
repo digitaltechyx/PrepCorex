@@ -1,5 +1,5 @@
 import { Timestamp } from "firebase/firestore";
-import type { InventoryItem, InventoryRequest } from "@/types";
+import type { ContainerSize, InventoryItem, InventoryRequest } from "@/types";
 import { downloadCSV } from "@/lib/csv-utils";
 
 export const INBOUND_BULK_CSV_HEADERS = [
@@ -31,7 +31,7 @@ export type InboundBulkValidatedRow = {
   color?: string;
   size?: string;
   quantity: number;
-  containerSize?: "20 feet" | "40 feet";
+  containerSize?: ContainerSize;
   retailIdentifier?: string;
   expiryDate?: Timestamp;
   remarks?: string;
@@ -173,8 +173,22 @@ export function generateStorageUnitId(
 
 function parseExpiry(raw: string): Timestamp | undefined | "invalid" {
   if (!raw.trim()) return undefined;
-  const d = new Date(`${raw.trim()}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return "invalid";
+  const trimmed = raw.trim();
+  const match =
+    /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/.exec(trimmed);
+  if (!match) return "invalid";
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const d = new Date(year, month - 1, day, 12, 0, 0, 0);
+  if (
+    Number.isNaN(d.getTime()) ||
+    d.getFullYear() !== year ||
+    d.getMonth() !== month - 1 ||
+    d.getDate() !== day
+  ) {
+    return "invalid";
+  }
   return Timestamp.fromDate(d);
 }
 
@@ -192,11 +206,12 @@ function isRestockEligible(item: InventoryItem): boolean {
   return item.status === "In Stock" || item.status === "Out of Stock";
 }
 
-function normalizeContainerSize(raw: string): "20 feet" | "40 feet" | null {
+function normalizeContainerSize(raw: string): ContainerSize | null {
   const v = raw.trim().toLowerCase();
   if (!v) return null;
   if (v === "20 feet" || v === "20ft" || v === "20") return "20 feet";
   if (v === "40 feet" || v === "40ft" || v === "40") return "40 feet";
+  if (v === "53 feet" || v === "53ft" || v === "53") return "53 feet";
   return null;
 }
 
@@ -331,7 +346,7 @@ export function validateInboundBulkRows(
 
       const expiryParsed = parseExpiry(raw["Expiry Date"]);
       if (expiryParsed === "invalid") {
-        errors.push({ rowNumber, message: "Expiry Date must be YYYY-MM-DD when provided." });
+        errors.push({ rowNumber, message: "Expiry Date must be YYYY/MM/DD when provided." });
         return;
       }
 
@@ -463,13 +478,18 @@ export function validateInboundBulkRows(
 
     // box / pallet / container
     if (inventoryType === "container") {
-      const containerSize = normalizeContainerSize(raw["Container Size"]);
-      if (!containerSize) {
-        errors.push({
-          rowNumber,
-          message: 'Container Size is required (use "20 feet" or "40 feet").',
-        });
-        return;
+      const containerSizeRaw = raw["Container Size"].trim();
+      let containerSize: ContainerSize | undefined;
+      if (containerSizeRaw) {
+        const normalized = normalizeContainerSize(containerSizeRaw);
+        if (!normalized) {
+          errors.push({
+            rowNumber,
+            message: 'Invalid Container Size (use "20 feet", "40 feet", or "53 feet").',
+          });
+          return;
+        }
+        containerSize = normalized;
       }
       let productName = raw["Product Name"].trim();
       if (productName) {
@@ -486,7 +506,7 @@ export function validateInboundBulkRows(
         inventoryType: "container",
         productName,
         quantity,
-        containerSize,
+        ...(containerSize ? { containerSize } : {}),
         remarks,
         trackingNumber,
         carrier,
@@ -607,7 +627,7 @@ export function downloadInboundBulkTemplate(): void {
       Quantity: "5",
       "Container Size": "",
       "Retail Identifier": "",
-      "Expiry Date": "2026-12-31",
+      "Expiry Date": "2026/12/31",
       Remarks: "One row per variant",
       "Tracking Number": "",
       Carrier: "",

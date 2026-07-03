@@ -1,4 +1,4 @@
-﻿import type { User as FirebaseUser } from "firebase/auth";
+import type { User as FirebaseUser } from "firebase/auth";
 import type { PlatformDocument } from "@/lib/platform-documents-types";
 
 export type UserRole = "admin" | "user" | "commission_agent" | "sub_admin" | "warehouse_operator";
@@ -599,9 +599,87 @@ export interface InventoryRequest {
   closedAt?: { seconds: number; nanoseconds: number } | string;
   closedBy?: string;
   closeReason?: string;
+  /** When part of a batched inbound submission. */
+  batchId?: string;
+  batchLineId?: string;
 }
 
-/** Per putaway session — good/damaged split with photos (users/{uid}/inboundReceiveLogs). */
+/** How inbound freight arrives (optional, batch-level). */
+export type InboundShipmentType = "carton" | "pallet" | "container" | "package";
+
+/** What is inside the inbound shipment (optional, batch-level). */
+export const INBOUND_LOAD_CONTENTS_OPTIONS = ["carton", "pallet", "both"] as const;
+export type InboundLoadContents = (typeof INBOUND_LOAD_CONTENTS_OPTIONS)[number];
+
+export type InboundBatchStatus = "pending" | "partial" | "completed" | "cancelled";
+
+/** Parent doc for a multi-line inbound submission (`users/{uid}/inboundBatches`). */
+export interface InboundBatch {
+  id: string;
+  userId: string;
+  userName: string;
+  shipmentType?: InboundShipmentType;
+  loadContents?: InboundLoadContents;
+  /** Optional overview of products in this inbound batch (user-provided). */
+  productNotes?: string;
+  status: InboundBatchStatus;
+  totalLines: number;
+  pendingLines: number;
+  approvedLines: number;
+  rejectedLines: number;
+  cancelledLines: number;
+  addDate?: { seconds: number; nanoseconds: number } | string;
+  requestedAt?: { seconds: number; nanoseconds: number } | string;
+  requestedBy?: string;
+  cancelledBy?: string;
+  cancelledAt?: { seconds: number; nanoseconds: number } | string;
+  cancellationReason?: string;
+}
+
+/** Line item under a batch (`users/{uid}/inboundBatches/{batchId}/lines`). */
+export interface InboundBatchLine {
+  id: string;
+  batchId: string;
+  lineNumber: number;
+  userId?: string;
+  userName?: string;
+  inventoryType: InventoryRequest["inventoryType"];
+  productName: string;
+  quantity: number;
+  requestedQuantity?: number;
+  receivedQuantity?: number;
+  sku?: string;
+  retailIdentifier?: string;
+  expiryDate?: InventoryRequest["expiryDate"];
+  productSubType?: InventoryRequest["productSubType"];
+  productId?: string;
+  productEntryMode?: InventoryRequest["productEntryMode"];
+  color?: string;
+  size?: string;
+  variantLabel?: string;
+  parentProductName?: string;
+  containerSize?: ContainerSize;
+  addDate?: InventoryRequest["addDate"];
+  requestedAt?: InventoryRequest["requestedAt"];
+  status: InventoryRequest["status"];
+  remarks?: string;
+  imageUrl?: string;
+  imageUrls?: string[];
+  trackingNumber?: string;
+  carrier?: string;
+  approvedBy?: string;
+  approvedAt?: InventoryRequest["approvedAt"];
+  rejectedBy?: string;
+  rejectedAt?: InventoryRequest["rejectedAt"];
+  rejectionReason?: string;
+  receivingDate?: InventoryRequest["receivingDate"];
+  fulfillmentStatus?: InventoryRequest["fulfillmentStatus"];
+  warehouseGoodReceivedQty?: number;
+  warehouseDamagedReceivedQty?: number;
+  /** Populated on approve — links to top-level request for warehouse/history. */
+  inventoryRequestId?: string;
+}
+
 export interface InboundReceiveLog {
   id: string;
   inventoryId?: string | null;
@@ -1203,7 +1281,8 @@ export type QuantityRange = string;
 /** FBA/FBM prep pricing uses Standard only; Custom may appear on legacy shipment rows. */
 export type ProductType = "Standard" | "Large" | "Custom";
 export type StorageType = "product_base" | "pallet_base";
-export type ContainerSize = "20ft" | "40ft";
+export const CONTAINER_SIZE_OPTIONS = ["20 feet", "40 feet", "53 feet"] as const;
+export type ContainerSize = (typeof CONTAINER_SIZE_OPTIONS)[number];
 
 export interface UserPricing {
   id: string;

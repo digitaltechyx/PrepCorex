@@ -27,12 +27,30 @@ interface InventoryRequest {
   imageUrls?: string[];
   [key: string]: any;
 }
+
+type InventoryRequestProcessOpts = {
+  quiet?: boolean;
+  skipBatchSync?: boolean;
+};
+
 interface InventoryItemLite {
   id: string;
   productName?: string;
   sku?: string;
   locationId?: string;
 }
+import type { InboundBatch, InboundBatchLine } from "@/types";
+import {
+  ensureInventoryRequestForBatchLine,
+  batchLineToInventoryRequest,
+  formatLoadContentsLabel,
+  formatShipmentTypeLabel,
+  inboundBatchesPath,
+  inboundBatchLinesPath,
+  refreshInboundBatchCounts,
+  syncBatchLineStatus,
+} from "@/lib/inbound-batch";
+import { InboundBatchAdminDialog } from "@/components/admin/inbound-batch-admin-dialog";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -148,6 +166,7 @@ export function InventoryRequestsManagement({
   const { toast } = useToast();
   const { userProfile: adminProfile } = useAuth();
   const [selectedRequest, setSelectedRequest] = useState<InventoryRequest | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<InboundBatch | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -160,6 +179,9 @@ export function InventoryRequestsManagement({
   
   const { data: requests, loading, error } = useCollection<InventoryRequest>(
     isValidUserId ? `users/${userId}/inventoryRequests` : ""
+  );
+  const { data: inboundBatches, loading: batchesLoading } = useCollection<InboundBatch>(
+    isValidUserId ? inboundBatchesPath(userId) : ""
   );
   const { data: currentInventory } = useCollection<InventoryItemLite>(
     isValidUserId ? `users/${userId}/inventory` : ""
@@ -196,6 +218,8 @@ export function InventoryRequestsManagement({
   const filteredRequests = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     let filtered = statusFilter === "all" ? requests : requests.filter(req => req.status === statusFilter);
+    // Hide legacy rows that belong to a batch mirror (shown via batch preview).
+    filtered = filtered.filter((req) => !(req as InventoryRequest & { batchId?: string }).batchId);
     filtered = filtered.filter((req) => {
       if (!query) return true;
       const productName = (req.productName || "").toLowerCase();
@@ -251,7 +275,27 @@ export function InventoryRequestsManagement({
     setCurrentPage(1);
   }, [statusFilter, searchTerm]);
 
-  const pendingCount = requests.filter(req => req.status === "pending").length;
+  const filteredBatches = useMemo(() => {
+    let batches = [...inboundBatches];
+    if (statusFilter === "pending") {
+      batches = batches.filter((b) => b.status === "pending" || b.status === "partial");
+    } else if (statusFilter !== "all") {
+      batches = batches.filter((b) => b.status === statusFilter);
+    }
+    return batches.sort((a, b) => {
+      const ta = a.requestedAt && typeof a.requestedAt === "object" && "seconds" in a.requestedAt
+        ? a.requestedAt.seconds * 1000
+        : 0;
+      const tb = b.requestedAt && typeof b.requestedAt === "object" && "seconds" in b.requestedAt
+        ? b.requestedAt.seconds * 1000
+        : 0;
+      return tb - ta;
+    });
+  }, [inboundBatches, statusFilter]);
+
+  const pendingCount =
+    requests.filter((req) => req.status === "pending" && !(req as InventoryRequest & { batchId?: string }).batchId).length +
+    inboundBatches.filter((b) => b.status === "pending" || b.status === "partial").length;
   const approvedCount = requests.filter(req => req.status === "approved").length;
   const rejectedCount = requests.filter(req => req.status === "rejected").length;
   const cancelledCount = requests.filter(req => req.status === "cancelled").length;
@@ -268,18 +312,88 @@ export function InventoryRequestsManagement({
     return byName?.locationId || "N/A";
   };
 
-  const handleApprove = async (request: InventoryRequest, receivingDate: Date, status: "In Stock" | "Out of Stock", remarks?: string, editedQuantity?: number, editedProductName?: string, editedSku?: string, imageUrls?: string[]) => {
-    if (!selectedUser || !adminProfile) return;
-    if (request.status !== "pending") {
-      toast({
-        variant: "destructive",
-        title: "Request unavailable",
-        description: "This request is no longer pending and cannot be approved.",
-      });
+  const refreshBatchCounts = async (batchId: string) => {
+    if (!userId) return;
+    const linesSnap = await getDocs(collection(db, inboundBatchLinesPath(userId, batchId)));
+    const counts = { pending: 0, approved: 0, rejected: 0, cancelled: 0, total: linesSnap.size };
+    linesSnap.forEach((snap) => {
+      const lineStatus = String(snap.data().status || "pending");
+      if (lineStatus === "approved") counts.approved++;
+      else if (lineStatus === "rejected") counts.rejected++;
+      else if (lineStatus === "cancelled") counts.cancelled++;
+      else counts.pending++;
+    });
+    await refreshInboundBatchCounts(userId, batchId, counts);
+  };
+
+  const handleReviewBatchLine = async (request: InventoryRequest) => {
+    if (!selectedBatch || !userId) {
+      setSelectedRequest(request);
       return;
     }
+    const batchLineId = (request as InventoryRequest & { batchLineId?: string }).batchLineId;
+    if (!batchLineId) {
+      setSelectedRequest(request);
+      return;
+    }
+    try {
+      const requestId = await ensureInventoryRequestForBatchLine(userId, selectedBatch, {
+        id: batchLineId,
+        batchId: selectedBatch.id,
+        lineNumber: 0,
+        inventoryType: request.inventoryType,
+        productName: request.productName,
+        quantity: request.quantity,
+        requestedQuantity: request.requestedQuantity ?? request.quantity,
+        sku: (request as InventoryRequest & { sku?: string }).sku,
+        retailIdentifier: (request as InventoryRequest & { retailIdentifier?: string }).retailIdentifier,
+        expiryDate: (request as InventoryRequest & { expiryDate?: InventoryRequest["expiryDate"] }).expiryDate,
+        productSubType: (request as InventoryRequest & { productSubType?: "new" | "restock" }).productSubType,
+        productId: (request as InventoryRequest & { productId?: string }).productId,
+        productEntryMode: (request as InventoryRequest & { productEntryMode?: "single" | "variants" }).productEntryMode,
+        color: (request as InventoryRequest & { color?: string }).color,
+        size: (request as InventoryRequest & { size?: string }).size,
+        variantLabel: (request as InventoryRequest & { variantLabel?: string }).variantLabel,
+        parentProductName: (request as InventoryRequest & { parentProductName?: string }).parentProductName,
+        status: "pending",
+        remarks: request.remarks,
+        imageUrl: request.imageUrl,
+        imageUrls: request.imageUrls,
+      });
+      setSelectedRequest({ ...request, id: requestId, batchId: selectedBatch.id, batchLineId });
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Could not open review",
+        description: error instanceof Error ? error.message : "Failed to prepare line for review.",
+      });
+    }
+  };
 
-    setIsProcessing(true);
+  const handleApprove = async (
+    request: InventoryRequest,
+    receivingDate: Date,
+    status: "In Stock" | "Out of Stock",
+    remarks?: string,
+    editedQuantity?: number,
+    editedProductName?: string,
+    editedSku?: string,
+    imageUrls?: string[],
+    opts?: InventoryRequestProcessOpts
+  ) => {
+    if (!selectedUser || !adminProfile) return;
+    if (request.status !== "pending") {
+      if (!opts?.quiet) {
+        toast({
+          variant: "destructive",
+          title: "Request unavailable",
+          description: "This request is no longer pending and cannot be approved.",
+        });
+      }
+      throw new Error("Request is not pending.");
+    }
+
+    if (!opts?.quiet) setIsProcessing(true);
     try {
       // Prepare remarks - trim whitespace
       const remarksToSave = remarks ? remarks.trim() : "";
@@ -525,44 +639,57 @@ export function InventoryRequestsManagement({
         }
       }
 
-      await addDoc(collection(db, `users/${userId}/notifications`), {
-        type: "inventory_request",
-        title: "Inventory request approved",
-        message:
-          request.inventoryType === "container"
-            ? "Your container handling request has been approved."
-            : request.inventoryType === "product"
-            ? "Your inventory request has been approved. Stock will appear after warehouse receiving and putaway."
-            : "Your inventory request has been approved and added to inventory.",
-        isRead: false,
-        targetUrl: "/dashboard/inventory",
-        relatedRequestId: request.id,
-        createdAt: Timestamp.now(),
-        createdBy: adminProfile.uid,
-      });
+      if (!opts?.quiet) {
+        await addDoc(collection(db, `users/${userId}/notifications`), {
+          type: "inventory_request",
+          title: "Inventory request approved",
+          message:
+            request.inventoryType === "container"
+              ? "Your container handling request has been approved."
+              : request.inventoryType === "product"
+              ? "Your inventory request has been approved. Stock will appear after warehouse receiving and putaway."
+              : "Your inventory request has been approved and added to inventory.",
+          isRead: false,
+          targetUrl: "/dashboard/inventory",
+          relatedRequestId: request.id,
+          createdAt: Timestamp.now(),
+          createdBy: adminProfile.uid,
+        });
+      }
 
       const isRestock = (request as any).productSubType === "restock";
-      toast({
-        title: "Success",
-        description: isRestock 
-          ? request.inventoryType === "product"
-            ? "Restock request approved. Stock will update after warehouse putaway."
-            : "Restock request approved. Quantity added to existing product."
-          : request.inventoryType === "container"
-          ? "Container handling request approved and invoice generated."
-          : request.inventoryType === "product"
-          ? "Product request approved. Awaiting warehouse receive."
-          : "Inventory request approved and added to inventory.",
-      });
-      setSelectedRequest(null);
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to approve inventory request.",
-      });
+      const batchId = (request as InventoryRequest & { batchId?: string }).batchId;
+      const batchLineId = (request as InventoryRequest & { batchLineId?: string }).batchLineId;
+      if (!opts?.skipBatchSync && batchId && batchLineId) {
+        await syncBatchLineStatus(userId, batchId, batchLineId, "approved");
+        await refreshBatchCounts(batchId);
+      }
+      if (!opts?.quiet) {
+        toast({
+          title: "Success",
+          description: isRestock
+            ? request.inventoryType === "product"
+              ? "Restock request approved. Stock will update after warehouse putaway."
+              : "Restock request approved. Quantity added to existing product."
+            : request.inventoryType === "container"
+            ? "Container handling request approved and invoice generated."
+            : request.inventoryType === "product"
+            ? "Product request approved. Awaiting warehouse receive."
+            : "Inventory request approved and added to inventory.",
+        });
+        setSelectedRequest(null);
+      }
+    } catch (error: unknown) {
+      if (!opts?.quiet) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to approve inventory request.",
+        });
+      }
+      throw error;
     } finally {
-      setIsProcessing(false);
+      if (!opts?.quiet) setIsProcessing(false);
     }
   };
 
@@ -595,10 +722,14 @@ export function InventoryRequestsManagement({
     }
   };
 
-  const handleReject = async (request: InventoryRequest, reason: string) => {
+  const handleReject = async (
+    request: InventoryRequest,
+    reason: string,
+    opts?: InventoryRequestProcessOpts
+  ) => {
     if (!selectedUser || !adminProfile) return;
 
-    setIsProcessing(true);
+    if (!opts?.quiet) setIsProcessing(true);
     try {
       const requestRef = doc(db, `users/${selectedUser.uid}/inventoryRequests`, request.id);
       await updateDoc(requestRef, {
@@ -606,30 +737,131 @@ export function InventoryRequestsManagement({
         rejectedBy: adminProfile.uid,
         rejectedAt: Timestamp.now(),
         rejectionReason: reason,
-        remarks: reason, // Also save as remarks so user can see it
+        remarks: reason,
       });
 
-      await addDoc(collection(db, `users/${selectedUser.uid}/notifications`), {
-        type: "inventory_request",
-        title: "Inventory request rejected",
-        message: `Your inventory request was rejected. Reason: ${reason}`,
-        isRead: false,
-        targetUrl: "/dashboard/inventory",
-        relatedRequestId: request.id,
-        createdAt: Timestamp.now(),
-        createdBy: adminProfile.uid,
-      });
+      if (!opts?.quiet) {
+        await addDoc(collection(db, `users/${selectedUser.uid}/notifications`), {
+          type: "inventory_request",
+          title: "Inventory request rejected",
+          message: `Your inventory request was rejected. Reason: ${reason}`,
+          isRead: false,
+          targetUrl: "/dashboard/inventory",
+          relatedRequestId: request.id,
+          createdAt: Timestamp.now(),
+          createdBy: adminProfile.uid,
+        });
+      }
 
-      toast({
-        title: "Success",
-        description: "Inventory request rejected.",
-      });
-      setSelectedRequest(null);
-    } catch (error: any) {
+      const batchId = (request as InventoryRequest & { batchId?: string }).batchId;
+      const batchLineId = (request as InventoryRequest & { batchLineId?: string }).batchLineId;
+      if (!opts?.skipBatchSync && batchId && batchLineId) {
+        await syncBatchLineStatus(selectedUser.uid, batchId, batchLineId, "rejected", {
+          rejectionReason: reason,
+        });
+        await refreshBatchCounts(batchId);
+      }
+
+      if (!opts?.quiet) {
+        toast({
+          title: "Success",
+          description: "Inventory request rejected.",
+        });
+        setSelectedRequest(null);
+      }
+    } catch (error: unknown) {
+      if (!opts?.quiet) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to reject inventory request.",
+        });
+      }
+      throw error;
+    } finally {
+      if (!opts?.quiet) setIsProcessing(false);
+    }
+  };
+
+  const runBulkBatchAction = async (
+    lines: InboundBatchLine[],
+    action: "approve" | "reject",
+    options: { reason?: string; receivingDate?: Date }
+  ) => {
+    if (!selectedBatch || !userId || !adminProfile) return;
+    const pendingLines = lines.filter((line) => line.status === "pending");
+    if (pendingLines.length === 0) {
       toast({
         variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to reject inventory request.",
+        title: "No pending lines",
+        description: "Select pending lines to approve or reject.",
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+    let succeeded = 0;
+    let failed = 0;
+
+    try {
+      for (const line of pendingLines) {
+        try {
+          const requestId = await ensureInventoryRequestForBatchLine(userId, selectedBatch, line);
+          const request = batchLineToInventoryRequest(selectedBatch, {
+            ...line,
+            inventoryRequestId: requestId,
+          });
+          request.id = requestId;
+          request.status = "pending";
+
+          if (action === "approve") {
+            await handleApprove(
+              request,
+              options.receivingDate ?? new Date(),
+              "In Stock",
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              { quiet: true, skipBatchSync: true }
+            );
+          } else {
+            await handleReject(request, options.reason?.trim() || "Rejected in bulk", {
+              quiet: true,
+              skipBatchSync: true,
+            });
+          }
+          succeeded += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+
+      await refreshBatchCounts(selectedBatch.id);
+
+      if (succeeded > 0) {
+        await addDoc(collection(db, `users/${userId}/notifications`), {
+          type: "inventory_request",
+          title:
+            action === "approve"
+              ? "Inbound batch lines approved"
+              : "Inbound batch lines rejected",
+          message:
+            action === "approve"
+              ? `${succeeded} line(s) from your inbound batch were approved.`
+              : `${succeeded} line(s) from your inbound batch were rejected.`,
+          isRead: false,
+          targetUrl: "/dashboard/inventory",
+          createdAt: Timestamp.now(),
+          createdBy: adminProfile.uid,
+        });
+      }
+
+      toast({
+        title: action === "approve" ? "Bulk approve complete" : "Bulk reject complete",
+        description: `${succeeded} succeeded${failed > 0 ? `, ${failed} failed` : ""}.`,
+        variant: failed > 0 && succeeded === 0 ? "destructive" : "default",
       });
     } finally {
       setIsProcessing(false);
@@ -731,13 +963,13 @@ export function InventoryRequestsManagement({
               <p className="text-xs text-destructive/80 mt-1">{error.message}</p>
             </div>
           )}
-          {loading ? (
+          {loading || batchesLoading ? (
             <div className="space-y-4">
               <Skeleton className="h-12 w-full" />
               <Skeleton className="h-12 w-full" />
               <Skeleton className="h-12 w-full" />
             </div>
-          ) : filteredRequests.length === 0 ? (
+          ) : filteredRequests.length === 0 && filteredBatches.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-muted-foreground">No inventory requests found.</p>
               {selectedUser && requests.length === 0 && (
@@ -765,6 +997,43 @@ export function InventoryRequestsManagement({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {filteredBatches.map((batch) => (
+                    <TableRow key={`batch-${batch.id}`} className="bg-primary/5">
+                      <TableCell>
+                        <Badge variant="outline">Batch</Badge>
+                      </TableCell>
+                      <TableCell className="font-medium" colSpan={2}>
+                        Inbound batch · {batch.totalLines} items
+                        <span className="block text-xs text-muted-foreground">
+                          Shipment: {formatShipmentTypeLabel(batch.shipmentType)}
+                          {batch.loadContents
+                            ? ` · Inside: ${formatLoadContentsLabel(batch.loadContents)}`
+                            : ""}
+                        </span>
+                        {batch.productNotes?.trim() ? (
+                          <span className="block text-xs text-muted-foreground line-clamp-2">
+                            Products: {batch.productNotes.trim()}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">—</TableCell>
+                      <TableCell className="hidden lg:table-cell">—</TableCell>
+                      <TableCell className="font-medium tabular-nums">{batch.totalLines}</TableCell>
+                      <TableCell>{formatDate(batch.requestedAt)}</TableCell>
+                      <TableCell>—</TableCell>
+                      <TableCell className="hidden lg:table-cell">—</TableCell>
+                      <TableCell>
+                        <Badge variant={batch.status === "partial" ? "secondary" : "secondary"}>
+                          {batch.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Button type="button" size="sm" variant="outline" onClick={() => setSelectedBatch(batch)}>
+                          Preview
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                   {paginatedRequests.map((request) => (
                     <TableRow key={request.id}>
                       <TableCell><InventoryTypePill type={request.inventoryType} /></TableCell>
@@ -850,6 +1119,15 @@ export function InventoryRequestsManagement({
                                   }`
                                 : `Rejected ${request.rejectedAt ? formatDate(request.rejectedAt) : ""}`}
                             </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-fit px-2 text-xs"
+                              onClick={() => setSelectedRequest(request)}
+                            >
+                              <Eye className="h-3.5 w-3.5 mr-1" />
+                              View
+                            </Button>
                             {request.status === "approved" &&
                             request.inventoryType === "product" &&
                             (request as any).fulfillmentStatus !== "closed" ? (
@@ -905,6 +1183,18 @@ export function InventoryRequestsManagement({
         </CardContent>
       </Card>
 
+      {selectedBatch && userId && (
+        <InboundBatchAdminDialog
+          batch={selectedBatch}
+          userId={userId}
+          isProcessing={isProcessing}
+          onClose={() => setSelectedBatch(null)}
+          onReviewLine={(request) => void handleReviewBatchLine(request)}
+          onBulkApprove={(lines, receivingDate) => runBulkBatchAction(lines, "approve", { receivingDate })}
+          onBulkReject={(lines, reason) => runBulkBatchAction(lines, "reject", { reason })}
+        />
+      )}
+
       {/* Review Dialog */}
       {selectedRequest && (
         <ReviewRequestDialog
@@ -949,6 +1239,7 @@ function ReviewRequestDialog({
   const [imagePreviews, setImagePreviews] = useState<{ file: File; preview: string }[]>([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [uploadedImageUrls, setUploadedImageUrls] = useState<string[]>(getImageUrls(request as any));
+  const readOnly = request.status !== "pending";
 
   const compressImage = async (file: File): Promise<File> => {
     const options = {
@@ -1121,15 +1412,64 @@ function ReviewRequestDialog({
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Review Inventory Request</DialogTitle>
+          <DialogTitle>{readOnly ? "Request Details" : "Review Inventory Request"}</DialogTitle>
           <DialogDescription>
-            Review the inventory request and approve or reject it.
+            {readOnly
+              ? "Read-only view of this inventory request and how it was processed."
+              : "Review the inventory request and approve or reject it."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Request Details */}
           <div className="grid gap-4 py-4">
+            {readOnly && (
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label className="text-xs uppercase text-muted-foreground">Status</Label>
+                  <Badge variant="outline" className="capitalize">
+                    {request.status}
+                  </Badge>
+                </div>
+                {request.status === "approved" && (
+                  <div className="mt-2 grid gap-1 text-sm">
+                    {(request as any).receivedQuantity != null && (
+                      <p>
+                        <span className="text-muted-foreground">Received qty:</span>{" "}
+                        <span className="font-medium tabular-nums">{(request as any).receivedQuantity}</span>
+                      </p>
+                    )}
+                    {request.receivingDate && (
+                      <p>
+                        <span className="text-muted-foreground">Receiving date:</span>{" "}
+                        {formatDate(request.receivingDate)}
+                      </p>
+                    )}
+                    {request.approvedAt && (
+                      <p>
+                        <span className="text-muted-foreground">Approved:</span> {formatDate(request.approvedAt)}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {request.status === "rejected" && (request.rejectionReason || request.remarks) && (
+                  <div className="mt-2">
+                    <p className="text-muted-foreground text-xs uppercase">Rejection reason</p>
+                    <p className="mt-1 whitespace-pre-wrap break-words">
+                      {request.rejectionReason || request.remarks}
+                    </p>
+                  </div>
+                )}
+                {request.status === "cancelled" && (request as any).cancellationReason && (
+                  <div className="mt-2">
+                    <p className="text-muted-foreground text-xs uppercase">Cancellation reason</p>
+                    <p className="mt-1 whitespace-pre-wrap break-words">
+                      {(request as any).cancellationReason}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Type</Label>
@@ -1177,8 +1517,16 @@ function ReviewRequestDialog({
                 </div>
               </div>
             )}
+            {(request as any).sku && (
+              <div>
+                <Label>SKU</Label>
+                <p className="text-sm font-medium">{(request as any).sku}</p>
+              </div>
+            )}
           </div>
 
+          {!readOnly && (
+          <>
           {/* Action Buttons */}
           <div className="flex gap-2">
             <Button
@@ -1428,6 +1776,16 @@ function ReviewRequestDialog({
                   Cancel
                 </Button>
               </div>
+            </div>
+          )}
+          </>
+          )}
+
+          {readOnly && (
+            <div className="flex justify-end border-t pt-4">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Close
+              </Button>
             </div>
           )}
         </div>

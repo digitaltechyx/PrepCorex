@@ -160,6 +160,24 @@ service cloud.firestore {
       allow delete: if isAdminOrSubAdmin();
     }
 
+    match /users/{userId}/inboundBatches/{batchId} {
+      allow read: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
+      allow create: if isSelf(userId);
+      allow update: if isAdminOrSubAdmin() || (
+        isSelf(userId) &&
+        resource.data.status == 'pending' &&
+        request.resource.data.status == 'cancelled'
+      );
+      allow delete: if isAdminOrSubAdmin();
+    }
+
+    match /users/{userId}/inboundBatches/{batchId}/lines/{lineId} {
+      allow read: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
+      allow create: if isSelf(userId);
+      allow update: if isAdminOrSubAdmin() || isWarehouseOperator();
+      allow delete: if isAdminOrSubAdmin();
+    }
+
     match /users/{userId}/inboundReceiveLogs/{logId} {
       allow read: if isSelf(userId) || isAdminOrSubAdmin();
       allow create: if isAdminOrSubAdmin() || isWarehouseOperator();

@@ -35,7 +35,7 @@ import {
 import { hasRole } from "@/lib/permissions";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, Truck, Package, RotateCcw, Trash2, User, Calendar, ChevronRight, ChevronLeft, Loader2 } from "lucide-react";
+import { Bell, Truck, Package, RotateCcw, Trash2, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type NotificationType = "shipment_request" | "inventory_request" | "product_return" | "dispose_request";
@@ -569,13 +569,14 @@ export default function AdminNotificationsPage() {
     return { paginatedRows, totalPages, startIndex, endIndex };
   }, [filteredRows, notificationPage]);
 
-  const openProcess = (row: NotificationRow) => {
+  const openRequest = (row: NotificationRow, viewOnly: boolean) => {
     const params = new URLSearchParams({
       userId: row.userId,
       section: "user-requests",
       tab: row.type,
       requestId: row.id,
     });
+    if (viewOnly) params.set("view", "1");
     router.push(`/admin/dashboard/inventory?${params.toString()}`);
   };
 
@@ -618,17 +619,29 @@ export default function AdminNotificationsPage() {
                 <InventoryRequestTrackingLines trackings={r.inboundTrackings!} />
               ) : null}
             </div>
-            {!isProcessComplete(r.type, r.status) && (
-              <Button
-                size="sm"
-                variant="default"
-                className="w-full sm:w-auto min-h-[44px] sm:min-h-9 shrink-0 gap-1"
-                onClick={() => openProcess(r)}
-              >
-                Process
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            )}
+            <div className="flex flex-col gap-2 sm:flex-row sm:shrink-0">
+              {!isProcessComplete(r.type, r.status) ? (
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="w-full sm:w-auto min-h-[44px] sm:min-h-9 shrink-0 gap-1"
+                  onClick={() => openRequest(r, false)}
+                >
+                  Process
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full sm:w-auto min-h-[44px] sm:min-h-9 shrink-0 gap-1"
+                  onClick={() => openRequest(r, true)}
+                >
+                  <Eye className="h-4 w-4" />
+                  View
+                </Button>
+              )}
+            </div>
           </div>
         );
       })}
