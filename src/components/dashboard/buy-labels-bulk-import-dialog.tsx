@@ -47,7 +47,6 @@ type BuyLabelsBulkImportDialogProps = {
   locationOptions: BuyLabelLocationInput[];
   defaultFromName: string;
   defaultFromPhone?: string;
-  defaultFromEmail?: string;
   onAddToCart: (items: BuyLabelCartImportItem[]) => void;
 };
 
@@ -57,7 +56,6 @@ export function BuyLabelsBulkImportDialog({
   locationOptions,
   defaultFromName,
   defaultFromPhone,
-  defaultFromEmail,
   onAddToCart,
 }: BuyLabelsBulkImportDialogProps) {
   const { toast } = useToast();
@@ -75,8 +73,6 @@ export function BuyLabelsBulkImportDialog({
     () => new Map(locationOptions.map((loc) => [loc.id, loc])),
     [locationOptions]
   );
-
-  const allowedLocationIds = useMemo(() => locationOptions.map((loc) => loc.id), [locationOptions]);
 
   const needsLocationPicker = locationOptions.length > 1;
 
@@ -114,17 +110,16 @@ export function BuyLabelsBulkImportDialog({
         return;
       }
       const { valid, errors, warnings } = validateBuyLabelsBulkRows(rows, {
-        allowedLocationIds,
-        locationsById,
+        locations: locationOptions,
         defaultFromName,
         defaultFromPhone,
-        defaultFromEmail,
+        templateLocationId: effectiveTemplateLocationId,
       });
       setValidRows(valid);
       setRowErrors(errors);
       setRowWarnings(warnings);
     },
-    [allowedLocationIds, locationsById, defaultFromName, defaultFromPhone, defaultFromEmail]
+    [locationOptions, defaultFromName, defaultFromPhone, effectiveTemplateLocationId]
   );
 
   const processFile = async (file: File) => {
@@ -163,7 +158,6 @@ export function BuyLabelsBulkImportDialog({
     downloadBuyLabelsBulkTemplate(location, {
       fromName: defaultFromName,
       fromPhone: defaultFromPhone,
-      fromEmail: defaultFromEmail,
     });
 
     toast({
@@ -210,18 +204,12 @@ export function BuyLabelsBulkImportDialog({
 
         const data = await response.json();
         const rates: ShippingRate[] = data.rates || [];
-        const selectedRate = pickShippingRate(
-          rates,
-          row.preferredCarrier,
-          row.preferredService
-        );
+        const selectedRate = pickShippingRate(rates);
 
         if (!selectedRate) {
           rateErrors.push({
             rowNumber: row.rowNumber,
-            message: row.preferredCarrier || row.preferredService
-              ? "No rate matched Preferred Carrier/Service."
-              : "No shipping rates available.",
+            message: "No shipping rates available.",
           });
           continue;
         }
@@ -283,9 +271,9 @@ export function BuyLabelsBulkImportDialog({
             Bulk import shipping labels
           </DialogTitle>
           <DialogDescription>
-            Download a template with your warehouse From address pre-filled. Add To address, parcel
-            size, and weight on each row. Optionally set Preferred Carrier or Service (e.g. USPS,
-            Ground Advantage). Imported rows are rated and added to your label cart.
+            Download a template with the same fields as the Buy Labels form. From address is
+            pre-filled from your selected warehouse. Fill To address, weight, and dimensions on
+            each row you want to ship. Imported rows are rated and added to your label cart.
           </DialogDescription>
         </DialogHeader>
 

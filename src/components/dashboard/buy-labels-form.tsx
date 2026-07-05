@@ -26,6 +26,7 @@ import { getStripePublishableKey } from "@/lib/stripe";
 import { PaymentDialog } from "./payment-dialog";
 import type { ShippingAddress, ParcelDetails, ShippingRate } from "@/types";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
+import { locationToFromShippingAddress } from "@/lib/location-shipping-address";
 
 // US States list
 const US_STATES = [
@@ -147,6 +148,7 @@ type LabelCartItem = {
 type LocationDoc = {
   id: string;
   name?: string;
+  shippingName?: string;
   street1?: string;
   street2?: string;
   city?: string;
@@ -157,37 +159,25 @@ type LocationDoc = {
   active?: boolean;
 };
 
-const DEFAULT_FORM_VALUES: FormValues = {
-  fromAddress: {
-    name: "Prep Services FBA LLC",
-    phone: "",
-    street1: "7000 Atrium Way",
-    street2: "Apartment, Suite: B05",
-    country: "US",
-    state: "NJ",
-    city: "Mount Laurel",
-    zip: "08054",
-    email: "",
-  },
-  toAddress: {
-    name: "",
-    street1: "",
-    street2: "",
-    city: "",
-    state: "",
-    zip: "",
-    country: "US",
-    phone: "",
-    email: "",
-  },
-  parcel: {
-    length: 15,
-    width: 4,
-    height: 4,
-    weightPounds: 0,
-    weightOunces: 13,
-    distanceUnit: "in",
-  },
+const EMPTY_TO_ADDRESS: FormValues["toAddress"] = {
+  name: "",
+  street1: "",
+  street2: "",
+  city: "",
+  state: "",
+  zip: "",
+  country: "US",
+  phone: "",
+  email: "",
+};
+
+const DEFAULT_PARCEL: FormValues["parcel"] = {
+  length: 15,
+  width: 4,
+  height: 4,
+  weightPounds: 0,
+  weightOunces: 13,
+  distanceUnit: "in",
 };
 
 export function BuyLabelsForm() {
@@ -227,17 +217,47 @@ export function BuyLabelsForm() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: DEFAULT_FORM_VALUES,
+    defaultValues: {
+      fromAddress: {
+        name: "",
+        phone: "",
+        street1: "",
+        street2: "",
+        country: "US",
+        state: "",
+        city: "",
+        zip: "",
+        email: "",
+      },
+      toAddress: EMPTY_TO_ADDRESS,
+      parcel: DEFAULT_PARCEL,
+    },
   });
 
+  const defaultFromName =
+    userProfile?.companyName?.trim() || userProfile?.name?.trim() || "";
+
+  const buildFromAddressForLocation = (location: LocationDoc) =>
+    locationToFromShippingAddress(location, {
+      shipperName: defaultFromName,
+      phone: userProfile?.phone || "",
+      email: userProfile?.email || "",
+    });
+
   const applyFromAddressFromLocation = (location: LocationDoc) => {
-    const stateValue = (location.stateOrProvince || location.state || "").trim();
-    form.setValue("fromAddress.street1", (location.street1 || "").trim(), { shouldDirty: true });
-    form.setValue("fromAddress.street2", (location.street2 || "").trim(), { shouldDirty: true });
-    form.setValue("fromAddress.city", (location.city || "").trim(), { shouldDirty: true });
-    form.setValue("fromAddress.state", stateValue, { shouldDirty: true });
-    form.setValue("fromAddress.zip", (location.zip || "").trim(), { shouldDirty: true });
-    form.setValue("fromAddress.country", (location.country || "US").trim() || "US", { shouldDirty: true });
+    const fromAddress = buildFromAddressForLocation(location);
+    form.setValue("fromAddress", fromAddress, { shouldDirty: true, shouldValidate: true });
+  };
+
+  const resetFormForNextLabel = () => {
+    const fromAddress = selectedFromLocation
+      ? buildFromAddressForLocation(selectedFromLocation)
+      : form.getValues("fromAddress");
+    form.reset({
+      fromAddress,
+      toAddress: EMPTY_TO_ADDRESS,
+      parcel: DEFAULT_PARCEL,
+    });
   };
 
   useEffect(() => {
@@ -254,7 +274,9 @@ export function BuyLabelsForm() {
   useEffect(() => {
     if (!selectedFromLocation) return;
     applyFromAddressFromLocation(selectedFromLocation);
-  }, [selectedFromLocation]);
+  }, [selectedFromLocationId, selectedFromLocation?.id]);
+
+  const fromAddressLocked = Boolean(selectedFromLocation);
 
   const handleGetRates = async (data: FormValues) => {
     if (!user) {
@@ -399,8 +421,7 @@ export function BuyLabelsForm() {
       return;
     }
     setCartItems((prev) => [...prev, item]);
-    // Reset for entering the next label quickly.
-    form.reset(DEFAULT_FORM_VALUES);
+    resetFormForNextLabel();
     setRates([]);
     setSelectedRate(null);
     setShipmentId(null);
@@ -508,16 +529,13 @@ export function BuyLabelsForm() {
     setCartItems((prev) => [...prev, ...newItems]);
   };
 
-  const defaultFromName =
-    userProfile?.companyName?.trim() || DEFAULT_FORM_VALUES.fromAddress.name;
-
   const handlePaymentSuccess = () => {
     if (checkoutMode === "bulk") {
       setCartItems([]);
     }
 
     // Reset form after successful payment
-    form.reset(DEFAULT_FORM_VALUES);
+    resetFormForNextLabel();
     setRates([]);
     setSelectedRate(null);
     setShipmentId(null);
@@ -548,7 +566,6 @@ export function BuyLabelsForm() {
         locationOptions={locationOptions}
         defaultFromName={defaultFromName}
         defaultFromPhone={userProfile?.phone || ""}
-        defaultFromEmail={userProfile?.email || ""}
         onAddToCart={handleBulkImportAddToCart}
       />
 
@@ -604,6 +621,9 @@ export function BuyLabelsForm() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <p className="text-xs text-muted-foreground">
+                        From address is filled automatically from the selected warehouse location.
+                      </p>
                     </div>
                   </div>
                 )}
@@ -641,7 +661,7 @@ export function BuyLabelsForm() {
                       <FormItem className="md:col-span-2">
                         <FormLabel>Street Address *</FormLabel>
                         <FormControl>
-                          <Input placeholder="123 Main St" {...field} />
+                          <Input placeholder="123 Main St" {...field} disabled={fromAddressLocked} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -654,7 +674,7 @@ export function BuyLabelsForm() {
                       <FormItem className="md:col-span-2">
                         <FormLabel>Apartment, suite, etc. (optional)</FormLabel>
                         <FormControl>
-                          <Input placeholder="Apt 4B" {...field} />
+                          <Input placeholder="Apt 4B" {...field} disabled={fromAddressLocked} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -666,7 +686,9 @@ export function BuyLabelsForm() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Country *</FormLabel>
-                        <Select onValueChange={(value) => {
+                        <Select
+                          disabled={fromAddressLocked}
+                          onValueChange={(value) => {
                           field.onChange(value);
                           // Reset state when country changes
                           form.setValue("fromAddress.state", "");
@@ -695,7 +717,7 @@ export function BuyLabelsForm() {
                       return (
                         <FormItem>
                           <FormLabel>{selectedCountry === "CA" ? "Province" : "State"} *</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
+                          <Select onValueChange={field.onChange} value={field.value} disabled={fromAddressLocked}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder={`Select ${selectedCountry === "CA" ? "province" : "state"}`} />
@@ -721,7 +743,7 @@ export function BuyLabelsForm() {
                       <FormItem>
                         <FormLabel>City *</FormLabel>
                         <FormControl>
-                          <Input placeholder="New York" {...field} />
+                          <Input placeholder="New York" {...field} disabled={fromAddressLocked} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -734,7 +756,7 @@ export function BuyLabelsForm() {
                       <FormItem>
                         <FormLabel>ZIP Code *</FormLabel>
                         <FormControl>
-                          <Input placeholder="10001" {...field} />
+                          <Input placeholder="10001" {...field} disabled={fromAddressLocked} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
