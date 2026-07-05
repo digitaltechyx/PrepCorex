@@ -55,6 +55,17 @@ export async function sendTransactionalEmail(input: SendMailInput): Promise<void
   });
 }
 
+export function friendlySmtpErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error || "");
+  if (/535|authentication failed|invalid login/i.test(message)) {
+    return "Email could not be sent because the sender mailbox authentication failed. Please check SMTP username/password or app password.";
+  }
+  if (/too_many_attempts|try_later/i.test(message)) {
+    return "A verification email was already requested recently. Please wait a minute before trying again.";
+  }
+  return message || "Failed to send email.";
+}
+
 export function getAppLoginUrl(): string {
   try {
     const cfg = getSmtpConfig();

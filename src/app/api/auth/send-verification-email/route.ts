@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildEmailVerificationEmail } from "@/lib/account-email-templates";
 import { verifyBearerToken } from "@/lib/api-admin-auth";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
-import { sendTransactionalEmail } from "@/lib/smtp-send";
+import { friendlySmtpErrorMessage, sendTransactionalEmail } from "@/lib/smtp-send";
 
 export const dynamic = "force-dynamic";
+
+const RESEND_COOLDOWN_MS = 60 * 1000;
 
 function getEmailVerificationContinueUrl(): string {
   const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "";
@@ -28,6 +30,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Email verification is not required for this account." }, { status: 400 });
     }
 
+    const lastSent = userData?.lastVerificationEmailSentAt;
+    const lastSentMs =
+      lastSent && typeof lastSent === "object" && typeof lastSent.toMillis === "function"
+        ? lastSent.toMillis()
+        : lastSent instanceof Date
+          ? lastSent.getTime()
+          : 0;
+    const elapsedMs = lastSentMs ? Date.now() - lastSentMs : Number.POSITIVE_INFINITY;
+    if (elapsedMs < RESEND_COOLDOWN_MS) {
+      return NextResponse.json({
+        success: true,
+        throttled: true,
+        cooldownSeconds: Math.ceil((RESEND_COOLDOWN_MS - elapsedMs) / 1000),
+      });
+    }
+
     const verificationUrl = await adminAuth().generateEmailVerificationLink(decoded.email, {
       url: getEmailVerificationContinueUrl(),
     });
@@ -43,11 +61,25 @@ export async function POST(request: NextRequest) {
       ...mail,
     });
 
+    await adminDb().collection("users").doc(decoded.uid).set(
+      {
+        lastVerificationEmailSentAt: new Date(),
+      },
+      { merge: true }
+    );
+
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error("[POST /api/auth/send-verification-email]", e);
+    const message = friendlySmtpErrorMessage(e);
+    if (message.includes("already requested recently")) {
+      return NextResponse.json(
+        { error: message },
+        { status: 429 }
+      );
+    }
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to send verification email." },
+      { error: message },
       { status: 500 }
     );
   }

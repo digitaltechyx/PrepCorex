@@ -2,7 +2,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { buildAccountApprovedEmail } from "@/lib/account-email-templates";
 import { adminDb } from "@/lib/firebase-admin";
 import { getDefaultFeaturesForRole } from "@/lib/permissions";
-import { getAppLoginUrl, sendTransactionalEmail } from "@/lib/smtp-send";
+import { friendlySmtpErrorMessage, getAppLoginUrl, sendTransactionalEmail } from "@/lib/smtp-send";
 import type { AuditRequestMeta } from "@/lib/user-audit-request-meta";
 import { appendUserAuditEvent } from "@/lib/user-audit-trail-server";
 import type { UserRole } from "@/types";
@@ -111,7 +111,7 @@ export async function approveUserAccount(
     await ref.set({ approvalEmailSentAt: Timestamp.now() }, { merge: true });
     return { emailSent: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to send approval email.";
+    const message = friendlySmtpErrorMessage(err);
     console.error("[approveUserAccount] email failed:", message);
     return { emailSent: false, emailError: message };
   }

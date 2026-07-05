@@ -26,7 +26,13 @@ export function getEmailVerificationContinueUrl(): string {
   return `${getAppBaseUrl()}/login?verified=1`;
 }
 
-export async function sendUserVerificationEmail(firebaseUser: User): Promise<void> {
+export type SendUserVerificationEmailResult = {
+  success: boolean;
+  throttled?: boolean;
+  cooldownSeconds?: number;
+};
+
+export async function sendUserVerificationEmail(firebaseUser: User): Promise<SendUserVerificationEmailResult> {
   const token = await firebaseUser.getIdToken();
   const res = await fetch("/api/auth/send-verification-email", {
     method: "POST",
@@ -40,6 +46,7 @@ export async function sendUserVerificationEmail(firebaseUser: User): Promise<voi
       typeof data.error === "string" ? data.error : "Failed to send verification email."
     );
   }
+  return data as SendUserVerificationEmailResult;
 }
 
 export async function reloadAuthUser(): Promise<void> {
