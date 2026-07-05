@@ -214,16 +214,23 @@ export default function RegisterPage() {
         const claim = await claimUserFieldUniquesClient(token, {
           companyName: values.companyName.trim(),
           phone: values.phone,
-        });
+        }, user.uid);
         if (!claim.ok) {
-          await user.delete();
+          if (claim.conflicts?.length) {
+            await user.delete();
+            toast({
+              variant: "destructive",
+              title: "Registration blocked",
+              description: uniquenessConflictMessage(claim),
+            });
+            setIsLoading(false);
+            return;
+          }
+          console.warn("Unique field reservation failed after account creation:", claim.error);
           toast({
-            variant: "destructive",
-            title: "Registration blocked",
-            description: uniquenessConflictMessage(claim),
+            title: "Account created",
+            description: "Unique field reservation is pending. Admin can reconcile it if needed.",
           });
-          setIsLoading(false);
-          return;
         }
       } catch {
         // Registry claim failed after account creation ? admin can reconcile

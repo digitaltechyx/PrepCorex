@@ -37,7 +37,11 @@ export async function claimUserFieldUniquesClient(
   });
   const data = (await res.json()) as UniquenessApiResult;
   if (!res.ok) {
-    return { ok: false, error: data.error || "Could not reserve unique fields." };
+    return {
+      ok: false,
+      conflicts: data.conflicts,
+      error: data.error || (data.conflicts?.length ? undefined : "Could not reserve unique fields."),
+    };
   }
   return data;
 }
