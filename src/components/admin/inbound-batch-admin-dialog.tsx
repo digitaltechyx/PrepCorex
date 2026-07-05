@@ -23,7 +23,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -197,7 +196,7 @@ export function InboundBatchAdminDialog({
   return (
     <>
       <Dialog open={!!batch} onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className="max-h-[92vh] max-w-3xl overflow-hidden flex flex-col">
+        <DialogContent className="flex h-[92vh] max-w-3xl flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Layers className="h-5 w-5 text-primary" />
@@ -274,7 +273,7 @@ export function InboundBatchAdminDialog({
               Loading lines…
             </div>
           ) : (
-            <ScrollArea className="min-h-0 flex-1 max-h-[min(52vh,520px)] rounded-lg border">
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
                   <tr>
@@ -351,7 +350,7 @@ export function InboundBatchAdminDialog({
               {filteredLines.length === 0 && (
                 <p className="p-6 text-center text-sm text-muted-foreground">No lines in this filter.</p>
               )}
-            </ScrollArea>
+            </div>
           )}
           <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
             <span>

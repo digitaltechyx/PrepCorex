@@ -41,6 +41,7 @@ import type { InboundTrackingEntry } from "@/types";
 import { format } from "date-fns";
 import { AddInventoryRequestForm } from "./add-inventory-request-form";
 import { InboundImportProgress } from "@/components/dashboard/inbound-import-progress";
+import { InboundBatchUserDialog } from "@/components/dashboard/inbound-batch-user-dialog";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -509,6 +510,7 @@ export function InventoryTable({
     productName: string;
     trackings: InboundTrackingEntry[];
   } | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<InboundBatch | null>(null);
   const [closedRequestsSheet, setClosedRequestsSheet] = useState<ClosedRequestMode | null>(null);
   const [outOfStockSheetOpen, setOutOfStockSheetOpen] = useState(false);
   const [productNamePreview, setProductNamePreview] = useState<string | null>(null);
@@ -1140,6 +1142,17 @@ export function InventoryTable({
                           </Button>
                         </div>
                       )}
+                      {(item as any).isBatch && (item as any).batchData && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto shrink-0 p-1"
+                          onClick={() => setSelectedBatch((item as any).batchData)}
+                          title="View batch details"
+                        >
+                          <Eye className="h-3 w-3" />
+                        </Button>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">SKU: {(item as any).sku || "N/A"}</div>
                     <div className="mt-1.5">
@@ -1373,6 +1386,17 @@ export function InventoryTable({
                                 <Trash2 className="h-3 w-3" />
                               </Button>
                             </div>
+                          )}
+                          {(item as any).isBatch && (item as any).batchData && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-auto shrink-0 p-1"
+                              onClick={() => setSelectedBatch((item as any).batchData)}
+                              title="View batch details"
+                            >
+                              <Eye className="h-3 w-3" />
+                            </Button>
                           )}
                         </div>
                         {(item as any).variantLabel && (
@@ -1812,6 +1836,12 @@ export function InventoryTable({
         item={historyItem}
         userId={effectiveUserId}
         ownerLabel={effectiveUserName}
+      />
+
+      <InboundBatchUserDialog
+        batch={selectedBatch}
+        userId={effectiveUserId}
+        onClose={() => setSelectedBatch(null)}
       />
 
       {effectiveUserId && trackingDialog ? (
