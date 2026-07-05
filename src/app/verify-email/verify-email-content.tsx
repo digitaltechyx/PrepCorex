@@ -61,7 +61,14 @@ export default function VerifyEmailPage() {
     }
     setResending(true);
     try {
-      await sendUserVerificationEmail(user);
+      const result = await sendUserVerificationEmail(user);
+      if (result.throttled) {
+        toast({
+          title: "Verification email already sent",
+          description: `Please check your inbox. You can resend again in about ${result.cooldownSeconds ?? 60} seconds.`,
+        });
+        return;
+      }
       toast({
         title: "Verification email sent",
         description: "Check your inbox for a message from PrepCorex with the confirmation link.",
