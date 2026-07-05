@@ -48,18 +48,15 @@ export async function addReturnTracking(input: {
   if (!snap.exists()) throw new Error("Return request not found.");
 
   const existing = parseReturnTrackings(snap.data().returnTrackings);
+  const entry = buildReturnTrackingEntry({
+    trackingNumber: tn,
+    carrier: input.carrier,
+    addedBy: input.addedBy,
+  });
   const normalized = normalizeReturnTracking(tn);
   if (existing.some((e) => normalizeReturnTracking(e.trackingNumber) === normalized)) {
     throw new Error("This tracking number is already on the return.");
   }
-
-  const entry: InboundTrackingEntry = {
-    id: `rt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    trackingNumber: tn,
-    carrier: input.carrier?.trim() || detectCarrier(tn) || null,
-    addedAt: new Date(),
-    addedBy: input.addedBy ?? null,
-  };
 
   const next = [...existing, entry];
   await updateDoc(ref, {
@@ -67,6 +64,31 @@ export async function addReturnTracking(input: {
     updatedAt: serverTimestamp(),
   });
   return next;
+}
+
+/** Build one tracking entry for initial return submit (optional tracking). */
+export function buildReturnTrackingEntry(input: {
+  trackingNumber: string;
+  carrier?: string | null;
+  addedBy?: string | null;
+}): InboundTrackingEntry {
+  const tn = input.trackingNumber.trim();
+  return {
+    id: `rt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    trackingNumber: tn,
+    carrier: input.carrier?.trim() || detectCarrier(tn) || null,
+    addedAt: new Date(),
+    addedBy: input.addedBy ?? null,
+  };
+}
+
+export function buildReturnTrackingEntries(
+  input: { trackingNumber: string; carrier?: string | null },
+  addedBy?: string | null
+): InboundTrackingEntry[] {
+  const tn = input.trackingNumber.trim();
+  if (!tn) return [];
+  return [buildReturnTrackingEntry({ trackingNumber: tn, carrier: input.carrier, addedBy })];
 }
 
 export { parseReturnTrackings };

@@ -15,7 +15,11 @@ import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2 } from "lucide-react";
+import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2, Upload } from "lucide-react";
+import {
+  BuyLabelsBulkImportDialog,
+  type BuyLabelCartImportItem,
+} from "@/components/dashboard/buy-labels-bulk-import-dialog";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import { getStripePublishableKey } from "@/lib/stripe";
@@ -204,6 +208,7 @@ export function BuyLabelsForm() {
   const [cartItems, setCartItems] = useState<LabelCartItem[]>([]);
   const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
   const [selectedFromLocationId, setSelectedFromLocationId] = useState("");
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
 
   const assignedLocationIds = userProfile?.locations ?? [];
   const activeLocations = locationDocs.filter((loc) => loc.active !== false);
@@ -491,6 +496,21 @@ export function BuyLabelsForm() {
     }
   };
 
+  const handleBulkImportAddToCart = (items: BuyLabelCartImportItem[]) => {
+    const newItems: LabelCartItem[] = items.map((item) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromAddress: item.fromAddress,
+      toAddress: item.toAddress,
+      parcel: item.parcel,
+      selectedRate: item.selectedRate,
+      shipmentId: item.shipmentId,
+    }));
+    setCartItems((prev) => [...prev, ...newItems]);
+  };
+
+  const defaultFromName =
+    userProfile?.companyName?.trim() || DEFAULT_FORM_VALUES.fromAddress.name;
+
   const handlePaymentSuccess = () => {
     if (checkoutMode === "bulk") {
       setCartItems([]);
@@ -522,15 +542,39 @@ export function BuyLabelsForm() {
           />
         </Elements>
       )}
+      <BuyLabelsBulkImportDialog
+        open={bulkImportOpen}
+        onOpenChange={setBulkImportOpen}
+        locationOptions={locationOptions}
+        defaultFromName={defaultFromName}
+        defaultFromPhone={userProfile?.phone || ""}
+        defaultFromEmail={userProfile?.email || ""}
+        onAddToCart={handleBulkImportAddToCart}
+      />
+
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5" />
-            Purchase Shipping Label
-          </CardTitle>
-          <CardDescription>
-            Enter shipment details to get shipping rates and purchase a label.
-          </CardDescription>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5" />
+                Purchase Shipping Label
+              </CardTitle>
+              <CardDescription>
+                Enter shipment details to get shipping rates and purchase a label, or import multiple
+                labels from CSV.
+              </CardDescription>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => setBulkImportOpen(true)}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Import
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <Form {...form}>

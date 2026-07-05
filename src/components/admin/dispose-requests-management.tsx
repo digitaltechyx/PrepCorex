@@ -1,11 +1,20 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import type { DisposeRequest, UserProfile, InventoryItem } from "@/types";
+import type { DisposeBatch, DisposeBatchLine, DisposeRequest, UserProfile, InventoryItem } from "@/types";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
-import { doc, updateDoc, collection, addDoc, runTransaction, Timestamp, serverTimestamp } from "firebase/firestore";
+import {
+  approveDisposeBatchLine,
+  batchLineToDisposeRequest,
+  disposeBatchLinesPath,
+  disposeBatchesPath,
+  refreshDisposeBatchCounts,
+  rejectDisposeBatchLine,
+} from "@/lib/dispose-batch";
+import { DisposeBatchAdminDialog } from "@/components/admin/dispose-batch-admin-dialog";
+import { doc, updateDoc, collection, addDoc, runTransaction, Timestamp, serverTimestamp, getDocs } from "firebase/firestore";
 import { format } from "date-fns";
 import {
   Card,
@@ -58,6 +67,7 @@ export function DisposeRequestsManagement({
   const { toast } = useToast();
   const { user: authUser, userProfile: adminProfile } = useAuth();
   const [selectedRequest, setSelectedRequest] = useState<DisposeRequest | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<DisposeBatch | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [requestSearch, setRequestSearch] = useState("");
@@ -74,20 +84,64 @@ export function DisposeRequestsManagement({
   const { data: requests, loading } = useCollection<DisposeRequest>(
     isValidUserId ? `users/${userId}/disposeRequests` : ""
   );
+  const { data: disposeBatches, loading: batchesLoading } = useCollection<DisposeBatch>(
+    isValidUserId ? disposeBatchesPath(userId) : ""
+  );
 
   useEffect(() => {
-    if (!initialRequestId || !requests?.length) return;
+    if (!initialRequestId) return;
     const match = requests.find((r: DisposeRequest) => r.id === initialRequestId);
-    if (match) setSelectedRequest(match);
-  }, [initialRequestId, requests]);
+    if (match) {
+      setSelectedRequest(match);
+      return;
+    }
+    const batchMatch = disposeBatches.find((b) => b.id === initialRequestId);
+    if (batchMatch) setSelectedBatch(batchMatch);
+  }, [initialRequestId, requests, disposeBatches]);
 
-  const pendingCount = requests.filter((r) => r.status === "pending").length;
-  const approvedCount = requests.filter((r) => r.status === "approved").length;
-  const rejectedCount = requests.filter((r) => r.status === "rejected").length;
-  const totalCount = requests.length;
+  const singleRequests = useMemo(
+    () => requests.filter((r) => !r.batchId),
+    [requests]
+  );
+
+  const pendingCount =
+    singleRequests.filter((r) => r.status === "pending").length +
+    disposeBatches.filter((b) => b.status === "pending" || b.status === "partial").length;
+  const approvedCount = singleRequests.filter((r) => r.status === "approved").length;
+  const rejectedCount = singleRequests.filter((r) => r.status === "rejected").length;
+  const totalCount = singleRequests.length + disposeBatches.length;
+
+  const filteredBatches = useMemo(() => {
+    let batches = [...disposeBatches];
+    if (statusFilter === "pending") {
+      batches = batches.filter((b) => b.status === "pending" || b.status === "partial");
+    } else if (statusFilter !== "all") {
+      batches = batches.filter((b) => b.status === statusFilter);
+    }
+    const q = requestSearch.trim().toLowerCase();
+    if (q) {
+      batches = batches.filter(
+        (b) =>
+          (b.reason || "").toLowerCase().includes(q) ||
+          String(b.totalLines || "").includes(q) ||
+          (b.status || "").toLowerCase().includes(q)
+      );
+    }
+    return batches.sort((a, b) => {
+      const msA =
+        a.requestedAt && typeof a.requestedAt === "object" && "seconds" in a.requestedAt
+          ? a.requestedAt.seconds * 1000
+          : 0;
+      const msB =
+        b.requestedAt && typeof b.requestedAt === "object" && "seconds" in b.requestedAt
+          ? b.requestedAt.seconds * 1000
+          : 0;
+      return msB - msA;
+    });
+  }, [disposeBatches, statusFilter, requestSearch]);
 
   const filteredRequests = useMemo(() => {
-    let list = statusFilter === "all" ? requests : requests.filter((r) => r.status === statusFilter);
+    let list = statusFilter === "all" ? singleRequests : singleRequests.filter((r) => r.status === statusFilter);
     const q = requestSearch.trim().toLowerCase();
     if (q) {
       list = list.filter((r) =>
@@ -102,7 +156,141 @@ export function DisposeRequestsManagement({
       const msB = b.requestedAt && typeof b.requestedAt === "object" && "seconds" in b.requestedAt ? b.requestedAt.seconds * 1000 : 0;
       return msB - msA;
     });
-  }, [requests, statusFilter, requestSearch]);
+  }, [singleRequests, statusFilter, requestSearch]);
+
+  const refreshBatchCounts = async (batchId: string) => {
+    if (!userId) return;
+    const linesSnap = await getDocs(collection(db, disposeBatchLinesPath(userId, batchId)));
+    const counts = { pending: 0, approved: 0, rejected: 0, total: linesSnap.size };
+    linesSnap.forEach((snap) => {
+      const lineStatus = String(snap.data().status || "pending");
+      if (lineStatus === "approved") counts.approved++;
+      else if (lineStatus === "rejected") counts.rejected++;
+      else counts.pending++;
+    });
+    await refreshDisposeBatchCounts(userId, batchId, counts);
+  };
+
+  const syncShopifyAfterDispose = async (
+    invItem: InventoryItem,
+    newQtyAfterDispose: number
+  ) => {
+    const shopifyItem = invItem as InventoryItem & {
+      source?: string;
+      shop?: string;
+      shopifyVariantId?: string;
+      shopifyInventoryItemId?: string;
+    };
+    if (
+      shopifyItem.source !== "shopify" ||
+      !shopifyItem.shop ||
+      !shopifyItem.shopifyVariantId ||
+      !authUser ||
+      !userId
+    ) {
+      return;
+    }
+    try {
+      const token = await authUser.getIdToken();
+      const res = await fetch("/api/shopify/sync-inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          userId,
+          shop: shopifyItem.shop,
+          shopifyVariantId: shopifyItem.shopifyVariantId,
+          shopifyInventoryItemId: shopifyItem.shopifyInventoryItemId,
+          newQuantity: newQtyAfterDispose,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "Disposed in PrepCorex; Shopify did not update",
+          description: typeof data.error === "string" ? data.error : "Add write_inventory scope and re-connect the store.",
+        });
+      }
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Disposed in PrepCorex; Shopify did not update",
+        description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
+      });
+    }
+  };
+
+  const runBulkBatchAction = async (
+    lines: DisposeBatchLine[],
+    action: "approve" | "reject",
+    opts?: { reason?: string }
+  ) => {
+    if (!selectedBatch || !userId || !adminProfile) return;
+    setIsProcessing(true);
+    let succeeded = 0;
+    let failed = 0;
+    try {
+      for (const line of lines) {
+        try {
+          if (action === "approve") {
+            const invItem = inventory.find((i) => i.id === line.productId);
+            if (!invItem) throw new Error(`Product ${line.productName} not found.`);
+            await approveDisposeBatchLine({
+              userId,
+              batchId: selectedBatch.id,
+              line,
+              inventoryItem: invItem,
+              adminUid: adminProfile.uid,
+              adminName: adminProfile.name || "Admin",
+            });
+            const newQty =
+              line.quantity >= invItem.quantity ? 0 : invItem.quantity - line.quantity;
+            await syncShopifyAfterDispose(invItem, newQty);
+          } else {
+            await rejectDisposeBatchLine({
+              userId,
+              batchId: selectedBatch.id,
+              lineId: line.id,
+              adminUid: adminProfile.uid,
+              adminFeedback: opts?.reason,
+            });
+          }
+          succeeded++;
+        } catch {
+          failed++;
+        }
+      }
+
+      await refreshBatchCounts(selectedBatch.id);
+
+      if (succeeded > 0) {
+        await addDoc(collection(db, `users/${userId}/notifications`), {
+          type: "dispose_request",
+          title:
+            action === "approve"
+              ? "Dispose batch lines approved"
+              : "Dispose batch lines rejected",
+          message:
+            action === "approve"
+              ? `${succeeded} line(s) from your dispose batch were approved.`
+              : `${succeeded} line(s) from your dispose batch were rejected.`,
+          isRead: false,
+          targetUrl: "/dashboard/recycle-bin",
+          relatedRequestId: selectedBatch.id,
+          createdAt: Timestamp.now(),
+          createdBy: adminProfile.uid,
+        });
+      }
+
+      toast({
+        title: action === "approve" ? "Bulk approve complete" : "Bulk reject complete",
+        description: `${succeeded} succeeded${failed > 0 ? `, ${failed} failed` : ""}.`,
+        variant: failed > 0 && succeeded === 0 ? "destructive" : "default",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const closeDialog = () => {
     setSelectedRequest(null);
@@ -127,6 +315,31 @@ export function DisposeRequestsManagement({
     setIsProcessing(true);
     setRejectFeedback("");
     try {
+      if (request.batchId && request.batchLineId) {
+        await approveDisposeBatchLine({
+          userId: userId!,
+          batchId: request.batchId,
+          line: {
+            id: request.batchLineId,
+            batchId: request.batchId,
+            lineNumber: 0,
+            productId: request.productId,
+            productName: request.productName,
+            quantity: request.quantity,
+            currentQuantity: invItem.quantity,
+            stockStatus: "In Stock",
+            reason: request.reason,
+            status: "pending",
+          },
+          inventoryItem: invItem,
+          adminUid: adminProfile.uid,
+          adminName: adminProfile.name || "Admin",
+        });
+        const newQtyAfterDispose =
+          request.quantity >= invItem.quantity ? 0 : invItem.quantity - request.quantity;
+        await syncShopifyAfterDispose(invItem, newQtyAfterDispose);
+        await refreshBatchCounts(request.batchId);
+      } else {
       const requestRef = doc(db, `users/${userId}/disposeRequests`, request.id);
       const recycledCol = collection(db, `users/${userId}/recycledInventory`);
       const inventoryRef = doc(db, `users/${userId}/inventory`, invItem.id);
@@ -166,36 +379,7 @@ export function DisposeRequestsManagement({
       });
 
       const newQtyAfterDispose = request.quantity >= invItem.quantity ? 0 : invItem.quantity - request.quantity;
-      const shopifyItem = invItem as InventoryItem & { source?: string; shop?: string; shopifyVariantId?: string; shopifyInventoryItemId?: string };
-      if (shopifyItem.source === "shopify" && shopifyItem.shop && shopifyItem.shopifyVariantId && authUser && userId) {
-        try {
-          const token = await authUser.getIdToken();
-          const res = await fetch("/api/shopify/sync-inventory", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              userId,
-              shop: shopifyItem.shop,
-              shopifyVariantId: shopifyItem.shopifyVariantId,
-              shopifyInventoryItemId: shopifyItem.shopifyInventoryItemId,
-              newQuantity: newQtyAfterDispose,
-            }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            toast({
-              variant: "destructive",
-              title: "Disposed in PrepCorex; Shopify did not update",
-              description: typeof data.error === "string" ? data.error : "Add write_inventory scope and re-connect the store.",
-            });
-          }
-        } catch (e) {
-          toast({
-            variant: "destructive",
-            title: "Disposed in PrepCorex; Shopify did not update",
-            description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
-          });
-        }
+      await syncShopifyAfterDispose(invItem, newQtyAfterDispose);
       }
 
       toast({ title: "Request approved", description: `${request.quantity} unit(s) of "${request.productName}" disposed.` });
@@ -215,14 +399,25 @@ export function DisposeRequestsManagement({
     }
     setIsProcessing(true);
     try {
-      const requestRef = doc(db, `users/${userId}/disposeRequests`, request.id);
-      const updateData: Record<string, unknown> = {
-        status: "rejected",
-        rejectedBy: adminProfile.uid,
-        rejectedAt: Timestamp.now(),
-      };
-      if (rejectFeedback.trim()) updateData.adminFeedback = rejectFeedback.trim();
-      await updateDoc(requestRef, updateData as Parameters<typeof updateDoc>[1]);
+      if (request.batchId && request.batchLineId) {
+        await rejectDisposeBatchLine({
+          userId: userId!,
+          batchId: request.batchId,
+          lineId: request.batchLineId,
+          adminUid: adminProfile.uid,
+          adminFeedback: rejectFeedback.trim() || undefined,
+        });
+        await refreshBatchCounts(request.batchId);
+      } else {
+        const requestRef = doc(db, `users/${userId}/disposeRequests`, request.id);
+        const updateData: Record<string, unknown> = {
+          status: "rejected",
+          rejectedBy: adminProfile.uid,
+          rejectedAt: Timestamp.now(),
+        };
+        if (rejectFeedback.trim()) updateData.adminFeedback = rejectFeedback.trim();
+        await updateDoc(requestRef, updateData as Parameters<typeof updateDoc>[1]);
+      }
       toast({ title: "Request rejected", description: rejectFeedback.trim() ? "Feedback saved for the user." : "Request rejected." });
       closeDialog();
     } catch (err: unknown) {
@@ -449,15 +644,16 @@ export function DisposeRequestsManagement({
             </Button>
           </div>
 
-          {loading ? (
+          {loading || batchesLoading ? (
             <Skeleton className="h-40 w-full" />
-          ) : filteredRequests.length === 0 ? (
+          ) : filteredRequests.length === 0 && filteredBatches.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No dispose requests found.</p>
           ) : (
             <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Type</TableHead>
                     <TableHead>Product</TableHead>
                     <TableHead>Qty</TableHead>
                     <TableHead>Reason</TableHead>
@@ -467,8 +663,37 @@ export function DisposeRequestsManagement({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {filteredBatches.map((batch) => (
+                    <TableRow key={`batch-${batch.id}`} className="bg-orange-50/50">
+                      <TableCell>
+                        <Badge variant="outline">Batch</Badge>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        Dispose batch · {batch.totalLines} lines
+                        <span className="block text-xs text-muted-foreground line-clamp-2">
+                          {batch.reason}
+                        </span>
+                      </TableCell>
+                      <TableCell>{batch.totalLines}</TableCell>
+                      <TableCell className="max-w-[200px] truncate" title={batch.reason}>
+                        {batch.reason}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">{formatDate(batch.requestedAt)}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{batch.status}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" variant="outline" onClick={() => setSelectedBatch(batch)}>
+                          <Eye className="h-4 w-4 mr-1" /> Preview
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                   {filteredRequests.map((req) => (
                     <TableRow key={req.id}>
+                      <TableCell>
+                        <Badge variant="outline">Single</Badge>
+                      </TableCell>
                       <TableCell className="font-medium">{req.productName}</TableCell>
                       <TableCell>{req.quantity}</TableCell>
                       <TableCell className="max-w-[200px] truncate" title={req.reason}>{req.reason}</TableCell>
@@ -537,6 +762,20 @@ export function DisposeRequestsManagement({
           )}
         </DialogContent>
       </Dialog>
+
+      {selectedBatch && userId && (
+        <DisposeBatchAdminDialog
+          batch={selectedBatch}
+          userId={userId}
+          isProcessing={isProcessing}
+          onClose={() => setSelectedBatch(null)}
+          onReviewLine={(line) => {
+            setSelectedRequest(batchLineToDisposeRequest(selectedBatch, line));
+          }}
+          onBulkApprove={(lines) => runBulkBatchAction(lines, "approve")}
+          onBulkReject={(lines, reason) => runBulkBatchAction(lines, "reject", { reason })}
+        />
+      )}
 
       <Dialog open={addDisposeDialogOpen} onOpenChange={setAddDisposeDialogOpen}>
         <DialogContent className="sm:max-w-md">

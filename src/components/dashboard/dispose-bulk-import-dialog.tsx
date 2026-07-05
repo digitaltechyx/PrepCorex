@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { collection, doc, Timestamp, writeBatch } from "firebase/firestore";
 import { Download, FileUp, Loader2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -13,86 +12,54 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useCollection } from "@/hooks/use-collection";
-import { db } from "@/lib/firebase";
-import type { FbaPackAddOnConfig } from "@/lib/pricing-utils";
 import {
-  downloadOutboundBulkTemplate,
-  isOutboundTemplateEligible,
-  outboundBulkRowToFirestoreDoc,
-  parseOutboundBulkCsv,
-  validateOutboundBulkRows,
-  type OutboundBulkRowError,
-  type OutboundBulkValidatedRow,
-} from "@/lib/outbound-bulk-import";
-import type { InventoryItem, UserPricing } from "@/types";
-import { formatServiceLabel } from "@/types";
+  bulkRowToDisposeLineInput,
+  submitDisposeBatch,
+} from "@/lib/dispose-batch";
+import {
+  downloadDisposeBulkTemplate,
+  parseDisposeBulkCsv,
+  validateDisposeBulkRows,
+  type DisposeBulkRowError,
+  type DisposeBulkValidatedRow,
+} from "@/lib/dispose-bulk-import";
+import type { InventoryItem } from "@/types";
 
-type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & { id: string };
-
-type OutboundBulkImportDialogProps = {
+type DisposeBulkImportDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   ownerId: string;
   ownerDisplayName: string;
   inventory: InventoryItem[];
-  onSuccess?: () => void;
+  onSuccess?: (batchId: string) => void;
 };
 
-export function OutboundBulkImportDialog({
+export function DisposeBulkImportDialog({
   open,
   onOpenChange,
   ownerId,
   ownerDisplayName,
   inventory,
   onSuccess,
-}: OutboundBulkImportDialogProps) {
+}: DisposeBulkImportDialogProps) {
   const { toast } = useToast();
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
-  const [validRows, setValidRows] = useState<OutboundBulkValidatedRow[]>([]);
-  const [rowErrors, setRowErrors] = useState<OutboundBulkRowError[]>([]);
-  const [rowWarnings, setRowWarnings] = useState<OutboundBulkRowError[]>([]);
+  const [batchReason, setBatchReason] = useState("");
+  const [validRows, setValidRows] = useState<DisposeBulkValidatedRow[]>([]);
+  const [rowErrors, setRowErrors] = useState<DisposeBulkRowError[]>([]);
+  const [rowWarnings, setRowWarnings] = useState<DisposeBulkRowError[]>([]);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const { data: pricingRules } = useCollection<UserPricing>(
-    ownerId ? `users/${ownerId}/pricing` : ""
-  );
-  const { data: defaultPricingRules } = useCollection<UserPricing>("defaultPricing");
-  const { data: fbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
-    ownerId ? `users/${ownerId}/fbaPackAddOnPricing` : ""
-  );
-  const { data: defaultFbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
-    "defaultFbaPackAddOnPricing"
-  );
-
-  const effectivePricingRules =
-    pricingRules && pricingRules.length > 0 ? pricingRules : defaultPricingRules || [];
-
-  const latestFbaPackAddOnConfig = useMemo((): FbaPackAddOnConfig | undefined => {
-    const list =
-      fbaPackAddOnPricing && fbaPackAddOnPricing.length > 0
-        ? fbaPackAddOnPricing
-        : defaultFbaPackAddOnPricing || [];
-    if (list.length === 0) return undefined;
-    const sorted = [...list].sort((a, b) => {
-      const aT = (a as FbaPackAddOnPricingDoc).updatedAt?.seconds ?? 0;
-      const bT = (b as FbaPackAddOnPricingDoc).updatedAt?.seconds ?? 0;
-      return bT - aT;
-    });
-    const latest = sorted[0];
-    return {
-      pack2to3AddOn: latest.pack2to3AddOn,
-      pack4to12AddOn: latest.pack4to12AddOn,
-    };
-  }, [fbaPackAddOnPricing, defaultFbaPackAddOnPricing]);
-
   const resetState = useCallback(() => {
     setFileName("");
+    setBatchReason("");
     setValidRows([]);
     setRowErrors([]);
     setRowWarnings([]);
@@ -105,6 +72,26 @@ export function OutboundBulkImportDialog({
     onOpenChange(next);
   };
 
+  const revalidate = (text: string, reason: string) => {
+    const { rows, errors: parseErrs } = parseDisposeBulkCsv(text);
+    setParseErrors(parseErrs);
+    if (parseErrs.length > 0) {
+      setValidRows([]);
+      setRowErrors([]);
+      setRowWarnings([]);
+      return;
+    }
+    const { valid, errors, warnings } = validateDisposeBulkRows(rows, {
+      inventory,
+      batchReason: reason,
+    });
+    setValidRows(valid);
+    setRowErrors(errors);
+    setRowWarnings(warnings);
+  };
+
+  const [lastFileText, setLastFileText] = useState("");
+
   const processFile = async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".csv")) {
       toast({
@@ -116,25 +103,16 @@ export function OutboundBulkImportDialog({
     }
 
     const text = await file.text();
-    const { rows, errors: parseErrs } = parseOutboundBulkCsv(text);
-    setParseErrors(parseErrs);
+    setLastFileText(text);
     setFileName(file.name);
+    revalidate(text, batchReason);
+  };
 
-    if (parseErrs.length > 0) {
-      setValidRows([]);
-      setRowErrors([]);
-      setRowWarnings([]);
-      return;
+  const handleBatchReasonChange = (value: string) => {
+    setBatchReason(value);
+    if (lastFileText) {
+      revalidate(lastFileText, value);
     }
-
-    const { valid, errors, warnings } = validateOutboundBulkRows(rows, {
-      inventory,
-      pricingRules: effectivePricingRules,
-      packConfig: latestFbaPackAddOnConfig,
-    });
-    setValidRows(valid);
-    setRowErrors(errors);
-    setRowWarnings(warnings);
   };
 
   const previewSummary = useMemo(() => {
@@ -144,51 +122,50 @@ export function OutboundBulkImportDialog({
     return { valid: validRows.length, invalid: rowErrors.length, warnings: rowWarnings.length };
   }, [validRows.length, rowErrors.length, rowWarnings.length, parseErrors.length]);
 
-  const shippableCount = useMemo(
-    () => inventory.filter(isOutboundTemplateEligible).length,
-    [inventory]
+  const totalDisposeUnits = useMemo(
+    () => validRows.reduce((sum, row) => sum + row.disposeQuantity, 0),
+    [validRows]
   );
 
   const handleSubmit = async () => {
-    if (!user || !ownerId || validRows.length === 0 || rowErrors.length > 0 || parseErrors.length > 0) {
+    if (
+      !user ||
+      !ownerId ||
+      !batchReason.trim() ||
+      validRows.length === 0 ||
+      rowErrors.length > 0 ||
+      parseErrors.length > 0
+    ) {
       return;
     }
 
     setSubmitting(true);
     try {
-      const batch = writeBatch(db);
-      const requestedAt = Timestamp.now();
-
-      for (const row of validRows) {
-        const ref = doc(collection(db, `users/${ownerId}/shipmentRequests`));
-        batch.set(
-          ref,
-          outboundBulkRowToFirestoreDoc(row, {
-            ownerId,
-            ownerDisplayName,
-            requestedAt,
-          })
-        );
-      }
-
-      await batch.commit();
+      const batchId = await submitDisposeBatch({
+        userId: ownerId,
+        userName: ownerDisplayName,
+        reason: batchReason.trim(),
+        lines: validRows.map(bulkRowToDisposeLineInput),
+      });
 
       toast({
-        title: "Import successful",
-        description: `${validRows.length} outbound shipment request${validRows.length === 1 ? "" : "s"} submitted for admin review. Upload labels from each shipment when ready.`,
+        title: "Dispose batch submitted",
+        description: `${validRows.length} line${validRows.length === 1 ? "" : "s"} (${totalDisposeUnits} units) sent for admin review.`,
       });
-      onSuccess?.();
+      onSuccess?.(batchId);
       handleOpenChange(false);
     } catch (e) {
       toast({
         variant: "destructive",
         title: "Import failed",
-        description: e instanceof Error ? e.message : "Could not submit bulk outbound requests.",
+        description: e instanceof Error ? e.message : "Could not submit dispose batch.",
       });
     } finally {
       setSubmitting(false);
     }
   };
+
+  const eligibleCount = inventory.filter((item) => Number(item.quantity) > 0).length;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -196,13 +173,11 @@ export function OutboundBulkImportDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5 text-primary" />
-            Bulk import outbound shipments
+            Import dispose inventory (CSV)
           </DialogTitle>
           <DialogDescription>
-            Download a template with your in-stock products. Fill Service, Shipping Date, Shipment
-            Preference (SPD/LTL), and Quantity only on rows you want to ship — leave other rows blank.
-            Each filled row creates one pending outbound request. FBA rows use the master-case label
-            workflow; upload labels after warehouse posts case details.
+            Download a template with your in-stock products (including low stock and expired). Fill in
+            Dispose Quantity for items you want to dispose, review, then submit one batch request.
           </DialogDescription>
         </DialogHeader>
 
@@ -211,12 +186,22 @@ export function OutboundBulkImportDialog({
             type="button"
             variant="outline"
             className="w-full"
-            disabled={!ownerId || shippableCount === 0}
-            onClick={() => downloadOutboundBulkTemplate(inventory)}
+            disabled={!ownerId || eligibleCount === 0}
+            onClick={() => downloadDisposeBulkTemplate(inventory)}
           >
             <Download className="mr-2 h-4 w-4" />
-            Download template ({shippableCount} product{shippableCount === 1 ? "" : "s"})
+            Download template ({eligibleCount} product{eligibleCount === 1 ? "" : "s"})
           </Button>
+
+          <div className="space-y-2">
+            <Label>Batch reason (required)</Label>
+            <Textarea
+              value={batchReason}
+              onChange={(e) => handleBatchReasonChange(e.target.value)}
+              placeholder="Why are you disposing these items? Used for rows without their own Reason."
+              rows={2}
+            />
+          </div>
 
           <div className="rounded-lg border border-dashed bg-muted/30 p-4">
             <input
@@ -259,8 +244,14 @@ export function OutboundBulkImportDialog({
             <div className="rounded-lg border bg-card p-3 text-sm">
               <p>
                 <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                  {previewSummary.valid} valid row{previewSummary.valid === 1 ? "" : "s"}
+                  {previewSummary.valid} line{previewSummary.valid === 1 ? "" : "s"} to dispose
                 </span>
+                {previewSummary.valid > 0 && (
+                  <>
+                    {" · "}
+                    <span className="font-medium">{totalDisposeUnits} units total</span>
+                  </>
+                )}
                 {previewSummary.invalid > 0 && (
                   <>
                     {" · "}
@@ -308,28 +299,30 @@ export function OutboundBulkImportDialog({
           )}
 
           {validRows.length > 0 && rowErrors.length === 0 && (
-            <div className="max-h-36 overflow-y-auto rounded-lg border text-xs">
+            <div className="max-h-44 overflow-y-auto rounded-lg border text-xs">
               <table className="w-full">
                 <thead className="bg-muted/50 sticky top-0">
                   <tr>
                     <th className="px-2 py-1.5 text-left font-medium">Product</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Service</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Qty</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Status</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Current</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Dispose</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {validRows.slice(0, 8).map((row) => (
+                  {validRows.slice(0, 10).map((row) => (
                     <tr key={row.rowNumber} className="border-t">
-                      <td className="px-2 py-1 truncate max-w-[140px]">{row.productName}</td>
-                      <td className="px-2 py-1">{formatServiceLabel(row.service)}</td>
-                      <td className="px-2 py-1 text-right tabular-nums">{row.quantity}</td>
+                      <td className="px-2 py-1 truncate max-w-[120px]">{row.productName}</td>
+                      <td className="px-2 py-1">{row.stockStatus}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{row.currentQuantity}</td>
+                      <td className="px-2 py-1 text-right tabular-nums font-medium">{row.disposeQuantity}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {validRows.length > 8 && (
+              {validRows.length > 10 && (
                 <p className="px-2 py-1 text-muted-foreground border-t">
-                  +{validRows.length - 8} more rows
+                  +{validRows.length - 10} more rows
                 </p>
               )}
             </div>
@@ -346,6 +339,7 @@ export function OutboundBulkImportDialog({
               submitting ||
               !user ||
               !ownerId ||
+              !batchReason.trim() ||
               validRows.length === 0 ||
               rowErrors.length > 0 ||
               parseErrors.length > 0
@@ -353,7 +347,7 @@ export function OutboundBulkImportDialog({
             onClick={() => void handleSubmit()}
           >
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Submit {validRows.length > 0 ? `${validRows.length} request${validRows.length === 1 ? "" : "s"}` : ""}
+            Submit batch ({validRows.length > 0 ? `${validRows.length} lines` : "0 lines"})
           </Button>
         </DialogFooter>
       </DialogContent>

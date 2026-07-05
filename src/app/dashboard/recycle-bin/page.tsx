@@ -2,7 +2,9 @@
 
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
-import type { InventoryItem, DisposeRequest } from "@/types";
+import type { InventoryItem, DisposeRequest, DisposeBatch } from "@/types";
+import { disposeBatchesPath } from "@/lib/dispose-batch";
+import { DisposeBulkImportDialog } from "@/components/dashboard/dispose-bulk-import-dialog";
 import { db } from "@/lib/firebase";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,9 +24,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { RotateCcw, Search, X, Calendar, Plus, Loader2, Clock, CheckCircle, XCircle, FileStack } from "lucide-react";
+import { RotateCcw, Search, X, Calendar, Plus, Loader2, Clock, CheckCircle, XCircle, FileStack, Upload } from "lucide-react";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 export default function RecycleBinPage() {
   const { userProfile } = useAuth();
@@ -34,6 +36,7 @@ export default function RecycleBinPage() {
   const [recycleSearch, setRecycleSearch] = useState("");
   const [recyclePage, setRecyclePage] = useState(1);
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [disposeQuantity, setDisposeQuantity] = useState<string>("");
   const [disposeReason, setDisposeReason] = useState("");
@@ -46,6 +49,15 @@ export default function RecycleBinPage() {
 
   const { data: disposeRequests = [], loading: requestsLoading } = useCollection<DisposeRequest & { id: string }>(
     userProfile ? `users/${userProfile.uid}/disposeRequests` : ""
+  );
+
+  const { data: disposeBatches = [], loading: batchesLoading } = useCollection<DisposeBatch>(
+    userProfile ? disposeBatchesPath(userProfile.uid) : ""
+  );
+
+  const singleDisposeRequests = useMemo(
+    () => disposeRequests.filter((r) => !r.batchId),
+    [disposeRequests]
   );
 
   const inStockInventory = inventory.filter((item) => item.quantity > 0);
@@ -96,25 +108,65 @@ export default function RecycleBinPage() {
     }
   };
 
-  const pendingCount = disposeRequests.filter((r) => r.status === "pending").length;
-  const approvedCount = disposeRequests.filter((r) => r.status === "approved").length;
-  const rejectedCount = disposeRequests.filter((r) => r.status === "rejected").length;
-  const totalCount = disposeRequests.length;
+  const pendingCount =
+    singleDisposeRequests.filter((r) => r.status === "pending").length +
+    disposeBatches.filter((b) => b.status === "pending" || b.status === "partial").length;
+  const approvedCount = singleDisposeRequests.filter((r) => r.status === "approved").length;
+  const rejectedCount = singleDisposeRequests.filter((r) => r.status === "rejected").length;
+  const totalCount = singleDisposeRequests.length + disposeBatches.length;
 
-  const filteredDisposeRequests = disposeRequests.filter((req) => {
+  type DisposeListRow =
+    | { kind: "single"; item: DisposeRequest & { id: string }; sortMs: number }
+    | { kind: "batch"; item: DisposeBatch; sortMs: number };
+
+  const combinedRows = useMemo(() => {
+    const rows: DisposeListRow[] = [];
+    for (const req of singleDisposeRequests) {
+      rows.push({ kind: "single", item: req, sortMs: getRequestDate(req) ?? 0 });
+    }
+    for (const batch of disposeBatches) {
+      const raw = batch.requestedAt;
+      let sortMs = 0;
+      if (raw && typeof raw === "object" && "seconds" in raw) sortMs = raw.seconds * 1000;
+      else if (typeof raw === "string") sortMs = new Date(raw).getTime();
+      rows.push({ kind: "batch", item: batch, sortMs });
+    }
+    return rows.sort((a, b) => b.sortMs - a.sortMs);
+  }, [singleDisposeRequests, disposeBatches]);
+
+  const filteredDisposeRows = combinedRows.filter((row) => {
     const searchLower = recycleSearch.toLowerCase();
+    if (row.kind === "single") {
+      const req = row.item;
+      const matchesSearch =
+        !recycleSearch.trim() ||
+        (req.productName && req.productName.toLowerCase().includes(searchLower)) ||
+        (req.reason && req.reason.toLowerCase().includes(searchLower));
+      const reqDateMs = getRequestDate(req);
+      const matchesDate = !reqDateMs ? true : matchesDateFilter({ seconds: reqDateMs / 1000 }, recycleDateFilter);
+      const matchesStatus =
+        recycleStatusFilter === "all" || req.status === recycleStatusFilter;
+      return matchesSearch && matchesDate && matchesStatus;
+    }
+    const batch = row.item;
     const matchesSearch =
       !recycleSearch.trim() ||
-      (req.productName && req.productName.toLowerCase().includes(searchLower)) ||
-      (req.reason && req.reason.toLowerCase().includes(searchLower));
-    const reqDateMs = getRequestDate(req);
-    const matchesDate = !reqDateMs ? true : matchesDateFilter({ seconds: reqDateMs / 1000 }, recycleDateFilter);
+      (batch.reason || "").toLowerCase().includes(searchLower) ||
+      "batch".includes(searchLower);
+    const matchesDate =
+      recycleDateFilter === "all" ||
+      matchesDateFilter(batch.requestedAt, recycleDateFilter);
+    const batchStatus =
+      batch.status === "partial" ? "pending" : batch.status === "completed" ? "approved" : batch.status;
     const matchesStatus =
-      recycleStatusFilter === "all" || req.status === recycleStatusFilter;
+      recycleStatusFilter === "all" ||
+      (recycleStatusFilter === "pending"
+        ? batch.status === "pending" || batch.status === "partial"
+        : batchStatus === recycleStatusFilter);
     return matchesSearch && matchesDate && matchesStatus;
   });
 
-  const sortedRequests = [...filteredDisposeRequests].sort((a, b) => (getRequestDate(b) ?? 0) - (getRequestDate(a) ?? 0));
+  const sortedRequests = filteredDisposeRows;
   const totalRecords = sortedRequests.length;
   const totalRecyclePages = Math.ceil(totalRecords / itemsPerPage);
   const startRecycleIndex = (recyclePage - 1) * itemsPerPage;
@@ -171,6 +223,16 @@ export default function RecycleBinPage() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="bg-white/90 text-orange-700 hover:bg-white"
+                onClick={() => setBulkImportOpen(true)}
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import CSV
+              </Button>
               <Dialog open={requestDialogOpen} onOpenChange={setRequestDialogOpen}>
                 <DialogTrigger asChild>
                   <Button size="sm" className="bg-white text-orange-600 hover:bg-orange-50 shadow-md">
@@ -241,6 +303,13 @@ export default function RecycleBinPage() {
                   </div>
                 </DialogContent>
               </Dialog>
+              <DisposeBulkImportDialog
+                open={bulkImportOpen}
+                onOpenChange={setBulkImportOpen}
+                ownerId={userProfile?.uid ?? ""}
+                ownerDisplayName={userProfile?.name ?? ""}
+                inventory={inventory}
+              />
               <div className="h-14 w-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
                 <RotateCcw className="h-7 w-7 text-white" />
               </div>
@@ -264,7 +333,7 @@ export default function RecycleBinPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                {requestsLoading ? (
+                {requestsLoading || batchesLoading ? (
                   <div className="h-8 w-12 bg-muted animate-pulse rounded" />
                 ) : (
                   <>
@@ -288,7 +357,7 @@ export default function RecycleBinPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                {requestsLoading ? (
+                {requestsLoading || batchesLoading ? (
                   <div className="h-8 w-12 bg-muted animate-pulse rounded" />
                 ) : (
                   <>
@@ -312,7 +381,7 @@ export default function RecycleBinPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                {requestsLoading ? (
+                {requestsLoading || batchesLoading ? (
                   <div className="h-8 w-12 bg-muted animate-pulse rounded" />
                 ) : (
                   <>
@@ -336,7 +405,7 @@ export default function RecycleBinPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                {requestsLoading ? (
+                {requestsLoading || batchesLoading ? (
                   <div className="h-8 w-12 bg-muted animate-pulse rounded" />
                 ) : (
                   <>
@@ -392,7 +461,7 @@ export default function RecycleBinPage() {
           </div>
 
           {/* Content */}
-          {requestsLoading ? (
+          {requestsLoading || batchesLoading ? (
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-32 bg-muted animate-pulse rounded-xl" />
@@ -411,35 +480,67 @@ export default function RecycleBinPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paginatedList.map((item) => (
-                    <TableRow key={`request-${item.id}`} className="bg-white/80">
-                      <TableCell className="font-semibold text-gray-900">{item.productName}</TableCell>
-                      <TableCell>
-                        <Badge className="bg-amber-500 text-white text-[10px] sm:text-xs">
-                          Qty: {item.quantity}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-amber-900">
-                        <span className="font-semibold text-amber-700">Reason:</span> {item.reason || "—"}
-                        {item.adminFeedback ? ` | Admin: ${item.adminFeedback}` : ""}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] sm:text-xs ${
-                            item.status === "pending"
-                              ? "bg-amber-100 text-amber-800 border-amber-300"
-                              : item.status === "approved"
-                                ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                                : "bg-red-100 text-red-800 border-red-300"
-                          }`}
-                        >
-                          {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-gray-600">{formatDate(item.requestedAt)}</TableCell>
-                    </TableRow>
-                  ))}
+                  {paginatedList.map((row) =>
+                    row.kind === "batch" ? (
+                      <TableRow key={`batch-${row.item.id}`} className="bg-orange-50/60">
+                        <TableCell className="font-semibold text-gray-900">
+                          <Badge variant="outline" className="mr-2">Batch</Badge>
+                          Dispose batch · {row.item.totalLines} lines
+                        </TableCell>
+                        <TableCell>
+                          <Badge className="bg-orange-500 text-white text-[10px] sm:text-xs">
+                            {row.item.totalLines} lines
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-amber-900">
+                          <span className="font-semibold text-amber-700">Reason:</span> {row.item.reason || "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] sm:text-xs ${
+                              row.item.status === "pending" || row.item.status === "partial"
+                                ? "bg-amber-100 text-amber-800 border-amber-300"
+                                : row.item.status === "completed"
+                                  ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                                  : "bg-red-100 text-red-800 border-red-300"
+                            }`}
+                          >
+                            {row.item.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-gray-600">{formatDate(row.item.requestedAt)}</TableCell>
+                      </TableRow>
+                    ) : (
+                      <TableRow key={`request-${row.item.id}`} className="bg-white/80">
+                        <TableCell className="font-semibold text-gray-900">{row.item.productName}</TableCell>
+                        <TableCell>
+                          <Badge className="bg-amber-500 text-white text-[10px] sm:text-xs">
+                            Qty: {row.item.quantity}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-amber-900">
+                          <span className="font-semibold text-amber-700">Reason:</span> {row.item.reason || "—"}
+                          {row.item.adminFeedback ? ` | Admin: ${row.item.adminFeedback}` : ""}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] sm:text-xs ${
+                              row.item.status === "pending"
+                                ? "bg-amber-100 text-amber-800 border-amber-300"
+                                : row.item.status === "approved"
+                                  ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                                  : "bg-red-100 text-red-800 border-red-300"
+                            }`}
+                          >
+                            {row.item.status.charAt(0).toUpperCase() + row.item.status.slice(1)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-gray-600">{formatDate(row.item.requestedAt)}</TableCell>
+                      </TableRow>
+                    )
+                  )}
                 </TableBody>
               </Table>
             </div>
@@ -450,7 +551,7 @@ export default function RecycleBinPage() {
               </div>
               <h3 className="text-xl font-bold mb-2">No dispose requests</h3>
               <p className="text-muted-foreground">
-                {disposeRequests.length === 0
+                {disposeRequests.length === 0 && disposeBatches.length === 0
                   ? "Use \"Request dispose\" to submit a request. An admin will review it."
                   : "No requests match your filters."}
               </p>

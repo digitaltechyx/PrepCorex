@@ -11,6 +11,7 @@ import type {
   InboundBatch,
   ProductReturn,
   DisposeRequest,
+  DisposeBatch,
   InboundTrackingEntry,
 } from "@/types";
 import { summarizeInboundTrackings } from "@/lib/inbound-tracking";
@@ -194,7 +195,7 @@ function isProcessComplete(type: NotificationType, status: string): boolean {
     case "product_return":
       return ["confirmed", "closed", "rejected", "cancelled"].includes(s);
     case "dispose_request":
-      return ["approved", "rejected"].includes(s);
+      return ["approved", "rejected", "completed"].includes(s);
     default:
       return false;
   }
@@ -503,14 +504,16 @@ export default function AdminNotificationsPage() {
           }
         }
 
-        // Dispose Requests (per-user; no collectionGroup for disposeRequests)
+        // Dispose Requests + dispose batch submissions
         {
           try {
             const results = await Promise.all(userIds.map(async (uid) => {
               const base = collection(db, `users/${uid}/disposeRequests`);
               const q = query(base);
               const snap = await getDocs(q);
-              return snap.docs.map((d) => {
+              return snap.docs
+                .filter((d) => !(d.data() as DisposeRequest).batchId)
+                .map((d) => {
                 const data = d.data() as any as DisposeRequest;
                 const dateMs = toMs(data.requestedAt) || 0;
                 return {
@@ -524,7 +527,24 @@ export default function AdminNotificationsPage() {
                 };
               });
             }));
-            setDisposeRequests(results.flat());
+            const batchResults = await Promise.all(userIds.map(async (uid) => {
+              const base = collection(db, `users/${uid}/disposeBatches`);
+              const snap = await getDocs(query(base));
+              return snap.docs.map((d) => {
+                const data = d.data() as DisposeBatch;
+                const dateMs = toMs(data.requestedAt) || 0;
+                return {
+                  type: "dispose_request" as const,
+                  id: d.id,
+                  userId: uid,
+                  status: String(data.status || ""),
+                  createdAtMs: dateMs,
+                  title: `Dispose Batch • ${Number(data.totalLines || 0).toLocaleString()} lines`,
+                  subtitle: `${Number(data.pendingLines || 0).toLocaleString()} pending · ${Number(data.approvedLines || 0).toLocaleString()} approved · ${Number(data.rejectedLines || 0).toLocaleString()} rejected`,
+                };
+              });
+            }));
+            setDisposeRequests([...results.flat(), ...batchResults.flat()]);
           } catch (e) {
             console.warn("Notifications: Could not fetch dispose requests.", e);
             setDisposeRequests([]);

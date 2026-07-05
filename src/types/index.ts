@@ -1091,6 +1091,50 @@ export interface DisposeRequest {
   rejectedBy?: string;
   rejectedAt?: { seconds: number; nanoseconds: number } | string;
   adminFeedback?: string;
+  /** When created from a CSV bulk dispose batch. */
+  batchId?: string;
+  batchLineId?: string;
+}
+
+export type DisposeInventoryStockStatus = "In Stock" | "Low Stock" | "Expired";
+
+export type DisposeBatchStatus = "pending" | "partial" | "completed" | "cancelled";
+
+/** Parent doc for a multi-line dispose CSV submission (`users/{uid}/disposeBatches`). */
+export interface DisposeBatch {
+  id: string;
+  userId: string;
+  userName: string;
+  reason: string;
+  status: DisposeBatchStatus;
+  totalLines: number;
+  pendingLines: number;
+  approvedLines: number;
+  rejectedLines: number;
+  requestedAt?: { seconds: number; nanoseconds: number } | string;
+  requestedBy?: string;
+}
+
+/** Line item under a dispose batch (`users/{uid}/disposeBatches/{batchId}/lines`). */
+export interface DisposeBatchLine {
+  id: string;
+  batchId: string;
+  lineNumber: number;
+  productId: string;
+  productName: string;
+  sku?: string;
+  currentQuantity: number;
+  stockStatus: DisposeInventoryStockStatus;
+  expiryDate?: InventoryItem["expiryDate"];
+  quantity: number;
+  reason?: string;
+  status: "pending" | "approved" | "rejected";
+  approvedBy?: string;
+  approvedAt?: { seconds: number; nanoseconds: number } | string;
+  rejectedBy?: string;
+  rejectedAt?: { seconds: number; nanoseconds: number } | string;
+  adminFeedback?: string;
+  requestedAt?: { seconds: number; nanoseconds: number } | string;
 }
 
 /** One selected variant – PrepCorex will only fulfill orders containing these. */

@@ -72,6 +72,10 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
   const [selectedReturn, setSelectedReturn] = useState<ProductReturn | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [trackingDialogOpen, setTrackingDialogOpen] = useState(false);
+  const [trackingTargetId, setTrackingTargetId] = useState<string | null>(null);
+
+  const canAddTracking = (status: ProductReturn["status"]) =>
+    status === "pending" || status === "approved" || status === "in_progress";
 
   const { data: returns, loading } = useCollection<ProductReturn>(
     userProfile ? `users/${userProfile.uid}/productReturns` : ""
@@ -117,6 +121,17 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
     setSelectedReturn(returnItem);
     setIsDetailsOpen(true);
   };
+
+  const openTrackingDialog = (returnItem: ProductReturn) => {
+    setSelectedReturn(returnItem);
+    setTrackingTargetId(returnItem.id ?? null);
+    setTrackingDialogOpen(true);
+  };
+
+  const trackingDialogReturn = useMemo(() => {
+    if (!trackingTargetId) return selectedReturn;
+    return returns.find((r) => r.id === trackingTargetId) ?? selectedReturn;
+  }, [returns, trackingTargetId, selectedReturn]);
 
   if (loading) {
     return (
@@ -186,6 +201,7 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                   : 0;
                 const productName = returnItem.productName || returnItem.newProductName || "N/A";
                 const hasShipping = returnItem.additionalServices?.shipToAddress;
+                const trackingCount = returnItem.returnTrackings?.length ?? 0;
 
                 return (
                   <TableRow key={returnItem.id} className="transition-colors hover:bg-muted/50">
@@ -215,6 +231,23 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                     <TableCell className="text-muted-foreground text-sm">{formatDate(returnItem.createdAt)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {trackingCount > 0 ? (
+                          <Badge variant="outline" className="text-[10px] mr-1">
+                            <Truck className="h-3 w-3 mr-1" />
+                            {trackingCount}
+                          </Badge>
+                        ) : null}
+                        {canAddTracking(returnItem.status) && returnItem.id ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 rounded-md text-xs"
+                            onClick={() => openTrackingDialog(returnItem)}
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1" />
+                            Tracking
+                          </Button>
+                        ) : null}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -330,16 +363,16 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                 </div>
 
                 {/* Return tracking for dock match */}
-                {(selectedReturn.status === "approved" || selectedReturn.status === "in_progress") && (
+                {canAddTracking(selectedReturn.status) && (
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <div className="text-sm font-medium">Return shipment tracking</div>
-                      {userProfile ? (
+                      {userProfile && selectedReturn.id ? (
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => setTrackingDialogOpen(true)}
+                          onClick={() => openTrackingDialog(selectedReturn)}
                         >
                           <Plus className="h-3.5 w-3.5 mr-1" />
                           Add tracking
@@ -584,15 +617,22 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
         </DialogContent>
       </Dialog>
 
-      {selectedReturn && userProfile ? (
+      {trackingDialogReturn && userProfile && trackingDialogReturn.id ? (
         <AddReturnTrackingDialog
           open={trackingDialogOpen}
-          onOpenChange={setTrackingDialogOpen}
+          onOpenChange={(open) => {
+            setTrackingDialogOpen(open);
+            if (!open) setTrackingTargetId(null);
+          }}
           userId={userProfile.uid}
-          returnId={selectedReturn.id}
+          returnId={trackingDialogReturn.id}
           productName={
-            selectedReturn.productName || selectedReturn.newProductName || "Product return"
+            trackingDialogReturn.productName || trackingDialogReturn.newProductName || "Product return"
           }
+          onAdded={() => {
+            const fresh = returns.find((r) => r.id === trackingDialogReturn.id);
+            if (fresh) setSelectedReturn(fresh);
+          }}
         />
       ) : null}
     </div>

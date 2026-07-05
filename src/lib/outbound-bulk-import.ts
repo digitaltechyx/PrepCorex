@@ -2,16 +2,20 @@ import { Timestamp } from "firebase/firestore";
 import type { ServiceType, UserPricing, InventoryItem } from "@/types";
 import { DTC_FBM_SERVICE, normalizeStoredServiceType } from "@/types";
 import { downloadCSV } from "@/lib/csv-utils";
+import { FBA_SERVICE } from "@/lib/fba-shipment-workflow";
 import {
   calculatePrepUnitPrice,
   type FbaPackAddOnConfig,
 } from "@/lib/pricing-utils";
 
 export const OUTBOUND_BULK_CSV_HEADERS = [
+  "Product ID",
+  "SKU",
+  "Product Name",
+  "Current Quantity",
   "Service",
   "Shipping Date",
   "Shipment Preference",
-  "SKU",
   "Quantity",
   "Pack Of",
   "Remarks",
@@ -71,6 +75,13 @@ function parseCsvLine(line: string): string[] {
   }
   out.push(cur);
   return out.map((c) => c.trim());
+}
+
+function escapeCsvCell(v: string): string {
+  if (v.includes(",") || v.includes('"') || v.includes("\n")) {
+    return `"${v.replace(/"/g, '""')}"`;
+  }
+  return v;
 }
 
 export function parseOutboundBulkCsv(text: string): {
@@ -139,12 +150,13 @@ function parseShippingDate(raw: string): Date | "invalid" {
   return d;
 }
 
-function isShippableProduct(item: InventoryItem): boolean {
+/** Sellable product rows only (excludes box/container/pallet inventory types). */
+export function isOutboundTemplateEligible(item: InventoryItem): boolean {
   const inventoryType = (item as InventoryItem & { inventoryType?: string }).inventoryType;
   if (inventoryType === "box" || inventoryType === "container" || inventoryType === "pallet") {
     return false;
   }
-  return item.quantity > 0;
+  return Number(item.quantity) > 0;
 }
 
 export function computeOutboundLinePricing(
@@ -181,21 +193,60 @@ export function validateOutboundBulkRows(
     pricingRules: UserPricing[];
     packConfig?: FbaPackAddOnConfig;
   }
-): { valid: OutboundBulkValidatedRow[]; errors: OutboundBulkRowError[] } {
+): { valid: OutboundBulkValidatedRow[]; errors: OutboundBulkRowError[]; warnings: OutboundBulkRowError[] } {
   const errors: OutboundBulkRowError[] = [];
+  const warnings: OutboundBulkRowError[] = [];
   const valid: OutboundBulkValidatedRow[] = [];
 
+  const inventoryById = new Map<string, InventoryItem>();
   const inventoryBySku = new Map<string, InventoryItem>();
   for (const item of context.inventory) {
-    if (!isShippableProduct(item)) continue;
-    const sku = String((item as InventoryItem & { sku?: string }).sku ?? "").trim();
+    if (!isOutboundTemplateEligible(item)) continue;
+    inventoryById.set(item.id, item);
+    const sku = String(item.sku ?? "").trim();
     if (sku) inventoryBySku.set(sku.toLowerCase(), item);
   }
 
+  const shipDemandByProduct = new Map<string, number>();
+
   csvRows.forEach((raw, index) => {
     const rowNumber = index + 2;
+    const quantityRaw = raw.Quantity.trim();
+    if (!quantityRaw) return;
 
-    const service = normalizeService(raw["Service"]);
+    const quantity = Number.parseInt(quantityRaw, 10);
+    if (Number.isNaN(quantity) || quantity <= 0) {
+      errors.push({ rowNumber, message: "Quantity must be a positive whole number when provided." });
+      return;
+    }
+
+    const productId = raw["Product ID"].trim();
+    const sku = raw.SKU.trim();
+    let product: InventoryItem | undefined;
+    if (productId) {
+      product = inventoryById.get(productId);
+    }
+    if (!product && sku) {
+      product = inventoryBySku.get(sku.toLowerCase());
+    }
+    if (!product) {
+      errors.push({
+        rowNumber,
+        message: `Product "${raw["Product Name"].trim() || productId || sku}" is not shippable or was removed.`,
+      });
+      return;
+    }
+
+    const csvCurrentQty = Number.parseInt(raw["Current Quantity"].trim(), 10);
+    const liveQty = Number(product.quantity) || 0;
+    if (Number.isFinite(csvCurrentQty) && csvCurrentQty !== liveQty) {
+      warnings.push({
+        rowNumber,
+        message: `Current Quantity in file (${csvCurrentQty}) differs from live stock (${liveQty}). Using live quantity.`,
+      });
+    }
+
+    const service = normalizeService(raw.Service);
     if (!service) {
       errors.push({
         rowNumber,
@@ -216,27 +267,6 @@ export function validateOutboundBulkRows(
       return;
     }
 
-    const sku = raw["SKU"].trim();
-    if (!sku) {
-      errors.push({ rowNumber, message: "SKU is required." });
-      return;
-    }
-
-    const product = inventoryBySku.get(sku.toLowerCase());
-    if (!product) {
-      errors.push({
-        rowNumber,
-        message: `No in-stock product found for SKU "${sku}".`,
-      });
-      return;
-    }
-
-    const quantity = Number.parseInt(raw["Quantity"].trim(), 10);
-    if (!raw["Quantity"].trim() || Number.isNaN(quantity) || quantity <= 0) {
-      errors.push({ rowNumber, message: "Quantity must be a positive whole number." });
-      return;
-    }
-
     const packOfRaw = raw["Pack Of"].trim();
     const packOf = packOfRaw ? Number.parseInt(packOfRaw, 10) : 1;
     if (Number.isNaN(packOf) || packOf <= 0) {
@@ -245,13 +275,16 @@ export function validateOutboundBulkRows(
     }
 
     const totalUnits = quantity * packOf;
-    if (totalUnits > product.quantity) {
+    const alreadyRequested = shipDemandByProduct.get(product.id) ?? 0;
+    const cumulativeUnits = alreadyRequested + totalUnits;
+    if (cumulativeUnits > liveQty) {
       errors.push({
         rowNumber,
-        message: `Insufficient stock for "${product.productName}": requested ${totalUnits}, available ${product.quantity}.`,
+        message: `Insufficient stock for "${product.productName}": requested ${cumulativeUnits}, available ${liveQty}.`,
       });
       return;
     }
+    shipDemandByProduct.set(product.id, cumulativeUnits);
 
     const { unitPrice, totalPrice } = computeOutboundLinePricing(
       context.pricingRules,
@@ -268,16 +301,20 @@ export function validateOutboundBulkRows(
       shipmentPreference,
       productId: product.id,
       productName: product.productName,
-      sku,
+      sku: String(product.sku ?? sku),
       quantity,
       packOf,
       unitPrice,
       totalPrice,
-      remarks: raw["Remarks"].trim() || undefined,
+      remarks: raw.Remarks.trim() || undefined,
     });
   });
 
-  return { valid, errors };
+  if (valid.length === 0 && errors.length === 0) {
+    errors.push("Add Quantity on at least one row for products you want to ship.");
+  }
+
+  return { valid, errors, warnings };
 }
 
 export function outboundBulkRowToFirestoreDoc(
@@ -288,7 +325,7 @@ export function outboundBulkRowToFirestoreDoc(
     requestedAt: Timestamp;
   }
 ): Record<string, unknown> {
-  return {
+  const doc: Record<string, unknown> = {
     userId: context.ownerId,
     userName: context.ownerDisplayName,
     date: Timestamp.fromDate(row.shippingDate),
@@ -310,31 +347,37 @@ export function outboundBulkRowToFirestoreDoc(
       },
     ],
   };
+
+  if (row.service === FBA_SERVICE) {
+    doc.fbaLabelWorkflow = true;
+  }
+
+  return doc;
 }
 
-export function downloadOutboundBulkTemplate(): void {
-  const examples: OutboundBulkCsvRow[] = [
-    {
-      Service: "FBA/WFS/TFS",
-      "Shipping Date": "2026-06-30",
-      "Shipment Preference": "SPD",
-      SKU: "YOUR-SKU-001",
-      Quantity: "5",
-      "Pack Of": "1",
-      Remarks: "Example outbound line",
-    },
-  ];
-
-  const escape = (v: string) => {
-    if (v.includes(",") || v.includes('"') || v.includes("\n")) {
-      return `"${v.replace(/"/g, '""')}"`;
-    }
-    return v;
-  };
+export function downloadOutboundBulkTemplate(inventory: InventoryItem[]): void {
+  const eligible = inventory
+    .filter(isOutboundTemplateEligible)
+    .sort((a, b) => String(a.productName || "").localeCompare(String(b.productName || "")));
 
   const lines = [
     OUTBOUND_BULK_CSV_HEADERS.join(","),
-    ...examples.map((row) => OUTBOUND_BULK_CSV_HEADERS.map((h) => escape(row[h])).join(",")),
+    ...eligible.map((item) => {
+      const row: OutboundBulkCsvRow = {
+        "Product ID": item.id,
+        SKU: String(item.sku ?? "").trim(),
+        "Product Name": item.productName,
+        "Current Quantity": String(item.quantity),
+        Service: "",
+        "Shipping Date": "",
+        "Shipment Preference": "",
+        Quantity: "",
+        "Pack Of": "",
+        Remarks: "",
+      };
+      return OUTBOUND_BULK_CSV_HEADERS.map((h) => escapeCsvCell(row[h])).join(",");
+    }),
   ];
+
   downloadCSV("\uFEFF" + lines.join("\n"), "outbound-shipment-template.csv");
 }
