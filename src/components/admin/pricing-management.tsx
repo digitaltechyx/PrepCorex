@@ -5,6 +5,7 @@ import { useCollection } from "@/hooks/use-collection";
 import { usePricingProfileSettings } from "@/hooks/use-pricing-profile-settings";
 import type { UserProfile, UserPricing, ServiceType, PackageType, QuantityRange, ProductType, UserStoragePricing, StorageType, UserBoxForwardingPricing, UserPalletForwardingPricing, UserContainerHandlingPricing, ContainerSize, UserAdditionalServicesPricing } from "@/types";
 import { DTC_FBM_SERVICE, servicesMatch } from "@/types";
+import { computeFirstInvoiceDate, computeFreeUntil } from "@/lib/pallet-storage-billing";
 import { CONTAINER_SIZE_OPTIONS } from "@/types";
 import {
   Card,
@@ -140,6 +141,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const [pricingRows, setPricingRows] = useState<PricingRow[]>([]);
   const [activeTab, setActiveTab] = useState<string>("FBA/WFS/TFS");
   const [storagePrice, setStoragePrice] = useState<string>("");
+  const [storageMonth1Rate, setStorageMonth1Rate] = useState<string>("40");
+  const [storageMonth2to6Rate, setStorageMonth2to6Rate] = useState<string>("50");
+  const [storageMonth6PlusRate, setStorageMonth6PlusRate] = useState<string>("70");
   const [storagePricingId, setStoragePricingId] = useState<string | null>(null);
   const [adminSelectedStorageType, setAdminSelectedStorageType] = useState<StorageType | "">("");
   const [isSavingStorageType, setIsSavingStorageType] = useState(false);
@@ -378,10 +382,17 @@ export function PricingManagement({ users }: PricingManagementProps) {
     setAdminSelectedStorageType("pallet_base" as StorageType);
     
     if (latestStoragePricing) {
-      setStoragePrice(latestStoragePricing.price.toString());
+      const m1 = latestStoragePricing.month1Rate ?? latestStoragePricing.price;
+      setStoragePrice(String(m1 ?? ""));
+      setStorageMonth1Rate(String(latestStoragePricing.month1Rate ?? latestStoragePricing.price ?? 40));
+      setStorageMonth2to6Rate(String(latestStoragePricing.month2to6Rate ?? 50));
+      setStorageMonth6PlusRate(String(latestStoragePricing.month6PlusRate ?? 70));
       setStoragePricingId(latestStoragePricing.id);
     } else {
       setStoragePrice("");
+      setStorageMonth1Rate("40");
+      setStorageMonth2to6Rate("50");
+      setStorageMonth6PlusRate("70");
       setStoragePricingId(null);
     }
   }, [selectedUser, latestStoragePricing]);
@@ -974,8 +985,10 @@ export function PricingManagement({ users }: PricingManagementProps) {
     setIsMutatingPallets(true);
     try {
       const uid = customUserId;
-      const now = Timestamp.now();
-      const nextInvoice = Timestamp.fromMillis(Date.now() + PALLET_CYCLE_THIRTY_DAYS_MS);
+      const nowDate = new Date();
+      const now = Timestamp.fromDate(nowDate);
+      const freeUntil = Timestamp.fromDate(computeFreeUntil(nowDate));
+      const nextInvoice = Timestamp.fromDate(computeFirstInvoiceDate(nowDate));
       const col = collection(db, `users/${uid}/palletStorageCycles`);
 
       for (let i = 0; i < n; i += 1) {
@@ -983,7 +996,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
           status: "active",
           source: "admin_manual",
           assignedAt: now,
+          freeUntil,
           nextInvoiceDate: nextInvoice,
+          paidCycleCount: 0,
           createdAt: now,
           updatedAt: now,
           assignedBy: adminUserProfile.uid,
@@ -1001,7 +1016,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
       toast({
         title: "Pallets assigned",
-        description: `Added ${n} manual pallet cycle${n === 1 ? "" : "s"}. Next invoice date is 30 days from now for each.`,
+        description: `Added ${n} manual pallet cycle${n === 1 ? "" : "s"}. First invoice on day 8 (7 days free).`,
       });
       setManualAssignQty("1");
     } catch (error: any) {
@@ -1092,21 +1107,14 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
     const storageTypeToUse: StorageType = "pallet_base";
 
-    if (!storagePrice || storagePrice.trim() === "") {
+    const month1 = parseFloat(storageMonth1Rate);
+    const month2 = parseFloat(storageMonth2to6Rate);
+    const month6 = parseFloat(storageMonth6PlusRate);
+    if ([month1, month2, month6].some((n) => isNaN(n) || n < 0)) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Please enter a storage price.",
-      });
-      return;
-    }
-
-    const price = parseFloat(storagePrice);
-    if (isNaN(price) || price < 0) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please enter a valid price.",
+        description: "Please enter valid tier rates.",
       });
       return;
     }
@@ -1117,7 +1125,10 @@ export function PricingManagement({ users }: PricingManagementProps) {
       const storagePricingData: any = {
         userId: ownerId,
         storageType: storageTypeToUse,
-        price,
+        price: month1,
+        month1Rate: month1,
+        month2to6Rate: month2,
+        month6PlusRate: month6,
         palletCount: editingCustomProfile ? palletStats.total : (latestStoragePricing?.palletCount ?? 0),
         updatedAt: now,
       };
@@ -1692,7 +1703,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                               </Button>
                             </div>
                             <p className="text-xs text-muted-foreground mt-1">
-                              Pallet-only storage: inventory auto-creates cycles from in-stock pallets; you can also assign extra pallets manually below. Each active cycle bills every 30 days from its start date.
+                              Pallet-only billing assigned at receive. First 7 days free, then tiered 30-day cycles per active pallet position.
                             </p>
                           </div>
                           
@@ -1700,28 +1711,49 @@ export function PricingManagement({ users }: PricingManagementProps) {
                             <>
                               <div className="pt-2 border-t">
                                 <Label className="text-sm font-medium mb-2 block">
-                                  Storage Type
+                                  Tier rates ($ / pallet / 30 days)
                                 </Label>
-                                <p className="text-sm text-muted-foreground">
-                                  Pallet Base Storage - Monthly charge = Number of due pallet cycles × Price per pallet
+                                <p className="text-sm text-muted-foreground mb-3">
+                                  Month 1 after free week · Months 2–6 · 6+ months
                                 </p>
                               </div>
-                              <div>
-                                <Label className="text-sm font-medium mb-2 block">
-                                  Price per Pallet ($)
-                                </Label>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  placeholder="0.00"
-                                  value={storagePrice}
-                                  onChange={(e) => setStoragePrice(e.target.value)}
-                                  className="w-48"
-                                />
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Price per individual pallet per 30-day cycle.
-                                </p>
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">Month 1</Label>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={storageMonth1Rate}
+                                    onChange={(e) => {
+                                      setStorageMonth1Rate(e.target.value);
+                                      setStoragePrice(e.target.value);
+                                    }}
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">Months 2–6</Label>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={storageMonth2to6Rate}
+                                    onChange={(e) => setStorageMonth2to6Rate(e.target.value)}
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">6+ months</Label>
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={storageMonth6PlusRate}
+                                    onChange={(e) => setStorageMonth6PlusRate(e.target.value)}
+                                    className="mt-1"
+                                  />
+                                </div>
                               </div>
                               {editingCustomProfile && customUserId && (
                                 <div className="pt-2 border-t space-y-3">

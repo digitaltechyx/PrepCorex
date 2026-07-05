@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import type { ShipmentRequest, UserProfile, InventoryItem, InventoryTransfer, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserAdditionalServicesPricing } from "@/types";
+import { formatShipmentPreferenceLabel } from "@/types";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
@@ -936,6 +937,22 @@ function ReviewShipmentDialog({
     String(request.shipmentType || "").toLowerCase() === "pallet" &&
     String(request.palletSubType || "").toLowerCase() === "existing_inventory";
 
+  const readOnly =
+    request.status !== "pending" && request.status !== "awaiting_label_upload";
+  const storedAdminServices = (request as any).adminAdditionalServices as
+    | {
+        bubbleWrapFeet?: number;
+        stickerRemovalItems?: number;
+        warningLabels?: number;
+        pricePerFoot?: number;
+        pricePerItem?: number;
+        pricePerLabel?: number;
+        total?: number;
+        extraServiceQuantities?: Record<string, number>;
+        extraServiceUnitPrices?: Record<string, number>;
+      }
+    | undefined;
+
   const getLocationBreakdownForProduct = (product?: InventoryItem) => {
     if (!product) return [] as Array<{ locationId: string; qty: number }>;
     const locationQuantitiesRaw =
@@ -991,11 +1008,12 @@ function ReviewShipmentDialog({
     request.shipments.forEach((shipment: any, index: number) => {
       // For custom products, initialize with stored values or 0
       if (isCustomProduct) {
+        const adminStored = request.adminCustomProductPricing?.[index];
         const stored = (request as any)?.customProductPricing?.[index];
         initial[index] = {
-          unitPrice: shipment.unitPrice || 0,
-          packOf: shipment.packOf || 1,
-          packOfPrice: stored?.packOfPrice || 0,
+          unitPrice: adminStored?.unitPrice ?? shipment.unitPrice ?? 0,
+          packOf: adminStored?.packOf ?? shipment.packOf ?? 1,
+          packOfPrice: adminStored?.packOfPrice ?? stored?.packOfPrice ?? 0,
         };
       }
     });
@@ -1045,6 +1063,9 @@ function ReviewShipmentDialog({
     Object.entries(adminExtraServiceQty).forEach(([k, qty]) => {
       additionalServicesTotal += (Number(qty) || 0) * unitPriceForServiceKey(k, serviceCatalog);
     });
+  }
+  if (readOnly && storedAdminServices?.total != null) {
+    additionalServicesTotal = Number(storedAdminServices.total) || 0;
   }
 
   const handleConfirmClick = () => {
@@ -1230,13 +1251,63 @@ function ReviewShipmentDialog({
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Review Shipment Request</DialogTitle>
+          <DialogTitle>{readOnly ? "Shipment Request Details" : "Review Shipment Request"}</DialogTitle>
           <DialogDescription>
-            Review the shipment request and confirm or reject it.
+            {readOnly
+              ? "Read-only view of this shipment request and how it was processed."
+              : "Review the shipment request and confirm or reject it."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          {readOnly && (
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs uppercase text-muted-foreground">Status</span>
+                <Badge variant="outline" className="capitalize">
+                  {request.status}
+                </Badge>
+              </div>
+              {request.status === "confirmed" && (
+                <div className="mt-2 grid gap-1 text-sm">
+                  {request.confirmedAt && (
+                    <p>
+                      <span className="text-muted-foreground">Confirmed:</span>{" "}
+                      {formatDate(request.confirmedAt)}
+                    </p>
+                  )}
+                  {(request as any).adminRemarks && (
+                    <p>
+                      <span className="text-muted-foreground">Admin remarks:</span>{" "}
+                      <span className="whitespace-pre-wrap break-words">{(request as any).adminRemarks}</span>
+                    </p>
+                  )}
+                </div>
+              )}
+              {request.status === "rejected" && (
+                <div className="mt-2">
+                  <p className="text-muted-foreground text-xs uppercase">Rejection reason</p>
+                  <p className="mt-1 whitespace-pre-wrap break-words">
+                    {request.rejectionReason || "—"}
+                  </p>
+                  {request.rejectedAt && (
+                    <p className="mt-1 text-muted-foreground">
+                      Rejected: {formatDate(request.rejectedAt)}
+                    </p>
+                  )}
+                </div>
+              )}
+              {request.status === "cancelled" && (request as any).cancellationReason && (
+                <div className="mt-2">
+                  <p className="text-muted-foreground text-xs uppercase">Cancellation reason</p>
+                  <p className="mt-1 whitespace-pre-wrap break-words">
+                    {(request as any).cancellationReason}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Request Details */}
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-2 gap-4">
@@ -1252,7 +1323,9 @@ function ReviewShipmentDialog({
             {request.shipmentPreference && (
               <div>
                 <label className="text-sm font-medium">Shipment Preference</label>
-                <p className="text-sm font-medium capitalize">{request.shipmentPreference}</p>
+                <p className="text-sm font-medium">
+                  {formatShipmentPreferenceLabel(request.shipmentPreference)}
+                </p>
               </div>
             )}
             {request.remarks && (
@@ -1387,9 +1460,17 @@ function ReviewShipmentDialog({
                 // Calculate unit price and packOfPrice from pricing rules
                 let unitPrice = shipment.unitPrice || 0; // Fallback to stored value
                 let packOfPrice = 0;
-                
-                // Use box/pallet forwarding pricing for box and pallet shipments
-                if (request.shipmentType === "box" && boxForwardingPricing && boxForwardingPricing.length > 0) {
+
+                if (readOnly) {
+                  const adminPricing = request.adminCustomProductPricing?.[index];
+                  if (adminPricing) {
+                    unitPrice = adminPricing.unitPrice || 0;
+                    packOfPrice = adminPricing.packOfPrice || 0;
+                  } else {
+                    unitPrice = shipment.unitPrice || 0;
+                    packOfPrice = 0;
+                  }
+                } else if (request.shipmentType === "box" && boxForwardingPricing && boxForwardingPricing.length > 0) {
                   // Get the most recent box forwarding pricing
                   const latestBoxPricing = [...boxForwardingPricing].sort((a, b) => {
                     const aUpdated = typeof a.updatedAt === 'string' 
@@ -1447,7 +1528,7 @@ function ReviewShipmentDialog({
                 }
 
                 // Pallet Existing Inventory is priced manually by admin at approval time
-                if (isPalletExistingInventory) {
+                if (!readOnly && isPalletExistingInventory) {
                   unitPrice = palletExistingUnitPrice[index] ?? shipment.unitPrice ?? 0;
                 }
                 
@@ -1498,7 +1579,7 @@ function ReviewShipmentDialog({
                         </div>
 
                         {/* Pricing Breakdown - Editable for Custom Products / Manual for Pallet Existing Inventory */}
-                        {isCustomProduct ? (
+                        {isCustomProduct && !readOnly ? (
                           <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg space-y-3">
                             <div className="text-xs font-medium text-yellow-800 mb-2">
                               Custom Product - Set Pricing:
@@ -1570,7 +1651,7 @@ function ReviewShipmentDialog({
                               <span>${productTotal.toFixed(2)}</span>
                             </div>
                           </div>
-                        ) : isPalletExistingInventory ? (
+                        ) : isPalletExistingInventory && !readOnly ? (
                           <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
                             <div className="text-xs font-medium text-blue-800 mb-2">
                               Pallet Existing Inventory - Set Pricing (manual):
@@ -1624,7 +1705,7 @@ function ReviewShipmentDialog({
                         )}
                       </div>
                       <div className="text-right ml-4">
-                        {product ? (
+                        {!readOnly && product ? (
                           <>
                             <p className="text-sm">Stock: {product.quantity}</p>
                             {hasEnoughStock ? (
@@ -1667,14 +1748,14 @@ function ReviewShipmentDialog({
                               </div>
                             )}
                           </>
-                        ) : (
+                        ) : readOnly && !product ? (
                           <Badge variant="destructive">Not Found</Badge>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                     
                     {/* Additional Services per shipment */}
-                    {hasAnyService && (
+                    {hasAnyService && !readOnly && (
                       <div className="border rounded-lg p-3 bg-muted/30 space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <label className="text-xs font-medium">Additional Services for this product</label>
@@ -1848,26 +1929,74 @@ function ReviewShipmentDialog({
             </div>
           </div>
 
+          {readOnly && storedAdminServices && additionalServicesTotal > 0 && (
+            <div className="border rounded-lg p-4 bg-muted/30 space-y-2">
+              <label className="text-sm font-medium block">Additional Services (confirmed)</label>
+              <div className="grid gap-1 text-sm">
+                {(storedAdminServices.bubbleWrapFeet || 0) > 0 && (
+                  <p>
+                    Bubble wrap: {storedAdminServices.bubbleWrapFeet} ft
+                    {storedAdminServices.pricePerFoot != null
+                      ? ` × $${Number(storedAdminServices.pricePerFoot).toFixed(2)}`
+                      : ""}
+                  </p>
+                )}
+                {(storedAdminServices.stickerRemovalItems || 0) > 0 && (
+                  <p>
+                    Sticker removal: {storedAdminServices.stickerRemovalItems} items
+                    {storedAdminServices.pricePerItem != null
+                      ? ` × $${Number(storedAdminServices.pricePerItem).toFixed(2)}`
+                      : ""}
+                  </p>
+                )}
+                {(storedAdminServices.warningLabels || 0) > 0 && (
+                  <p>
+                    Warning labels: {storedAdminServices.warningLabels}
+                    {storedAdminServices.pricePerLabel != null
+                      ? ` × $${Number(storedAdminServices.pricePerLabel).toFixed(2)}`
+                      : ""}
+                  </p>
+                )}
+                {storedAdminServices.extraServiceQuantities &&
+                  Object.entries(storedAdminServices.extraServiceQuantities).map(([key, qty]) =>
+                    (Number(qty) || 0) > 0 ? (
+                      <p key={key}>
+                        {serviceCatalog.find((r) => r.key === key)?.name ?? key}: {qty}
+                        {storedAdminServices.extraServiceUnitPrices?.[key] != null
+                          ? ` × $${Number(storedAdminServices.extraServiceUnitPrices[key]).toFixed(2)}`
+                          : ""}
+                      </p>
+                    ) : null
+                  )}
+              </div>
+            </div>
+          )}
+
           {/* Calculate Grand Total */}
           {(() => {
             const totalProductCost = request.shipments.reduce((sum: number, shipment: any, index: number) => {
               let unitPrice = shipment.unitPrice || 0;
               let packOfPrice = 0;
-              
-              // Pallet Existing Inventory is priced manually by admin at approval time
-              if (isPalletExistingInventory) {
+
+              if (readOnly) {
+                const adminPricing = request.adminCustomProductPricing?.[index];
+                if (adminPricing) {
+                  unitPrice = adminPricing.unitPrice || 0;
+                  packOfPrice = adminPricing.packOfPrice || 0;
+                } else {
+                  unitPrice = shipment.unitPrice || 0;
+                  packOfPrice = 0;
+                }
+              } else if (isPalletExistingInventory) {
                 unitPrice = palletExistingUnitPrice[index] ?? shipment.unitPrice ?? 0;
                 packOfPrice = 0;
-              }
-
-              // For custom products, use admin-set pricing
-              if (!isPalletExistingInventory && request.productType === "Custom" && request.shipmentType === "product") {
+              } else if (request.productType === "Custom" && request.shipmentType === "product") {
                 const customPricing = customProductPricing[index];
                 if (customPricing) {
                   unitPrice = customPricing.unitPrice || 0;
                   packOfPrice = customPricing.packOfPrice || 0;
                 }
-              } else if (!isPalletExistingInventory && request.shipmentType === "product" && request.service && request.productType && pricingRules && pricingRules.length > 0) {
+              } else if (request.shipmentType === "product" && request.service && request.productType && pricingRules && pricingRules.length > 0) {
                 const calculatedPrice = calculatePrepUnitPrice(
                   pricingRules,
                   request.service,
@@ -1879,8 +2008,7 @@ function ReviewShipmentDialog({
                   packOfPrice = 0;
                 }
               }
-              // Formula: (Unit Price Ã— Quantity) + (Pack Of Price Ã— (Pack Of - 1))
-              const baseTotal = unitPrice * shipment.quantity; // unitPrice Ã— quantity (not totalUnits)
+              const baseTotal = unitPrice * shipment.quantity;
               const packCharge = packOfPrice;
               return sum + (baseTotal + packCharge);
             }, 0);
@@ -1912,6 +2040,8 @@ function ReviewShipmentDialog({
             );
           })()}
 
+          {!readOnly && (
+          <>
           {/* Action Buttons */}
           <div className="flex gap-2">
             <Button
@@ -2104,6 +2234,16 @@ function ReviewShipmentDialog({
                   Cancel
                 </Button>
               </div>
+            </div>
+          )}
+          </>
+          )}
+
+          {readOnly && (
+            <div className="flex justify-end border-t pt-4">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Close
+              </Button>
             </div>
           )}
         </div>

@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { format } from "date-fns";
 import { generateInvoiceNumber } from "@/lib/invoice-utils";
-import { syncPalletCycles, getLatestStoragePrice, toDate, add30Days } from "@/lib/pallet-storage-sync";
+import { getLatestStorageTierRates, listActivePalletCycles, toDate, add30Days, getRateForPaidCycle } from "@/lib/pallet-storage-sync";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -97,13 +97,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only pallet_base storage is supported now" }, { status: 400 });
     }
 
-    const price = await getLatestStoragePrice(db, userId);
-    if (!price) {
+    const tierRates = await getLatestStorageTierRates(db, userId);
+    if (!tierRates.month1Rate && !tierRates.month2to6Rate && !tierRates.month6PlusRate) {
       return NextResponse.json({ error: "No storage pricing configured or invalid price" }, { status: 400 });
     }
 
-    const activeCycles = await syncPalletCycles(db, userId, now);
+    const activeCycles = await listActivePalletCycles(db, userId);
     const dueCycles = activeCycles.filter((c) => {
+      const freeUntil = toDate((c as any).freeUntil);
+      if (freeUntil && freeUntil.getTime() > now.getTime()) return false;
       const dueDate = toDate(c.nextInvoiceDate) || toDate(c.assignedAt);
       return dueDate ? dueDate.getTime() <= now.getTime() : false;
     });
@@ -114,19 +116,26 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const itemCount = dueCycles.length;
-    const totalAmount = Number((itemCount * price).toFixed(2));
-    const invoiceItems: any[] = [
-      {
-        quantity: itemCount,
-        productName: `Storage - Pallet Base (${itemCount} pallet${itemCount > 1 ? "s" : ""})`,
+    const invoiceItems = dueCycles.map((cycle) => {
+      const paidCycleCount = Math.max(0, Number((cycle as any).paidCycleCount) || 0);
+      const unitPrice = getRateForPaidCycle(paidCycleCount, tierRates);
+      const label = String((cycle as any).positionLabel || cycle.id).trim();
+      return {
+        quantity: 1,
+        productName: `Storage — Pallet ${label} (cycle ${paidCycleCount + 1})`,
         shipDate: invoiceMonthBase,
         shipTo: "N/A",
         packaging: "Storage",
-        unitPrice: price,
-        amount: totalAmount,
-      },
-    ];
+        unitPrice,
+        amount: unitPrice,
+        palletCycleId: cycle.id,
+        paidCycleCount,
+      };
+    });
+    const itemCount = dueCycles.length;
+    const totalAmount = Number(
+      invoiceItems.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)
+    );
 
     if (totalAmount <= 0) {
       return NextResponse.json({ error: "No charge for this month (0 items/pallets)" }, { status: 400 });
@@ -169,11 +178,13 @@ export async function POST(request: NextRequest) {
     const created = await db.collection(`users/${userId}/invoices`).add(invoiceDoc);
     for (const cycle of dueCycles) {
       const dueDate = toDate(cycle.nextInvoiceDate) || now;
+      const prevPaid = Math.max(0, Number((cycle as any).paidCycleCount) || 0);
       await db.collection(`users/${userId}/palletStorageCycles`).doc(cycle.id).update({
         lastInvoicedAt: now,
         lastInvoiceId: created.id,
         lastInvoiceNumber: invoiceNumber,
         nextInvoiceDate: add30Days(dueDate),
+        paidCycleCount: prevPaid + 1,
         updatedAt: now,
       });
     }

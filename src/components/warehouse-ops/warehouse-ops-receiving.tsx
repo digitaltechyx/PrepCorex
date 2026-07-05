@@ -26,6 +26,10 @@ import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { uploadReceivePhotos } from "@/lib/inbound-receive-photos";
+import {
+  ReceiveStorageAssignmentDialog,
+  type ReceiveStorageAssignContext,
+} from "@/components/warehouse-ops/receive-storage-assignment-dialog";
 import type { WarehouseDoc, WarehouseCartonDoc } from "@/types";
 import {
   createCrossdockPalletReceive,
@@ -598,6 +602,9 @@ function ReceiveForm({
   });
   const [saving, setSaving] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  const [storageDialogOpen, setStorageDialogOpen] = useState(false);
+  const [storageAssignContext, setStorageAssignContext] =
+    useState<ReceiveStorageAssignContext | null>(null);
   const [quickScanCartonId, setQuickScanCartonId] = useState<string | null>(null);
   const [inboundQueue, setInboundQueue] = useState<InboundRequestRow[]>([]);
   const inboundPrefillKeyRef = useRef<string | null>(null);
@@ -876,6 +883,81 @@ function ReceiveForm({
         });
   }
 
+  function resolveClientAfterReceive(input?: {
+    receiveEntries?: Array<{ clientUserId: string; sku: string; productName?: string | null; quantity: number }>;
+    palletId?: string | null;
+  }): { clientUserId: string; clientDisplayName: string } | null {
+    if (inboundRequest?.clientUserId) {
+      return {
+        clientUserId: inboundRequest.clientUserId,
+        clientDisplayName:
+          inboundRequest.clientDisplayName ||
+          clientDisplayName(inboundRequest.clientUserId),
+      };
+    }
+    if (palletDraft.clientId?.trim()) {
+      return {
+        clientUserId: palletDraft.clientId.trim(),
+        clientDisplayName:
+          palletDraft.clientLabel?.trim() || clientDisplayName(palletDraft.clientId.trim()),
+      };
+    }
+    if (shipmentClientId.trim()) {
+      return {
+        clientUserId: shipmentClientId.trim(),
+        clientDisplayName:
+          shipmentClientLabel.trim() || clientDisplayName(shipmentClientId.trim()),
+      };
+    }
+    const entry = input?.receiveEntries?.[0];
+    if (entry?.clientUserId) {
+      return {
+        clientUserId: entry.clientUserId,
+        clientDisplayName: clientDisplayName(entry.clientUserId),
+      };
+    }
+    for (const c of cartons) {
+      const id = c.clientId?.trim();
+      if (id) {
+        return {
+          clientUserId: id,
+          clientDisplayName: c.clientLabel?.trim() || clientDisplayName(id),
+        };
+      }
+    }
+    return null;
+  }
+
+  function promptStorageAssignmentAfterReceive(input: {
+    receiveEntries?: Array<{ clientUserId: string; sku: string; productName?: string | null; quantity: number }>;
+    palletId?: string | null;
+    cartonIds?: string[];
+  }) {
+    const client = resolveClientAfterReceive(input);
+    if (!client) {
+      resetForm();
+      return;
+    }
+    const batchRef =
+      input.palletId ||
+      (input.cartonIds?.length === 1 ? input.cartonIds[0] : undefined) ||
+      undefined;
+    setStorageAssignContext({
+      clientUserId: client.clientUserId,
+      clientDisplayName: client.clientDisplayName,
+      warehouseId: warehouse.id,
+      receiveBatchId: batchRef,
+      receiveReference: batchRef,
+      assignedBy: operatorId ?? null,
+      contents: input.receiveEntries?.map((e) => ({
+        sku: e.sku,
+        productName: e.productName ?? undefined,
+        quantity: e.quantity,
+      })),
+    });
+    setStorageDialogOpen(true);
+  }
+
   function resetForm() {
     receivePhotoPreviews.forEach((u) => URL.revokeObjectURL(u));
     setReceivePhotoFiles([]);
@@ -950,6 +1032,14 @@ function ReceiveForm({
     if (isCrossdockPalletOnly) {
       setSaving(true);
       try {
+        const receivePhotoUrls =
+          receivePhotoFiles.length > 0
+            ? await uploadReceivePhotos({
+                warehouseId: warehouse.id,
+                files: receivePhotoFiles,
+                uploadedBy: operatorId,
+              })
+            : [];
         const { palletId } = await createCrossdockPalletReceive({
           warehouseId: warehouse.id,
           receivedBy: operatorName,
@@ -962,6 +1052,7 @@ function ReceiveForm({
             palletDraft.clientLabel?.trim() ||
             (palletDraft.clientId ? clientDisplayName(palletDraft.clientId) : null),
           receiveLot: palletDraft.crossdockLot,
+          photoUrl: receivePhotoUrls[0] ?? null,
         });
         const allPallets = await listWarehousePallets(warehouse.id);
         const createdPallet = allPallets.find((p) => p.id === palletId) ?? null;
@@ -1001,7 +1092,7 @@ function ReceiveForm({
           title: "Pallet received",
           description: "PLT label printed. Contents stay closed until putaway.",
         });
-        resetForm();
+        promptStorageAssignmentAfterReceive({ palletId });
       } catch (e) {
         toast({
           title: "Receive failed",
@@ -1289,7 +1380,11 @@ function ReceiveForm({
               ? `${created.length} label${created.length > 1 ? "s" : ""} printed.`
               : `${created.length} CTN/PLT label${created.length > 1 ? "s" : ""} printed. Allocate client, then Putaway for placement.`,
       });
-      resetForm();
+      promptStorageAssignmentAfterReceive({
+        receiveEntries,
+        palletId: palletId ?? null,
+        cartonIds,
+      });
     } catch (e) {
       toast({
         title: "Receive failed",
@@ -2089,6 +2184,21 @@ function ReceiveForm({
           </CardContent>
         </Card>
       ) : null}
+
+      <ReceiveStorageAssignmentDialog
+        open={storageDialogOpen}
+        context={storageAssignContext}
+        onClose={() => {
+          setStorageDialogOpen(false);
+          setStorageAssignContext(null);
+          resetForm();
+        }}
+        onComplete={() => {
+          setStorageDialogOpen(false);
+          setStorageAssignContext(null);
+          resetForm();
+        }}
+      />
     </div>
   );
 }

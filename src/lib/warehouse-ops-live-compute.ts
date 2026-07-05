@@ -21,6 +21,7 @@ import {
   pickStatusFromRequest,
 } from "@/lib/warehouse-outbound-request-status";
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
+import { fbaPackPhaseFromRequest, isFbaLabelWorkflowRequest } from "@/lib/fba-shipment-workflow";
 import {
   shipFromForRequest,
   shipToForRequest,
@@ -181,6 +182,9 @@ function buildPackOrder(
     qcFailedAt: dateFromFirestore(data.warehouseQcFailedAt),
     defaultQcUnitType: inferQcUnitTypeFromRequest(data),
     lines,
+    service: data.service != null ? String(data.service) : undefined,
+    fbaLabelWorkflow: isFbaLabelWorkflowRequest(data),
+    fbaPackPhase: fbaPackPhaseFromRequest(data),
   };
 }
 
@@ -239,7 +243,11 @@ export function buildOutboundQueuesLive(input: {
       continue;
     }
 
-    if (pickStatus === "picked" && packStatus !== "ready_to_dispatch") {
+    if (
+      pickStatus === "picked" &&
+      packStatus !== "ready_to_dispatch" &&
+      fbaPackPhaseFromRequest(data) !== "awaiting_label"
+    ) {
       packQueue.push(
         buildPackOrder(doc.id, clientUserId, data, clientById, lines, input.warehouse)
       );

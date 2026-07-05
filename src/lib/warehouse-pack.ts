@@ -24,6 +24,10 @@ import { warehouseCartonDocRef } from "@/lib/warehouse-carton-firestore";
 import { getWarehouseCarton } from "@/lib/warehouse-receive-corrections";
 import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
 import {
+  fbaPackPhaseFromRequest,
+  isFbaLabelWorkflowRequest,
+} from "@/lib/fba-shipment-workflow";
+import {
   courierScansMatch,
   normalizeCourierScan,
   shipFromForRequest,
@@ -94,6 +98,9 @@ export type OutboundPackOrder = OutboundPickOrder & {
   qcRemarks?: string;
   qcFailedAt?: Date | null;
   defaultQcUnitType?: WarehouseQcUnitType;
+  service?: string;
+  fbaLabelWorkflow?: boolean;
+  fbaPackPhase?: "awaiting_label" | "awaiting_courier" | null;
 };
 
 type PickMovementEvent = {
@@ -605,6 +612,9 @@ function toOutboundPackOrder(
     qcFailedAt: dateFromFirestore(data.warehouseQcFailedAt),
     defaultQcUnitType: inferQcUnitTypeFromRequest(data),
     lines,
+    service: data.service != null ? String(data.service) : undefined,
+    fbaLabelWorkflow: isFbaLabelWorkflowRequest(data),
+    fbaPackPhase: fbaPackPhaseFromRequest(data),
   };
 }
 
@@ -618,7 +628,8 @@ export async function loadOutboundPackQueue(input: {
   const pending = raw.filter(
     (d) =>
       pickStatusFromRequest(d.data) === "picked" &&
-      packStatusFromRequest(d.data) !== "ready_to_dispatch"
+      packStatusFromRequest(d.data) !== "ready_to_dispatch" &&
+      fbaPackPhaseFromRequest(d.data) !== "awaiting_label"
   );
 
   const lineSets = await orderLinesForRequests(
@@ -933,6 +944,12 @@ export async function completePackReadyToDispatch(input: {
   if (packStatusFromRequest(data) === "ready_to_dispatch") {
     throw new Error("Order is already ready to dispatch.");
   }
+  if (
+    isFbaLabelWorkflowRequest(data) &&
+    fbaPackPhaseFromRequest(data) !== "awaiting_courier"
+  ) {
+    throw new Error("Submit FBA master case details and wait for the client label first.");
+  }
 
   const lines = await orderLinesFromRequest(input.clientUserId, data);
   const order: OutboundPackOrder = {
@@ -1029,6 +1046,7 @@ export async function completePackReadyToDispatch(input: {
     warehousePackedBy: input.operatorId ?? null,
     warehousePackVerifiedKeys: plan.verifiedKeys,
     warehouseCourierTracking: courierTracking,
+    ...(isFbaLabelWorkflowRequest(data) ? { fbaPackPhase: null } : {}),
     warehousePackStockSnapshot: stockSnapshot.map((s) => ({
       cartonId: s.cartonId,
       cartonCode: s.cartonCode,

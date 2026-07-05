@@ -535,8 +535,11 @@ export function InventoryRequestsManagement({
       // Track pallet storage lifecycle as individual 30-day billing cycles.
       if (request.inventoryType === "pallet" && status === "In Stock" && finalQuantity > 0) {
         const assignedAt = Timestamp.fromDate(receivingDate);
+        const freeUntil = Timestamp.fromDate(
+          new Date(receivingDate.getTime() + 7 * 24 * 60 * 60 * 1000)
+        );
         const nextInvoiceDate = Timestamp.fromDate(
-          new Date(receivingDate.getTime() + 30 * 24 * 60 * 60 * 1000)
+          new Date(receivingDate.getTime() + 7 * 24 * 60 * 60 * 1000)
         );
         for (let i = 0; i < finalQuantity; i += 1) {
           await addDoc(collection(db, `users/${userId}/palletStorageCycles`), {
@@ -546,7 +549,9 @@ export function InventoryRequestsManagement({
             sourceInventoryId: createdInventoryDocId,
             palletSequence: i + 1,
             assignedAt,
+            freeUntil,
             nextInvoiceDate,
+            paidCycleCount: 0,
             createdAt: Timestamp.now(),
             updatedAt: Timestamp.now(),
             assignedBy: adminProfile.uid,

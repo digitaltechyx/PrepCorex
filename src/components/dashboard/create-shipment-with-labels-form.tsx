@@ -15,7 +15,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import type { InventoryItem, ServiceType, ProductType, UserProfile } from "@/types";
-import { DTC_FBM_SERVICE, isDtcFbmService } from "@/types";
+import { DTC_FBM_SERVICE, formatShipmentPreferenceLabel, isDtcFbmService } from "@/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -51,7 +51,7 @@ const shipmentGroupSchema = z.object({
   shipments: z.array(shipmentItemSchema).min(1, "Select at least one item to ship."),
   date: z.date({ required_error: "A shipping date is required." }),
   shipmentPreference: z.enum(["box", "pallet"], {
-    required_error: "Select box or pallet shipment preference.",
+    required_error: "Select SPD or LTL shipment preference.",
   }),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Carton Forwarding", "Pallet Forwarding"]).optional(),
@@ -758,6 +758,9 @@ export function CreateShipmentWithLabelsForm({
           } else if (group.shipmentType === "product") {
             if (group.service) {
               requestData.service = group.service;
+            }
+            if (group.service === "FBA/WFS/TFS") {
+              requestData.fbaLabelWorkflow = true;
             }
             if (productType) {
               requestData.productType = productType;
@@ -1517,7 +1520,11 @@ export function CreateShipmentWithLabelsForm({
                                 className="h-8 w-full justify-between"
                                 onClick={() => togglePopup(popupKey, "shipmentPreference")}
                               >
-                                <span className="truncate capitalize">{field.value || "Select"}</span>
+                                <span className="truncate">
+                                  {field.value
+                                    ? formatShipmentPreferenceLabel(field.value)
+                                    : "Select"}
+                                </span>
                                 <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
                               </Button>
                             </DialogTrigger>
@@ -1534,13 +1541,13 @@ export function CreateShipmentWithLabelsForm({
                                     key={pref}
                                     type="button"
                                     variant={field.value === pref ? "default" : "outline"}
-                                    className="w-full justify-start capitalize"
+                                    className="w-full justify-start"
                                     onClick={() => {
                                       field.onChange(pref);
                                       closePopup(popupKey, "shipmentPreference");
                                     }}
                                   >
-                                    {pref}
+                                    {formatShipmentPreferenceLabel(pref)}
                                   </Button>
                                 ))}
                               </div>

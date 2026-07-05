@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
+import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { resolveScan } from "@/lib/warehouse-putaway";
@@ -29,6 +30,16 @@ import {
   type PackPlan,
   type PackPlanItem,
 } from "@/lib/warehouse-pack";
+import {
+  cancelFbaAwaitingLabelRequest,
+  completeFbaPackWithMasterCases,
+  formatFbaMasterCaseSummary,
+  loadFbaAwaitingLabelOrders,
+  recordFbaLabelUpload,
+  type FbaAwaitingLabelOrder,
+} from "@/lib/fba-shipment-workflow";
+import { FbaMasterCaseForm } from "@/components/warehouse-ops/fba-master-case-form";
+import type { FbaMasterCase } from "@/types";
 import type { WarehouseDoc } from "@/types";
 import {
   ArrowLeft,
@@ -52,6 +63,12 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
 
   const { packQueue: orders, outboundLoading: queueLoading } = useWarehouseOpsLive();
+  const { clients } = useWarehouseOpsClients();
+
+  const [fbaAwaitingLabel, setFbaAwaitingLabel] = useState<FbaAwaitingLabelOrder[]>([]);
+  const [fbaAwaitingLoading, setFbaAwaitingLoading] = useState(false);
+  const [warehouseLabelFiles, setWarehouseLabelFiles] = useState<Record<string, File[]>>({});
+  const [warehouseCancelReason, setWarehouseCancelReason] = useState<Record<string, string>>({});
 
   const [selectedOrder, setSelectedOrder] = useState<OutboundPackOrder | null>(null);
   const [plan, setPlan] = useState<PackPlan | null>(null);
@@ -77,7 +94,28 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   );
 
   const nextItem: PackPlanItem | null =
-    plan?.items.find((i) => !verifiedSet.has(i.itemKey)) ?? null;
+    selectedOrder?.fbaPackPhase === "awaiting_courier"
+      ? null
+      : plan?.items.find((i) => !verifiedSet.has(i.itemKey)) ?? null;
+
+  const isFbaLabelFlow =
+    Boolean(selectedOrder?.fbaLabelWorkflow) && selectedOrder?.fbaPackPhase !== "awaiting_courier";
+  const isFbaAwaitingCourier = selectedOrder?.fbaPackPhase === "awaiting_courier";
+
+  const refreshFbaAwaitingLabel = useCallback(async () => {
+    const eligible = new Set(clients.map((c) => c.uid));
+    setFbaAwaitingLoading(true);
+    try {
+      const rows = await loadFbaAwaitingLabelOrders(eligible);
+      setFbaAwaitingLabel(rows);
+    } finally {
+      setFbaAwaitingLoading(false);
+    }
+  }, [clients]);
+
+  useEffect(() => {
+    void refreshFbaAwaitingLabel();
+  }, [refreshFbaAwaitingLabel, orders.length]);
 
   async function refreshPlan(order: OutboundPackOrder) {
     setLoadingPlan(true);
@@ -240,6 +278,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
         description: "Warehouse stock updated. Order appears on Dispatch.",
       });
       resetToQueue();
+      void refreshFbaAwaitingLabel();
     } catch (e) {
       toast({
         title: "Could not complete pack",
@@ -284,6 +323,139 @@ export function WarehouseOpsPack({ warehouse }: Props) {
           </CardHeader>
         </Card>
 
+        {(fbaAwaitingLoading || fbaAwaitingLabel.length > 0) && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">FBA — awaiting client label</CardTitle>
+              <CardDescription className="text-xs">
+                Master case details sent. Upload a label here or cancel if the client will not ship.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {fbaAwaitingLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-4 justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading…
+                </div>
+              ) : (
+                fbaAwaitingLabel.map((order) => {
+                  const clientName =
+                    clients.find((c) => c.uid === order.clientUserId)?.name ||
+                    order.clientUserId.slice(0, 8);
+                  return (
+                    <div key={`${order.clientUserId}:${order.id}`} className="rounded-lg border p-3 space-y-3">
+                      <div>
+                        <p className="font-medium text-sm">{clientName}</p>
+                        <p className="text-xs text-muted-foreground">{order.service}</p>
+                        {order.fbaMasterCases?.map((mc) => (
+                          <p key={mc.id} className="text-xs mt-1">
+                            {formatFbaMasterCaseSummary(mc)}
+                          </p>
+                        ))}
+                      </div>
+                      <Input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        multiple
+                        onChange={(e) =>
+                          setWarehouseLabelFiles((prev) => ({
+                            ...prev,
+                            [order.id]: Array.from(e.target.files || []),
+                          }))
+                        }
+                      />
+                      <Input
+                        placeholder="Cancel reason (optional)"
+                        value={warehouseCancelReason[order.id] || ""}
+                        onChange={(e) =>
+                          setWarehouseCancelReason((prev) => ({
+                            ...prev,
+                            [order.id]: e.target.value,
+                          }))
+                        }
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          disabled={!(warehouseLabelFiles[order.id]?.length)}
+                          onClick={() => {
+                            void (async () => {
+                              try {
+                                const files = warehouseLabelFiles[order.id] || [];
+                                const urls: string[] = [];
+                                for (const file of files) {
+                                  const formData = new FormData();
+                                  formData.append("file", file);
+                                  formData.append("clientName", clientName);
+                                  const response = await fetch("/api/onedrive/upload", {
+                                    method: "POST",
+                                    body: formData,
+                                  });
+                                  if (!response.ok) throw new Error("Label upload failed.");
+                                  const result = await response.json();
+                                  const url = result.webUrl || result.downloadURL;
+                                  if (url) urls.push(url);
+                                }
+                                await recordFbaLabelUpload({
+                                  clientUserId: order.clientUserId,
+                                  shipmentRequestId: order.id,
+                                  labelUrls: urls,
+                                  uploadedBy: "warehouse",
+                                  operatorId,
+                                  warehouseId: warehouse.id,
+                                });
+                                toast({ title: "Label uploaded for client" });
+                                void refreshFbaAwaitingLabel();
+                              } catch (e) {
+                                toast({
+                                  title: "Upload failed",
+                                  description: e instanceof Error ? e.message : "Unknown error",
+                                  variant: "destructive",
+                                });
+                              }
+                            })();
+                          }}
+                        >
+                          Upload label
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-destructive"
+                          onClick={() => {
+                            void (async () => {
+                              try {
+                                await cancelFbaAwaitingLabelRequest({
+                                  clientUserId: order.clientUserId,
+                                  shipmentRequestId: order.id,
+                                  reason:
+                                    warehouseCancelReason[order.id]?.trim() ||
+                                    "Cancelled by warehouse — label not provided.",
+                                  operatorId,
+                                });
+                                toast({ title: "FBA request cancelled" });
+                                void refreshFbaAwaitingLabel();
+                              } catch (e) {
+                                toast({
+                                  title: "Cancel failed",
+                                  description: e instanceof Error ? e.message : "Unknown error",
+                                  variant: "destructive",
+                                });
+                              }
+                            })();
+                          }}
+                        >
+                          Cancel request
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Orders to pack</CardTitle>
@@ -325,11 +497,15 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                         </p>
                       </div>
                       <Badge variant="outline" className="shrink-0 capitalize">
-                        {order.qcFailedAt
+                        {order.fbaPackPhase === "awaiting_courier"
+                          ? "label ready"
+                          : order.qcFailedAt
                           ? "QC failed"
                           : order.warehousePackStatus === "packing"
                             ? "packing"
-                            : "picked"}
+                            : order.fbaLabelWorkflow
+                              ? "FBA"
+                              : "picked"}
                       </Badge>
                     </div>
                   </button>
@@ -490,8 +666,49 @@ export function WarehouseOpsPack({ warehouse }: Props) {
             </Card>
           ) : null}
 
-          {plan.readyToComplete ? (
+          {plan.readyToComplete && isFbaLabelFlow ? (
+            <Card className="border-violet-300/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">FBA master case details</CardTitle>
+                <CardDescription className="text-xs">
+                  Enter weight and dimensions for each master case. The client will upload the
+                  shipping label after reviewing these details.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <FbaMasterCaseForm
+                  disabled={saving}
+                  onSubmit={async (masterCases: FbaMasterCase[]) => {
+                    if (!selectedOrder || !plan) return;
+                    await completeFbaPackWithMasterCases({
+                      clientUserId: selectedOrder.clientUserId,
+                      shipmentRequestId: selectedOrder.id,
+                      warehouseId: warehouse.id,
+                      operatorId,
+                      verifiedKeys: plan.verifiedKeys,
+                      masterCases,
+                    });
+                    toast({
+                      title: "Master case details sent",
+                      description: "Client can now upload the FBA shipping label.",
+                    });
+                    resetToQueue();
+                    void refreshFbaAwaitingLabel();
+                  }}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {plan.readyToComplete && (isFbaAwaitingCourier || !selectedOrder?.fbaLabelWorkflow) ? (
             <>
+              {isFbaAwaitingCourier ? (
+                <Card className="border-violet-200/60">
+                  <CardContent className="py-3 text-xs text-muted-foreground">
+                    FBA label uploaded — scan the courier barcode to finish pack.
+                  </CardContent>
+                </Card>
+              ) : null}
               <Card className="border-blue-300/60">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">

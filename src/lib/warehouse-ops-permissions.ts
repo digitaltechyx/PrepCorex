@@ -137,6 +137,12 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       description: "Scan carton → scan bin",
     },
     {
+      title: "Pallet storage",
+      href: "/warehouse-ops/storage",
+      feature: "ops_receive",
+      description: "Billable pallet positions & consolidation",
+    },
+    {
       title: "Internal move",
       href: "/warehouse-ops/move",
       feature: "ops_move",

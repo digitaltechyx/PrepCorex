@@ -127,8 +127,8 @@ function normalizeService(raw: string): ServiceType | null {
 
 function normalizePreference(raw: string): "box" | "pallet" | null {
   const v = raw.trim().toLowerCase();
-  if (v === "box" || v === "carton") return "box";
-  if (v === "pallet") return "pallet";
+  if (v === "box" || v === "carton" || v === "spd") return "box";
+  if (v === "pallet" || v === "ltl") return "pallet";
   return null;
 }
 
@@ -212,7 +212,7 @@ export function validateOutboundBulkRows(
 
     const shipmentPreference = normalizePreference(raw["Shipment Preference"]);
     if (!shipmentPreference) {
-      errors.push({ rowNumber, message: 'Shipment Preference must be "box" or "pallet".' });
+      errors.push({ rowNumber, message: 'Shipment Preference must be "SPD" or "LTL".' });
       return;
     }
 
@@ -317,7 +317,7 @@ export function downloadOutboundBulkTemplate(): void {
     {
       Service: "FBA/WFS/TFS",
       "Shipping Date": "2026-06-30",
-      "Shipment Preference": "box",
+      "Shipment Preference": "SPD",
       SKU: "YOUR-SKU-001",
       Quantity: "5",
       "Pack Of": "1",

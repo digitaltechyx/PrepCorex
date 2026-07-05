@@ -3,6 +3,14 @@
  * Manual cycles (source admin_manual) are excluded from inventory reconciliation.
  */
 
+import {
+  getRateForPaidCycle,
+  tierRatesFromStoragePricingDoc,
+  type PalletStorageTierRates,
+} from "@/lib/pallet-storage-billing";
+
+export { getRateForPaidCycle, tierRatesFromStoragePricingDoc, type PalletStorageTierRates };
+
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type PalletCycleDoc = {
@@ -10,8 +18,12 @@ export type PalletCycleDoc = {
   status?: string;
   source?: string;
   assignedAt?: any;
+  freeUntil?: any;
   nextInvoiceDate?: any;
   lastInvoicedAt?: any;
+  paidCycleCount?: number;
+  positionId?: string;
+  positionLabel?: string;
 };
 
 export function toDate(value: any): Date | null {
@@ -56,8 +68,15 @@ export async function getDesiredPalletCountFromInventory(db: any, userId: string
 }
 
 export async function getLatestStoragePrice(db: any, userId: string): Promise<number | null> {
+  const tiers = await getLatestStorageTierRates(db, userId);
+  return tiers.month1Rate;
+}
+
+export async function getLatestStorageTierRates(db: any, userId: string): Promise<PalletStorageTierRates> {
   const storagePricingSnapshot = await db.collection(`users/${userId}/storagePricing`).get();
-  if (storagePricingSnapshot.empty) return null;
+  if (storagePricingSnapshot.empty) {
+    return tierRatesFromStoragePricingDoc(null);
+  }
 
   const latestPricingDoc = [...storagePricingSnapshot.docs].sort((a, b) => {
     const ad: any = a.data();
@@ -67,8 +86,14 @@ export async function getLatestStoragePrice(db: any, userId: string): Promise<nu
     return bt - at;
   })[0];
 
-  const price = Number(latestPricingDoc.data()?.price || 0);
-  return Number.isFinite(price) && price > 0 ? price : null;
+  return tierRatesFromStoragePricingDoc(latestPricingDoc.data() as Record<string, unknown>);
+}
+
+export async function listActivePalletCycles(db: any, userId: string): Promise<PalletCycleDoc[]> {
+  const cyclesSnap = await db.collection(`users/${userId}/palletStorageCycles`).get();
+  return cyclesSnap.docs
+    .map((d: { id: string; data: () => unknown }) => ({ id: d.id, ...(d.data() as object) }))
+    .filter((c: PalletCycleDoc) => c.status !== "closed");
 }
 
 export async function syncPalletCycles(db: any, userId: string, now: Date): Promise<PalletCycleDoc[]> {

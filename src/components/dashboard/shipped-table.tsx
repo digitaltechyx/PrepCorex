@@ -2,8 +2,12 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import type { InventoryItem, ShippedItem, ShipmentRequest, RestockHistory } from "@/types";
+import type { InventoryItem, ShippedItem, ShipmentRequest, RestockHistory, FbaMasterCase } from "@/types";
 import { formatServiceLabel } from "@/types";
+import {
+  formatFbaMasterCaseSummary,
+  recordFbaLabelUpload,
+} from "@/lib/fba-shipment-workflow";
 import { getShipmentSummary } from "@/lib/shipment-utils";
 import { doc, updateDoc, Timestamp } from "firebase/firestore";
 import {
@@ -278,13 +282,23 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         .filter(Boolean);
       const allUrls = Array.from(new Set([...existingUrls, ...uploadedUrls]));
 
-      await updateDoc(
-        doc(db, `users/${userProfile.uid}/shipmentRequests`, selectedUploadRequest.id),
-        {
+      if (
+        selectedUploadRequest.fbaLabelWorkflow &&
+        selectedUploadRequest.service === "FBA/WFS/TFS"
+      ) {
+        await recordFbaLabelUpload({
+          clientUserId: userProfile.uid,
+          shipmentRequestId: selectedUploadRequest.id,
+          labelUrls: uploadedUrls,
+          uploadedBy: "client",
+          warehouseId: String((selectedUploadRequest as ShipmentRequest).warehouseId ?? ""),
+        });
+      } else {
+        await updateDoc(doc(db, `users/${userProfile.uid}/shipmentRequests`, selectedUploadRequest.id), {
           labelUrl: allUrls.join(","),
           labelUploadedAt: Timestamp.now(),
-        }
-      );
+        });
+      }
 
       toast({
         title: "Label uploaded",
@@ -681,7 +695,10 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                       Cancel request
                     </Button>
                   )}
-                  {(item as any).isRequest && (item as any).requestStatus === "awaiting_label_upload" && (
+                  {(item as any).isRequest &&
+                    ((item as any).requestStatus === "awaiting_label_upload" ||
+                      ((item as any).rawRequest?.fbaMasterCases?.length > 0 &&
+                        (item as any).rawRequest?.fbaLabelWorkflow)) && (
                     <Button
                       size="sm"
                       className="mt-2 h-7 text-xs"
@@ -690,7 +707,9 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                         setUploadFiles([]);
                       }}
                     >
-                      Upload Label
+                      {(item as any).rawRequest?.fbaMasterCases?.length
+                        ? "Upload label (master case ready)"
+                        : "Upload Label"}
                     </Button>
                   )}
                 </div>
@@ -903,7 +922,10 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                               <Clock className="h-3 w-3" />
                               Pending
                             </Badge>
-                            {(item as any).isRequest && (item as any).requestStatus === "awaiting_label_upload" && (
+                            {(item as any).isRequest &&
+                              ((item as any).requestStatus === "awaiting_label_upload" ||
+                                ((item as any).rawRequest?.fbaMasterCases?.length > 0 &&
+                                  (item as any).rawRequest?.fbaLabelWorkflow)) && (
                               <Button
                                 size="sm"
                                 className="h-7 text-xs"
@@ -1193,10 +1215,23 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
           <DialogHeader>
             <DialogTitle>Upload Shipping Label</DialogTitle>
             <DialogDescription>
-              Upload label directly for this approved request. No need to submit a new request.
+              {selectedUploadRequest?.fbaMasterCases?.length
+                ? "Use the master case details below to generate your label, then upload it here."
+                : "Upload label directly for this approved request. No need to submit a new request."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 mt-2">
+            {selectedUploadRequest?.fbaMasterCases?.length ? (
+              <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                <p className="text-sm font-medium">Master case details</p>
+                {selectedUploadRequest.fbaMasterCases.map((mc: FbaMasterCase) => (
+                  <p key={mc.id} className="text-xs text-muted-foreground">
+                    {formatFbaMasterCaseSummary(mc)}
+                    {mc.notes ? ` · ${mc.notes}` : ""}
+                  </p>
+                ))}
+              </div>
+            ) : null}
             <Input
               type="file"
               accept="image/*,application/pdf"

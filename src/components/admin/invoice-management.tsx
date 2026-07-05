@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Search, Download, CheckCircle, Clock, X, Eye, Receipt, User, Users, Plus, Trash2 } from "lucide-react";
+import { Search, Download, CheckCircle, Clock, X, Eye, Receipt, User, Users, Plus, Trash2, Tag } from "lucide-react";
 import { generateInvoicePDF } from "@/lib/invoice-generator";
 import { computeInvoiceTotals, getAdminAdditionalCharges } from "@/lib/invoice-totals";
 import { useToast } from "@/hooks/use-toast";
@@ -31,6 +31,13 @@ import { DollarSign } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { hasRole } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
+import { recordDiscountTrailEntry } from "@/lib/discount-trail";
+import { DiscountTrailPanel } from "@/components/invoices/discount-trail-panel";
+import {
+  loadDiscountTrailsForUsers,
+  mergeDiscountTrailEntries,
+} from "@/lib/discount-trail";
+import type { DiscountTrailEntry } from "@/types";
 
 interface InvoiceManagementProps {
   users: UserProfile[];
@@ -83,7 +90,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
     }
   }, [initialTab]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [mainTab, setMainTab] = useState<"invoices" | "commissions">("invoices");
+  const [mainTab, setMainTab] = useState<"invoices" | "commissions" | "discount-trail">("invoices");
   const [commissionTab, setCommissionTab] = useState<"pending" | "paid">("pending");
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [commissionsLoading, setCommissionsLoading] = useState(false);
@@ -114,6 +121,9 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   const [newChargeName, setNewChargeName] = useState("");
   const [newChargeAmount, setNewChargeAmount] = useState("");
   const [isSavingAdditionalCharges, setIsSavingAdditionalCharges] = useState(false);
+  const [discountTrailEntries, setDiscountTrailEntries] = useState<DiscountTrailEntry[]>([]);
+  const [discountTrailLoading, setDiscountTrailLoading] = useState(false);
+  const [discountTrailUserFilter, setDiscountTrailUserFilter] = useState("all");
 
   const ActionBadge = ({
     label,
@@ -303,10 +313,51 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
     }
   };
 
+  const userNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    users.forEach((u) => {
+      map[u.uid] = formatUserDisplayName(u, { showEmail: false });
+    });
+    return map;
+  }, [users]);
+
+  const refreshDiscountTrail = async () => {
+    if (users.length === 0) {
+      setDiscountTrailEntries([]);
+      return;
+    }
+    setDiscountTrailLoading(true);
+    try {
+      const userIds = users.map((u) => u.uid);
+      const stored = await loadDiscountTrailsForUsers(userIds);
+      const allInvoices = Object.entries(userInvoices).flatMap(([uid, list]) =>
+        list.map((inv) => ({ ...inv, userId: inv.userId || uid }))
+      );
+      const merged = mergeDiscountTrailEntries(stored, allInvoices, userNameById).map((e) => ({
+        ...e,
+        userName: e.userName || (e.userId ? userNameById[e.userId] : undefined),
+      }));
+      setDiscountTrailEntries(merged);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error?.message || "Failed to load discount trail.",
+      });
+    } finally {
+      setDiscountTrailLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadInvoices();
     loadCommissions();
   }, [users]);
+
+  useEffect(() => {
+    if (mainTab !== "discount-trail") return;
+    void refreshDiscountTrail();
+  }, [mainTab, userInvoices, users]);
 
   // Keep the opened user-invoices dialog in sync after refreshes (e.g. mark as paid).
   useEffect(() => {
@@ -560,7 +611,24 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
         updatedAt: new Date(),
       } as any);
 
+      await recordDiscountTrailEntry({
+        userId: discountInvoice.userId,
+        invoiceId: discountInvoice.id,
+        invoiceNumber: discountInvoice.invoiceNumber,
+        discountType,
+        discountValue: normalizedValue,
+        discountAmount,
+        grossTotal,
+        grandTotalAfter: grandTotal,
+        invoiceStatus: discountInvoice.status,
+        appliedBy: adminUser?.uid ?? user?.uid ?? null,
+        appliedByName: adminUser?.name || adminUser?.email || "Admin",
+      });
+
       await loadInvoices();
+      if (mainTab === "discount-trail") {
+        await refreshDiscountTrail();
+      }
 
       toast({
         title: "Discount Applied",
@@ -863,11 +931,15 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   return (
     <div className="space-y-6">
       {/* Main Tabs: Invoices and Commissions */}
-      <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as "invoices" | "commissions")} className="w-full">
-        <TabsList className="grid grid-cols-2 w-full mb-6 h-12 p-1 rounded-xl bg-slate-100/90 border">
+      <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as "invoices" | "commissions" | "discount-trail")} className="w-full">
+        <TabsList className="grid grid-cols-3 w-full mb-6 h-12 p-1 rounded-xl bg-slate-100/90 border">
           <TabsTrigger value="invoices" className="flex items-center gap-2">
             <Receipt className="h-4 w-4" />
             Invoices
+          </TabsTrigger>
+          <TabsTrigger value="discount-trail" className="flex items-center gap-2">
+            <Tag className="h-4 w-4" />
+            Discount trail
           </TabsTrigger>
           <TabsTrigger value="commissions" className="flex items-center gap-2">
             <DollarSign className="h-4 w-4" />
@@ -2083,6 +2155,20 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
         </DialogContent>
       </Dialog>
 
+        </TabsContent>
+
+        <TabsContent value="discount-trail" className="space-y-6">
+          <DiscountTrailPanel
+            entries={discountTrailEntries}
+            loading={discountTrailLoading}
+            showUserColumn
+            userFilter={discountTrailUserFilter}
+            userFilterOptions={users.map((u) => ({
+              id: u.uid,
+              label: formatUserDisplayName(u, { showEmail: true }),
+            }))}
+            onUserFilterChange={setDiscountTrailUserFilter}
+          />
         </TabsContent>
 
         <TabsContent value="commissions" className="space-y-6">

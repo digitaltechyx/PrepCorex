@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { format } from "date-fns";
 import { generateInvoiceNumber } from "@/lib/invoice-utils";
-import { syncPalletCycles, getLatestStoragePrice, toDate, add30Days } from "@/lib/pallet-storage-sync";
+import { getLatestStorageTierRates, listActivePalletCycles, toDate, add30Days, getRateForPaidCycle } from "@/lib/pallet-storage-sync";
 
 const CRON_SECRET = process.env.INVOICE_CRON_SECRET || process.env.CRON_SECRET;
 
@@ -117,14 +117,18 @@ async function handleRequest(request: NextRequest) {
         continue;
       }
 
-      const price = await getLatestStoragePrice(db, userId);
-      if (!price) {
+      const tierRates = await getLatestStorageTierRates(db, userId);
+      if (!tierRates.month1Rate && !tierRates.month2to6Rate && !tierRates.month6PlusRate) {
         results.push({ userId, status: "skipped_invalid_price" });
         continue;
       }
 
-      const activeCycles = await syncPalletCycles(db, userId, now);
+      const activeCycles = await listActivePalletCycles(db, userId);
       const dueCycles = activeCycles.filter((cycle) => {
+        const freeUntil = toDate((cycle as any).freeUntil);
+        if (freeUntil && freeUntil.getTime() > now.getTime()) {
+          return false;
+        }
         const dueDate = toDate(cycle.nextInvoiceDate) || toDate(cycle.assignedAt);
         if (!dueDate) return false;
         return force || dueDate.getTime() <= now.getTime();
@@ -139,8 +143,27 @@ async function handleRequest(request: NextRequest) {
         continue;
       }
 
+      const invoiceItems = dueCycles.map((cycle) => {
+        const paidCycleCount = Math.max(0, Number((cycle as any).paidCycleCount) || 0);
+        const unitPrice = getRateForPaidCycle(paidCycleCount, tierRates);
+        const label = String((cycle as any).positionLabel || cycle.id).trim();
+        return {
+          quantity: 1,
+          productName: `Storage — Pallet ${label} (cycle ${paidCycleCount + 1})`,
+          shipDate: format(today, "yyyy-MM-dd"),
+          shipTo: "N/A",
+          packaging: "Storage",
+          unitPrice,
+          amount: unitPrice,
+          palletCycleId: cycle.id,
+          paidCycleCount,
+        };
+      });
+
       const itemCount = dueCycles.length;
-      const totalAmount = Number((itemCount * price).toFixed(2));
+      const totalAmount = Number(
+        invoiceItems.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)
+      );
       if (totalAmount <= 0) {
         results.push({ userId, status: "skipped_no_charge", dueCycles: itemCount });
         continue;
@@ -148,17 +171,6 @@ async function handleRequest(request: NextRequest) {
 
       const invoiceNumber = generateInvoiceNumber(today);
       const orderNumber = `STOR-${format(today, "yyyyMMdd")}-${Date.now().toString().slice(-4)}`;
-      const invoiceItems = [
-        {
-          quantity: itemCount,
-          productName: `Storage - Pallet Base (${itemCount} pallet${itemCount > 1 ? "s" : ""})`,
-          shipDate: format(today, "yyyy-MM-dd"),
-          shipTo: "N/A",
-          packaging: "Storage",
-          unitPrice: price,
-          amount: totalAmount,
-        },
-      ];
 
       const invoiceDoc = {
         invoiceNumber,
@@ -193,11 +205,13 @@ async function handleRequest(request: NextRequest) {
       for (const cycle of dueCycles) {
         const currentDueDate = toDate(cycle.nextInvoiceDate) || now;
         const nextDate = add30Days(currentDueDate);
+        const prevPaid = Math.max(0, Number((cycle as any).paidCycleCount) || 0);
         await db.collection(`users/${userId}/palletStorageCycles`).doc(cycle.id).update({
           lastInvoicedAt: now,
           lastInvoiceId: createdInvoice.id,
           lastInvoiceNumber: invoiceNumber,
           nextInvoiceDate: nextDate,
+          paidCycleCount: prevPaid + 1,
           updatedAt: now,
         });
       }

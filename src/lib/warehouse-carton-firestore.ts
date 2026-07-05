@@ -802,6 +802,7 @@ export async function createCrossdockPalletReceive(input: {
   clientId?: string | null;
   clientDisplayName?: string | null;
   receiveLot?: string | null;
+  photoUrl?: string | null;
 }): Promise<{ palletId: string }> {
   const lot = input.receiveLot?.trim() || generateCrossdockReceiveLot();
   const display = input.clientDisplayName?.trim() || null;
@@ -818,6 +819,7 @@ export async function createCrossdockPalletReceive(input: {
     notes: input.notes ?? null,
     receivedBy: input.receivedBy ?? null,
     stagingArea: input.stagingArea ?? null,
+    photoUrl: input.photoUrl ?? null,
   });
   return { palletId };
 }

@@ -838,6 +838,35 @@ export interface ShipmentRequest {
   crossdockLinkedUnitId?: string | null;
   crossdockLinkedUnitKind?: "carton" | "pallet" | null;
   crossdockLinkedUnitCode?: string | null;
+  labelUrl?: string;
+  labelUploadedAt?: { seconds: number; nanoseconds: number } | string;
+  /** New FBA/WFS/TFS requests — label after warehouse posts master case details. */
+  fbaLabelWorkflow?: boolean;
+  fbaPackPhase?: FbaPackPhase | null;
+  fbaMasterCases?: FbaMasterCase[];
+  fbaMasterCaseCompletedAt?: { seconds: number; nanoseconds: number } | string;
+  fbaMasterCaseCompletedBy?: string | null;
+  fbaLabelReadyAt?: { seconds: number; nanoseconds: number } | string;
+  fbaLabelUploadedBy?: "client" | "warehouse";
+  fbaClientLabelUploadedAt?: { seconds: number; nanoseconds: number } | string;
+  fbaWarehouseLabelUploadedAt?: { seconds: number; nanoseconds: number } | string;
+  fbaWarehouseLabelUploadedBy?: string | null;
+}
+
+export type FbaWeightUnit = "lb" | "kg";
+export type FbaDimensionUnit = "in" | "cm";
+export type FbaPackPhase = "awaiting_label" | "awaiting_courier";
+
+export interface FbaMasterCase {
+  id: string;
+  caseNumber: number;
+  weight: number;
+  weightUnit: FbaWeightUnit;
+  length: number;
+  width: number;
+  height: number;
+  dimensionUnit: FbaDimensionUnit;
+  notes?: string;
 }
 
 export interface ShipmentProductItem {
@@ -1192,6 +1221,27 @@ export interface Invoice {
   lateFeeReason?: string;
   type?: string;
   isContainerHandling?: boolean;
+  updatedAt?: { seconds: number; nanoseconds: number } | string;
+}
+
+/** Ledger entry when admin applies a discount to an invoice. */
+export interface DiscountTrailEntry {
+  id: string;
+  userId?: string;
+  userName?: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  discountType: "amount" | "percent";
+  discountValue: number;
+  discountAmount: number;
+  grossTotal?: number;
+  grandTotalAfter?: number;
+  invoiceStatus?: "pending" | "paid" | string;
+  appliedAt?: { seconds: number; nanoseconds: number } | string;
+  appliedBy?: string | null;
+  appliedByName?: string | null;
+  /** Present when merged from invoice history without a stored trail doc. */
+  source?: "invoice_backfill";
 }
 
 export interface UploadedPDF {
@@ -1346,6 +1396,18 @@ export function formatServiceLabel(service: string | undefined | null): string {
   return service;
 }
 
+export type ShipmentPreference = "box" | "pallet";
+
+/** Client preference for outbound pack unit: box (SPD) or pallet (LTL). */
+export function formatShipmentPreferenceLabel(
+  preference: ShipmentPreference | string | undefined | null
+): string {
+  if (preference === "box") return "SPD";
+  if (preference === "pallet") return "LTL";
+  if (!preference) return "Select";
+  return String(preference);
+}
+
 export type PackageType = string;
 export type QuantityRange = string;
 /** FBA/DTC-FBM prep pricing uses Standard only; Custom may appear on legacy shipment rows. */
@@ -1371,10 +1433,45 @@ export interface UserStoragePricing {
   id: string;
   userId?: string;
   storageType: StorageType;
+  /** Legacy flat rate — used as month1 fallback. */
   price: number;
+  month1Rate?: number;
+  month2to6Rate?: number;
+  month6PlusRate?: number;
   palletCount?: number;
   updatedAt?: unknown;
   createdAt?: unknown;
+}
+
+/** Billable pallet footprint for a client (separate from physical putaway). */
+export interface PalletStoragePosition {
+  id: string;
+  label: string;
+  status: "active" | "closed";
+  cycleId?: string;
+  hasSpace?: boolean;
+  warehouseId?: string | null;
+  receiveBatchId?: string | null;
+  notes?: string | null;
+  consolidatedIntoPositionId?: string | null;
+  closeReason?: string | null;
+  closedAt?: unknown;
+  assignedBy?: string | null;
+  lastConsolidatedAt?: unknown;
+  lastConsolidatedBy?: string | null;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface PalletStoragePositionContent {
+  id: string;
+  sku?: string | null;
+  productName?: string | null;
+  quantity?: number;
+  notes?: string | null;
+  receiveBatchId?: string | null;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }
 
 export interface UserBoxForwardingPricing {
