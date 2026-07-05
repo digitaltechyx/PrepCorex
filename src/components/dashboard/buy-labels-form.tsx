@@ -20,6 +20,7 @@ import {
   BuyLabelsBulkImportDialog,
   type BuyLabelCartImportItem,
 } from "@/components/dashboard/buy-labels-bulk-import-dialog";
+import { BUY_LABELS_FROM_NAME } from "@/lib/buy-labels-bulk-import";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import { getStripePublishableKey } from "@/lib/stripe";
@@ -234,8 +235,7 @@ export function BuyLabelsForm() {
     },
   });
 
-  const defaultFromName =
-    userProfile?.companyName?.trim() || userProfile?.name?.trim() || "";
+  const defaultFromName = BUY_LABELS_FROM_NAME;
 
   const buildFromAddressForLocation = (location: LocationDoc) =>
     locationToFromShippingAddress(location, {
@@ -635,7 +635,7 @@ export function BuyLabelsForm() {
                       <FormItem>
                         <FormLabel>Name *</FormLabel>
                         <FormControl>
-                          <Input placeholder="John Doe" {...field} />
+                          <Input placeholder="Prep Services FBA" {...field} disabled={fromAddressLocked} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

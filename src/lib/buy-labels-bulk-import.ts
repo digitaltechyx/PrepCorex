@@ -7,6 +7,9 @@ import {
 } from "@/lib/location-shipping-address";
 import type { ParcelDetails, ShippingAddress, ShippingRate } from "@/types";
 
+/** Fixed shipper name on Buy Labels from address (warehouse sender). */
+export const BUY_LABELS_FROM_NAME = "Prep Services FBA";
+
 /** CSV columns mirror the Buy Labels form field labels (no extra metadata columns). */
 export const BUY_LABELS_BULK_CSV_HEADERS = [
   "From Name",
@@ -99,7 +102,7 @@ export function locationToFromAddress(
   fromPhone = ""
 ): ShippingAddress {
   return locationToFromShippingAddress(location, {
-    shipperName: fromName,
+    shipperName: fromName.trim() || BUY_LABELS_FROM_NAME,
     phone: fromPhone,
   });
 }
@@ -214,7 +217,7 @@ function findMatchingLocation(
   for (const location of locations) {
     const expected = locationToFromAddress(
       location,
-      fromAddress.name || options.defaultFromName,
+      BUY_LABELS_FROM_NAME,
       fromAddress.phone || options.defaultFromPhone
     );
     if (shippingAddressesMatch(fromAddress, expected)) {
@@ -262,7 +265,7 @@ export function validateBuyLabelsBulkRows(
     if (!matchedLocation && templateLocation) {
       const expectedFromTemplate = locationToFromAddress(
         templateLocation,
-        row["From Name"].trim() || options.defaultFromName,
+        BUY_LABELS_FROM_NAME,
         row["From Phone"].trim() || options.defaultFromPhone
       );
       if (shippingAddressesMatch(fromAddress, expectedFromTemplate)) {
@@ -280,9 +283,16 @@ export function validateBuyLabelsBulkRows(
 
     const canonicalFrom = locationToFromAddress(
       matchedLocation,
-      row["From Name"].trim() || options.defaultFromName,
+      BUY_LABELS_FROM_NAME,
       row["From Phone"].trim() || options.defaultFromPhone
     );
+
+    if (row["From Name"].trim() && row["From Name"].trim() !== BUY_LABELS_FROM_NAME) {
+      warnings.push({
+        rowNumber,
+        message: `From Name set to "${BUY_LABELS_FROM_NAME}".`,
+      });
+    }
 
     if (!shippingAddressesMatch(fromAddress, canonicalFrom)) {
       warnings.push({
@@ -368,7 +378,7 @@ export function downloadBuyLabelsBulkTemplate(
 ): void {
   const from = locationToFromAddress(
     location,
-    options?.fromName?.trim() || "",
+    options?.fromName?.trim() || BUY_LABELS_FROM_NAME,
     options?.fromPhone?.trim() || ""
   );
   const sampleCount = Math.max(1, options?.sampleRows ?? 5);
