@@ -47,6 +47,11 @@ import {
   submitInboundBatch,
   type InboundBatchLineInput,
 } from "@/lib/inbound-batch";
+import {
+  INBOUND_BACKGROUND_IMPORT_THRESHOLD,
+  processInboundImportJob,
+  startInboundImportJob,
+} from "@/lib/inbound-import-job";
 import type { InboundBulkValidatedRow } from "@/lib/inbound-bulk-import";
 import type { InboundLoadContents, InboundShipmentType } from "@/types";
 import {
@@ -694,18 +699,38 @@ export function AddInventoryRequestForm({
     if (!user || !ownerId || draftLines.length === 0) return;
     setIsLoading(true);
     try {
-      await submitInboundBatch({
-        userId: ownerId,
-        userName: ownerName,
-        shipmentType: shipmentType || undefined,
-        loadContents: isContainerOnlyDraft ? loadContents || undefined : undefined,
-        productNotes: isContainerOnlyDraft ? productNotes.trim() || undefined : undefined,
-        lines: draftLines.map(({ draftId: _draftId, ...line }) => line),
-      });
-      toast({
-        title: "Success",
-        description: `Inbound batch submitted (${draftLines.length} items). Waiting for admin approval.`,
-      });
+      const lines = draftLines.map(({ draftId: _draftId, ...line }) => line);
+      if (lines.length >= INBOUND_BACKGROUND_IMPORT_THRESHOLD) {
+        const idToken = await user.getIdToken();
+        const jobId = await startInboundImportJob({
+          userId: ownerId,
+          userName: ownerName,
+          requestedBy: user.uid,
+          shipmentType: shipmentType || undefined,
+          loadContents: isContainerOnlyDraft ? loadContents || undefined : undefined,
+          productNotes: isContainerOnlyDraft ? productNotes.trim() || undefined : undefined,
+          lines,
+          idToken,
+        });
+        void processInboundImportJob({ userId: ownerId, jobId, idToken }).catch(() => undefined);
+        toast({
+          title: "Import started",
+          description: `Processing ${lines.length} rows in the background. Progress is shown on the inventory page.`,
+        });
+      } else {
+        await submitInboundBatch({
+          userId: ownerId,
+          userName: ownerName,
+          shipmentType: shipmentType || undefined,
+          loadContents: isContainerOnlyDraft ? loadContents || undefined : undefined,
+          productNotes: isContainerOnlyDraft ? productNotes.trim() || undefined : undefined,
+          lines,
+        });
+        toast({
+          title: "Success",
+          description: `Inbound batch submitted (${draftLines.length} items). Waiting for admin approval.`,
+        });
+      }
       setDraftLines([]);
       setShipmentType("");
       setLoadContents("");

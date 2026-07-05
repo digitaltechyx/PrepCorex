@@ -613,6 +613,15 @@ export type InboundLoadContents = (typeof INBOUND_LOAD_CONTENTS_OPTIONS)[number]
 
 export type InboundBatchStatus = "pending" | "partial" | "completed" | "cancelled";
 
+export type InboundImportJobStatus =
+  | "uploading"
+  | "queued"
+  | "processing"
+  | "cancelling"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
 /** Parent doc for a multi-line inbound submission (`users/{uid}/inboundBatches`). */
 export interface InboundBatch {
   id: string;
@@ -634,6 +643,32 @@ export interface InboundBatch {
   cancelledBy?: string;
   cancelledAt?: { seconds: number; nanoseconds: number } | string;
   cancellationReason?: string;
+}
+
+export interface InboundImportJob {
+  id: string;
+  userId: string;
+  userName: string;
+  batchId: string;
+  shipmentType?: InboundShipmentType;
+  loadContents?: InboundLoadContents;
+  productNotes?: string;
+  status: InboundImportJobStatus;
+  totalRows: number;
+  processedRows: number;
+  failedRows?: number;
+  totalChunks: number;
+  processedChunks: number;
+  cancelRequested?: boolean;
+  errorMessage?: string;
+  elapsedMs?: number;
+  addDate?: { seconds: number; nanoseconds: number } | string;
+  requestedAt?: { seconds: number; nanoseconds: number } | string;
+  startedAt?: { seconds: number; nanoseconds: number } | string;
+  completedAt?: { seconds: number; nanoseconds: number } | string;
+  cancelledAt?: { seconds: number; nanoseconds: number } | string;
+  lastProgressAt?: { seconds: number; nanoseconds: number } | string;
+  requestedBy?: string;
 }
 
 /** Line item under a batch (`users/{uid}/inboundBatches/{batchId}/lines`). */

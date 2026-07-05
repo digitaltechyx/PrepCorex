@@ -178,6 +178,29 @@ service cloud.firestore {
       allow delete: if isAdminOrSubAdmin();
     }
 
+    match /users/{userId}/inboundImportJobs/{jobId} {
+      allow read: if isSelf(userId);
+      allow create: if isSelf(userId);
+      allow update: if isSelf(userId) && (
+        (
+          resource.data.status == 'uploading' &&
+          request.resource.data.status == 'queued' &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'lastProgressAt'])
+        ) || (
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'cancelRequested', 'lastProgressAt']) &&
+          request.resource.data.cancelRequested == true &&
+          request.resource.data.status == 'cancelling'
+        )
+      );
+      allow delete: if false;
+    }
+
+    match /users/{userId}/inboundImportJobs/{jobId}/chunks/{chunkId} {
+      allow read: if isSelf(userId);
+      allow create: if isSelf(userId);
+      allow update, delete: if false;
+    }
+
     match /users/{userId}/inboundReceiveLogs/{logId} {
       allow read: if isSelf(userId) || isAdminOrSubAdmin();
       allow create: if isAdminOrSubAdmin() || isWarehouseOperator();

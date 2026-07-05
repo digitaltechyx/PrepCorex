@@ -186,7 +186,6 @@ export default function RegisterPage() {
         roles: ["user"],
         features: [],
         status: "pending",
-        storageType: values.storageType,
         pricingProfileId: DEFAULT_PRICING_PROFILE_ID,
         emailVerificationRequired: true,
         createdAt: new Date(),

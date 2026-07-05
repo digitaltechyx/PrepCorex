@@ -8,6 +8,7 @@ import type {
   UserProfile,
   ShipmentRequest,
   InventoryRequest,
+  InboundBatch,
   ProductReturn,
   DisposeRequest,
   InboundTrackingEntry,
@@ -355,7 +356,7 @@ export default function AdminNotificationsPage() {
           }
         }
 
-        // Inventory Requests
+        // Inventory Requests + inbound batch submissions
         {
           try {
             const base = collectionGroup(db, "inventoryRequests");
@@ -385,7 +386,22 @@ export default function AdminNotificationsPage() {
                   : undefined,
               };
             });
-            setInventoryRequests(rows);
+            const batchSnap = await getDocs(query(collectionGroup(db, "inboundBatches")));
+            const batchRows: NotificationRow[] = batchSnap.docs.map((d) => {
+              const userId = d.ref.path.split("/")[1];
+              const data = d.data() as any as InboundBatch;
+              const dateMs = toMs((data as any).requestedAt) || toMs((data as any).addDate) || 0;
+              return {
+                type: "inventory_request",
+                id: d.id,
+                userId,
+                status: String((data as any).status || ""),
+                createdAtMs: dateMs,
+                title: `Inbound Batch • ${Number((data as any).totalLines || 0).toLocaleString()} items`,
+                subtitle: `${Number((data as any).pendingLines || 0).toLocaleString()} pending · ${Number((data as any).approvedLines || 0).toLocaleString()} approved · ${Number((data as any).rejectedLines || 0).toLocaleString()} rejected`,
+              };
+            });
+            setInventoryRequests([...rows, ...batchRows]);
           } catch (e) {
             anyFailed = true;
             const results = await Promise.all(userIds.map(async (uid) => {
@@ -417,7 +433,25 @@ export default function AdminNotificationsPage() {
                 return row;
               });
             }));
-            setInventoryRequests(results.flat());
+            const batchResults = await Promise.all(userIds.map(async (uid) => {
+              const base = collection(db, `users/${uid}/inboundBatches`);
+              const snap = await getDocs(query(base));
+              return snap.docs.map((d) => {
+                const data = d.data() as any as InboundBatch;
+                const dateMs = toMs((data as any).requestedAt) || toMs((data as any).addDate) || 0;
+                const row: NotificationRow = {
+                  type: "inventory_request",
+                  id: d.id,
+                  userId: uid,
+                  status: String((data as any).status || ""),
+                  createdAtMs: dateMs,
+                  title: `Inbound Batch • ${Number((data as any).totalLines || 0).toLocaleString()} items`,
+                  subtitle: `${Number((data as any).pendingLines || 0).toLocaleString()} pending · ${Number((data as any).approvedLines || 0).toLocaleString()} approved · ${Number((data as any).rejectedLines || 0).toLocaleString()} rejected`,
+                };
+                return row;
+              });
+            }));
+            setInventoryRequests([...results.flat(), ...batchResults.flat()]);
           }
         }
 

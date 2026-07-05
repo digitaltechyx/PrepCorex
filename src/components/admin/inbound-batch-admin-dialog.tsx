@@ -2,6 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Check, Layers, Loader2, X } from "lucide-react";
+import {
+  collection,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  startAfter,
+  where,
+  type DocumentData,
+  type QueryDocumentSnapshot,
+} from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +29,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
-import { useCollection } from "@/hooks/use-collection";
+import { db } from "@/lib/firebase";
 import type { InboundBatch, InboundBatchLine, InventoryRequest } from "@/types";
 import {
   batchLineToInventoryRequest,
@@ -26,6 +37,8 @@ import {
   formatShipmentTypeLabel,
   inboundBatchLinesPath,
 } from "@/lib/inbound-batch";
+
+const LINES_PER_PAGE = 100;
 
 type InboundBatchAdminDialogProps = {
   batch: InboundBatch | null;
@@ -47,8 +60,13 @@ export function InboundBatchAdminDialog({
   onBulkReject,
 }: InboundBatchAdminDialogProps) {
   const linesPath = batch ? inboundBatchLinesPath(userId, batch.id) : "";
-  const { data: lines, loading } = useCollection<InboundBatchLine>(linesPath);
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("pending");
+  const [lines, setLines] = useState<InboundBatchLine[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageCursors, setPageCursors] = useState<(QueryDocumentSnapshot<DocumentData> | null)[]>([null]);
+  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [hasNextPage, setHasNextPage] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [rejectOpen, setRejectOpen] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
@@ -61,19 +79,60 @@ export function InboundBatchAdminDialog({
       setRejectReason("");
       setRejectOpen(false);
       setApproveOpen(false);
+      setLines([]);
+      setPageIndex(0);
+      setPageCursors([null]);
+      setLastDoc(null);
+      setHasNextPage(false);
     }
   }, [batch?.id]);
 
-  const pendingLines = useMemo(
-    () => lines.filter((line) => line.status === "pending"),
-    [lines]
-  );
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setLines([]);
+    setPageIndex(0);
+    setPageCursors([null]);
+    setLastDoc(null);
+    setHasNextPage(false);
+  }, [batch?.id, statusFilter]);
 
-  const filteredLines = useMemo(() => {
-    const sorted = [...lines].sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0));
-    if (statusFilter === "all") return sorted;
-    return sorted.filter((line) => line.status === statusFilter);
-  }, [lines, statusFilter]);
+  useEffect(() => {
+    if (!batch || !linesPath) return;
+    let cancelled = false;
+    const loadPage = async () => {
+      setLoading(true);
+      try {
+        const constraints =
+          statusFilter === "all"
+            ? [orderBy("lineNumber", "asc"), limit(LINES_PER_PAGE + 1)]
+            : [where("status", "==", statusFilter), limit(LINES_PER_PAGE + 1)];
+        const cursor = pageCursors[pageIndex];
+        const q = cursor
+          ? query(collection(db, linesPath), ...constraints, startAfter(cursor))
+          : query(collection(db, linesPath), ...constraints);
+        const snap = await getDocs(q);
+        if (cancelled) return;
+        const docs = snap.docs.slice(0, LINES_PER_PAGE);
+        setLines(
+          docs
+            .map((d) => ({ id: d.id, ...d.data() } as InboundBatchLine))
+            .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
+        );
+        setLastDoc(docs.length > 0 ? docs[docs.length - 1] : null);
+        setHasNextPage(snap.docs.length > LINES_PER_PAGE);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void loadPage();
+    return () => {
+      cancelled = true;
+    };
+  }, [batch, linesPath, pageCursors, pageIndex, statusFilter]);
+
+  const pendingLines = useMemo(() => lines.filter((line) => line.status === "pending"), [lines]);
+
+  const filteredLines = lines;
 
   const selectableInView = useMemo(
     () => filteredLines.filter((line) => line.status === "pending"),
@@ -113,8 +172,24 @@ export function InboundBatchAdminDialog({
     });
   };
 
-  const selectAllPending = () => {
+  const selectVisiblePending = () => {
     setSelectedIds(new Set(pendingLines.map((line) => line.id)));
+  };
+
+  const goNext = () => {
+    if (!lastDoc || !hasNextPage) return;
+    setPageCursors((prev) => {
+      const next = [...prev];
+      next[pageIndex + 1] = lastDoc;
+      return next;
+    });
+    setPageIndex((prev) => prev + 1);
+    setSelectedIds(new Set());
+  };
+
+  const goPrevious = () => {
+    setPageIndex((prev) => Math.max(0, prev - 1));
+    setSelectedIds(new Set());
   };
 
   if (!batch) return null;
@@ -158,8 +233,8 @@ export function InboundBatchAdminDialog({
 
           {pendingLines.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-2">
-              <Button type="button" size="sm" variant="outline" onClick={selectAllPending} disabled={isProcessing}>
-                Select all pending ({pendingLines.length})
+              <Button type="button" size="sm" variant="outline" onClick={selectVisiblePending} disabled={isProcessing}>
+                Select visible pending ({pendingLines.length})
               </Button>
               <Button
                 type="button"
@@ -181,6 +256,9 @@ export function InboundBatchAdminDialog({
                 <X className="mr-1.5 h-4 w-4" />
                 Reject selected ({selectedLines.length})
               </Button>
+              <span className="text-xs text-muted-foreground">
+                Showing page {pageIndex + 1} · {LINES_PER_PAGE} max
+              </span>
               {isProcessing && (
                 <span className="inline-flex items-center text-xs text-muted-foreground">
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -275,6 +353,19 @@ export function InboundBatchAdminDialog({
               )}
             </ScrollArea>
           )}
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>
+              Showing {filteredLines.length} line{filteredLines.length === 1 ? "" : "s"} on page {pageIndex + 1}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={goPrevious} disabled={loading || pageIndex === 0}>
+                Previous
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={goNext} disabled={loading || !hasNextPage}>
+                Next
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

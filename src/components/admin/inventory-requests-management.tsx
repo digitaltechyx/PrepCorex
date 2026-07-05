@@ -192,13 +192,18 @@ export function InventoryRequestsManagement({
   React.useEffect(() => {
     if (didAutoOpen) return;
     if (!initialRequestId) return;
-    if (!requests || requests.length === 0) return;
     const match = requests.find((r: any) => r.id === initialRequestId);
     if (match) {
       setSelectedRequest(match);
       setDidAutoOpen(true);
+      return;
     }
-  }, [didAutoOpen, initialRequestId, requests]);
+    const batchMatch = inboundBatches.find((b: any) => b.id === initialRequestId);
+    if (batchMatch) {
+      setSelectedBatch(batchMatch);
+      setDidAutoOpen(true);
+    }
+  }, [didAutoOpen, inboundBatches, initialRequestId, requests]);
 
   // Debug logging
   React.useEffect(() => {

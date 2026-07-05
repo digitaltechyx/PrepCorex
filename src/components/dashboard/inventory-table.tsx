@@ -40,6 +40,7 @@ import {
 import type { InboundTrackingEntry } from "@/types";
 import { format } from "date-fns";
 import { AddInventoryRequestForm } from "./add-inventory-request-form";
+import { InboundImportProgress } from "@/components/dashboard/inbound-import-progress";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -1031,6 +1032,7 @@ export function InventoryTable({
         </div>
       </CardHeader>
       <CardContent className="p-0 sm:p-6">
+        <InboundImportProgress userId={effectiveUserId} />
         {/* Search and Filter Controls */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6 px-6">
           <div className="flex-1">
