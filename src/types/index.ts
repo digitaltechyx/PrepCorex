@@ -1310,10 +1310,45 @@ export interface LabelPurchase {
 
 // ——— Pricing (prep, storage, forwarding) ———
 
-export type ServiceType = "FBA/WFS/TFS" | "FBM";
+export type ServiceType = "FBA/WFS/TFS" | "DTC/FBM";
+export const DTC_FBM_SERVICE: ServiceType = "DTC/FBM";
+
+/** Legacy stored value before rename to DTC/FBM. */
+export type LegacyFbmService = "FBM";
+
+export function isDtcFbmService(service: string | undefined | null): boolean {
+  return service === DTC_FBM_SERVICE || service === "FBM";
+}
+
+export function servicesMatch(
+  a: string | undefined | null,
+  b: string | undefined | null
+): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return isDtcFbmService(a) && isDtcFbmService(b);
+}
+
+export function normalizeStoredServiceType(
+  service: string | undefined | null
+): ServiceType | null {
+  const value = String(service || "").trim();
+  if (value === "FBA/WFS/TFS" || value === "FBA" || value === "WFS" || value === "TFS") {
+    return "FBA/WFS/TFS";
+  }
+  if (isDtcFbmService(value)) return DTC_FBM_SERVICE;
+  return null;
+}
+
+export function formatServiceLabel(service: string | undefined | null): string {
+  if (!service) return "N/A";
+  if (service === "FBM") return DTC_FBM_SERVICE;
+  return service;
+}
+
 export type PackageType = string;
 export type QuantityRange = string;
-/** FBA/FBM prep pricing uses Standard only; Custom may appear on legacy shipment rows. */
+/** FBA/DTC-FBM prep pricing uses Standard only; Custom may appear on legacy shipment rows. */
 export type ProductType = "Standard" | "Large" | "Custom";
 export type StorageType = "product_base" | "pallet_base";
 export const CONTAINER_SIZE_OPTIONS = ["20 feet", "40 feet", "53 feet"] as const;

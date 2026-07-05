@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useCollection } from "@/hooks/use-collection";
 import { usePricingProfileSettings } from "@/hooks/use-pricing-profile-settings";
 import type { UserProfile, UserPricing, ServiceType, PackageType, QuantityRange, ProductType, UserStoragePricing, StorageType, UserBoxForwardingPricing, UserPalletForwardingPricing, UserContainerHandlingPricing, ContainerSize, UserAdditionalServicesPricing } from "@/types";
+import { DTC_FBM_SERVICE, servicesMatch } from "@/types";
 import { CONTAINER_SIZE_OPTIONS } from "@/types";
 import {
   Card,
@@ -338,7 +339,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
     FBM_PACKAGES.forEach((pkgInfo) => {
       PRODUCT_TYPES.forEach((productType) => {
         allCombinations.push({
-          service: "FBM",
+          service: DTC_FBM_SERVICE,
           package: pkgInfo.package,
           quantityRange: pkgInfo.quantityRange,
           productType,
@@ -354,7 +355,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
       allCombinations.forEach((row) => {
         const existing = pricingList.find(
           (p) =>
-            p.service === row.service &&
+            (p.service === row.service || servicesMatch(p.service, row.service)) &&
             p.package === row.package &&
             p.quantityRange === row.quantityRange &&
             p.productType === row.productType
@@ -1460,10 +1461,10 @@ export function PricingManagement({ users }: PricingManagementProps) {
                       FBA/WFS/TFS
                     </TabsTrigger>
                     <TabsTrigger 
-                      value="FBM" 
+                      value="DTC/FBM" 
                       className="data-[state=active]:bg-purple-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
                     >
-                      FBM
+                      DTC/FBM
                     </TabsTrigger>
                     <TabsTrigger 
                       value="Storage" 
@@ -1475,7 +1476,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                       value="Box Forwarding" 
                       className="data-[state=active]:bg-orange-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
                     >
-                      Box Forwarding
+                      Carton Forwarding
                     </TabsTrigger>
                     <TabsTrigger 
                       value="Pallet Forwarding" 
@@ -1566,10 +1567,10 @@ export function PricingManagement({ users }: PricingManagementProps) {
                   </Card>
                 </TabsContent>
 
-                <TabsContent value="FBM" className="mt-4">
+                <TabsContent value="DTC/FBM" className="mt-4">
                   <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm">
                     <CardHeader className="border-b bg-gradient-to-r from-violet-50 to-indigo-50 pb-3">
-                      <CardTitle className="text-xl text-violet-700">FBM Fulfillment Plan</CardTitle>
+                      <CardTitle className="text-xl text-violet-700">DTC/FBM Fulfillment Plan</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-5 p-5 text-sm">
                       <div className="relative overflow-hidden rounded-lg border border-amber-300/80 bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-100 px-3 py-2.5 text-sm text-amber-900 shadow-sm">
@@ -1601,7 +1602,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                         ]).map((tier) => {
                           const standardIndex = pricingRows.findIndex(
                             (r) =>
-                              r.service === "FBM" &&
+                              servicesMatch(r.service, DTC_FBM_SERVICE) &&
                               r.package === tier.pkg &&
                               r.quantityRange === tier.range &&
                               r.productType === "Standard"
@@ -1641,7 +1642,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                       <div className="space-y-2">
                         <Label className="text-sm font-semibold">What&apos;s included</Label>
                         <p className="text-xs text-muted-foreground">
-                          One item per line. Shown to clients on the FBM pricing tab.
+                          One item per line. Shown to clients on the DTC/FBM pricing tab.
                         </p>
                         <Textarea
                           value={fbmIncludedText}
@@ -1857,7 +1858,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                             ) : (
                               <>
                                 <Save className="mr-2 h-4 w-4" />
-                                Save Box Forwarding Pricing
+                                Save Carton Forwarding Pricing
                               </>
                             )}
                           </Button>

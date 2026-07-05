@@ -227,7 +227,7 @@ export function InboundBatchUserDialog({
 
           {batch.productNotes?.trim() ? (
             <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">About products</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Description</p>
               <p className="mt-1 whitespace-pre-wrap">{batch.productNotes.trim()}</p>
             </div>
           ) : null}

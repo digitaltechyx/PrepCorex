@@ -16,7 +16,7 @@
 import { Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
-import { CONTAINER_SIZE_OPTIONS, type ContainerSize } from "@/types";
+import { CONTAINER_SIZE_OPTIONS, DTC_FBM_SERVICE, isDtcFbmService, type ContainerSize } from "@/types";
 
  type PricingRuleDoc = {
    id: string;
@@ -291,8 +291,8 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
      );
    }
 
-   const renderServiceTable = (service: "FBA/WFS/TFS" | "FBM") => {
-     const pkgs = service === "FBM" ? FBM_PACKAGES : FBA_PACKAGES;
+   const renderServiceTable = (service: "FBA/WFS/TFS" | typeof DTC_FBM_SERVICE) => {
+     const pkgs = isDtcFbmService(service) ? FBM_PACKAGES : FBA_PACKAGES;
      return (
        <div className="overflow-x-auto">
          <table className="w-full border-collapse">
@@ -405,8 +405,9 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
     const getFbmPrice = (range: (typeof rows)[number]["range"]) => {
       const pkg = FBM_PACKAGES.find((p) => p.quantityRange === range);
       if (!pkg) return undefined;
-      const key = `FBM|${pkg.package}|${pkg.quantityRange}|Standard`;
-      const rule = pricingByKey.get(key);
+      const key = `${DTC_FBM_SERVICE}|${pkg.package}|${pkg.quantityRange}|Standard`;
+      const legacyKey = `FBM|${pkg.package}|${pkg.quantityRange}|Standard`;
+      const rule = pricingByKey.get(key) ?? pricingByKey.get(legacyKey);
       if (rule?.rate !== undefined && rule?.rate !== null) return rule.rate;
       return DEFAULT_FBM_RATES[`${range}|Standard`];
     };
@@ -432,7 +433,7 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
     return (
       <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
         <CardHeader className="border-b bg-gradient-to-r from-violet-50 to-indigo-50 pb-3 dark:from-slate-900 dark:to-slate-900">
-          <CardTitle className="text-xl text-violet-700 dark:text-violet-300">FBM Fulfillment Plan</CardTitle>
+          <CardTitle className="text-xl text-violet-700 dark:text-violet-300">DTC/FBM Fulfillment Plan</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5 p-5 text-sm">
           <div className="relative overflow-hidden rounded-lg border border-amber-300/80 bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-100 px-3 py-2.5 text-sm text-amber-900 shadow-sm dark:border-amber-700/60 dark:from-amber-950/50 dark:via-yellow-950/40 dark:to-amber-900/30 dark:text-amber-200">
@@ -453,7 +454,7 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
                   </div>
                 ) : (
                   <div>
-                    Weekly avg: <span className="font-semibold">{weeklyOrderStats.avgDailyOrders.toFixed(1)} orders/day</span>. You are already at the highest FBM tier.
+                    Weekly avg: <span className="font-semibold">{weeklyOrderStats.avgDailyOrders.toFixed(1)} orders/day</span>. You are already at the highest DTC/FBM tier.
                   </div>
                 )}
               </div>
@@ -501,14 +502,14 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
            <TabsTrigger value="FBA/WFS/TFS" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2">
              FBA/WFS/TFS
            </TabsTrigger>
-           <TabsTrigger value="FBM" className="data-[state=active]:bg-purple-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2">
-             FBM
+           <TabsTrigger value="DTC/FBM" className="data-[state=active]:bg-purple-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2">
+             DTC/FBM
            </TabsTrigger>
            <TabsTrigger value="Storage" className="data-[state=active]:bg-green-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2">
              Storage
            </TabsTrigger>
-           <TabsTrigger value="Box Forwarding" className="data-[state=active]:bg-orange-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2">
-             Box Forwarding
+          <TabsTrigger value="Box Forwarding" className="data-[state=active]:bg-orange-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2">
+            Carton Forwarding
            </TabsTrigger>
            <TabsTrigger value="Pallet Forwarding" className="data-[state=active]:bg-red-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2">
              Pallet Forwarding
@@ -526,7 +527,7 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
         {renderFbaPlans()}
        </TabsContent>
 
-       <TabsContent value="FBM" className="mt-4">
+       <TabsContent value="DTC/FBM" className="mt-4">
         {renderFbmPlan()}
        </TabsContent>
 
@@ -604,11 +605,11 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
        <TabsContent value="Box Forwarding" className="mt-4">
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Box Forwarding</CardTitle>
+            <CardTitle className="text-sm">Carton Forwarding</CardTitle>
            </CardHeader>
           <CardContent className="max-w-md space-y-1.5 pt-0 text-sm">
              <div className="text-xs text-muted-foreground">
-               Applies when you select shipment type <span className="font-medium">Box Forwarding</span>.
+              Applies when you select shipment type <span className="font-medium">Carton Forwarding</span>.
              </div>
             <PricingDefinitionRow label="Forwarding Price">
               <span className="font-semibold tabular-nums">{latestBox ? money(latestBox.price) : "-"}</span>

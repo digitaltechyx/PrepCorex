@@ -16,6 +16,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import type { ServiceType, ProductType, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserPalletExistingInventoryPricing, UserAdditionalServicesPricing } from "@/types";
+import { DTC_FBM_SERVICE, isDtcFbmService } from "@/types";
 
 // Define InventoryItem locally since it's not exported from @/types
 interface InventoryItem {
@@ -47,7 +48,7 @@ const formSchema = z.object({
   shipments: z.array(shipmentItemSchema).min(1, "Select at least one item to ship."),
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
-  service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
+  service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Box Forwarding"]).optional(),
   productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
@@ -232,7 +233,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         const packOf = shipment.packOf || 1;
         const totalUnits = quantity * packOf;
 
-        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || service === "FBM")) {
+        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || isDtcFbmService(service))) {
           const calculatedPrice = calculatePrepUnitPrice(
             pricingRules,
             service as ServiceType,
@@ -1174,7 +1175,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="FBA/WFS/TFS">FBA/WFS/TFS</SelectItem>
-                          <SelectItem value="FBM">FBM</SelectItem>
+                          <SelectItem value="DTC/FBM">DTC/FBM</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -1464,6 +1465,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import type { ServiceType, ProductType, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserPalletExistingInventoryPricing, UserAdditionalServicesPricing } from "@/types";
+import { DTC_FBM_SERVICE, isDtcFbmService } from "@/types";
 
 // Define InventoryItem locally since it's not exported from @/types
 interface InventoryItem {
@@ -1495,7 +1497,7 @@ const formSchema = z.object({
   shipments: z.array(shipmentItemSchema).min(1, "Select at least one item to ship."),
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
-  service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
+  service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Box Forwarding"]).optional(),
   productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
@@ -1680,7 +1682,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         const packOf = shipment.packOf || 1;
         const totalUnits = quantity * packOf;
 
-        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || service === "FBM")) {
+        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || isDtcFbmService(service))) {
           const calculatedPrice = calculatePrepUnitPrice(
             pricingRules,
             service as ServiceType,
@@ -2622,7 +2624,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="FBA/WFS/TFS">FBA/WFS/TFS</SelectItem>
-                          <SelectItem value="FBM">FBM</SelectItem>
+                          <SelectItem value="DTC/FBM">DTC/FBM</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -2912,6 +2914,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import type { ServiceType, ProductType, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserPalletExistingInventoryPricing, UserAdditionalServicesPricing } from "@/types";
+import { DTC_FBM_SERVICE, isDtcFbmService } from "@/types";
 
 // Define InventoryItem locally since it's not exported from @/types
 interface InventoryItem {
@@ -2943,7 +2946,7 @@ const formSchema = z.object({
   shipments: z.array(shipmentItemSchema).min(1, "Select at least one item to ship."),
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
-  service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
+  service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Box Forwarding"]).optional(),
   productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
@@ -3128,7 +3131,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         const packOf = shipment.packOf || 1;
         const totalUnits = quantity * packOf;
 
-        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || service === "FBM")) {
+        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || isDtcFbmService(service))) {
           const calculatedPrice = calculatePrepUnitPrice(
             pricingRules,
             service as ServiceType,
@@ -4070,7 +4073,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="FBA/WFS/TFS">FBA/WFS/TFS</SelectItem>
-                          <SelectItem value="FBM">FBM</SelectItem>
+                          <SelectItem value="DTC/FBM">DTC/FBM</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -4360,6 +4363,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import type { ServiceType, ProductType, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserPalletExistingInventoryPricing, UserAdditionalServicesPricing } from "@/types";
+import { DTC_FBM_SERVICE, isDtcFbmService } from "@/types";
 
 // Define InventoryItem locally since it's not exported from @/types
 interface InventoryItem {
@@ -4391,7 +4395,7 @@ const formSchema = z.object({
   shipments: z.array(shipmentItemSchema).min(1, "Select at least one item to ship."),
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
-  service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
+  service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Box Forwarding"]).optional(),
   productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
@@ -4576,7 +4580,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         const packOf = shipment.packOf || 1;
         const totalUnits = quantity * packOf;
 
-        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || service === "FBM")) {
+        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || isDtcFbmService(service))) {
           const calculatedPrice = calculatePrepUnitPrice(
             pricingRules,
             service as ServiceType,
@@ -5518,7 +5522,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="FBA/WFS/TFS">FBA/WFS/TFS</SelectItem>
-                          <SelectItem value="FBM">FBM</SelectItem>
+                          <SelectItem value="DTC/FBM">DTC/FBM</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -5808,6 +5812,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import type { ServiceType, ProductType, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserPalletExistingInventoryPricing, UserAdditionalServicesPricing } from "@/types";
+import { DTC_FBM_SERVICE, isDtcFbmService } from "@/types";
 
 // Define InventoryItem locally since it's not exported from @/types
 interface InventoryItem {
@@ -5839,7 +5844,7 @@ const formSchema = z.object({
   shipments: z.array(shipmentItemSchema).min(1, "Select at least one item to ship."),
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
-  service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
+  service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Box Forwarding"]).optional(),
   productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
@@ -6024,7 +6029,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         const packOf = shipment.packOf || 1;
         const totalUnits = quantity * packOf;
 
-        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || service === "FBM")) {
+        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || isDtcFbmService(service))) {
           const calculatedPrice = calculatePrepUnitPrice(
             pricingRules,
             service as ServiceType,
@@ -6966,7 +6971,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="FBA/WFS/TFS">FBA/WFS/TFS</SelectItem>
-                          <SelectItem value="FBM">FBM</SelectItem>
+                          <SelectItem value="DTC/FBM">DTC/FBM</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -7256,6 +7261,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import type { ServiceType, ProductType, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserPalletExistingInventoryPricing, UserAdditionalServicesPricing } from "@/types";
+import { DTC_FBM_SERVICE, isDtcFbmService } from "@/types";
 
 // Define InventoryItem locally since it's not exported from @/types
 interface InventoryItem {
@@ -7287,7 +7293,7 @@ const formSchema = z.object({
   shipments: z.array(shipmentItemSchema).min(1, "Select at least one item to ship."),
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
-  service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
+  service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Box Forwarding"]).optional(),
   productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
@@ -7472,7 +7478,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         const packOf = shipment.packOf || 1;
         const totalUnits = quantity * packOf;
 
-        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || service === "FBM")) {
+        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || isDtcFbmService(service))) {
           const calculatedPrice = calculatePrepUnitPrice(
             pricingRules,
             service as ServiceType,
@@ -8414,7 +8420,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="FBA/WFS/TFS">FBA/WFS/TFS</SelectItem>
-                          <SelectItem value="FBM">FBM</SelectItem>
+                          <SelectItem value="DTC/FBM">DTC/FBM</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -8704,6 +8710,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import type { ServiceType, ProductType, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserPalletExistingInventoryPricing, UserAdditionalServicesPricing } from "@/types";
+import { DTC_FBM_SERVICE, isDtcFbmService } from "@/types";
 
 // Define InventoryItem locally since it's not exported from @/types
 interface InventoryItem {
@@ -8735,7 +8742,7 @@ const formSchema = z.object({
   shipments: z.array(shipmentItemSchema).min(1, "Select at least one item to ship."),
   date: z.date({ required_error: "A shipping date is required." }),
   remarks: z.string().optional(),
-  service: z.enum(["FBA/WFS/TFS", "FBM", "Box Forwarding"]).optional(),
+  service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Box Forwarding"]).optional(),
   productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
   labelUrl: z.string().optional(),
@@ -8920,7 +8927,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
         const packOf = shipment.packOf || 1;
         const totalUnits = quantity * packOf;
 
-        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || service === "FBM")) {
+        if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || isDtcFbmService(service))) {
           const calculatedPrice = calculatePrepUnitPrice(
             pricingRules,
             service as ServiceType,
@@ -9862,7 +9869,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="FBA/WFS/TFS">FBA/WFS/TFS</SelectItem>
-                          <SelectItem value="FBM">FBM</SelectItem>
+                          <SelectItem value="DTC/FBM">DTC/FBM</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />

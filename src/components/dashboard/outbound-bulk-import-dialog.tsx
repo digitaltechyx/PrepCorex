@@ -27,6 +27,7 @@ import {
   type OutboundBulkValidatedRow,
 } from "@/lib/outbound-bulk-import";
 import type { InventoryItem, UserPricing } from "@/types";
+import { formatServiceLabel } from "@/types";
 
 type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & { id: string };
 
@@ -281,7 +282,7 @@ export function OutboundBulkImportDialog({
                   {validRows.slice(0, 8).map((row) => (
                     <tr key={row.rowNumber} className="border-t">
                       <td className="px-2 py-1 truncate max-w-[140px]">{row.sku}</td>
-                      <td className="px-2 py-1">{row.service}</td>
+                      <td className="px-2 py-1">{formatServiceLabel(row.service)}</td>
                       <td className="px-2 py-1 text-right tabular-nums">{row.quantity}</td>
                     </tr>
                   ))}

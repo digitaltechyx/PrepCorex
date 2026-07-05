@@ -1185,7 +1185,7 @@ export function AddInventoryRequestForm({
       </div>
       <div className="space-y-2">
         <Label className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
-          About your products <span className="font-normal normal-case">(recommended)</span>
+          Description <span className="font-normal normal-case">(recommended)</span>
         </Label>
         <p className="text-xs text-muted-foreground">
           Tell us what you are sending — product types, mix of SKUs, quantities, or anything we should know.

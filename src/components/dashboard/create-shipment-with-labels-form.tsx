@@ -15,6 +15,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import type { InventoryItem, ServiceType, ProductType, UserProfile } from "@/types";
+import { DTC_FBM_SERVICE, isDtcFbmService } from "@/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -53,7 +54,7 @@ const shipmentGroupSchema = z.object({
     required_error: "Select box or pallet shipment preference.",
   }),
   remarks: z.string().optional(),
-  service: z.enum(["FBA/WFS/TFS", "FBM"]).optional(),
+  service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Carton Forwarding", "Pallet Forwarding"]).optional(),
 }).superRefine((data, ctx) => {
   if (data.shipmentType === "product") {
     if (!data.service) {
@@ -248,7 +249,13 @@ export function CreateShipmentWithLabelsForm({
         // Custom product pricing is a placeholder ($1). Admin will set final pricing during approval.
         if (shipmentType === "product" && lineProductType === "Custom") {
           finalUnitPrice = 1;
-        } else if (shipmentType === "product" && service && lineProductType && effectivePricingRules && effectivePricingRules.length > 0) {
+        } else if (
+          shipmentType === "product" &&
+          (service === "FBA/WFS/TFS" || isDtcFbmService(service)) &&
+          lineProductType &&
+          effectivePricingRules &&
+          effectivePricingRules.length > 0
+        ) {
           // Use quantity (not totalUnits) to determine unit price
           // This ensures unit price stays consistent regardless of packOf value
           const calculatedPrice = calculatePrepUnitPrice(
@@ -738,7 +745,7 @@ export function CreateShipmentWithLabelsForm({
           };
 
           if (group.shipmentType === "box") {
-            requestData.service = "Box Forwarding";
+            requestData.service = "Carton Forwarding";
           } else if (group.shipmentType === "pallet") {
             if (group.palletSubType === "forwarding") {
               requestData.service = "Pallet Forwarding";
@@ -1046,6 +1053,9 @@ export function CreateShipmentWithLabelsForm({
                                     className="w-full justify-start"
                                     onClick={() => {
                                       field.onChange("FBA/WFS/TFS");
+                                      form.setValue(`shipmentGroups.${groupIndex}.shipmentType`, "product");
+                                      form.setValue(`shipmentGroups.${groupIndex}.palletSubType`, undefined);
+                                      form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
                                       closePopup(popupKey, 'service');
                                     }}
                                   >
@@ -1053,14 +1063,45 @@ export function CreateShipmentWithLabelsForm({
                                   </Button>
                                   <Button
                                     type="button"
-                                    variant={field.value === "FBM" ? "default" : "outline"}
+                                    variant={isDtcFbmService(field.value) ? "default" : "outline"}
                                     className="w-full justify-start"
                                     onClick={() => {
-                                      field.onChange("FBM");
+                                      field.onChange(DTC_FBM_SERVICE);
+                                      form.setValue(`shipmentGroups.${groupIndex}.shipmentType`, "product");
+                                      form.setValue(`shipmentGroups.${groupIndex}.palletSubType`, undefined);
+                                      form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
                                       closePopup(popupKey, 'service');
                                     }}
                                   >
-                                    FBM
+                                    DTC/FBM
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant={field.value === "Carton Forwarding" ? "default" : "outline"}
+                                    className="w-full justify-start"
+                                    onClick={() => {
+                                      field.onChange("Carton Forwarding");
+                                      form.setValue(`shipmentGroups.${groupIndex}.shipmentType`, "box");
+                                      form.setValue(`shipmentGroups.${groupIndex}.palletSubType`, undefined);
+                                      form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
+                                      closePopup(popupKey, 'service');
+                                    }}
+                                  >
+                                    Carton Forwarding
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant={field.value === "Pallet Forwarding" ? "default" : "outline"}
+                                    className="w-full justify-start"
+                                    onClick={() => {
+                                      field.onChange("Pallet Forwarding");
+                                      form.setValue(`shipmentGroups.${groupIndex}.shipmentType`, "pallet");
+                                      form.setValue(`shipmentGroups.${groupIndex}.palletSubType`, "forwarding");
+                                      form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
+                                      closePopup(popupKey, 'service');
+                                    }}
+                                  >
+                                    Pallet Forwarding
                                   </Button>
                                 </div>
                               </DialogContent>
@@ -1171,7 +1212,12 @@ export function CreateShipmentWithLabelsForm({
                                                 }
                                               }
                                               // Product lines default to Standard; pricing follows per-line type via useEffect
-                                              if (shipmentType === "product" && group?.service && effectivePricingRules && effectivePricingRules.length > 0) {
+                                              if (
+                                                shipmentType === "product" &&
+                                                (group?.service === "FBA/WFS/TFS" || isDtcFbmService(group?.service)) &&
+                                                effectivePricingRules &&
+                                                effectivePricingRules.length > 0
+                                              ) {
                                                 const calculated = calculatePrepUnitPrice(effectivePricingRules, group.service, "Standard", 1);
                                                 if (calculated?.rate != null && !Number.isNaN(calculated.rate) && calculated.rate > 0) {
                                                   initialUnitPrice = calculated.rate;

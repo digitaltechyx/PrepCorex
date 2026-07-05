@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import type { InventoryItem, ShippedItem, ShipmentRequest, RestockHistory } from "@/types";
+import { formatServiceLabel } from "@/types";
 import { getShipmentSummary } from "@/lib/shipment-utils";
 import { doc, updateDoc, Timestamp } from "firebase/firestore";
 import {
@@ -734,7 +735,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                             <br />
                             <span>Pack: {item.packOf}</span>
                             <br />
-                            <span>Service: {(item as any).service || "N/A"}</span>
+                            <span>Service: {formatServiceLabel((item as any).service)}</span>
                             <br />
                             <span>Product Type: {(item as any).productType === "Standard"
                               ? "Standard (6x6x6)"
@@ -817,7 +818,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                       <TableCell className="hidden sm:table-cell">{(item as any).boxesShipped ?? item.shippedQty}</TableCell>
                       <TableCell className="hidden md:table-cell">{item.packOf}</TableCell>
                       <TableCell className="hidden md:table-cell">
-                        {(item as any).service || "N/A"}
+                        {formatServiceLabel((item as any).service)}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         {(item as any).productType === "Standard"

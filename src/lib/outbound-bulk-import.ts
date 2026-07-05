@@ -1,5 +1,6 @@
 import { Timestamp } from "firebase/firestore";
 import type { ServiceType, UserPricing, InventoryItem } from "@/types";
+import { DTC_FBM_SERVICE, normalizeStoredServiceType } from "@/types";
 import { downloadCSV } from "@/lib/csv-utils";
 import {
   calculatePrepUnitPrice,
@@ -113,10 +114,15 @@ export function parseOutboundBulkCsv(text: string): {
 }
 
 function normalizeService(raw: string): ServiceType | null {
-  const v = raw.trim().toUpperCase();
-  if (v === "FBA/WFS/TFS" || v === "FBA" || v === "WFS" || v === "TFS") return "FBA/WFS/TFS";
-  if (v === "FBM") return "FBM";
-  return null;
+  const v = raw.trim();
+  const upper = v.toUpperCase();
+  if (upper === "FBA/WFS/TFS" || upper === "FBA" || upper === "WFS" || upper === "TFS") {
+    return "FBA/WFS/TFS";
+  }
+  if (upper === "FBM" || upper === "DTC/FBM" || v === "DTC/FBM") {
+    return DTC_FBM_SERVICE;
+  }
+  return normalizeStoredServiceType(v);
 }
 
 function normalizePreference(raw: string): "box" | "pallet" | null {
@@ -193,7 +199,7 @@ export function validateOutboundBulkRows(
     if (!service) {
       errors.push({
         rowNumber,
-        message: 'Service must be "FBA/WFS/TFS" or "FBM".',
+        message: 'Service must be "FBA/WFS/TFS" or "DTC/FBM".',
       });
       return;
     }

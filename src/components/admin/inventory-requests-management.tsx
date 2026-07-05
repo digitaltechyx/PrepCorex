@@ -1017,7 +1017,7 @@ export function InventoryRequestsManagement({
                         </span>
                         {batch.productNotes?.trim() ? (
                           <span className="block text-xs text-muted-foreground line-clamp-2">
-                            Products: {batch.productNotes.trim()}
+                            Description: {batch.productNotes.trim()}
                           </span>
                         ) : null}
                       </TableCell>
