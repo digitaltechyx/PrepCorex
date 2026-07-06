@@ -16,6 +16,9 @@ export type ReturnDraft = {
   newProductSku: string;
   requestedQuantity: number | "";
   userRemarks: string;
+  /** Client-only until submit; uploaded to Storage on create. */
+  imageFile?: File;
+  imagePreviewUrl?: string;
   packIntoBoxes: boolean;
   placeOnPallet: boolean;
   shipToAddress: boolean;
@@ -101,6 +104,7 @@ export function returnDraftToFirestore(
     now: Timestamp;
     returnTrackings?: InboundTrackingEntry[];
     addedBy?: string | null;
+    imageUrls?: string[];
   }
 ): Record<string, unknown> {
   const additionalServices: Record<string, unknown> = {
@@ -156,6 +160,12 @@ export function returnDraftToFirestore(
     buildReturnTrackingEntries(draft.tracking, context.addedBy);
   if (trackings.length > 0) {
     returnData.returnTrackings = trackings;
+  }
+
+  const images = (context.imageUrls ?? []).filter(Boolean);
+  if (images.length > 0) {
+    returnData.imageUrls = images;
+    returnData.imageUrl = images[0];
   }
 
   return stripUndefined(returnData);

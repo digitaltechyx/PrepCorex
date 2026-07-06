@@ -27,6 +27,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AddReturnTrackingDialog } from "@/components/inventory/add-return-tracking-dialog";
+import { getProductReturnImageUrls } from "@/lib/product-return-images";
 
 function formatDate(date: ProductReturn["createdAt"]) {
   if (!date) return "N/A";
@@ -408,6 +409,29 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                   <div>
                     <div className="text-sm text-muted-foreground mb-1">Your Remarks</div>
                     <div className="p-3 bg-muted rounded-md">{selectedReturn.userRemarks}</div>
+                  </div>
+                )}
+
+                {getProductReturnImageUrls(selectedReturn).length > 0 && (
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-2">Product image</div>
+                    <div className="flex flex-wrap gap-3">
+                      {getProductReturnImageUrls(selectedReturn).map((url) => (
+                        <a
+                          key={url}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block"
+                        >
+                          <img
+                            src={url}
+                            alt="Product return"
+                            className="h-24 w-24 rounded-lg border object-cover hover:opacity-90"
+                          />
+                        </a>
+                      ))}
+                    </div>
                   </div>
                 )}
 

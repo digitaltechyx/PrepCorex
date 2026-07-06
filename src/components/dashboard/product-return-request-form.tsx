@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import { collection, addDoc, Timestamp } from "firebase/firestore";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Plus, Trash2, ImagePlus, X } from "lucide-react";
 import type { InventoryItem } from "@/types";
 import {
   Select,
@@ -40,6 +40,10 @@ import {
   validateReturnDraft,
   type ReturnDraft,
 } from "@/lib/product-return-draft";
+import {
+  uploadProductReturnImage,
+  validateProductReturnImageFile,
+} from "@/lib/product-return-images";
 
 export interface ProductReturnRequestFormProps {
   targetUserId?: string;
@@ -64,6 +68,7 @@ function ReturnDraftEditor({
   onChange: (next: ReturnDraft) => void;
   onRemove: () => void;
 }) {
+  const { toast } = useToast();
   const availableInventory = inventory.filter((item) => {
     const inventoryType = (item as InventoryItem & { inventoryType?: string }).inventoryType;
     const isExcludedType =
@@ -81,6 +86,27 @@ function ReturnDraftEditor({
       productName: product?.productName || "",
       sku: String(product?.sku ?? "").trim(),
     });
+  };
+
+  const handleImageSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const err = validateProductReturnImageFile(file);
+    if (err) {
+      toast({ variant: "destructive", title: "Invalid image", description: err });
+      return;
+    }
+    if (draft.imagePreviewUrl) URL.revokeObjectURL(draft.imagePreviewUrl);
+    patch({
+      imageFile: file,
+      imagePreviewUrl: URL.createObjectURL(file),
+    });
+  };
+
+  const clearImage = () => {
+    if (draft.imagePreviewUrl) URL.revokeObjectURL(draft.imagePreviewUrl);
+    patch({ imageFile: undefined, imagePreviewUrl: undefined });
   };
 
   return (
@@ -207,6 +233,51 @@ function ReturnDraftEditor({
             className="rounded-lg resize-y"
           />
         </div>
+
+        <div className="space-y-2">
+          <Label>Product image (optional)</Label>
+          <p className="text-xs text-muted-foreground">
+            Upload a photo of the product or packaging to help warehouse review your return.
+          </p>
+          {draft.imagePreviewUrl ? (
+            <div className="relative inline-block">
+              <img
+                src={draft.imagePreviewUrl}
+                alt="Product return preview"
+                className="h-28 w-28 rounded-lg border object-cover"
+              />
+              <Button
+                type="button"
+                variant="destructive"
+                size="icon"
+                className="absolute -right-2 -top-2 h-7 w-7 rounded-full"
+                onClick={clearImage}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <div>
+              <Input
+                id={`return-image-${draft.id}`}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageSelect}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-lg"
+                onClick={() => document.getElementById(`return-image-${draft.id}`)?.click()}
+              >
+                <ImagePlus className="mr-2 h-4 w-4" />
+                Upload image
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="space-y-3 rounded-xl border border-border/50 bg-muted/20 p-4">
@@ -323,6 +394,9 @@ export function ProductReturnRequestForm({
   const showPerItemTracking = multipleReturns && trackingMode === "per_return";
 
   const resetForm = () => {
+    drafts.forEach((d) => {
+      if (d.imagePreviewUrl) URL.revokeObjectURL(d.imagePreviewUrl);
+    });
     setDrafts([createEmptyReturnDraft()]);
     setTrackingMode("shared");
     setSharedTracking({ ...EMPTY_INBOUND_TRACKING });
@@ -344,6 +418,8 @@ export function ProductReturnRequestForm({
 
   const removeDraft = (id: string, index: number) => {
     setDrafts((prev) => {
+      const removed = prev.find((d) => d.id === id);
+      if (removed?.imagePreviewUrl) URL.revokeObjectURL(removed.imagePreviewUrl);
       const next = prev.filter((d) => d.id !== id);
       setOpenAccordion(`return-${Math.max(0, Math.min(index, next.length - 1))}`);
       return next.length > 0 ? next : [createEmptyReturnDraft()];
@@ -385,11 +461,18 @@ export function ProductReturnRequestForm({
             ? buildReturnTrackingEntries(draft.tracking, addedBy)
             : sharedTrackings;
 
+        let imageUrls: string[] | undefined;
+        if (draft.imageFile) {
+          const url = await uploadProductReturnImage(userId, draft.imageFile);
+          imageUrls = [url];
+        }
+
         const payload = returnDraftToFirestore(draft, {
           userId,
           now,
           returnTrackings,
           addedBy,
+          imageUrls,
         });
 
         await addDoc(collection(db, `users/${userId}/productReturns`), payload);

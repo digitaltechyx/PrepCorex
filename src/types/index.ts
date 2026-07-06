@@ -1058,6 +1058,9 @@ export interface ProductReturn {
   updatedAt?: { seconds: number; nanoseconds: number } | string;
   userRemarks?: string;
   adminRemarks?: string;
+  /** Optional product photo submitted with the return request. */
+  imageUrl?: string;
+  imageUrls?: string[];
   rejectReason?: string;
   additionalServices?: Record<string, unknown>;
   returnFee?: number;

@@ -99,6 +99,7 @@ import {
   type AdminProductReturn,
 } from "@/hooks/use-all-product-returns";
 import { formatUserDisplayName } from "@/lib/format-user-display";
+import { getProductReturnImageUrls } from "@/lib/product-return-images";
 import { hasRole } from "@/lib/permissions";
 import { Search } from "lucide-react";
 
@@ -1505,6 +1506,29 @@ export function ProductReturnsManagement({
                     <div>
                       <div className="text-sm text-muted-foreground mb-1">User Remarks</div>
                       <div className="p-3 bg-muted rounded-md">{selectedReturn.userRemarks}</div>
+                    </div>
+                  )}
+
+                  {getProductReturnImageUrls(selectedReturn).length > 0 && (
+                    <div>
+                      <div className="text-sm text-muted-foreground mb-2">Product image</div>
+                      <div className="flex flex-wrap gap-3">
+                        {getProductReturnImageUrls(selectedReturn).map((url) => (
+                          <a
+                            key={url}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block"
+                          >
+                            <img
+                              src={url}
+                              alt="Product return"
+                              className="h-28 w-28 rounded-lg border object-cover hover:opacity-90"
+                            />
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   )}
 
