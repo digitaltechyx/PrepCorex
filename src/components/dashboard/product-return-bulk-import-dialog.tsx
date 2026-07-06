@@ -226,6 +226,72 @@ export function ProductReturnBulkImportDialog({
             </Button>
           </div>
 
+          <div className="rounded-lg border bg-muted/20 p-4 text-sm space-y-4">
+            <p className="font-semibold text-foreground">How to fill the template</p>
+
+            <div className="space-y-2">
+              <p className="font-medium text-foreground">Existing products template</p>
+              <ol className="list-decimal pl-5 space-y-1 text-muted-foreground">
+                <li>Download the template — your in-stock products are pre-filled.</li>
+                <li>Do not change Product ID, SKU, Product Name, or Current Quantity.</li>
+                <li>
+                  Enter <span className="font-medium text-foreground">Requested Quantity</span> on
+                  each row you want to return. Leave other rows blank to skip them.
+                </li>
+                <li>
+                  Optional: set How Products Coming to <span className="font-medium text-foreground">combine</span>{" "}
+                  or <span className="font-medium text-foreground">partial</span>, add Remarks, tracking,
+                  or additional services (see below).
+                </li>
+              </ol>
+            </div>
+
+            <div className="space-y-2 border-t pt-3">
+              <p className="font-medium text-foreground">New products template</p>
+              <ol className="list-decimal pl-5 space-y-1 text-muted-foreground">
+                <li>Download the blank template and add one row per new product return.</li>
+                <li>
+                  Fill <span className="font-medium text-foreground">Product Name</span> and{" "}
+                  <span className="font-medium text-foreground">Requested Quantity</span> on each row
+                  (both required).
+                </li>
+                <li>SKU is optional. Fill optional columns only when needed.</li>
+              </ol>
+            </div>
+
+            <div className="space-y-2 border-t pt-3">
+              <p className="font-medium text-foreground">Optional columns (both templates)</p>
+              <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                <li>
+                  <span className="font-medium text-foreground">How Products Coming</span> —{" "}
+                  <span className="font-medium text-foreground">combine</span> (default) or{" "}
+                  <span className="font-medium text-foreground">partial</span>
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">Pack Into Boxes</span>,{" "}
+                  <span className="font-medium text-foreground">Place On Pallet</span>,{" "}
+                  <span className="font-medium text-foreground">Ship To Address</span> — use{" "}
+                  <span className="font-medium text-foreground">yes</span> or{" "}
+                  <span className="font-medium text-foreground">no</span>
+                </li>
+                <li>
+                  If Ship To Address is yes, fill all shipping fields (name, address, city, state,
+                  zip, country).
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">Tracking Number</span> and{" "}
+                  <span className="font-medium text-foreground">Carrier</span> (usps, ups, fedex, dhl)
+                  — optional per row.
+                </li>
+                <li>Product photos are not included in CSV — add them later from return history.</li>
+              </ul>
+            </div>
+
+            <p className="text-xs text-muted-foreground border-t pt-3">
+              Save as .csv, upload below, review the preview, then submit.
+            </p>
+          </div>
+
           <div className="rounded-lg border border-dashed bg-muted/30 p-4">
             <input
               ref={fileInputRef}
