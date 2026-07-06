@@ -25,6 +25,7 @@ import { Loader2, Shield, Zap, RotateCcw, MapPin, Users, UserCheck, Search } fro
 import { Input } from "@/components/ui/input";
 import type { UserProfile, UserRole, UserFeature, WarehouseDoc } from "@/types";
 import { OPS_FEATURES_CONFIG, OPS_FEATURE_PRESETS } from "@/lib/warehouse-ops-permissions";
+import { CSV_IMPORT_FEATURES_CONFIG } from "@/lib/csv-import-permissions";
 import { getUserRoles, getDefaultFeaturesForRole } from "@/lib/permissions";
 import { generateUniqueReferralCode } from "@/lib/commission-utils";
 import { generateClientId } from "@/lib/client-id";
@@ -766,6 +767,43 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
               <h4 className="text-sm font-semibold mb-3 text-muted-foreground">Client Features</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {CLIENT_FEATURES.map((feature) => {
+                  const isSelected = selectedFeatures.includes(feature.value);
+                  return (
+                    <div
+                      key={feature.value}
+                      className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                    >
+                      <Checkbox
+                        id={`feature-${feature.value}`}
+                        checked={isSelected}
+                        onCheckedChange={() => handleFeatureToggle(feature.value)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1 space-y-1">
+                        <Label
+                          htmlFor={`feature-${feature.value}`}
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                        >
+                          {feature.label}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">{feature.description}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {selectedRoles.some((r) => r === "user") && (
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold mb-1 text-muted-foreground">CSV Import Access</h4>
+              <p className="text-xs text-muted-foreground mb-3">
+                Grant bulk CSV import on specific client modules. Users without these permissions will
+                not see Import buttons.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {CSV_IMPORT_FEATURES_CONFIG.map((feature) => {
                   const isSelected = selectedFeatures.includes(feature.value);
                   return (
                     <div

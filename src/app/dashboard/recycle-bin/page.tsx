@@ -27,6 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import { RotateCcw, Search, X, Calendar, Plus, Loader2, Clock, CheckCircle, XCircle, FileStack, Upload } from "lucide-react";
 import { format } from "date-fns";
 import { useMemo, useState } from "react";
+import { canUseCsvImport } from "@/lib/csv-import-permissions";
 
 export default function RecycleBinPage() {
   const { userProfile } = useAuth();
@@ -42,6 +43,7 @@ export default function RecycleBinPage() {
   const [disposeReason, setDisposeReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const itemsPerPage = 10;
+  const canImportDispose = canUseCsvImport(userProfile, "dispose");
 
   const { data: inventory } = useCollection<InventoryItem>(
     userProfile ? `users/${userProfile.uid}/inventory` : ""
@@ -223,16 +225,18 @@ export default function RecycleBinPage() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="bg-white/90 text-orange-700 hover:bg-white"
-                onClick={() => setBulkImportOpen(true)}
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                Import CSV
-              </Button>
+              {canImportDispose ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="bg-white/90 text-orange-700 hover:bg-white"
+                  onClick={() => setBulkImportOpen(true)}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Import CSV
+                </Button>
+              ) : null}
               <Dialog open={requestDialogOpen} onOpenChange={setRequestDialogOpen}>
                 <DialogTrigger asChild>
                   <Button size="sm" className="bg-white text-orange-600 hover:bg-orange-50 shadow-md">
@@ -303,13 +307,15 @@ export default function RecycleBinPage() {
                   </div>
                 </DialogContent>
               </Dialog>
-              <DisposeBulkImportDialog
-                open={bulkImportOpen}
-                onOpenChange={setBulkImportOpen}
-                ownerId={userProfile?.uid ?? ""}
-                ownerDisplayName={userProfile?.name ?? ""}
-                inventory={inventory}
-              />
+              {canImportDispose ? (
+                <DisposeBulkImportDialog
+                  open={bulkImportOpen}
+                  onOpenChange={setBulkImportOpen}
+                  ownerId={userProfile?.uid ?? ""}
+                  ownerDisplayName={userProfile?.name ?? ""}
+                  inventory={inventory}
+                />
+              ) : null}
               <div className="h-14 w-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
                 <RotateCcw className="h-7 w-7 text-white" />
               </div>

@@ -35,6 +35,7 @@ import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { InboundBulkImportDialog } from "@/components/dashboard/inbound-bulk-import-dialog";
 import { InboundBulkRestockDialog } from "@/components/dashboard/inbound-bulk-restock-dialog";
+import { canUseCsvImport, canUseCsvImportOnBehalf } from "@/lib/csv-import-permissions";
 import { filterRestockEligibleProducts } from "@/lib/inbound-bulk-restock";
 import {
   InboundBatchDraftReview,
@@ -205,6 +206,9 @@ export function AddInventoryRequestForm({
 
   const ownerId = targetUserId ?? userProfile?.uid;
   const ownerName = (targetUserName ?? userProfile?.name ?? "").trim();
+  const canImportInbound = targetUserId
+    ? canUseCsvImportOnBehalf(userProfile, "inbound")
+    : canUseCsvImport(userProfile, "inbound");
 
   const form = useForm<z.infer<typeof inventoryRequestSchema>>({
     resolver: zodResolver(inventoryRequestSchema),
@@ -1407,7 +1411,7 @@ export function AddInventoryRequestForm({
             )}
 
             {/* Restock: Product Selection */}
-            {inventoryType === "product" && productSubType === "restock" && (
+            {inventoryType === "product" && productSubType === "restock" && canImportInbound && (
               <div className="flex flex-col gap-3 rounded-xl border border-dashed bg-muted/20 p-4">
                 <div className="space-y-1">
                   <p className="text-sm font-medium">Bulk restock</p>
@@ -2099,7 +2103,7 @@ export function AddInventoryRequestForm({
                   Submit an inventory request. Admin will review and approve it.
                 </p>
               </div>
-              {!(inventoryType === "product" && productSubType === "restock") && (
+              {canImportInbound && !(inventoryType === "product" && productSubType === "restock") && (
                 <Button
                   type="button"
                   variant="outline"
@@ -2115,19 +2119,23 @@ export function AddInventoryRequestForm({
           </div>
           <div className="flex min-h-0 flex-1 flex-col">{formBody}</div>
         </div>
-        <InboundBulkImportDialog
-          open={bulkImportOpen}
-          onOpenChange={setBulkImportOpen}
-          ownerId={ownerId}
-          ownerName={ownerName}
-          onRowsImported={handleBulkRowsImported}
-        />
-        <InboundBulkRestockDialog
-          open={bulkRestockImportOpen}
-          onOpenChange={setBulkRestockImportOpen}
-          inventory={existingInventory}
-          onRowsImported={handleBulkRowsImported}
-        />
+        {canImportInbound ? (
+          <>
+            <InboundBulkImportDialog
+              open={bulkImportOpen}
+              onOpenChange={setBulkImportOpen}
+              ownerId={ownerId}
+              ownerName={ownerName}
+              onRowsImported={handleBulkRowsImported}
+            />
+            <InboundBulkRestockDialog
+              open={bulkRestockImportOpen}
+              onOpenChange={setBulkRestockImportOpen}
+              inventory={existingInventory}
+              onRowsImported={handleBulkRowsImported}
+            />
+          </>
+        ) : null}
       </>
     );
   }
@@ -2150,7 +2158,7 @@ export function AddInventoryRequestForm({
             <p className="inline-flex w-fit items-center rounded-full border border-primary/15 bg-primary/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-primary">
               Request Workspace
             </p>
-            {!(inventoryType === "product" && productSubType === "restock") && (
+            {canImportInbound && !(inventoryType === "product" && productSubType === "restock") && (
               <Button
                 type="button"
                 variant="outline"
@@ -2171,19 +2179,23 @@ export function AddInventoryRequestForm({
         <div className="flex min-h-0 flex-1 flex-col">{formBody}</div>
       </SheetContent>
     </Sheet>
-    <InboundBulkImportDialog
-      open={bulkImportOpen}
-      onOpenChange={setBulkImportOpen}
-      ownerId={ownerId}
-      ownerName={ownerName}
-      onRowsImported={handleBulkRowsImported}
-    />
-    <InboundBulkRestockDialog
-      open={bulkRestockImportOpen}
-      onOpenChange={setBulkRestockImportOpen}
-      inventory={existingInventory}
-      onRowsImported={handleBulkRowsImported}
-    />
+    {canImportInbound ? (
+      <>
+        <InboundBulkImportDialog
+          open={bulkImportOpen}
+          onOpenChange={setBulkImportOpen}
+          ownerId={ownerId}
+          ownerName={ownerName}
+          onRowsImported={handleBulkRowsImported}
+        />
+        <InboundBulkRestockDialog
+          open={bulkRestockImportOpen}
+          onOpenChange={setBulkRestockImportOpen}
+          inventory={existingInventory}
+          onRowsImported={handleBulkRowsImported}
+        />
+      </>
+    ) : null}
     </>
   );
 }

@@ -39,6 +39,7 @@ export const ROLE_DEFINITIONS: {
 ];
 
 export { OPS_FEATURES_CONFIG, OPS_FEATURE_PRESETS } from "@/lib/warehouse-ops-permissions";
+export { CSV_IMPORT_FEATURES_CONFIG } from "@/lib/csv-import-permissions";
 
 export const CLIENT_FEATURES_CONFIG: { value: UserFeature; label: string; description: string }[] = [
   { value: "view_dashboard", label: "Dashboard", description: "Access to client dashboard overview" },

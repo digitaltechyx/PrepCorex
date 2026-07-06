@@ -12,6 +12,7 @@ import { useCollection } from "@/hooks/use-collection";
 import type { InventoryItem, ProductReturn } from "@/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { canUseCsvImport } from "@/lib/csv-import-permissions";
 
  export default function ProductReturnsPage() {
   const { userProfile } = useAuth();
@@ -30,6 +31,7 @@ import { cn } from "@/lib/utils";
   const inProgressCount = returns.filter((r) => r.status === "in_progress").length;
   const closedCount = returns.filter((r) => r.status === "closed").length;
   const totalCount = returns.length;
+  const canImportReturns = canUseCsvImport(userProfile, "product_returns");
 
   const handleStatCardClick = (filter: string) => {
     setHistoryStatusFilter(filter);
@@ -168,16 +170,18 @@ import { cn } from "@/lib/utils";
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2 mb-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-lg"
-              disabled={!userProfile}
-              onClick={() => setBulkImportOpen(true)}
-            >
-              <Upload className="mr-2 h-4 w-4" />
-              Import CSV
-            </Button>
+            {canImportReturns ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-lg"
+                disabled={!userProfile}
+                onClick={() => setBulkImportOpen(true)}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Import CSV
+              </Button>
+            ) : null}
             <Button
               type="button"
               onClick={() => setShowNewRequestForm((prev) => !prev)}
@@ -188,12 +192,14 @@ import { cn } from "@/lib/utils";
             </Button>
           </div>
 
-          <ProductReturnBulkImportDialog
-            open={bulkImportOpen}
-            onOpenChange={setBulkImportOpen}
-            ownerId={userProfile?.uid ?? ""}
-            inventory={inventory}
-          />
+          {canImportReturns ? (
+            <ProductReturnBulkImportDialog
+              open={bulkImportOpen}
+              onOpenChange={setBulkImportOpen}
+              ownerId={userProfile?.uid ?? ""}
+              inventory={inventory}
+            />
+          ) : null}
 
           {showNewRequestForm && (
             <div className="mb-6">

@@ -28,6 +28,7 @@ import { PaymentDialog } from "./payment-dialog";
 import type { ShippingAddress, ParcelDetails, ShippingRate } from "@/types";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { locationToFromShippingAddress } from "@/lib/location-shipping-address";
+import { canUseCsvImport } from "@/lib/csv-import-permissions";
 
 // US States list
 const US_STATES = [
@@ -200,6 +201,7 @@ export function BuyLabelsForm() {
   const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
   const [selectedFromLocationId, setSelectedFromLocationId] = useState("");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const canImportBuyLabels = canUseCsvImport(userProfile, "buy_labels");
 
   const assignedLocationIds = userProfile?.locations ?? [];
   const activeLocations = locationDocs.filter((loc) => loc.active !== false);
@@ -560,14 +562,16 @@ export function BuyLabelsForm() {
           />
         </Elements>
       )}
-      <BuyLabelsBulkImportDialog
-        open={bulkImportOpen}
-        onOpenChange={setBulkImportOpen}
-        locationOptions={locationOptions}
-        defaultFromName={defaultFromName}
-        defaultFromPhone={userProfile?.phone || ""}
-        onAddToCart={handleBulkImportAddToCart}
-      />
+      {canImportBuyLabels ? (
+        <BuyLabelsBulkImportDialog
+          open={bulkImportOpen}
+          onOpenChange={setBulkImportOpen}
+          locationOptions={locationOptions}
+          defaultFromName={defaultFromName}
+          defaultFromPhone={userProfile?.phone || ""}
+          onAddToCart={handleBulkImportAddToCart}
+        />
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -582,15 +586,17 @@ export function BuyLabelsForm() {
                 labels from CSV.
               </CardDescription>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="shrink-0"
-              onClick={() => setBulkImportOpen(true)}
-            >
-              <Upload className="mr-2 h-4 w-4" />
-              Import
-            </Button>
+            {canImportBuyLabels ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => setBulkImportOpen(true)}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Import
+              </Button>
+            ) : null}
           </div>
         </CardHeader>
         <CardContent>

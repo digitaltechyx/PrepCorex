@@ -45,6 +45,7 @@ import {
   validateProductReturnImageFile,
 } from "@/lib/product-return-images";
 import { ProductReturnBulkImportDialog } from "@/components/dashboard/product-return-bulk-import-dialog";
+import { canUseCsvImportOnBehalf } from "@/lib/csv-import-permissions";
 
 export interface ProductReturnRequestFormProps {
   targetUserId?: string;
@@ -386,6 +387,7 @@ export function ProductReturnRequestForm({
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
 
   const isOnBehalfOfUser = !!targetUserId;
+  const canImportReturnsOnBehalf = canUseCsvImportOnBehalf(userProfile, "product_returns");
 
   const { data: currentUserInventory } = useCollection<InventoryItem>(
     !isOnBehalfOfUser && userProfile ? `users/${userProfile.uid}/inventory` : ""
@@ -513,7 +515,7 @@ export function ProductReturnRequestForm({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {isOnBehalfOfUser ? (
+          {isOnBehalfOfUser && canImportReturnsOnBehalf ? (
             <Button
               type="button"
               variant="outline"
@@ -531,7 +533,7 @@ export function ProductReturnRequestForm({
         </div>
       </div>
 
-      {isOnBehalfOfUser ? (
+      {isOnBehalfOfUser && canImportReturnsOnBehalf ? (
         <ProductReturnBulkImportDialog
           open={bulkImportOpen}
           onOpenChange={setBulkImportOpen}

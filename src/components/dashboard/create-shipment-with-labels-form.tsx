@@ -29,6 +29,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { OutboundBulkImportDialog } from "@/components/dashboard/outbound-bulk-import-dialog";
+import { canUseCsvImport, canUseCsvImportOnBehalf } from "@/lib/csv-import-permissions";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -161,6 +162,9 @@ export function CreateShipmentWithLabelsForm({
   // Accordion state - only one shipment open at a time
   const [openAccordionValue, setOpenAccordionValue] = useState<string | undefined>(undefined);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const canImportOutbound = targetUserId
+    ? canUseCsvImportOnBehalf(userProfile, "outbound")
+    : canUseCsvImport(userProfile, "outbound");
   
   const togglePopup = (groupId: string, popupType: string) => {
     const key = `${groupId}_${popupType}`;
@@ -904,14 +908,16 @@ export function CreateShipmentWithLabelsForm({
               <p className="text-sm text-muted-foreground">Create multiple shipments, each with its own label</p>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setBulkImportOpen(true)}
-              >
-                <Upload className="mr-2 h-4 w-4" />
-                Import
-              </Button>
+              {canImportOutbound ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setBulkImportOpen(true)}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  Import
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 onClick={handleAddShipmentGroup}
@@ -923,13 +929,15 @@ export function CreateShipmentWithLabelsForm({
             </div>
           </div>
 
-          <OutboundBulkImportDialog
-            open={bulkImportOpen}
-            onOpenChange={setBulkImportOpen}
-            ownerId={ownerId}
-            ownerDisplayName={ownerDisplayName}
-            inventory={inventory}
-          />
+          {canImportOutbound ? (
+            <OutboundBulkImportDialog
+              open={bulkImportOpen}
+              onOpenChange={setBulkImportOpen}
+              ownerId={ownerId}
+              ownerDisplayName={ownerDisplayName}
+              inventory={inventory}
+            />
+          ) : null}
 
           {/* Shipments */}
           {shipmentGroups.length === 0 && (
