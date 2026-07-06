@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Loader2, Plus, Trash2, ImagePlus, X } from "lucide-react";
+import { Loader2, Plus, Trash2, ImagePlus, X, Upload } from "lucide-react";
 import type { InventoryItem } from "@/types";
 import {
   Select,
@@ -44,6 +44,7 @@ import {
   uploadProductReturnImage,
   validateProductReturnImageFile,
 } from "@/lib/product-return-images";
+import { ProductReturnBulkImportDialog } from "@/components/dashboard/product-return-bulk-import-dialog";
 
 export interface ProductReturnRequestFormProps {
   targetUserId?: string;
@@ -382,6 +383,7 @@ export function ProductReturnRequestForm({
   const [trackingMode, setTrackingMode] = useState<"shared" | "per_return">("shared");
   const [sharedTracking, setSharedTracking] = useState<InboundTrackingInput>({ ...EMPTY_INBOUND_TRACKING });
   const [openAccordion, setOpenAccordion] = useState("return-0");
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
 
   const isOnBehalfOfUser = !!targetUserId;
 
@@ -510,11 +512,34 @@ export function ProductReturnRequestForm({
             Add one or more returns, review each, then submit together.
           </p>
         </div>
-        <Button type="button" variant="outline" onClick={addDraft}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add return
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {isOnBehalfOfUser ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!targetUserId}
+              onClick={() => setBulkImportOpen(true)}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Import CSV
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={addDraft}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add return
+          </Button>
+        </div>
       </div>
+
+      {isOnBehalfOfUser ? (
+        <ProductReturnBulkImportDialog
+          open={bulkImportOpen}
+          onOpenChange={setBulkImportOpen}
+          ownerId={targetUserId || ""}
+          inventory={inventory}
+          onSuccess={onSuccess}
+        />
+      ) : null}
 
       {drafts.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-8 border border-dashed rounded-xl">

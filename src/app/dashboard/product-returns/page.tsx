@@ -1,24 +1,29 @@
  "use client";
 
 import { useState } from "react";
-import { ArrowLeftRight, Clock, Package, CheckCircle, FileStack } from "lucide-react";
+import { ArrowLeftRight, Clock, Package, CheckCircle, FileStack, Upload } from "lucide-react";
  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
  import { ProductReturnRequestForm } from "@/components/dashboard/product-return-request-form";
  import { ProductReturnTable } from "@/components/dashboard/product-return-table";
+import { ProductReturnBulkImportDialog } from "@/components/dashboard/product-return-bulk-import-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
-import type { ProductReturn } from "@/types";
+import type { InventoryItem, ProductReturn } from "@/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
  export default function ProductReturnsPage() {
   const { userProfile } = useAuth();
   const [showNewRequestForm, setShowNewRequestForm] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("all");
 
   const { data: returns = [], loading: returnsLoading } = useCollection<ProductReturn>(
     userProfile ? `users/${userProfile.uid}/productReturns` : ""
+  );
+  const { data: inventory = [] } = useCollection<InventoryItem>(
+    userProfile ? `users/${userProfile.uid}/inventory` : ""
   );
 
   const pendingCount = returns.filter((r) => r.status === "pending").length;
@@ -162,7 +167,17 @@ import { cn } from "@/lib/utils";
             </Card>
           </div>
 
-          <div className="flex items-center justify-end mb-4">
+          <div className="flex flex-wrap items-center justify-end gap-2 mb-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-lg"
+              disabled={!userProfile}
+              onClick={() => setBulkImportOpen(true)}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Import CSV
+            </Button>
             <Button
               type="button"
               onClick={() => setShowNewRequestForm((prev) => !prev)}
@@ -172,6 +187,13 @@ import { cn } from "@/lib/utils";
               {showNewRequestForm ? "Hide New Request" : "New Request"}
             </Button>
           </div>
+
+          <ProductReturnBulkImportDialog
+            open={bulkImportOpen}
+            onOpenChange={setBulkImportOpen}
+            ownerId={userProfile?.uid ?? ""}
+            inventory={inventory}
+          />
 
           {showNewRequestForm && (
             <div className="mb-6">
