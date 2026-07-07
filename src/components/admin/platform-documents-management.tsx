@@ -279,6 +279,7 @@ export function PlatformDocumentsManagement() {
           {archivedVersions.length === 0 && !loadingVersions ? (
             <p className="text-sm text-muted-foreground">No archived versions yet.</p>
           ) : (
+            <>
             <div className="space-y-2">
               {archivedPagination.items.map((entry) => (
                 <div
@@ -333,6 +334,7 @@ export function PlatformDocumentsManagement() {
               onPageChange={setArchivedPage}
               itemLabel="versions"
             />
+            </>
           )}
         </div>
 
