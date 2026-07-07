@@ -40,6 +40,11 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CUSTOM_DOCUMENT_REQUEST_LABEL } from "@/lib/document-request-labels";
 import { PlatformDocumentsManagement } from "@/components/admin/platform-documents-management";
+import {
+  DEFAULT_LIST_PAGE_SIZE,
+  ListPagination,
+  paginateList,
+} from "@/components/ui/list-pagination";
 
 interface DocumentRequest {
   id: string;
@@ -144,6 +149,7 @@ export default function DocumentRequestsPage() {
     "newest" | "oldest" | "name_asc" | "name_desc"
   >("newest");
   const [msaPage, setMsaPage] = useState(1);
+  const [requestsPage, setRequestsPage] = useState(1);
 
   // Search matches: documentType, userName, userEmail, companyName, contact, email, notes
   const matchesSearch = useMemo(() => {
@@ -541,14 +547,26 @@ export default function DocumentRequestsPage() {
     });
   }, [usersWithMSA, msaSearchQuery, msaSelectedCompany, msaDateFilter, msaVersionFilter, msaSortOrder]);
 
-  const msaItemsPerPage = 10;
-  const totalMsaPages = Math.max(1, Math.ceil(filteredMSAUsers.length / msaItemsPerPage));
+  const msaItemsPerPage = DEFAULT_LIST_PAGE_SIZE;
+  const pendingPagination = paginateList(filteredPending, requestsPage, msaItemsPerPage);
+  const completedPagination = paginateList(filteredCompleted, requestsPage, msaItemsPerPage);
   const msaStartIndex = (msaPage - 1) * msaItemsPerPage;
   const paginatedMSAUsers = filteredMSAUsers.slice(msaStartIndex, msaStartIndex + msaItemsPerPage);
 
   useEffect(() => {
     setMsaPage(1);
   }, [msaSearchQuery, msaSelectedCompany, msaDateFilter, msaVersionFilter, msaSortOrder]);
+
+  useEffect(() => {
+    setRequestsPage(1);
+  }, [
+    activeTab,
+    searchQuery,
+    selectedCompany,
+    selectedClient,
+    selectedDocumentType,
+    selectedDateRange,
+  ]);
 
   const hasMsaActiveFilters =
     msaSearchQuery.trim() !== "" ||
@@ -819,8 +837,9 @@ export default function DocumentRequestsPage() {
                   </p>
                 </div>
               ) : (
+                <>
                 <div className="space-y-3">
-                  {filteredPending.map((request) => (
+                  {pendingPagination.items.map((request) => (
                     <div
                       key={request.id}
                       className="rounded-lg border bg-background p-4"
@@ -936,6 +955,14 @@ export default function DocumentRequestsPage() {
                     </div>
                   ))}
                 </div>
+                <ListPagination
+                  page={pendingPagination.page}
+                  totalItems={filteredPending.length}
+                  itemsPerPage={msaItemsPerPage}
+                  onPageChange={setRequestsPage}
+                  itemLabel="requests"
+                />
+                </>
               )}
             </CardContent>
           </Card>
@@ -967,8 +994,9 @@ export default function DocumentRequestsPage() {
                   </p>
                 </div>
               ) : (
+                <>
                 <div className="space-y-3">
-                  {filteredCompleted.map((request) => (
+                  {completedPagination.items.map((request) => (
                     <div
                       key={request.id}
                       className="rounded-lg border bg-background p-4"
@@ -1028,6 +1056,14 @@ export default function DocumentRequestsPage() {
                     </div>
                   ))}
                 </div>
+                <ListPagination
+                  page={completedPagination.page}
+                  totalItems={filteredCompleted.length}
+                  itemsPerPage={msaItemsPerPage}
+                  onPageChange={setRequestsPage}
+                  itemLabel="requests"
+                />
+                </>
               )}
             </CardContent>
           </Card>
@@ -1156,32 +1192,13 @@ export default function DocumentRequestsPage() {
                     ))}
                   </div>
 
-                  {filteredMSAUsers.length > msaItemsPerPage && (
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-3">
-                      <p className="text-sm text-muted-foreground">
-                        Showing {msaStartIndex + 1} to {Math.min(msaStartIndex + msaItemsPerPage, filteredMSAUsers.length)} of {filteredMSAUsers.length} agreements
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setMsaPage((p) => Math.max(1, p - 1))}
-                          disabled={msaPage === 1}
-                        >
-                          Previous
-                        </Button>
-                        <span className="text-sm">Page {msaPage} of {totalMsaPages}</span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setMsaPage((p) => Math.min(totalMsaPages, p + 1))}
-                          disabled={msaPage === totalMsaPages}
-                        >
-                          Next
-                        </Button>
-                      </div>
-                    </div>
-                  )}
+                  <ListPagination
+                    page={msaPage}
+                    totalItems={filteredMSAUsers.length}
+                    itemsPerPage={msaItemsPerPage}
+                    onPageChange={setMsaPage}
+                    itemLabel="agreements"
+                  />
                 </div>
               )}
             </CardContent>

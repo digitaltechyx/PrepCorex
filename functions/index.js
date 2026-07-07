@@ -592,4 +592,20 @@ exports.sendClientInvoiceReminders = functions.pubsub
     return null;
   });
 
+// ---- Client account inactivity (lock 30d / disable 60d) ----
+const { runClientAccountInactivity } = require("./client-account-inactivity");
+
+exports.processClientAccountInactivity = functions.pubsub
+  .schedule("every 24 hours")
+  .timeZone(TZ_NEW_JERSEY)
+  .onRun(async () => {
+    try {
+      const metrics = await runClientAccountInactivity(admin.firestore());
+      console.log("[Client account inactivity metrics]", JSON.stringify(metrics));
+    } catch (err) {
+      console.error("Client account inactivity failed:", err);
+    }
+    return null;
+  });
+
 // Inbound tracking 6h cron lives in functions-inbound-cron/ (separate codebase for faster deploy).

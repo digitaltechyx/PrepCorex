@@ -34,6 +34,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ExternalLink, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { format } from "date-fns";
+import {
+  DEFAULT_LIST_PAGE_SIZE,
+  ListPagination,
+  paginateList,
+} from "@/components/ui/list-pagination";
 
 export function PlatformDocumentsManagement() {
   const { user, userProfile } = useAuth();
@@ -54,6 +59,7 @@ export function PlatformDocumentsManagement() {
   const [loadingVersions, setLoadingVersions] = useState(false);
   const [deletingVersion, setDeletingVersion] = useState<number | null>(null);
   const [versionToDelete, setVersionToDelete] = useState<number | null>(null);
+  const [archivedPage, setArchivedPage] = useState(1);
 
   const loadArchivedVersions = useCallback(async (nextSlug: PlatformDocumentSlug) => {
     setLoadingVersions(true);
@@ -102,7 +108,10 @@ export function PlatformDocumentsManagement() {
   useEffect(() => {
     void loadDocument(slug);
     void loadArchivedVersions(slug);
+    setArchivedPage(1);
   }, [slug, loadDocument, loadArchivedVersions]);
+
+  const archivedPagination = paginateList(archivedVersions, archivedPage, DEFAULT_LIST_PAGE_SIZE);
 
   async function handleSave() {
     if (!user) return;
@@ -271,7 +280,7 @@ export function PlatformDocumentsManagement() {
             <p className="text-sm text-muted-foreground">No archived versions yet.</p>
           ) : (
             <div className="space-y-2">
-              {archivedVersions.map((entry) => (
+              {archivedPagination.items.map((entry) => (
                 <div
                   key={entry.version}
                   className="flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
@@ -318,6 +327,12 @@ export function PlatformDocumentsManagement() {
                 </div>
               ))}
             </div>
+            <ListPagination
+              page={archivedPagination.page}
+              totalItems={archivedVersions.length}
+              onPageChange={setArchivedPage}
+              itemLabel="versions"
+            />
           )}
         </div>
 

@@ -52,6 +52,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { PlatformDocumentSlug, PlatformDocumentSummary } from "@/lib/platform-documents-types";
 import { PLATFORM_DOCUMENT_LABELS } from "@/lib/platform-documents-types";
+import {
+  DEFAULT_LIST_PAGE_SIZE,
+  ListPagination,
+  paginateList,
+} from "@/components/ui/list-pagination";
 
 const AVAILABLE_PLATFORM_DOCUMENT_SLUGS = ["terms", "privacy"] as const satisfies readonly PlatformDocumentSlug[];
 
@@ -117,6 +122,8 @@ function DocumentsPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [msaDownloading, setMsaDownloading] = useState(false);
   const [requestListFilter, setRequestListFilter] = useState<RequestListFilter>("all");
+  const [pendingPage, setPendingPage] = useState(1);
+  const [completedPage, setCompletedPage] = useState(1);
   const [platformDocuments, setPlatformDocuments] = useState<PlatformDocumentSummary[]>([]);
   const [platformDocsLoading, setPlatformDocsLoading] = useState(true);
 
@@ -375,6 +382,14 @@ function DocumentsPageContent() {
 
   const pendingRequests = documentRequests.filter((req) => req.status === "pending");
   const completedRequests = documentRequests.filter((req) => req.status === "complete");
+
+  useEffect(() => {
+    setPendingPage(1);
+    setCompletedPage(1);
+  }, [requestListFilter]);
+
+  const pendingPagination = paginateList(pendingRequests, pendingPage, DEFAULT_LIST_PAGE_SIZE);
+  const completedPagination = paginateList(completedRequests, completedPage, DEFAULT_LIST_PAGE_SIZE);
 
   const availablePlatformDocuments: PlatformDocumentSummary[] = AVAILABLE_PLATFORM_DOCUMENT_SLUGS.map(
     (slug) => {
@@ -923,8 +938,9 @@ function DocumentsPageContent() {
                 No pending document requests.
               </div>
             ) : (
+              <>
               <div className="space-y-4">
-                {pendingRequests.map((request) => (
+                {pendingPagination.items.map((request) => (
                   <div
                     key={request.id}
                     className="flex items-center justify-between p-4 border rounded-lg"
@@ -951,6 +967,13 @@ function DocumentsPageContent() {
                   </div>
                 ))}
               </div>
+              <ListPagination
+                page={pendingPagination.page}
+                totalItems={pendingRequests.length}
+                onPageChange={setPendingPage}
+                itemLabel="requests"
+              />
+              </>
             )}
           </CardContent>
         </Card>
@@ -982,11 +1005,12 @@ function DocumentsPageContent() {
               </p>
             </div>
           ) : (
+            <>
             <div className="space-y-4">
               {availablePlatformDocuments.map((doc) => (
                 <PlatformDocumentVersionRow key={doc.slug} doc={doc} />
               ))}
-              {completedRequests.map((request) => (
+              {completedPagination.items.map((request) => (
                 <div
                   key={request.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
@@ -1035,6 +1059,13 @@ function DocumentsPageContent() {
                 </div>
               ))}
             </div>
+            <ListPagination
+              page={completedPagination.page}
+              totalItems={completedRequests.length}
+              onPageChange={setCompletedPage}
+              itemLabel="documents"
+            />
+            </>
           )}
         </CardContent>
       </Card>

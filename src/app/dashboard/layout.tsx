@@ -8,6 +8,7 @@ import { ProfileDialog } from "@/components/dashboard/profile-dialog";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { ClientFeatureGate } from "@/components/dashboard/client-feature-gate";
+import { ClientAccountRestrictedOverlay } from "@/components/dashboard/client-account-restricted-overlay";
 import { UserAuditActivityTracker } from "@/components/audit/user-audit-activity-tracker";
 import { DashboardNavProvider } from "@/contexts/dashboard-nav-context";
 import { hasRole, getUserRoles, isAccountActivated, hasFeature } from "@/lib/permissions";
@@ -121,6 +122,7 @@ export default function DashboardLayout({
         signOut();
         router.replace("/login");
       }
+      // locked/disabled clients may sign in and see the restricted overlay (Option A)
     } else if (!loading && !user) {
       // No user and not loading - redirect to login
       router.replace("/login");
@@ -206,6 +208,7 @@ export default function DashboardLayout({
               <ClientFeatureGate>{children}</ClientFeatureGate>
             </div>
           </main>
+          <ClientAccountRestrictedOverlay />
         </SidebarInset>
         </div>
       </DashboardNavProvider>

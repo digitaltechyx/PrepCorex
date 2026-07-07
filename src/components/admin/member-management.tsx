@@ -11,11 +11,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useCollection } from "@/hooks/use-collection";
-import { doc, updateDoc, deleteDoc } from "firebase/firestore";
-import { deleteUser } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, User, Calendar, Phone, Mail, Eye, Trash2, UserCheck, RotateCcw, Search, X, ArrowUpDown, Edit, Shield, ScrollText } from "lucide-react";
+import { CheckCircle, XCircle, User, Calendar, Phone, Mail, Eye, Trash2, UserCheck, RotateCcw, Search, X, ArrowUpDown, Edit, Shield, ScrollText, Lock, ShieldBan, ShieldCheck } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
 import type { UserProfile } from "@/types";
@@ -24,11 +22,14 @@ import { RoleFeatureManagement } from "./role-feature-management";
 import { UserAuditTrailPanel } from "./user-audit-trail-panel";
 import { getUserRoles } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
+import { isClientPortalAccount } from "@/lib/client-account-status";
+
+type MemberTab = "pending" | "approved" | "locked" | "disabled" | "deleted";
 
 interface MemberManagementProps {
   adminUser: UserProfile | null;
   /** Initial tab from URL (e.g. ?status=pending) so dashboard cards can open the right tab */
-  initialStatus?: "pending" | "approved" | "deleted" | null;
+  initialStatus?: MemberTab | null;
   /** When provided, use this list instead of fetching (e.g. sub admin managed users) */
   usersOverride?: UserProfile[];
   /** When true, hide approve/reject/edit/delete and role editing (sub admin view-only) */
@@ -55,6 +56,7 @@ export function MemberManagement({
   const setSearchQuery = onSearchQueryChange ?? setLocalSearchQuery;
   const [currentPage, setCurrentPage] = useState(1);
   const [sortOrder, setSortOrder] = useState<"a-z" | "z-a">("a-z");
+  const [accountActionUid, setAccountActionUid] = useState<string | null>(null);
   const itemsPerPage = 12;
 
   // Filter users and apply search
@@ -101,16 +103,31 @@ export function MemberManagement({
 
   // Separate users by status and sort
   const pendingUsers = sortUsers(filteredUsers.filter((user) => user.status === "pending"));
-  const approvedUsers = sortUsers(filteredUsers.filter((user) => user.status === "approved" || !user.status));
+  const approvedUsers = sortUsers(
+    filteredUsers.filter((user) => user.status === "approved" || !user.status)
+  );
+  const lockedUsers = sortUsers(filteredUsers.filter((user) => user.status === "locked"));
+  const disabledUsers = sortUsers(filteredUsers.filter((user) => user.status === "disabled"));
   const deletedUsers = sortUsers(filteredUsers.filter((user) => user.status === "deleted"));
 
-  // Get current tab users based on active tab
-  const [activeTab, setActiveTab] = useState<"pending" | "approved" | "deleted">(
-    initialStatus === "pending" || initialStatus === "approved" || initialStatus === "deleted" ? initialStatus : "pending"
+  const [activeTab, setActiveTab] = useState<MemberTab>(
+    initialStatus === "pending" ||
+      initialStatus === "approved" ||
+      initialStatus === "locked" ||
+      initialStatus === "disabled" ||
+      initialStatus === "deleted"
+      ? initialStatus
+      : "pending"
   );
 
   useEffect(() => {
-    if (initialStatus === "pending" || initialStatus === "approved" || initialStatus === "deleted") {
+    if (
+      initialStatus === "pending" ||
+      initialStatus === "approved" ||
+      initialStatus === "locked" ||
+      initialStatus === "disabled" ||
+      initialStatus === "deleted"
+    ) {
       setActiveTab(initialStatus);
     }
   }, [initialStatus]);
@@ -121,6 +138,10 @@ export function MemberManagement({
         return pendingUsers;
       case "approved":
         return approvedUsers;
+      case "locked":
+        return lockedUsers;
+      case "disabled":
+        return disabledUsers;
       case "deleted":
         return deletedUsers;
       default:
@@ -138,8 +159,57 @@ export function MemberManagement({
 
   // Reset to page 1 when tab changes
   const handleTabChange = (value: string) => {
-    setActiveTab(value as "pending" | "approved" | "deleted");
+    setActiveTab(value as MemberTab);
     setCurrentPage(1);
+  };
+
+  const handleAccountStatusChange = async (
+    user: UserProfile,
+    action: "lock" | "unlock" | "disable" | "enable" | "delete" | "restore",
+    successTitle: string
+  ) => {
+    setAccountActionUid(user.uid);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        toast({
+          variant: "destructive",
+          title: "Not signed in",
+          description: "Please sign in again and retry.",
+        });
+        return;
+      }
+
+      const res = await fetch(`/api/admin/users/${user.uid}/account-status`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `Failed to ${action} user.`);
+      }
+
+      toast({
+        title: successTitle,
+        description: data.emailSent
+          ? `${formatUserDisplayName(user, { showEmail: false })} was updated and notified by email.`
+          : data.emailError ||
+            `${formatUserDisplayName(user, { showEmail: false })} was updated, but the email could not be sent.`,
+        variant: data.emailSent ? "default" : "destructive",
+      });
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : `Failed to ${action} user.`,
+      });
+    } finally {
+      setAccountActionUid(null);
+    }
   };
 
   const handleApproveUser = async (user: UserProfile) => {
@@ -187,46 +257,11 @@ export function MemberManagement({
   };
 
   const handleDeleteUser = async (user: UserProfile) => {
-    try {
-      // Mark user as deleted in Firestore
-      await updateDoc(doc(db, "users", user.uid), {
-        status: "deleted",
-        deletedAt: new Date(),
-      });
-
-      toast({
-        title: "Success",
-        description: `User "${user.name}" has been moved to deleted members!`,
-      });
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to delete user.",
-      });
-    }
+    await handleAccountStatusChange(user, "delete", "User deleted");
   };
 
   const handleRestoreUser = async (user: UserProfile) => {
-    try {
-      // Restore user by changing status back to approved
-      await updateDoc(doc(db, "users", user.uid), {
-        status: "approved",
-        approvedAt: new Date(),
-        deletedAt: null,
-      });
-
-      toast({
-        title: "Success",
-        description: `User "${user.name}" has been restored successfully!`,
-      });
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to restore user.",
-      });
-    }
+    await handleAccountStatusChange(user, "restore", "User restored");
   };
 
   const getInitials = (name: string | null) => {
@@ -270,7 +305,7 @@ export function MemberManagement({
     }
   };
 
-  const UserCard = ({ user, showActions = false, showRestore = false, isAdmin = false }: { user: UserProfile; showActions?: boolean; showRestore?: boolean; isAdmin?: boolean }) => {
+  const UserCard = ({ user, tabKind, showActions = false, showRestore = false, isAdmin = false }: { user: UserProfile; tabKind: MemberTab; showActions?: boolean; showRestore?: boolean; isAdmin?: boolean }) => {
     const [isUserDialogOpen, setIsUserDialogOpen] = useState(false);
     const [isUserEditMode, setIsUserEditMode] = useState(false);
     const [activeTab, setActiveTab] = useState<"details" | "roles" | "audit">("details");
@@ -284,7 +319,23 @@ export function MemberManagement({
       }
       return undefined;
     };
-    
+    const isClient = isClientPortalAccount(user);
+    const isActionLoading = accountActionUid === user.uid;
+    const statusBadge = (() => {
+      switch (user.status) {
+        case "locked":
+          return { label: "Locked", variant: "secondary" as const, className: "bg-amber-50 text-amber-800 border-amber-200" };
+        case "disabled":
+          return { label: "Disabled", variant: "destructive" as const, className: "bg-red-50 text-red-800 border-red-200" };
+        case "pending":
+          return { label: "Pending", variant: "secondary" as const, className: "" };
+        case "deleted":
+          return { label: "Deleted", variant: "destructive" as const, className: "" };
+        default:
+          return { label: "Approved", variant: "default" as const, className: "" };
+      }
+    })();
+
     return (
       <div className="rounded-lg border bg-card px-3 py-3 sm:px-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -297,14 +348,10 @@ export function MemberManagement({
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-semibold text-sm sm:text-base truncate">{formatUserDisplayName(user, { showEmail: false })}</h3>
                 <Badge
-                  variant={
-                    user.status === "approved" || !user.status ? "default" :
-                    user.status === "pending" ? "secondary" : "destructive"
-                  }
-                  className="text-[10px] sm:text-xs"
+                  variant={statusBadge.variant}
+                  className={`text-[10px] sm:text-xs ${statusBadge.className}`}
                 >
-                  {user.status === "approved" || !user.status ? "Approved" :
-                   user.status === "pending" ? "Pending" : "Deleted"}
+                  {statusBadge.label}
                 </Badge>
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-muted-foreground">
@@ -559,7 +606,7 @@ export function MemberManagement({
 
           {showActions && (
             <>
-              {user.status === "pending" && (
+              {tabKind === "pending" && user.status === "pending" && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -576,11 +623,49 @@ export function MemberManagement({
                   </TooltipContent>
                 </Tooltip>
               )}
+              {tabKind === "approved" && isClient && (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        disabled={isActionLoading}
+                        onClick={() => void handleAccountStatusChange(user, "lock", "User locked")}
+                        className="text-amber-700 border-amber-200 hover:bg-amber-50"
+                      >
+                        <Lock className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Lock client account</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        disabled={isActionLoading}
+                        onClick={() => void handleAccountStatusChange(user, "disable", "User disabled")}
+                        className="text-red-700 border-red-200 hover:bg-red-50"
+                      >
+                        <ShieldBan className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Disable client account</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </>
+              )}
+              {(tabKind === "pending" || tabKind === "approved") && (
               <Tooltip>
                 <TooltipTrigger asChild>
               <Button 
                 variant="destructive" 
                     size="icon"
+                disabled={isActionLoading}
                 onClick={() => handleDeleteUser(user)}
               >
                     <Trash2 className="h-4 w-4" />
@@ -590,7 +675,46 @@ export function MemberManagement({
                   <p>Delete user account</p>
                 </TooltipContent>
               </Tooltip>
+              )}
             </>
+          )}
+
+          {showActions && tabKind === "locked" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  disabled={isActionLoading}
+                  onClick={() => void handleAccountStatusChange(user, "unlock", "User unlocked")}
+                  className="text-green-700 border-green-200 hover:bg-green-50"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Unlock client account</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {showActions && tabKind === "disabled" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  disabled={isActionLoading}
+                  onClick={() => void handleAccountStatusChange(user, "enable", "User re-enabled")}
+                  className="text-green-700 border-green-200 hover:bg-green-50"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Re-enable client account</p>
+              </TooltipContent>
+            </Tooltip>
           )}
 
           {showRestore && (
@@ -681,7 +805,7 @@ export function MemberManagement({
         </div>
         
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid grid-cols-3 w-full gap-1 sm:gap-0">
+          <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full gap-1 sm:gap-0">
             <TabsTrigger value="pending" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
               <XCircle className="h-4 w-4" />
               <span>Pending</span>
@@ -691,6 +815,16 @@ export function MemberManagement({
               <CheckCircle className="h-4 w-4" />
               <span>Approved</span>
               <Badge variant="secondary" className="text-[10px] sm:text-xs">{approvedUsers.length}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="locked" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
+              <Lock className="h-4 w-4" />
+              <span>Locked</span>
+              <Badge variant="secondary" className="text-[10px] sm:text-xs">{lockedUsers.length}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="disabled" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
+              <ShieldBan className="h-4 w-4" />
+              <span>Disabled</span>
+              <Badge variant="secondary" className="text-[10px] sm:text-xs">{disabledUsers.length}</Badge>
             </TabsTrigger>
             <TabsTrigger value="deleted" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
               <Trash2 className="h-4 w-4" />
@@ -704,7 +838,7 @@ export function MemberManagement({
               <>
                 <div className="space-y-2">
                   {paginatedUsers.map((user, index) => (
-                    <UserCard key={user.uid || `pending-user-${index}`} user={user} showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
+                    <UserCard key={user.uid || `pending-user-${index}`} user={user} tabKind="pending" showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
                 </div>
                 {totalPages > 1 && (
@@ -752,7 +886,7 @@ export function MemberManagement({
               <>
                 <div className="space-y-2">
                   {paginatedUsers.map((user, index) => (
-                    <UserCard key={user.uid || `user-${index}`} user={user} showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
+                    <UserCard key={user.uid || `user-${index}`} user={user} tabKind="approved" showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
                 </div>
                 {totalPages > 1 && (
@@ -794,13 +928,73 @@ export function MemberManagement({
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="locked" className="mt-6">
+            {lockedUsers.length > 0 ? (
+              <>
+                <div className="space-y-2">
+                  {paginatedUsers.map((user, index) => (
+                    <UserCard key={user.uid || `locked-user-${index}`} user={user} tabKind="locked" showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
+                  ))}
+                </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between mt-6 pt-4 border-t">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {startIndex + 1} to {Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length} users
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Previous</Button>
+                      <span className="text-sm">Page {currentPage} of {totalPages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-8">
+                <Lock className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No Locked Members</h3>
+                <p className="text-muted-foreground">Client accounts locked for inactivity or by an admin will appear here.</p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="disabled" className="mt-6">
+            {disabledUsers.length > 0 ? (
+              <>
+                <div className="space-y-2">
+                  {paginatedUsers.map((user, index) => (
+                    <UserCard key={user.uid || `disabled-user-${index}`} user={user} tabKind="disabled" showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
+                  ))}
+                </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between mt-6 pt-4 border-t">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {startIndex + 1} to {Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length} users
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Previous</Button>
+                      <span className="text-sm">Page {currentPage} of {totalPages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-8">
+                <ShieldBan className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No Disabled Members</h3>
+                <p className="text-muted-foreground">Client accounts disabled for inactivity or by an admin will appear here.</p>
+              </div>
+            )}
+          </TabsContent>
           
           <TabsContent value="deleted" className="mt-6">
             {deletedUsers.length > 0 ? (
               <>
                 <div className="space-y-2">
                   {paginatedUsers.map((user, index) => (
-                    <UserCard key={user.uid || `deleted-user-${index}`} user={user} showActions={false} showRestore={!viewOnly} isAdmin={!viewOnly && adminUser?.role === "admin"} />
+                    <UserCard key={user.uid || `deleted-user-${index}`} user={user} tabKind="deleted" showActions={false} showRestore={!viewOnly} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
                 </div>
                 {totalPages > 1 && (

@@ -134,3 +134,135 @@ Prep Services FBA LLC`;
 
   return { subject, text, html };
 }
+
+function accountNoticeEmail(input: {
+  title: string;
+  subject: string;
+  contactName: string;
+  bodyParagraphs: string[];
+  loginUrl?: string;
+  buttonLabel?: string;
+  buttonColor?: string;
+}) {
+  const greetingName = input.contactName.trim() || "there";
+  const text = `Hello ${greetingName},
+
+${input.bodyParagraphs.join("\n\n")}
+
+${input.loginUrl ? `Sign in: ${input.loginUrl}\n\n` : ""}PrepCorex Team`;
+
+  const paragraphsHtml = input.bodyParagraphs
+    .map(
+      (p) =>
+        `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;">${p}</p>`
+    )
+    .join("");
+
+  const buttonHtml = input.loginUrl
+    ? `<p style="margin:0 0 24px;">
+  <a href="${input.loginUrl}" style="display:inline-block;background:${input.buttonColor || "#4338ca"};color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;font-size:14px;">${input.buttonLabel || "Go to Login"}</a>
+</p>`
+    : "";
+
+  const html = emailShell(
+    input.title,
+    `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Hello <strong>${greetingName}</strong>,</p>
+${paragraphsHtml}
+${buttonHtml}
+<p style="margin:0;font-size:14px;line-height:1.6;color:#4b5563;">PrepCorex Team</p>`
+  );
+
+  return { subject: input.subject, text, html };
+}
+
+export function buildAccountLockedEmail(input: { contactName: string; loginUrl: string }) {
+  return accountNoticeEmail({
+    title: "Account locked",
+    subject: "Your PrepCorex account has been locked",
+    contactName: input.contactName,
+    bodyParagraphs: [
+      "Your PrepCorex client account has been locked because there has been no login activity for 30 days, or an administrator locked your account manually.",
+      "You can still sign in to view this notice, but dashboard access is paused until an administrator unlocks your account.",
+      "Please contact Prep Services FBA support or your account administrator to restore access.",
+    ],
+    loginUrl: input.loginUrl,
+    buttonLabel: "Sign in to PrepCorex",
+    buttonColor: "#d97706",
+  });
+}
+
+export function buildAccountUnlockedEmail(input: { contactName: string; loginUrl: string }) {
+  return accountNoticeEmail({
+    title: "Account unlocked",
+    subject: "Your PrepCorex account has been unlocked",
+    contactName: input.contactName,
+    bodyParagraphs: [
+      "Good news — your PrepCorex client account has been unlocked by an administrator.",
+      "You can sign in and use the dashboard again. Your inactivity timer has been reset from today.",
+    ],
+    loginUrl: input.loginUrl,
+    buttonLabel: "Sign in to PrepCorex",
+    buttonColor: "#059669",
+  });
+}
+
+export function buildAccountDisabledEmail(input: { contactName: string; loginUrl: string }) {
+  return accountNoticeEmail({
+    title: "Account disabled",
+    subject: "Your PrepCorex account has been disabled",
+    contactName: input.contactName,
+    bodyParagraphs: [
+      "Your PrepCorex client account has been disabled because there has been no login activity for 60 days, or an administrator disabled your account manually.",
+      "You can still sign in to view this notice, but dashboard access remains unavailable until an administrator re-enables your account.",
+      "Please contact Prep Services FBA support or your account administrator for assistance.",
+    ],
+    loginUrl: input.loginUrl,
+    buttonLabel: "Sign in to PrepCorex",
+    buttonColor: "#dc2626",
+  });
+}
+
+export function buildAccountEnabledEmail(input: { contactName: string; loginUrl: string }) {
+  return accountNoticeEmail({
+    title: "Account re-enabled",
+    subject: "Your PrepCorex account has been re-enabled",
+    contactName: input.contactName,
+    bodyParagraphs: [
+      "Your PrepCorex client account has been re-enabled by an administrator.",
+      "You can sign in and use the dashboard again. Your inactivity timer has been reset from today.",
+    ],
+    loginUrl: input.loginUrl,
+    buttonLabel: "Sign in to PrepCorex",
+    buttonColor: "#059669",
+  });
+}
+
+export function buildAccountDeletedEmail(input: { contactName: string; loginUrl: string }) {
+  return accountNoticeEmail({
+    title: "Account deleted",
+    subject: "Your PrepCorex account has been deleted",
+    contactName: input.contactName,
+    bodyParagraphs: [
+      "Your PrepCorex client account has been deleted by an administrator.",
+      "If you believe this was done in error, please contact Prep Services FBA support. Accounts can be restored by an administrator when appropriate.",
+    ],
+    loginUrl: input.loginUrl,
+    buttonLabel: "Contact via login page",
+    buttonColor: "#6b7280",
+  });
+}
+
+export function buildAccountRestoredEmail(input: { contactName: string; loginUrl: string }) {
+  return accountNoticeEmail({
+    title: "Account restored",
+    subject: "Your PrepCorex account has been restored",
+    contactName: input.contactName,
+    bodyParagraphs: [
+      "Your PrepCorex client account has been restored by an administrator.",
+      "You can sign in and use the dashboard again. Your inactivity timer has been reset from today.",
+    ],
+    loginUrl: input.loginUrl,
+    buttonLabel: "Sign in to PrepCorex",
+    buttonColor: "#059669",
+  });
+}

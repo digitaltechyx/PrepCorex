@@ -4,6 +4,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -24,6 +25,7 @@ import {
   invalidateDefaultWarehouseLocationCache,
 } from "@/lib/default-warehouse";
 import { normalizeUserLocationIds } from "@/lib/user-locations";
+import { isClientPortalAccount } from "@/lib/client-account-status";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -160,6 +162,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       cancelled = true;
     };
   }, [user?.uid, userProfile]);
+
+  const lastLoginRecordedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!user?.uid || !userProfile) return;
+    if (!isClientPortalAccount(userProfile)) return;
+    const status = userProfile.status || "approved";
+    if (status !== "approved") return;
+    if (lastLoginRecordedRef.current === user.uid) return;
+
+    lastLoginRecordedRef.current = user.uid;
+    void (async () => {
+      try {
+        const token = await user.getIdToken();
+        await fetch("/api/account/record-login", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (error) {
+        console.error("Could not record client last login:", error);
+      }
+    })();
+  }, [user, userProfile]);
 
   const signOut = async () => {
     try {

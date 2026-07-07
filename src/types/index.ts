@@ -2,7 +2,7 @@ import type { User as FirebaseUser } from "firebase/auth";
 import type { PlatformDocument } from "@/lib/platform-documents-types";
 
 export type UserRole = "admin" | "user" | "commission_agent" | "sub_admin" | "warehouse_operator";
-export type UserStatus = "pending" | "approved" | "deleted";
+export type UserStatus = "pending" | "approved" | "deleted" | "locked" | "disabled";
 
 /** Location that can be assigned to users and to sub admins for scoping. */
 export interface Location {
@@ -408,6 +408,12 @@ export interface UserProfile {
   roles?: UserRole[]; // New array format for multiple roles
   features?: UserFeature[]; // Granted features
   status?: UserStatus; // Optional for backward compatibility
+  /** Last successful login for client inactivity tracking (ISO / Firestore timestamp). */
+  lastLoginAt?: { seconds: number; nanoseconds: number } | string | Date | null;
+  lockedAt?: { seconds: number; nanoseconds: number } | string | Date | null;
+  disabledAt?: { seconds: number; nanoseconds: number } | string | Date | null;
+  /** Why the account was locked/disabled (`inactivity` or `manual`). */
+  accountStatusReason?: "inactivity" | "manual" | null;
   /** When true, user must verify email via Firebase before login (new registrations only). */
   emailVerificationRequired?: boolean;
   createdAt?: Date;
