@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import { type Invoice, type InvoiceAdditionalCharge, type UserProfile, type Commission } from "@/types";
 import { db } from "@/lib/firebase";
-import { collection, query, getDocs, orderBy, doc, updateDoc, where } from "firebase/firestore";
+import { collection, query, getDocs, orderBy, doc, updateDoc, where, deleteField } from "firebase/firestore";
 import type { ShippedItem } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
 import { createCommissionForInvoice } from "@/lib/commission-utils";
@@ -38,6 +38,8 @@ import {
   mergeDiscountTrailEntries,
 } from "@/lib/discount-trail";
 import type { DiscountTrailEntry } from "@/types";
+import { getDueDateChangeFieldResets } from "@/lib/client-invoice-lifecycle";
+import { formatDateInputForDisplay } from "@/lib/nj-date";
 
 interface InvoiceManagementProps {
   users: UserProfile[];
@@ -69,6 +71,8 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   const [selectedUserInvoices, setSelectedUserInvoices] = useState<Invoice[]>([]);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [dueDateEdit, setDueDateEdit] = useState("");
+  const [savingDueDate, setSavingDueDate] = useState(false);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [userInvoices, setUserInvoices] = useState<Record<string, Invoice[]>>({});
@@ -548,7 +552,78 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
   const handleViewInvoice = (invoice: Invoice) => {
     setSelectedInvoice(invoice);
+    setDueDateEdit(String(invoice.dueDate || "").trim());
     setIsViewDialogOpen(true);
+  };
+
+  const handleSaveDueDate = async () => {
+    if (!selectedInvoice) return;
+
+    const ownerUserId = selectedInvoice.userId || selectedUser?.uid;
+    const invoiceDocId = selectedInvoice.id;
+    if (!ownerUserId || !invoiceDocId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Missing invoice owner or invoice id.",
+      });
+      return;
+    }
+
+    const newDueDate = dueDateEdit.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDueDate)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid date",
+        description: "Please use YYYY-MM-DD format.",
+      });
+      return;
+    }
+
+    const resets = getDueDateChangeFieldResets(selectedInvoice, newDueDate);
+    const updates: Record<string, unknown> = { dueDate: newDueDate };
+    if (resets.resetPenultimate) updates.reminderPenultimateEmailSentAt = deleteField();
+    if (resets.resetDueDay) updates.reminderDueDayEmailSentAt = deleteField();
+    if (resets.resetLateFeeEmail) updates.lateFeeEmailSentAt = deleteField();
+
+    setSavingDueDate(true);
+    try {
+      await updateDoc(doc(db, `users/${ownerUserId}/invoices/${invoiceDocId}`), updates);
+
+      const updatedInvoice = { ...selectedInvoice, dueDate: newDueDate };
+      setSelectedInvoice(updatedInvoice);
+      setUserInvoices((prev) => {
+        const next = { ...prev };
+        const list = next[ownerUserId];
+        if (Array.isArray(list)) {
+          next[ownerUserId] = list.map((inv) =>
+            inv.id === invoiceDocId ? { ...inv, dueDate: newDueDate } : inv
+          );
+        }
+        return next;
+      });
+      if (selectedUser?.uid === ownerUserId) {
+        setSelectedUserInvoices((prev) =>
+          prev.map((inv) => (inv.id === invoiceDocId ? { ...inv, dueDate: newDueDate } : inv))
+        );
+      }
+
+      toast({
+        title: "Due date updated",
+        description: resets.resetPenultimate || resets.resetDueDay
+          ? `Reminders will follow the new due date (${formatDateInputForDisplay(newDueDate)}).`
+          : `Due date set to ${formatDateInputForDisplay(newDueDate)}.`,
+      });
+    } catch (error) {
+      console.error("Error updating due date:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update due date.",
+      });
+    } finally {
+      setSavingDueDate(false);
+    }
   };
 
   const openDiscountEditor = (invoice: Invoice) => {
@@ -1631,6 +1706,39 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                 <div>
                   <p className="text-xs sm:text-sm text-muted-foreground">Date</p>
                   <p className="font-semibold text-sm sm:text-base">{selectedInvoice.date}</p>
+                </div>
+                <div>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Due Date</p>
+                  {selectedInvoice.status === "pending" ? (
+                    <div className="flex flex-col sm:flex-row gap-2 mt-1">
+                      <Input
+                        type="date"
+                        value={dueDateEdit}
+                        onChange={(event) => setDueDateEdit(event.target.value)}
+                        className="h-8 sm:h-9 text-sm"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-8 sm:h-9 text-xs sm:text-sm"
+                        disabled={
+                          savingDueDate ||
+                          !dueDateEdit ||
+                          dueDateEdit === String(selectedInvoice.dueDate || "").trim()
+                        }
+                        onClick={handleSaveDueDate}
+                      >
+                        {savingDueDate ? "Saving..." : "Save Due Date"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="font-semibold text-sm sm:text-base">
+                      {selectedInvoice.dueDate
+                        ? formatDateInputForDisplay(selectedInvoice.dueDate)
+                        : "—"}
+                    </p>
+                  )}
                 </div>
                 <div className="sm:col-span-2">
                   <p className="text-xs sm:text-sm text-muted-foreground">Status</p>

@@ -1271,6 +1271,12 @@ export interface Invoice {
   discountAmount?: number;
   lateFeeAmount?: number;
   lateFeeReason?: string;
+  /** Payment due date (YYYY-MM-DD, America/New_York). */
+  dueDate?: string;
+  invoiceCreatedEmailSentAt?: { seconds: number; nanoseconds: number } | string;
+  reminderPenultimateEmailSentAt?: { seconds: number; nanoseconds: number } | string;
+  reminderDueDayEmailSentAt?: { seconds: number; nanoseconds: number } | string;
+  lateFeeEmailSentAt?: { seconds: number; nanoseconds: number } | string;
   type?: string;
   isContainerHandling?: boolean;
   updatedAt?: { seconds: number; nanoseconds: number } | string;

@@ -533,4 +533,63 @@ exports.sendInvoiceReminders = functions.pubsub
   return null;
 });
 
+// ---- Client invoices (users/{uid}/invoices): creation email + due-date reminders ----
+const {
+  createSmtpTransporter,
+  sendClientInvoiceCreatedEmail,
+  runClientInvoiceReminders,
+} = require("./client-invoice-automation");
+
+exports.onClientInvoiceCreated = functions.firestore
+  .document("users/{userId}/invoices/{invoiceId}")
+  .onCreate(async (snap, context) => {
+    const { userId, invoiceId } = context.params;
+    const invoice = snap.data() || {};
+    if (invoice.status !== "pending") return null;
+    if (invoice.invoiceCreatedEmailSentAt) return null;
+
+    const smtp = createSmtpTransporter(nodemailer);
+    if (!smtp) {
+      console.warn("Client invoice created: SMTP not configured, skipping email.");
+      return null;
+    }
+
+    try {
+      await smtp.transporter.verify();
+      const result = await sendClientInvoiceCreatedEmail(
+        admin.firestore(),
+        smtp.transporter,
+        smtp.config,
+        userId,
+        invoiceId
+      );
+      if (result.sent) {
+        console.log("Client invoice created email sent:", userId, invoiceId);
+      }
+    } catch (err) {
+      console.error("Client invoice created email failed:", userId, invoiceId, err);
+    }
+    return null;
+  });
+
+exports.sendClientInvoiceReminders = functions.pubsub
+  .schedule("every 1 hours")
+  .timeZone(TZ_NEW_JERSEY)
+  .onRun(async () => {
+    const smtp = createSmtpTransporter(nodemailer);
+    if (!smtp) {
+      console.warn("Client invoice reminders: SMTP not configured, skipping.");
+      return null;
+    }
+
+    try {
+      await smtp.transporter.verify();
+      const metrics = await runClientInvoiceReminders(admin.firestore(), smtp.transporter, smtp.config);
+      console.log("[Client invoice automation metrics]", JSON.stringify(metrics));
+    } catch (err) {
+      console.error("Client invoice reminders failed:", err);
+    }
+    return null;
+  });
+
 // Inbound tracking 6h cron lives in functions-inbound-cron/ (separate codebase for faster deploy).

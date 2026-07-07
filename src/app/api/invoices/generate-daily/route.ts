@@ -3,6 +3,7 @@ import { format } from "date-fns";
 
 import { adminDb } from "@/lib/firebase-admin";
 import { generateInvoiceNumber } from "@/lib/invoice-utils";
+import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
 import type { ShippedItem } from "@/types";
 import { normalizeShipmentItems } from "@/lib/shipment-utils";
 
@@ -232,7 +233,7 @@ async function handleRequest(request: NextRequest) {
         .slice(-4)}`;
 
       const invoicesRef = db.collection(`users/${userId}/invoices`);
-      const invoiceDoc: any = {
+      const baseInvoice: any = {
         invoiceNumber,
         date: formattedDate,
         orderNumber,
@@ -255,7 +256,7 @@ async function handleRequest(request: NextRequest) {
       
       // Include additional services if any
       if (additionalServicesTotal > 0) {
-        invoiceDoc.additionalServices = {
+        baseInvoice.additionalServices = {
           bubbleWrapFeet: totalBubbleWrapFeet,
           stickerRemovalItems: totalStickerRemovalItems,
           warningLabels: totalWarningLabels,
@@ -266,6 +267,7 @@ async function handleRequest(request: NextRequest) {
         };
       }
 
+      const invoiceDoc = applyClientInvoiceLifecycleFields(baseInvoice);
       await invoicesRef.add(invoiceDoc);
 
       results.push({

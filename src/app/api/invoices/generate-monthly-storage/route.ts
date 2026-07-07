@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { format } from "date-fns";
 import { generateInvoiceNumber } from "@/lib/invoice-utils";
+import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
 import { getLatestStorageTierRates, listActivePalletCycles, toDate, add30Days, getRateForPaidCycle } from "@/lib/pallet-storage-sync";
 
 const CRON_SECRET = process.env.INVOICE_CRON_SECRET || process.env.CRON_SECRET;
@@ -172,7 +173,7 @@ async function handleRequest(request: NextRequest) {
       const invoiceNumber = generateInvoiceNumber(today);
       const orderNumber = `STOR-${format(today, "yyyyMMdd")}-${Date.now().toString().slice(-4)}`;
 
-      const invoiceDoc = {
+      const invoiceDoc = applyClientInvoiceLifecycleFields({
         invoiceNumber,
         date: format(today, "yyyy-MM-dd"),
         orderNumber,
@@ -198,7 +199,7 @@ async function handleRequest(request: NextRequest) {
         palletCount: itemCount,
         palletCycleIds: dueCycles.map((c) => c.id),
         ...(isTest && { isTest: true, testRunAt: new Date(), testOfInvoiceMonth: invoiceMonthBase }),
-      };
+      });
 
       const createdInvoice = await db.collection(`users/${userId}/invoices`).add(invoiceDoc);
 

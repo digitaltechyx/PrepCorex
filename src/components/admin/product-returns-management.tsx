@@ -92,6 +92,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { generateInvoicePDF } from "@/lib/invoice-generator";
+import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
 import { ProductReturnRequestForm } from "@/components/dashboard/product-return-request-form";
 import {
   useAllProductReturns,
@@ -144,7 +145,7 @@ export function ProductReturnsManagement({
   initialReturnId,
 }: ProductReturnsManagementProps) {
   const { toast } = useToast();
-  const { userProfile: adminProfile } = useAuth();
+  const { userProfile: adminProfile, user: authUser } = useAuth();
   const [selectedReturn, setSelectedReturn] = useState<ProductReturn | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -516,7 +517,7 @@ export function ProductReturnsManagement({
             },
           ];
 
-          const invoiceData = {
+          const invoiceData = applyClientInvoiceLifecycleFields({
             invoiceNumber: invoiceNum,
             date: format(today, 'dd/MM/yyyy'),
             orderNumber,
@@ -535,7 +536,7 @@ export function ProductReturnsManagement({
             userId: ownerId,
             type: "product_return_shipment",
             returnRequestId: selectedReturn.id,
-          };
+          });
 
           const invoiceRef = doc(collection(db, `users/${ownerId}/invoices`));
           transaction.set(invoiceRef, invoiceData);
@@ -570,6 +571,7 @@ export function ProductReturnsManagement({
       });
 
       // Generate PDF after transaction if invoice was requested
+
       if (generateInvoiceOnShip && invoiceNumber) {
         const orderNumber = `ORD-${format(today, 'yyyyMMdd')}-${Date.now().toString().slice(-4)}`;
         const shippingCost = parseFloat(shippingFee) || 0;
@@ -884,7 +886,7 @@ export function ProductReturnsManagement({
             });
           }
 
-          const invoiceData = {
+          const invoiceData = applyClientInvoiceLifecycleFields({
             invoiceNumber,
             date: format(today, 'dd/MM/yyyy'),
             orderNumber,
@@ -903,7 +905,7 @@ export function ProductReturnsManagement({
             userId: ownerId,
             type: "product_return",
             returnRequestId: selectedReturn.id,
-          };
+          });
 
           invoiceRef = doc(collection(db, `users/${ownerId}/invoices`));
           transaction.set(invoiceRef, invoiceData);
@@ -950,6 +952,7 @@ export function ProductReturnsManagement({
           });
         }
       });
+
 
       // Generate PDF invoice if requested
       if (generateInvoiceOnClose && invoiceNumber) {

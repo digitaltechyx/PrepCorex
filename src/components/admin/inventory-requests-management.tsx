@@ -53,6 +53,7 @@ import {
 import { InboundBatchAdminDialog } from "@/components/admin/inbound-batch-admin-dialog";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
+import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
 import {
   Card,
   CardContent,
@@ -164,7 +165,7 @@ export function InventoryRequestsManagement({
   initialRequestId?: string;
 }) {
   const { toast } = useToast();
-  const { userProfile: adminProfile } = useAuth();
+  const { userProfile: adminProfile, user: authUser } = useAuth();
   const [selectedRequest, setSelectedRequest] = useState<InventoryRequest | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<InboundBatch | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -591,7 +592,7 @@ export function InventoryRequestsManagement({
               const orderNumber = `ORD-${format(today, 'yyyyMMdd')}-${Date.now().toString().slice(-4)}`;
               
               // Create invoice with standard format
-              const invoiceData = {
+              const invoiceData = applyClientInvoiceLifecycleFields({
                 invoiceNumber,
                 date: format(today, 'dd/MM/yyyy'),
                 orderNumber,
@@ -620,7 +621,7 @@ export function InventoryRequestsManagement({
                 userId: userId,
                 type: "container_handling", // Keep for reference
                 containerSize: containerSize, // Keep for reference
-              };
+              });
               
               await addDoc(collection(db, `users/${userId}/invoices`), invoiceData);
               

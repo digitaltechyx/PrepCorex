@@ -39,6 +39,7 @@ import { format } from "date-fns";
 import type { InventoryItem, ShippedItem, UserProfile, RestockHistory, RecycledShippedItem, RecycledRestockHistory, RecycledInventoryItem, DeleteLog, EditLog, Location, InventoryTransfer } from "@/types";
 import { arrayToCSV, downloadCSV, formatDateForCSV, type InventoryCSVRow, type ShippedCSVRow } from "@/lib/csv-utils";
 import { useAuth } from "@/hooks/use-auth";
+import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
 import { useCollection } from "@/hooks/use-collection";
 
 interface AdminInventoryManagementProps {
@@ -1435,11 +1436,12 @@ export function AdminInventoryManagement({
     if (additionalServices) {
       invoiceDoc.additionalServices = additionalServices;
     }
-    
-    await addDoc(collection(db, `users/${selectedUser.uid}/invoices`), invoiceDoc);
+
+    const finalInvoiceDoc = applyClientInvoiceLifecycleFields(invoiceDoc);
+    await addDoc(collection(db, `users/${selectedUser.uid}/invoices`), finalInvoiceDoc);
     
     // Generate PDF
-    await generateInvoicePDF({ ...invoiceData, subtotal, grandTotal });
+    await generateInvoicePDF({ ...invoiceData, subtotal, grandTotal: finalInvoiceDoc.grandTotal, dueDate: finalInvoiceDoc.dueDate });
     
     toast({
       title: "Invoice Generated",
@@ -1558,8 +1560,9 @@ export function AdminInventoryManagement({
       invoiceDoc.additionalServices = additionalServices;
     }
 
-    await addDoc(collection(db, `users/${selectedUser.uid}/invoices`), invoiceDoc);
-    await generateInvoicePDF({ ...invoiceData, subtotal, grandTotal });
+    const finalInvoiceDoc = applyClientInvoiceLifecycleFields(invoiceDoc);
+    await addDoc(collection(db, `users/${selectedUser.uid}/invoices`), finalInvoiceDoc);
+    await generateInvoicePDF({ ...invoiceData, subtotal, grandTotal: finalInvoiceDoc.grandTotal, dueDate: finalInvoiceDoc.dueDate });
     toast({ title: "Invoice Generated", description: `Range invoice ${invoiceNumber} created for ${selectedUser.name}.` });
   };
 

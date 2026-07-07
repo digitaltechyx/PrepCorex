@@ -11,6 +11,7 @@ interface User {
 interface InvoiceData {
   invoiceNumber: string;
   date: string;
+  dueDate?: string;
   orderNumber: string;
   soldTo: User;
   fbm: string;
@@ -162,6 +163,19 @@ async function buildInvoiceDoc(data: InvoiceData): Promise<jsPDF> {
     }
   } catch {}
   doc.text(formattedDate, invoiceDetailsStart + 30, yPos);
+
+  if (data.dueDate) {
+    yPos += 7;
+    doc.text('DUE DATE:', invoiceDetailsStart, yPos);
+    let formattedDue = data.dueDate;
+    try {
+      const dueMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(data.dueDate).trim());
+      if (dueMatch) {
+        formattedDue = `${dueMatch[3]}/${dueMatch[2]}/${dueMatch[1]}`;
+      }
+    } catch {}
+    doc.text(formattedDue, invoiceDetailsStart + 30, yPos);
+  }
   
   // Horizontal line placed below the company block to avoid overlap
   yPos = Math.max(companyBlockBottomY + 8, 50);
