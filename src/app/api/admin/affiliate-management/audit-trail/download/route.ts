@@ -20,7 +20,11 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(Number(limitParam) || 2000, 1), 5000);
 
   try {
-    const events = await getAffiliateAuditTrail({ agentId, limit });
+    let events = await getAffiliateAuditTrail({ agentId, limit });
+    if (agentId) {
+      events = await enrichAffiliateAuditWithCommissions(agentId, agentName, events);
+      events = events.slice(0, limit);
+    }
     const csv = affiliateAuditEventsToCsv(events, agentName);
     const filename = agentId
       ? `affiliate-audit_${agentId}.csv`

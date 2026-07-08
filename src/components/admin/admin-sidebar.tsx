@@ -36,6 +36,7 @@ import {
   ShoppingCart,
   Warehouse,
   Handshake,
+  BarChart3,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
@@ -317,6 +318,13 @@ export function AdminSidebar() {
       color: "text-purple-600",
       requiredFeature: "manage_users" as const,
       adminOnly: true,
+    },
+    {
+      title: "Reports",
+      url: "/admin/dashboard/reports",
+      icon: BarChart3,
+      color: "text-slate-700",
+      requiredFeature: "admin_dashboard" as const,
     },
     {
       title: "Roles & Permissions",
