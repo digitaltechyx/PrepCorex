@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-admin-auth";
 import {
   affiliateAuditEventsToCsv,
+  enrichAffiliateAuditWithCommissions,
   getAffiliateAuditTrail,
 } from "@/lib/affiliate-audit-trail-server";
 

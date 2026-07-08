@@ -77,21 +77,121 @@ export async function getAffiliateAuditTrail(
   options: { agentId?: string; limit?: number } = {}
 ): Promise<AffiliateAuditEvent[]> {
   const limit = Math.min(Math.max(options.limit ?? 500, 1), 2000);
-  let q: FirebaseFirestore.Query = adminDb()
-    .collection("affiliateAuditTrail")
-    .orderBy("occurredAt", "desc")
-    .limit(limit);
+  const col = adminDb().collection("affiliateAuditTrail");
+
+  let events: AffiliateAuditEvent[];
 
   if (options.agentId) {
-    q = adminDb()
-      .collection("affiliateAuditTrail")
-      .where("agentId", "==", options.agentId)
-      .orderBy("occurredAt", "desc")
-      .limit(limit);
+    // Avoid compound index (agentId + occurredAt) — filter in Firestore, sort in memory.
+    const snap = await col.where("agentId", "==", options.agentId).get();
+    events = snap.docs.map((doc) => mapDoc(doc.id, doc.data()));
+  } else {
+    try {
+      const snap = await col.orderBy("occurredAt", "desc").limit(limit).get();
+      events = snap.docs.map((doc) => mapDoc(doc.id, doc.data()));
+      return events;
+    } catch {
+      const snap = await col.limit(limit).get();
+      events = snap.docs.map((doc) => mapDoc(doc.id, doc.data()));
+    }
   }
 
-  const snap = await q.get();
-  return snap.docs.map((doc) => mapDoc(doc.id, doc.data()));
+  events.sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
+  return events.slice(0, limit);
+}
+
+/** Backfill display events from commission records when live audit log is sparse. */
+export async function enrichAffiliateAuditWithCommissions(
+  agentId: string,
+  agentName: string | null | undefined,
+  events: AffiliateAuditEvent[]
+): Promise<AffiliateAuditEvent[]> {
+  const liveKeys = new Set(
+    events
+      .filter((e) => !e.id.startsWith("legacy-"))
+      .map((e) => {
+        const meta = e.metadata || {};
+        if (e.type === "commission_created" && meta.commissionId) return `created:${meta.commissionId}`;
+        if (e.type === "commission_paid" && meta.commissionId) return `paid:${meta.commissionId}`;
+        return null;
+      })
+      .filter(Boolean)
+  );
+
+  const snap = await adminDb()
+    .collection("commissions")
+    .where("agentId", "==", agentId)
+    .get();
+
+  const synthetic: AffiliateAuditEvent[] = [];
+
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const commissionId = doc.id;
+    const createdAt = toIso(data.createdAt) || new Date().toISOString();
+    const rate = data.commissionRate ?? null;
+    const tier = data.tier ?? null;
+    const amount = data.commissionAmount ?? 0;
+    const invoiceNumber = data.invoiceNumber ?? "—";
+    const clientName = data.clientName ?? "client";
+
+    if (!liveKeys.has(`created:${commissionId}`)) {
+      synthetic.push({
+        id: `legacy-created-${commissionId}`,
+        agentId,
+        agentName: agentName ?? data.agentName ?? null,
+        type: "commission_created",
+        action: "Commission generated (historical)",
+        description: `Commission of $${Number(amount).toFixed(2)}${rate ? ` (${rate}%${tier ? ` ${tier}` : ""})` : ""} for invoice ${invoiceNumber} from ${clientName}.`,
+        occurredAt: createdAt,
+        performedByUid: null,
+        performedByName: "System (recovered)",
+        metadata: {
+          commissionId,
+          invoiceId: data.invoiceId,
+          invoiceNumber,
+          clientId: data.clientId,
+          clientName,
+          commissionAmount: amount,
+          commissionRate: rate,
+          tier,
+          source: "commission_backfill",
+        },
+      });
+    }
+
+    if (data.status === "paid") {
+      const paidAt = toIso(data.paidAt) || createdAt;
+      if (!liveKeys.has(`paid:${commissionId}`)) {
+        synthetic.push({
+          id: `legacy-paid-${commissionId}`,
+          agentId,
+          agentName: agentName ?? data.agentName ?? null,
+          type: "commission_paid",
+          action: "Commission paid (historical)",
+          description: `Commission of $${Number(amount).toFixed(2)} paid for invoice ${invoiceNumber}.`,
+          occurredAt: paidAt,
+          performedByUid: data.paidBy ?? null,
+          performedByName: "System (recovered)",
+          metadata: {
+            commissionId,
+            invoiceId: data.invoiceId,
+            invoiceNumber,
+            clientId: data.clientId,
+            clientName,
+            commissionAmount: amount,
+            commissionRate: rate,
+            tier,
+            source: "commission_backfill",
+          },
+        });
+      }
+    }
+  }
+
+  return [...events, ...synthetic].sort(
+    (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+  );
 }
 
 export function affiliateAuditEventsToCsv(

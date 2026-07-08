@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/api-admin-auth";
 import {
   appendAffiliateAuditEvent,
+  enrichAffiliateAuditWithCommissions,
   getAffiliateAuditTrail,
 } from "@/lib/affiliate-audit-trail-server";
 
@@ -39,11 +40,20 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(Number(limitParam) || 500, 1), 2000);
 
   try {
-    const events = await getAffiliateAuditTrail({ agentId, limit });
+    let events = await getAffiliateAuditTrail({ agentId, limit });
+    if (agentId) {
+      const agentName = request.nextUrl.searchParams.get("agentName")?.trim() || undefined;
+      events = await enrichAffiliateAuditWithCommissions(agentId, agentName, events);
+      events = events.slice(0, limit);
+    }
     return NextResponse.json({ events, count: events.length });
   } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown error";
     console.error("[GET /api/admin/affiliate-management/audit-trail]", e);
-    return NextResponse.json({ error: "Failed to load affiliate audit trail." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to load affiliate audit trail.", detail: message },
+      { status: 500 }
+    );
   }
 }
 

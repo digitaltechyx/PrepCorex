@@ -40,6 +40,7 @@ export function AffiliateAuditTrailPanel({ agentId, agentName }: AffiliateAuditT
 
       const params = new URLSearchParams();
       if (agentId) params.set("agentId", agentId);
+      if (agentName) params.set("agentName", agentName);
       params.set("limit", "500");
 
       const res = await fetch(`/api/admin/affiliate-management/audit-trail?${params}`, {
