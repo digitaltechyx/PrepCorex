@@ -2,6 +2,9 @@ import { jsPDF } from "jspdf";
 import type { AdminReportSummary } from "@/lib/admin-reports-types";
 import { formatReportMoney } from "@/lib/admin-reports-utils";
 
+const SECTION_GAP = 14;
+const CHART_LABEL_SPACE = 10;
+
 function drawBarChart(
   doc: jsPDF,
   x: number,
@@ -11,11 +14,11 @@ function drawBarChart(
   data: { label: string; value: number }[],
   title: string,
   color: [number, number, number]
-) {
+): number {
   doc.setFontSize(11);
   doc.setTextColor(30, 41, 59);
   doc.text(title, x, y);
-  y += 6;
+  y += 8;
 
   const max = Math.max(...data.map((d) => d.value), 1);
   const barW = Math.max(4, (width - 10) / Math.max(data.length, 1) - 2);
@@ -29,13 +32,15 @@ function drawBarChart(
     const bx = x + 4 + i * (barW + 2);
     const by = chartBottom - barH;
     doc.setFillColor(...color);
-    doc.rect(bx, by, barW, barH, "F");
-    if (data.length <= 12) {
+    doc.rect(bx, by, barW, Math.max(barH, 0.5), "F");
+    if (data.length <= 14) {
       doc.setFontSize(6);
       doc.setTextColor(100, 116, 139);
-      doc.text(point.label.slice(0, 5), bx, chartBottom + 4, { angle: 0 });
+      doc.text(point.label.slice(0, 5), bx, chartBottom + 5, { angle: 0 });
     }
   });
+
+  return chartBottom + CHART_LABEL_SPACE;
 }
 
 function drawKpiBox(
@@ -67,6 +72,15 @@ function growthLabel(pct: number | null): string {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
+function ensurePageSpace(doc: jsPDF, y: number, needed: number): number {
+  const pageH = doc.internal.pageSize.getHeight();
+  if (y + needed > pageH - 18) {
+    doc.addPage();
+    return 20;
+  }
+  return y;
+}
+
 export function buildAdminReportPdf(summary: AdminReportSummary): Uint8Array {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
@@ -91,7 +105,7 @@ export function buildAdminReportPdf(summary: AdminReportSummary): Uint8Array {
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(13);
   doc.text("Financial Overview", 14, y);
-  y += 8;
+  y += 10;
 
   const kpiW = (pageW - 28 - 9) / 4;
   drawKpiBox(doc, 14, y, kpiW, 28, "Total Billed", formatReportMoney(summary.financial.totalBilled), [79, 70, 229]);
@@ -108,14 +122,14 @@ export function buildAdminReportPdf(summary: AdminReportSummary): Uint8Array {
     [14, 165, 233]
   );
 
-  y += 36;
+  y += 36 + SECTION_GAP;
   doc.setFontSize(13);
   doc.text("Client Value Exchange", 14, y);
-  y += 6;
+  y += 8;
   doc.setFontSize(9);
   doc.setTextColor(71, 85, 105);
   doc.text("What clients give us vs. what we fulfill for them in this period.", 14, y);
-  y += 8;
+  y += 12;
 
   drawKpiBox(doc, 14, y, (pageW - 31) / 2, 26, "They give us (billed)", formatReportMoney(summary.financial.totalBilled), [239, 68, 68]);
   drawKpiBox(
@@ -128,7 +142,7 @@ export function buildAdminReportPdf(summary: AdminReportSummary): Uint8Array {
     formatReportMoney(summary.financial.totalPaid),
     [34, 197, 94]
   );
-  y += 32;
+  y += 30;
   drawKpiBox(doc, 14, y, (pageW - 31) / 2, 26, "Units we shipped", String(summary.clientActivity.unitsShipped), [59, 130, 246]);
   drawKpiBox(
     doc,
@@ -141,32 +155,72 @@ export function buildAdminReportPdf(summary: AdminReportSummary): Uint8Array {
     [168, 85, 247]
   );
 
-  y += 34;
-  drawBarChart(doc, 14, y, pageW - 28, 40, summary.charts.revenueByDay.slice(-14), "Revenue Trend", [79, 70, 229]);
-  y += 52;
+  y += 34 + SECTION_GAP;
+  y = ensurePageSpace(doc, y, 58);
+  y = drawBarChart(doc, 14, y, pageW - 28, 36, summary.charts.revenueByDay.slice(-14), "Revenue Trend", [79, 70, 229]);
+  y += SECTION_GAP;
 
-  if (y > 240) {
-    doc.addPage();
-    y = 20;
-  }
+  y = ensurePageSpace(doc, y, 58);
+  y = drawBarChart(
+    doc,
+    14,
+    y,
+    pageW - 28,
+    36,
+    summary.charts.activityByDay.slice(-14).map((point) => ({
+      label: point.label,
+      value: point.requests,
+    })),
+    "Activity Trend (Requests)",
+    [34, 197, 94]
+  );
+  y += SECTION_GAP;
 
+  y = ensurePageSpace(doc, y, 70);
   doc.setFontSize(13);
   doc.setTextColor(30, 41, 59);
   doc.text("Operations & Commissions", 14, y);
-  y += 8;
-  drawKpiBox(doc, 14, y, kpiW, 24, "Ship Requests", String(summary.clientActivity.shipmentRequests), [59, 130, 246]);
-  drawKpiBox(doc, 14 + kpiW + 3, y, kpiW, 24, "Returns", String(summary.clientActivity.returns), [249, 115, 22]);
-  drawKpiBox(doc, 14 + (kpiW + 3) * 2, y, kpiW, 24, "Commissions", formatReportMoney(summary.commission.totalEarned), [139, 92, 246]);
-  drawKpiBox(doc, 14 + (kpiW + 3) * 3, y, kpiW, 24, "Active Clients", String(summary.clientActivity.activeClients), [20, 184, 166]);
+  y += 12;
 
-  y += 32;
+  drawKpiBox(doc, 14, y, kpiW, 24, "Ship Requests", String(summary.clientActivity.shipmentRequests), [59, 130, 246]);
+  drawKpiBox(doc, 14 + kpiW + 3, y, kpiW, 24, "Inventory Req.", String(summary.clientActivity.inventoryRequests), [168, 85, 247]);
+  drawKpiBox(doc, 14 + (kpiW + 3) * 2, y, kpiW, 24, "Returns", String(summary.clientActivity.returns), [249, 115, 22]);
+  drawKpiBox(
+    doc,
+    14 + (kpiW + 3) * 3,
+    y,
+    kpiW,
+    24,
+    "Commissions",
+    formatReportMoney(summary.commission.totalEarned),
+    [139, 92, 246]
+  );
+
+  y += 30;
+  drawKpiBox(doc, 14, y, kpiW, 24, "Dispose Requests", String(summary.clientActivity.disposeRequests), [244, 63, 94]);
+  drawKpiBox(doc, 14 + kpiW + 3, y, kpiW, 24, "Units Shipped", String(summary.clientActivity.unitsShipped), [59, 130, 246]);
+  drawKpiBox(doc, 14 + (kpiW + 3) * 2, y, kpiW, 24, "Units Received", String(summary.clientActivity.unitsReceived), [20, 184, 166]);
+  drawKpiBox(
+    doc,
+    14 + (kpiW + 3) * 3,
+    y,
+    kpiW,
+    24,
+    "Clients Active",
+    String(summary.clientActivity.activeClients),
+    [14, 165, 233]
+  );
+
+  y += 34 + SECTION_GAP;
   const mix = summary.charts.requestMix.filter((m) => m.count > 0);
   if (mix.length > 0) {
+    y = ensurePageSpace(doc, y, 12 + mix.length * 10);
     doc.setFontSize(11);
+    doc.setTextColor(30, 41, 59);
     doc.text("Request Mix", 14, y);
-    y += 6;
+    y += 10;
     const mixMax = Math.max(...mix.map((m) => m.count), 1);
-    mix.forEach((m, i) => {
+    mix.forEach((m) => {
       const barLen = ((pageW - 60) * m.count) / mixMax;
       doc.setFontSize(9);
       doc.setTextColor(71, 85, 105);
@@ -174,26 +228,23 @@ export function buildAdminReportPdf(summary: AdminReportSummary): Uint8Array {
       doc.setFillColor(99, 102, 241);
       doc.rect(50, y, barLen, 5, "F");
       doc.text(String(m.count), 52 + barLen, y + 4);
-      y += 8;
+      y += 10;
     });
   }
 
-  y += 4;
+  y += SECTION_GAP;
   if (summary.charts.topClientsByRevenue.length > 0) {
-    if (y > 250) {
-      doc.addPage();
-      y = 20;
-    }
+    y = ensurePageSpace(doc, y, 40);
     doc.setFontSize(11);
     doc.setTextColor(30, 41, 59);
     doc.text("Top Clients by Revenue", 14, y);
-    y += 6;
+    y += 10;
     summary.charts.topClientsByRevenue.slice(0, 5).forEach((row) => {
       doc.setFontSize(9);
       doc.setTextColor(71, 85, 105);
       doc.text(row.client.slice(0, 40), 14, y);
       doc.text(formatReportMoney(row.revenue), pageW - 14, y, { align: "right" });
-      y += 6;
+      y += 7;
     });
   }
 

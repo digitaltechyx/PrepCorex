@@ -44,7 +44,9 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
-import type { Invoice, ShopifyOrder, UploadedPDF } from "@/types";
+import { useClientSidebarBadges } from "@/hooks/use-client-sidebar-badges";
+import { useAdminSidebarBadges } from "@/hooks/use-admin-sidebar-badges";
+import { useManagedUsers } from "@/hooks/use-managed-users";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hasRole, hasFeature } from "@/lib/permissions";
@@ -65,27 +67,28 @@ type LocationDoc = {
 export function DashboardSidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { userProfile, user } = useAuth();
+  const { userProfile } = useAuth();
   const { setOpenMobile, isMobile } = useSidebar();
+  const { managedUsers } = useManagedUsers();
+  const {
+    pendingInvoicesCount,
+    pendingShopifyOrdersCount,
+    pendingInboundCount,
+    pendingOutboundCount,
+    inventoryActionCount,
+    pendingProductReturnsCount,
+    pendingDocumentsCount,
+    pendingDisposeCount,
+    pendingLabelsCount,
+    pendingAffiliateClientsCount,
+    affiliateAttentionCount,
+  } = useClientSidebarBadges();
+  const { totalAdminAttentionCount } = useAdminSidebarBadges(
+    managedUsers,
+    Boolean(userProfile?.uid && (hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin")))
+  );
 
-  // Get counts for badges
-  const { data: invoices } = useCollection<Invoice>(
-    userProfile ? `users/${userProfile.uid}/invoices` : ""
-  );
-  const { data: shopifyOrders } = useCollection<ShopifyOrder>(
-    userProfile ? `users/${userProfile.uid}/shopifyOrders` : ""
-  );
   const { data: locationDocs } = useCollection<LocationDoc>("locations");
-  const { data: allUploadedPDFs } = useCollection<UploadedPDF>("uploadedPDFs");
-  const uploadedPDFs = userProfile?.role === "admin" 
-    ? allUploadedPDFs 
-    : allUploadedPDFs.filter((pdf) => pdf.uploadedBy === user?.uid);
-
-  const pendingInvoicesCount = invoices.filter(inv => inv.status === 'pending').length;
-  const pendingShopifyOrdersCount = shopifyOrders.filter(
-    (order) => order.fulfillment_status !== "fulfilled"
-  ).length;
-  const labelsCount = uploadedPDFs.length;
   const assignedLocationIds = useMemo(
     () => new Set((userProfile?.locations ?? []).filter(Boolean)),
     [userProfile?.locations]
@@ -306,6 +309,7 @@ export function DashboardSidebar() {
       url: "/dashboard/inventory",
       icon: PackageCheck,
       color: "text-sky-600",
+      badge: inventoryActionCount > 0 ? inventoryActionCount : null,
       requiredRole: "user" as const,
       requiredFeature: "view_inventory" as const,
     },
@@ -314,7 +318,7 @@ export function DashboardSidebar() {
       url: "/dashboard/create-shipment-with-labels",
       icon: Upload,
       color: "text-indigo-600",
-      badge: null,
+      badge: pendingOutboundCount > 0 ? pendingOutboundCount : null,
       requiredRole: "user" as const,
       requiredFeature: "create_shipment" as const,
     },
@@ -323,7 +327,7 @@ export function DashboardSidebar() {
       url: "/dashboard/buy-labels",
       icon: ShoppingBag,
       color: "text-blue-600",
-      badge: null,
+      badge: pendingLabelsCount > 0 ? pendingLabelsCount : null,
       requiredRole: "user" as const,
       requiredFeature: "buy_labels" as const,
     },
@@ -349,7 +353,7 @@ export function DashboardSidebar() {
       url: "/dashboard/product-returns",
       icon: ArrowLeftRight,
       color: "text-orange-600",
-      badge: null,
+      badge: pendingProductReturnsCount > 0 ? pendingProductReturnsCount : null,
       requiredRole: "user" as const,
       requiredFeature: "request_product_returns" as const,
     },
@@ -358,7 +362,7 @@ export function DashboardSidebar() {
       url: "/dashboard/recycle-bin",
       icon: RotateCcw,
       color: "text-orange-600",
-      badge: null,
+      badge: pendingDisposeCount > 0 ? pendingDisposeCount : null,
       requiredRole: "user" as const,
       requiredFeature: "disposed_inventory" as const,
     },
@@ -418,7 +422,7 @@ export function DashboardSidebar() {
       url: "/dashboard/documents",
       icon: FolderOpen,
       color: "text-indigo-600",
-      badge: null,
+      badge: pendingDocumentsCount > 0 ? pendingDocumentsCount : null,
       requiredRole: "user" as const,
       requiredFeature: "client_documents" as const,
     },
@@ -436,7 +440,7 @@ export function DashboardSidebar() {
       url: "/dashboard/agent",
       icon: UserCheck,
       color: "text-purple-600",
-      badge: null,
+      badge: affiliateAttentionCount > 0 ? affiliateAttentionCount : null,
       requiredRole: "commission_agent" as const,
       requiredFeature: "affiliate_dashboard" as const,
     },
@@ -498,7 +502,7 @@ export function DashboardSidebar() {
       url: "/admin/dashboard",
       icon: Shield,
       color: "text-blue-600",
-      badge: null,
+      badge: totalAdminAttentionCount > 0 ? totalAdminAttentionCount : null,
     });
   }
   if (hasUserRole && showAffiliateAccess) {
@@ -507,7 +511,7 @@ export function DashboardSidebar() {
       url: "/dashboard/agent",
       icon: UserCheck,
       color: "text-purple-600",
-      badge: null,
+      badge: affiliateAttentionCount > 0 ? affiliateAttentionCount : null,
     });
   }
 
@@ -518,7 +522,7 @@ export function DashboardSidebar() {
           url: "/admin/dashboard",
           icon: LayoutDashboard,
           color: "text-blue-600",
-          badge: null as number | null | undefined,
+          badge: totalAdminAttentionCount > 0 ? totalAdminAttentionCount : null,
         },
         {
           title: "Integrations",
@@ -591,12 +595,12 @@ export function DashboardSidebar() {
               <SidebarGroupContent>
                 <SidebarMenu className="space-y-1">
                   {[
-                    { title: "Overview", href: "/dashboard/agent", icon: UserCheck, color: "text-purple-600" },
-                    { title: "Active Clients", href: "/dashboard/agent/active-clients", icon: UserCheck, color: "text-emerald-600" },
-                    { title: "Pending Clients", href: "/dashboard/agent/pending-clients", icon: Users, color: "text-amber-600" },
-                    { title: "Rejected Clients", href: "/dashboard/agent/rejected-clients", icon: XCircle, color: "text-rose-600" },
-                    { title: "Paid Invoices", href: "/dashboard/agent/paid-invoices", icon: FileText, color: "text-blue-600" },
-                    { title: "Policies & Rules", href: "/dashboard/agent/policies", icon: Shield, color: "text-indigo-600" },
+                    { title: "Overview", href: "/dashboard/agent", icon: UserCheck, color: "text-purple-600", badge: affiliateAttentionCount > 0 ? affiliateAttentionCount : null },
+                    { title: "Active Clients", href: "/dashboard/agent/active-clients", icon: UserCheck, color: "text-emerald-600", badge: null },
+                    { title: "Pending Clients", href: "/dashboard/agent/pending-clients", icon: Users, color: "text-amber-600", badge: pendingAffiliateClientsCount > 0 ? pendingAffiliateClientsCount : null },
+                    { title: "Rejected Clients", href: "/dashboard/agent/rejected-clients", icon: XCircle, color: "text-rose-600", badge: null },
+                    { title: "Paid Invoices", href: "/dashboard/agent/paid-invoices", icon: FileText, color: "text-blue-600", badge: null },
+                    { title: "Policies & Rules", href: "/dashboard/agent/policies", icon: Shield, color: "text-indigo-600", badge: null },
                   ].map((item) => {
                     const isActive = pathname === item.href;
                     const Icon = item.icon;
@@ -613,16 +617,25 @@ export function DashboardSidebar() {
                               : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                           )}
                         >
-                          <Link href={item.href} className="flex items-center gap-3">
+                          <Link href={item.href} className="flex w-full min-w-0 items-center gap-3 pr-1">
                             <Icon
                               className={cn(
-                                "h-5 w-5 transition-transform group-hover:scale-110",
+                                "h-5 w-5 shrink-0 transition-transform group-hover:scale-110",
                                 isActive ? item.color : "text-muted-foreground"
                               )}
                             />
-                            <span className={cn("font-medium transition-colors", isActive && "font-semibold")}>
+                            <span className={cn("min-w-0 flex-1 truncate font-medium transition-colors", isActive && "font-semibold")}>
                               {item.title}
                             </span>
+                            {item.badge !== null && item.badge !== undefined && (
+                              <NavMenuCountBadge
+                                count={item.badge}
+                                className={cn(
+                                  "bg-primary text-primary-foreground shadow-sm",
+                                  isActive && "bg-primary/90"
+                                )}
+                              />
+                            )}
                           </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
@@ -715,19 +728,28 @@ export function DashboardSidebar() {
                                   : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                               )}
                             >
-                              <Link href="/dashboard/inventory" className="flex w-full items-center gap-3">
+                              <Link href="/dashboard/inventory" className="flex w-full min-w-0 items-center gap-3 pr-1">
                                 <Icon
                                   className={cn(
-                                    "h-5 w-5 transition-transform group-hover:scale-110",
+                                    "h-5 w-5 shrink-0 transition-transform group-hover:scale-110",
                                     isActive ? item.color : "text-muted-foreground"
                                   )}
                                 />
-                                <span className={cn("font-medium transition-colors", isActive && "font-semibold")}>
+                                <span className={cn("min-w-0 flex-1 truncate font-medium transition-colors", isActive && "font-semibold")}>
                                   {item.title}
                                 </span>
+                                {item.badge !== null && item.badge !== undefined && (
+                                  <NavMenuCountBadge
+                                    count={item.badge}
+                                    className={cn(
+                                      "bg-primary text-primary-foreground shadow-sm",
+                                      isActive && "bg-primary/90"
+                                    )}
+                                  />
+                                )}
                                 <ChevronDown
                                   className={cn(
-                                    "ml-auto h-4 w-4 transition-transform",
+                                    "h-4 w-4 shrink-0 transition-transform",
                                     inventoryMenuOpen && "rotate-180"
                                   )}
                                   onClick={(e) => {
@@ -750,7 +772,15 @@ export function DashboardSidebar() {
                                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                                   )}
                                 >
-                                  <Link href="/dashboard/inventory?action=add-inventory">Inbound Shipment</Link>
+                                  <Link
+                                    href="/dashboard/inventory?action=add-inventory"
+                                    className="flex w-full min-w-0 items-center gap-2 pr-1"
+                                  >
+                                    <span className="min-w-0 flex-1 truncate">Inbound Shipment</span>
+                                    {pendingInboundCount > 0 && (
+                                      <NavMenuCountBadge count={pendingInboundCount} className="bg-primary text-primary-foreground shadow-sm" />
+                                    )}
+                                  </Link>
                                 </SidebarMenuButton>
                                 <SidebarMenuButton
                                   asChild
@@ -762,7 +792,15 @@ export function DashboardSidebar() {
                                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                                   )}
                                 >
-                                  <Link href="/dashboard/create-shipment-with-labels">Outbound Shipment</Link>
+                                  <Link
+                                    href="/dashboard/create-shipment-with-labels"
+                                    className="flex w-full min-w-0 items-center gap-2 pr-1"
+                                  >
+                                    <span className="min-w-0 flex-1 truncate">Outbound Shipment</span>
+                                    {pendingOutboundCount > 0 && (
+                                      <NavMenuCountBadge count={pendingOutboundCount} className="bg-primary text-primary-foreground shadow-sm" />
+                                    )}
+                                  </Link>
                                 </SidebarMenuButton>
                               </div>
                             )}
@@ -839,7 +877,7 @@ export function DashboardSidebar() {
                                 : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                             )}
                           >
-                            <Link href={item.url} className="flex items-center gap-3">
+                            <Link href={item.url} className="flex w-full min-w-0 items-center gap-3 pr-1">
                               <Icon
                                 className={cn(
                                   "h-5 w-5 transition-transform group-hover:scale-110",
@@ -847,10 +885,19 @@ export function DashboardSidebar() {
                                 )}
                               />
                               <span
-                                className={cn("font-medium transition-colors", isActive && "font-semibold")}
+                                className={cn("min-w-0 flex-1 truncate font-medium transition-colors", isActive && "font-semibold")}
                               >
                                 {item.title}
                               </span>
+                              {item.badge !== null && item.badge !== undefined && (
+                                <NavMenuCountBadge
+                                  count={item.badge}
+                                  className={cn(
+                                    "bg-primary text-primary-foreground shadow-sm",
+                                    isActive && "bg-primary/90"
+                                  )}
+                                />
+                              )}
                             </Link>
                           </SidebarMenuButton>
                         </SidebarMenuItem>

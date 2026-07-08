@@ -545,11 +545,12 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
                 ]} />
                 <ValueTile title="They request" items={[
                   { label: "Shipments", value: String(summary.clientActivity.shipmentRequests) },
+                  { label: "Inventory", value: String(summary.clientActivity.inventoryRequests) },
                   { label: "Returns", value: String(summary.clientActivity.returns) },
                 ]} />
                 <ValueTile title="Growth signals" items={[
                   { label: "Revenue vs prior", value: formatGrowth(summary.growth.revenueChangePct) },
-                  { label: "Active clients", value: String(summary.clientActivity.activeClients) },
+                  { label: "Clients active", value: String(summary.clientActivity.activeClients) },
                 ]} />
               </div>
             </CardContent>

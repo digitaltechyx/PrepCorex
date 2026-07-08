@@ -4,10 +4,32 @@ export function reportToMs(value: unknown): number {
     const t = new Date(value).getTime();
     return Number.isNaN(t) ? 0 : t;
   }
-  if (typeof value === "object" && value !== null && "seconds" in value) {
-    return (value as { seconds: number }).seconds * 1000;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
   }
   if (value instanceof Date) return value.getTime();
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    if (typeof record.toDate === "function") {
+      const t = (record.toDate as () => Date)().getTime();
+      return Number.isNaN(t) ? 0 : t;
+    }
+    if (typeof record.seconds === "number") {
+      return record.seconds * 1000;
+    }
+    if (typeof record._seconds === "number") {
+      return record._seconds * 1000;
+    }
+  }
+  return 0;
+}
+
+/** Pick the first valid timestamp from a Firestore document using preferred field order. */
+export function pickReportDateMs(data: Record<string, unknown>, fields: string[]): number {
+  for (const field of fields) {
+    const ms = reportToMs(data[field]);
+    if (ms > 0) return ms;
+  }
   return 0;
 }
 

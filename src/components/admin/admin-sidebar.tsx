@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -40,14 +40,14 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
-import type { UserFeature, UserProfile } from "@/types";
+import { useAdminSidebarBadges } from "@/hooks/use-admin-sidebar-badges";
+import { useClientSidebarBadges } from "@/hooks/use-client-sidebar-badges";
+import type { UserFeature } from "@/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hasFeature, hasRole } from "@/lib/permissions";
 import { hasWarehouseOpsAccess } from "@/lib/warehouse-ops-permissions";
 import { brandLogoSrc } from "@/components/logo";
-import { collectionGroup, getCountFromServer, onSnapshot, query, where } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 
 export function AdminSidebar() {
   const pathname = usePathname();
@@ -56,161 +56,48 @@ export function AdminSidebar() {
 
   // Use managed users so sub admin badge counts reflect only assigned users
   const { managedUsers } = useManagedUsers();
-  const activeUsersCount = managedUsers.filter(u => u.status === "active").length;
-  const pendingUsersCount = managedUsers.filter(u => u.status === "pending").length;
-
-  const [shipmentPendingCount, setShipmentPendingCount] = useState(0);
-  const [inventoryPendingCount, setInventoryPendingCount] = useState(0);
-  const [productReturnsPendingCount, setProductReturnsPendingCount] = useState(0);
-  const [disposePendingCount, setDisposePendingCount] = useState(0);
-  const [pendingDocumentRequestsCount, setPendingDocumentRequestsCount] = useState(0);
-
-  const pendingRequestsCount = useMemo(
+  const {
+    productReturnsPendingCount,
+    disposePendingCount,
+    pendingDocumentRequestsCount,
+    pendingRequestsCount,
+    inventoryActionCount,
+    pendingInvoicesCount,
+    pendingLabelsCount,
+    pendingUsersCount,
+    pendingCommissionAgentsCount,
+    unfulfilledShopifyOrdersCount,
+    unfulfilledEbayOrdersCount,
+  } = useAdminSidebarBadges(managedUsers, Boolean(userProfile?.uid));
+  const {
+    affiliateAttentionCount,
+    pendingInvoicesCount: clientPendingInvoicesCount,
+    inventoryActionCount: clientInventoryActionCount,
+    pendingProductReturnsCount: clientProductReturnsCount,
+    pendingDocumentsCount: clientDocumentsCount,
+    pendingDisposeCount: clientDisposeCount,
+    pendingLabelsCount: clientLabelsCount,
+    pendingShopifyOrdersCount: clientShopifyOrdersCount,
+  } = useClientSidebarBadges();
+  const clientAttentionCount = useMemo(
     () =>
-      shipmentPendingCount +
-      inventoryPendingCount +
-      productReturnsPendingCount +
-      disposePendingCount,
+      clientPendingInvoicesCount +
+      clientInventoryActionCount +
+      clientProductReturnsCount +
+      clientDocumentsCount +
+      clientDisposeCount +
+      clientLabelsCount +
+      clientShopifyOrdersCount,
     [
-      shipmentPendingCount,
-      inventoryPendingCount,
-      productReturnsPendingCount,
-      disposePendingCount,
+      clientPendingInvoicesCount,
+      clientInventoryActionCount,
+      clientProductReturnsCount,
+      clientDocumentsCount,
+      clientDisposeCount,
+      clientLabelsCount,
+      clientShopifyOrdersCount,
     ]
   );
-
-  useEffect(() => {
-    if (!userProfile?.uid) return;
-
-    let cancelled = false;
-
-    const countStatuses = async (collectionName: string, statuses: string[]) => {
-      const counts = await Promise.all(
-        statuses.map(async (status) => {
-          const q = query(collectionGroup(db, collectionName), where("status", "==", status));
-          const snap = await getCountFromServer(q);
-          return snap.data().count || 0;
-        })
-      );
-      return counts.reduce((a, b) => a + b, 0);
-    };
-
-    const refreshCounts = async () => {
-      try {
-        const [shipmentPending, inventoryPending, productReturnPending, disposePending, documentPending] =
-          await Promise.all([
-            countStatuses("shipmentRequests", ["pending", "Pending"]),
-            countStatuses("inventoryRequests", ["pending", "Pending"]),
-            countStatuses("productReturns", [
-              "pending",
-              "Pending",
-              "approved",
-              "Approved",
-              "in_progress",
-              "In Progress",
-              "in progress",
-            ]),
-            countStatuses("disposeRequests", ["pending", "Pending"]),
-            countStatuses("documentRequests", ["pending", "Pending"]),
-          ]);
-
-        if (cancelled) return;
-        setShipmentPendingCount(shipmentPending);
-        setInventoryPendingCount(inventoryPending);
-        setProductReturnsPendingCount(productReturnPending);
-        setDisposePendingCount(disposePending);
-        setPendingDocumentRequestsCount(documentPending);
-      } catch (err) {
-        console.warn("[AdminSidebar] Badge count refresh failed; keeping last counts.", err);
-      }
-    };
-
-    void refreshCounts();
-
-    const shipmentQ = query(
-      collectionGroup(db, "shipmentRequests"),
-      where("status", "in", ["pending", "Pending"])
-    );
-    const inventoryQ = query(
-      collectionGroup(db, "inventoryRequests"),
-      where("status", "in", ["pending", "Pending"])
-    );
-    const returnsQ = query(
-      collectionGroup(db, "productReturns"),
-      where(
-        "status",
-        "in",
-        ["pending", "Pending", "approved", "Approved", "in_progress", "In Progress", "in progress"]
-      )
-    );
-    const documentsQ = query(
-      collectionGroup(db, "documentRequests"),
-      where("status", "in", ["pending", "Pending"])
-    );
-    const disposeQ = query(
-      collectionGroup(db, "disposeRequests"),
-      where("status", "in", ["pending", "Pending"])
-    );
-
-    const onListenerError = (label: string) => (err: unknown) => {
-      if (cancelled) return;
-      const e = err as { code?: string; message?: string };
-      console.warn(`[AdminSidebar] ${label} badge listener:`, e?.code || e?.message || err);
-    };
-
-    const unsub1 = onSnapshot(
-      shipmentQ,
-      (snap) => {
-        if (!cancelled) setShipmentPendingCount(snap.size);
-      },
-      onListenerError("shipmentRequests")
-    );
-    const unsub2 = onSnapshot(
-      inventoryQ,
-      (snap) => {
-        if (!cancelled) setInventoryPendingCount(snap.size);
-      },
-      onListenerError("inventoryRequests")
-    );
-    const unsub3 = onSnapshot(
-      returnsQ,
-      (snap) => {
-        if (!cancelled) setProductReturnsPendingCount(snap.size);
-      },
-      onListenerError("productReturns")
-    );
-    const unsub4 = onSnapshot(
-      documentsQ,
-      (snap) => {
-        if (!cancelled) setPendingDocumentRequestsCount(snap.size);
-      },
-      onListenerError("documentRequests")
-    );
-    const unsub5 = onSnapshot(
-      disposeQ,
-      (snap) => {
-        if (!cancelled) setDisposePendingCount(snap.size);
-      },
-      onListenerError("disposeRequests")
-    );
-
-    const onVis = () => {
-      if (document.visibilityState === "visible") void refreshCounts();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    const interval = setInterval(() => void refreshCounts(), 60000);
-
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVis);
-      clearInterval(interval);
-      unsub1();
-      unsub2();
-      unsub3();
-      unsub4();
-      unsub5();
-    };
-  }, [userProfile?.uid]);
 
   // Filter menu items based on user's features
   // Admin has all features automatically, sub_admin needs explicit grants
@@ -227,6 +114,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/inventory-management",
       icon: Boxes,
       color: "text-violet-600",
+      badge: inventoryActionCount > 0 ? inventoryActionCount : null,
       requiredFeature: "manage_inventory_admin" as const,
     },
     {
@@ -263,6 +151,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/buy-labels",
       icon: Tag,
       color: "text-cyan-600",
+      badge: pendingLabelsCount > 0 ? pendingLabelsCount : null,
       requiredFeature: "manage_labels" as const,
     },
     {
@@ -286,6 +175,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/invoices",
       icon: FileText,
       color: "text-indigo-600",
+      badge: pendingInvoicesCount > 0 ? pendingInvoicesCount : null,
       requiredFeature: "manage_invoices" as const,
     },
     {
@@ -308,7 +198,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/users",
       icon: Users,
       color: "text-green-600",
-      badge: activeUsersCount > 0 ? activeUsersCount : null,
+      badge: pendingUsersCount > 0 ? pendingUsersCount : null,
       requiredFeature: "manage_users" as const,
     },
     {
@@ -316,6 +206,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/affiliate-management",
       icon: Handshake,
       color: "text-purple-600",
+      badge: pendingCommissionAgentsCount > 0 ? pendingCommissionAgentsCount : null,
       requiredFeature: "manage_users" as const,
       adminOnly: true,
     },
@@ -346,6 +237,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/shopify-orders",
       icon: ShoppingBag,
       color: "text-emerald-600",
+      badge: unfulfilledShopifyOrdersCount > 0 ? unfulfilledShopifyOrdersCount : null,
       requiredFeature: "manage_shopify_orders" as const,
     },
     {
@@ -353,6 +245,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/ebay-orders",
       icon: ShoppingCart,
       color: "text-blue-600",
+      badge: unfulfilledEbayOrdersCount > 0 ? unfulfilledEbayOrdersCount : null,
       requiredFeature: "manage_ebay_orders" as const,
     },
   ];
@@ -501,11 +394,17 @@ export function AdminSidebar() {
                       tooltip="Client Dashboard"
                       className="group relative h-11 rounded-lg transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                     >
-                      <Link href="/dashboard" className="flex items-center gap-3">
-                        <Briefcase className="h-5 w-5 transition-transform group-hover:scale-110 text-muted-foreground" />
-                        <span className="font-medium transition-colors">
+                      <Link href="/dashboard" className="flex w-full min-w-0 items-center gap-3 pr-1">
+                        <Briefcase className="h-5 w-5 shrink-0 transition-transform group-hover:scale-110 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate font-medium transition-colors">
                           Client Dashboard
                         </span>
+                        {clientAttentionCount > 0 && (
+                          <NavMenuCountBadge
+                            count={clientAttentionCount}
+                            className="bg-primary text-primary-foreground shadow-sm"
+                          />
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -517,11 +416,17 @@ export function AdminSidebar() {
                       tooltip="Affiliate Dashboard"
                       className="group relative h-11 rounded-lg transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                     >
-                      <Link href="/dashboard/agent" className="flex items-center gap-3">
-                        <UserCheck className="h-5 w-5 transition-transform group-hover:scale-110 text-muted-foreground" />
-                        <span className="font-medium transition-colors">
+                      <Link href="/dashboard/agent" className="flex w-full min-w-0 items-center gap-3 pr-1">
+                        <UserCheck className="h-5 w-5 shrink-0 transition-transform group-hover:scale-110 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate font-medium transition-colors">
                           Affiliate Dashboard
                         </span>
+                        {affiliateAttentionCount > 0 && (
+                          <NavMenuCountBadge
+                            count={affiliateAttentionCount}
+                            className="bg-primary text-primary-foreground shadow-sm"
+                          />
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

@@ -1,4 +1,5 @@
 import { format, subDays, differenceInCalendarDays } from "date-fns";
+import { FieldPath } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
 import { getSubAdminManagedUserIds, getUserRoles } from "@/lib/permissions";
 import type { UserProfile, Invoice, Commission } from "@/types";
@@ -13,6 +14,7 @@ import type {
 import {
   isInReportRange,
   pctChange,
+  pickReportDateMs,
   reportEndOfDay,
   reportStartOfDay,
   reportToMs,
@@ -124,17 +126,34 @@ async function loadCollectionGroupActivities(
   to: Date,
   mapRow: (path: string, data: FirebaseFirestore.DocumentData) => AdminReportActivityRow | null
 ): Promise<AdminReportActivityRow[]> {
-  const snap = await adminDb().collectionGroup(collectionName).limit(1500).get();
   const rows: AdminReportActivityRow[] = [];
-  for (const doc of snap.docs) {
-    const uid = uidFromFirestorePath(doc.ref.path);
-    if (!allowedUserIds.has(uid)) continue;
-    const row = mapRow(doc.ref.path, doc.data());
-    if (!row) continue;
-    const d = new Date(reportToMs(row.occurredAt));
-    if (!isInReportRange(d, from, to)) continue;
-    rows.push(row);
+  let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  const pageSize = 1000;
+
+  while (true) {
+    let query = adminDb()
+      .collectionGroup(collectionName)
+      .orderBy(FieldPath.documentId())
+      .limit(pageSize);
+    if (lastDoc) query = query.startAfter(lastDoc);
+
+    const snap = await query.get();
+    if (snap.empty) break;
+
+    for (const doc of snap.docs) {
+      const uid = uidFromFirestorePath(doc.ref.path);
+      if (!allowedUserIds.has(uid)) continue;
+      const row = mapRow(doc.ref.path, doc.data());
+      if (!row) continue;
+      const d = new Date(reportToMs(row.occurredAt));
+      if (!isInReportRange(d, from, to)) continue;
+      rows.push(row);
+    }
+
+    lastDoc = snap.docs[snap.docs.length - 1];
+    if (snap.size < pageSize) break;
   }
+
   return rows;
 }
 
@@ -238,62 +257,86 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
 
   const [shippedRows, inventoryRows, shipReqRows, invReqRows, returnRows, disposeRows, auditRows] =
     await Promise.all([
-      loadCollectionGroupActivities("shipped", allowedIds, from, to, (path, data) => ({
-        id: path,
-        userId: uidFromFirestorePath(path),
-        clientName: userNameById.get(uidFromFirestorePath(path)) || "",
-        type: "Units Shipped",
-        description: `Outbound shipment`,
-        quantity: Number(data.shippedQty) || 0,
-        status: "shipped",
-        occurredAt: new Date(reportToMs(data.date)).toISOString(),
-      })),
-      loadCollectionGroupActivities("inventory", allowedIds, from, to, (path, data) => ({
-        id: path,
-        userId: uidFromFirestorePath(path),
-        clientName: userNameById.get(uidFromFirestorePath(path)) || "",
-        type: "Inventory Received",
-        description: String(data.productName || "Inventory item"),
-        quantity: Number(data.quantity) || 0,
-        status: String(data.status || ""),
-        occurredAt: new Date(reportToMs(data.receivingDate) || reportToMs(data.dateAdded)).toISOString(),
-      })),
-      loadCollectionGroupActivities("shipmentRequests", allowedIds, from, to, (path, data) => ({
-        id: path,
-        userId: uidFromFirestorePath(path),
-        clientName: userNameById.get(uidFromFirestorePath(path)) || "",
-        type: "Shipment Request",
-        description: "Client shipment request",
-        status: String(data.status || ""),
-        occurredAt: new Date(reportToMs(data.requestedAt) || reportToMs(data.date)).toISOString(),
-      })),
-      loadCollectionGroupActivities("inventoryRequests", allowedIds, from, to, (path, data) => ({
-        id: path,
-        userId: uidFromFirestorePath(path),
-        clientName: userNameById.get(uidFromFirestorePath(path)) || "",
-        type: "Inventory Request",
-        description: "Client inventory request",
-        status: String(data.status || ""),
-        occurredAt: new Date(reportToMs(data.requestedAt) || reportToMs(data.date)).toISOString(),
-      })),
-      loadCollectionGroupActivities("productReturns", allowedIds, from, to, (path, data) => ({
-        id: path,
-        userId: uidFromFirestorePath(path),
-        clientName: userNameById.get(uidFromFirestorePath(path)) || "",
-        type: "Product Return",
-        description: "Product return request",
-        status: String(data.status || ""),
-        occurredAt: new Date(reportToMs(data.requestedAt) || reportToMs(data.date)).toISOString(),
-      })),
-      loadCollectionGroupActivities("disposeRequests", allowedIds, from, to, (path, data) => ({
-        id: path,
-        userId: uidFromFirestorePath(path),
-        clientName: userNameById.get(uidFromFirestorePath(path)) || "",
-        type: "Dispose Request",
-        description: "Dispose inventory request",
-        status: String(data.status || ""),
-        occurredAt: new Date(reportToMs(data.requestedAt) || reportToMs(data.date)).toISOString(),
-      })),
+      loadCollectionGroupActivities("shipped", allowedIds, from, to, (path, data) => {
+        const occurredMs = pickReportDateMs(data, ["date", "createdAt", "dispatchedAt"]);
+        if (!occurredMs) return null;
+        return {
+          id: path,
+          userId: uidFromFirestorePath(path),
+          clientName: userNameById.get(uidFromFirestorePath(path)) || "",
+          type: "Units Shipped",
+          description: `Outbound shipment`,
+          quantity: Number(data.shippedQty) || Number(data.totalUnits) || 0,
+          status: "shipped",
+          occurredAt: new Date(occurredMs).toISOString(),
+        };
+      }),
+      loadCollectionGroupActivities("inventory", allowedIds, from, to, (path, data) => {
+        const occurredMs = pickReportDateMs(data, ["receivingDate", "dateAdded", "approvedAt", "createdAt"]);
+        if (!occurredMs) return null;
+        return {
+          id: path,
+          userId: uidFromFirestorePath(path),
+          clientName: userNameById.get(uidFromFirestorePath(path)) || "",
+          type: "Inventory Received",
+          description: String(data.productName || "Inventory item"),
+          quantity: Number(data.quantity) || Number(data.receivedQuantity) || 0,
+          status: String(data.status || ""),
+          occurredAt: new Date(occurredMs).toISOString(),
+        };
+      }),
+      loadCollectionGroupActivities("shipmentRequests", allowedIds, from, to, (path, data) => {
+        const occurredMs = pickReportDateMs(data, ["requestedAt", "date", "confirmedAt", "createdAt"]);
+        if (!occurredMs) return null;
+        return {
+          id: path,
+          userId: uidFromFirestorePath(path),
+          clientName: userNameById.get(uidFromFirestorePath(path)) || "",
+          type: "Shipment Request",
+          description: "Client shipment request",
+          status: String(data.status || ""),
+          occurredAt: new Date(occurredMs).toISOString(),
+        };
+      }),
+      loadCollectionGroupActivities("inventoryRequests", allowedIds, from, to, (path, data) => {
+        const occurredMs = pickReportDateMs(data, ["requestedAt", "addDate", "receivingDate", "approvedAt", "createdAt"]);
+        if (!occurredMs) return null;
+        return {
+          id: path,
+          userId: uidFromFirestorePath(path),
+          clientName: userNameById.get(uidFromFirestorePath(path)) || "",
+          type: "Inventory Request",
+          description: "Client inventory request",
+          status: String(data.status || ""),
+          occurredAt: new Date(occurredMs).toISOString(),
+        };
+      }),
+      loadCollectionGroupActivities("productReturns", allowedIds, from, to, (path, data) => {
+        const occurredMs = pickReportDateMs(data, ["createdAt", "updatedAt", "approvedAt", "requestedAt"]);
+        if (!occurredMs) return null;
+        return {
+          id: path,
+          userId: uidFromFirestorePath(path),
+          clientName: userNameById.get(uidFromFirestorePath(path)) || "",
+          type: "Product Return",
+          description: "Product return request",
+          status: String(data.status || ""),
+          occurredAt: new Date(occurredMs).toISOString(),
+        };
+      }),
+      loadCollectionGroupActivities("disposeRequests", allowedIds, from, to, (path, data) => {
+        const occurredMs = pickReportDateMs(data, ["requestedAt", "approvedAt", "createdAt"]);
+        if (!occurredMs) return null;
+        return {
+          id: path,
+          userId: uidFromFirestorePath(path),
+          clientName: userNameById.get(uidFromFirestorePath(path)) || "",
+          type: "Dispose Request",
+          description: "Dispose inventory request",
+          status: String(data.status || ""),
+          occurredAt: new Date(occurredMs).toISOString(),
+        };
+      }),
       loadAuditRows(clientUsers, from, to),
     ]);
 
@@ -397,7 +440,17 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
       inventoryRequests: invReqRows.length,
       returns: returnRows.length,
       disposeRequests: disposeRows.length,
-      activeClients: new Set(invoices.map((i) => i.userId)).size,
+      activeClients: new Set(
+        [
+          ...invoices.map((i) => i.userId),
+          ...shippedRows.map((r) => r.userId),
+          ...inventoryRows.map((r) => r.userId),
+          ...shipReqRows.map((r) => r.userId),
+          ...invReqRows.map((r) => r.userId),
+          ...returnRows.map((r) => r.userId),
+          ...disposeRows.map((r) => r.userId),
+        ].filter(Boolean)
+      ).size,
     },
     growth: {
       revenueChangePct: pctChange(totalBilled, priorRevenue),
