@@ -27,6 +27,7 @@ import { collection, query, getDocs, orderBy, doc, updateDoc, where, deleteField
 import type { ShippedItem } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
 import { createCommissionForInvoice } from "@/lib/commission-utils";
+import { logAffiliateAuditEvent } from "@/lib/affiliate-audit-trail-client";
 import { DollarSign } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { hasRole } from "@/lib/permissions";
@@ -964,6 +965,26 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
         status: 'paid',
         paidAt: new Date(),
         paidBy: adminUser?.uid || 'admin',
+      });
+
+      void logAffiliateAuditEvent({
+        agentId: commission.agentId,
+        agentName: commission.agentName || null,
+        type: "commission_paid",
+        action: "Commission marked as paid",
+        description: `Commission of $${(commission.commissionAmount || 0).toFixed(2)} paid to ${commission.agentName} for invoice ${commission.invoiceNumber}.`,
+        performedByUid: adminUser?.uid || null,
+        performedByName: adminUser?.name || null,
+        metadata: {
+          commissionId,
+          invoiceId: commission.invoiceId,
+          invoiceNumber: commission.invoiceNumber,
+          clientId: commission.clientId,
+          clientName: commission.clientName,
+          commissionAmount: commission.commissionAmount,
+          commissionRate: commission.commissionRate,
+          tier: commission.tier,
+        },
       });
       
       toast({

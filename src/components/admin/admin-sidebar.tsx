@@ -35,6 +35,7 @@ import {
   Plug,
   ShoppingCart,
   Warehouse,
+  Handshake,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
@@ -308,6 +309,14 @@ export function AdminSidebar() {
       color: "text-green-600",
       badge: activeUsersCount > 0 ? activeUsersCount : null,
       requiredFeature: "manage_users" as const,
+    },
+    {
+      title: "Affiliate Management",
+      url: "/admin/dashboard/affiliate-management",
+      icon: Handshake,
+      color: "text-purple-600",
+      requiredFeature: "manage_users" as const,
+      adminOnly: true,
     },
     {
       title: "Roles & Permissions",

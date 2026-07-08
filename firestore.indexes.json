@@ -41,6 +41,19 @@
         { "fieldPath": "type", "order": "ASCENDING" },
         { "fieldPath": "shipmentRequestId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "affiliateAuditTrail",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "agentId", "order": "ASCENDING" },
+        { "fieldPath": "occurredAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "commissions",
+      "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "createdAt", "order": "DESCENDING" }]
     }
   ],
   "fieldOverrides": []

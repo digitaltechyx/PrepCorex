@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { getUserRoles, getDefaultFeaturesForRole } from "@/lib/permissions";
 import { RoleFeatureManagement } from "./role-feature-management";
 import { generateUniqueReferralCode } from "@/lib/commission-utils";
+import { logAffiliateAuditEvent } from "@/lib/affiliate-audit-trail-client";
 
 interface CommissionAgentsManagementProps {
   adminUser: UserProfile | null;
@@ -144,6 +145,17 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
 
       await updateDoc(doc(db, "users", agent.uid), updateData);
 
+      void logAffiliateAuditEvent({
+        agentId: agent.uid,
+        agentName: agent.name || null,
+        type: "agent_approved",
+        action: "Agent approved",
+        description: `Commission agent "${agent.name}" approved with referral code ${referralCode}.`,
+        performedByUid: adminUser?.uid || null,
+        performedByName: adminUser?.name || null,
+        metadata: { referralCode },
+      });
+
       toast({
         title: "Success",
         description: `Commission agent "${agent.name}" has been approved! Referral code: ${referralCode}`,
@@ -162,6 +174,19 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
       await updateDoc(doc(db, "users", agent.uid), {
         status: "deleted",
         deletedAt: new Date(),
+      });
+
+      const isPending = agent.status === "pending";
+      void logAffiliateAuditEvent({
+        agentId: agent.uid,
+        agentName: agent.name || null,
+        type: isPending ? "agent_rejected" : "agent_deleted",
+        action: isPending ? "Agent rejected" : "Agent deleted",
+        description: isPending
+          ? `Commission agent "${agent.name}" was rejected during approval.`
+          : `Commission agent "${agent.name}" was removed from the program.`,
+        performedByUid: adminUser?.uid || null,
+        performedByName: adminUser?.name || null,
       });
 
       const message = agent.status === "pending" 
@@ -186,6 +211,16 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
       await updateDoc(doc(db, "users", agent.uid), {
         status: "pending",
         deletedAt: null,
+      });
+
+      void logAffiliateAuditEvent({
+        agentId: agent.uid,
+        agentName: agent.name || null,
+        type: "agent_restored",
+        action: "Agent restored",
+        description: `Commission agent "${agent.name}" restored to pending approval.`,
+        performedByUid: adminUser?.uid || null,
+        performedByName: adminUser?.name || null,
       });
 
       toast({

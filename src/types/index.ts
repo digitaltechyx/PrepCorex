@@ -1327,6 +1327,31 @@ export interface UploadedPDF {
   status?: "pending" | "complete"; // Label processing status
 }
 
+export type AffiliateTierName = "Bronze" | "Silver" | "Gold";
+
+export type AffiliateAuditEventType =
+  | "commission_created"
+  | "commission_paid"
+  | "agent_approved"
+  | "agent_rejected"
+  | "agent_deleted"
+  | "agent_restored"
+  | "client_referred"
+  | "tier_snapshot";
+
+export interface AffiliateAuditEvent {
+  id: string;
+  agentId: string;
+  agentName?: string | null;
+  type: AffiliateAuditEventType;
+  action?: string | null;
+  description?: string | null;
+  occurredAt: string;
+  performedByUid?: string | null;
+  performedByName?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface Commission {
   id: string;
   agentId: string; // Commission agent's user ID
@@ -1336,7 +1361,9 @@ export interface Commission {
   clientId: string; // Client's user ID
   clientName: string;
   invoiceAmount: number;
-  commissionAmount: number; // 10% of invoice amount
+  commissionAmount: number;
+  commissionRate?: number; // Tier rate % at time of creation (5, 7, or 8)
+  tier?: AffiliateTierName; // Agent tier at time of creation
   status: "pending" | "paid";
   createdAt: Date | {
     seconds: number;
