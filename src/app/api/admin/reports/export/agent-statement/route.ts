@@ -22,10 +22,10 @@ export async function GET(request: NextRequest) {
   }
 
   const exportFormat = request.nextUrl.searchParams.get("format") || "pdf";
-  const { from, to } = parseReportDateRange(request);
+  const { from, to, allTime } = parseReportDateRange(request);
 
   try {
-    const statement = await buildAgentStatement({ agentId, from, to });
+    const statement = await buildAgentStatement({ agentId, from, to, allTime });
     if (!statement) {
       return NextResponse.json({ error: "Commission agent not found." }, { status: 404 });
     }
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       return new NextResponse(csv, {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": `attachment; filename="${statementFilename("agent-statement", agentLabel, from, "csv")}"`,
+          "Content-Disposition": `attachment; filename="${statementFilename("agent-statement", agentLabel, from, "csv", allTime)}"`,
         },
       });
     }
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(pdf, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${statementFilename("agent-statement", agentLabel, from, "pdf")}"`,
+        "Content-Disposition": `attachment; filename="${statementFilename("agent-statement", agentLabel, from, "pdf", allTime)}"`,
       },
     });
   } catch (e) {

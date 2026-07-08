@@ -41,9 +41,41 @@ export function reportEndOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
-export function isInReportRange(date: Date | null, from: Date, to: Date): boolean {
+export function isInReportRange(
+  date: Date | null,
+  from: Date,
+  to: Date,
+  allTime = false
+): boolean {
   if (!date || Number.isNaN(date.getTime())) return false;
+  if (allTime) return true;
   return date.getTime() >= reportStartOfDay(from).getTime() && date.getTime() <= reportEndOfDay(to).getTime();
+}
+
+/** Resolve invoice date using the same field priority as the admin dashboard finance snapshot. */
+export function pickInvoiceDateMs(invoice: Record<string, unknown>): number {
+  const direct = pickReportDateMs(invoice, ["issuedAt", "generatedAt", "createdAt", "date"]);
+  if (direct > 0) return direct;
+
+  const rawDate = typeof invoice.date === "string" ? invoice.date.trim() : "";
+  if (rawDate.includes("/")) {
+    const parts = rawDate.split("/");
+    if (parts.length === 3) {
+      const a = Number(parts[0]);
+      const b = Number(parts[1]);
+      const c = Number(parts[2]);
+      if (Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c)) {
+        const year = c < 100 ? 2000 + c : c;
+        const dayFirst = a > 12;
+        const month = dayFirst ? b : a;
+        const day = dayFirst ? a : b;
+        const parsed = new Date(year, month - 1, day);
+        if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
+      }
+    }
+  }
+
+  return 0;
 }
 
 export function csvEscape(value: string): string {

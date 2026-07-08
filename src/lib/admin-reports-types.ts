@@ -59,7 +59,7 @@ export type AdminReportAuditRow = {
 };
 
 export type AdminReportSummary = {
-  period: { from: string; to: string; label: string };
+  period: { from: string; to: string; label: string; allTime: boolean };
   scope: { clientId?: string; clientName?: string; allClients: boolean };
   financial: {
     invoiceCount: number;
@@ -114,7 +114,7 @@ export type AdminReportSummary = {
 };
 
 export type AgentStatementSummary = {
-  period: { from: string; to: string; label: string };
+  period: { from: string; to: string; label: string; allTime: boolean };
   agent: {
     id: string;
     name: string;

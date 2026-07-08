@@ -74,8 +74,8 @@ interface ReportsDashboardProps {
 
 export function ReportsDashboard({ users }: ReportsDashboardProps) {
   const { toast } = useToast();
-  const [fromDate, setFromDate] = useState<Date | undefined>(startOfMonth(new Date()));
-  const [toDate, setToDate] = useState<Date | undefined>(new Date());
+  const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
+  const [toDate, setToDate] = useState<Date | undefined>(undefined);
   const [clientId, setClientId] = useState<string>("all");
   const [agentId, setAgentId] = useState<string>("none");
   const [reportTab, setReportTab] = useState<AdminReportType>("overview");
@@ -110,11 +110,15 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
       .sort((a, b) => (a.name || a.email || "").localeCompare(b.name || b.email || ""));
   }, [users]);
 
+  const hasDateRange = Boolean(fromDate && toDate);
+
   const buildQuery = useCallback(
     (extra?: Record<string, string>) => {
       const params = new URLSearchParams();
-      if (fromDate) params.set("from", fromDate.toISOString());
-      if (toDate) params.set("to", toDate.toISOString());
+      if (fromDate && toDate) {
+        params.set("from", fromDate.toISOString());
+        params.set("to", toDate.toISOString());
+      }
       if (clientId !== "all") params.set("clientId", clientId);
       if (agentId !== "none") params.set("agentId", agentId);
       params.set("reportType", reportTab);
@@ -238,8 +242,10 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
       const token = await auth.currentUser?.getIdToken();
       if (!token) throw new Error("Not authenticated");
       const params = new URLSearchParams();
-      if (fromDate) params.set("from", fromDate.toISOString());
-      if (toDate) params.set("to", toDate.toISOString());
+      if (fromDate && toDate) {
+        params.set("from", fromDate.toISOString());
+        params.set("to", toDate.toISOString());
+      }
       params.set("format", format);
       if (kind === "client") params.set("clientId", clientId);
       else params.set("agentId", agentId);
@@ -314,8 +320,18 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             <div className="space-y-1">
               <h3 className="text-lg font-semibold">Report Filters</h3>
               <p className="text-sm text-muted-foreground">
-                Select period and client scope. CSV exports detailed line items; PDF exports an executive summary with charts.
+                Pick a date range to filter by period, or leave dates empty for all-time totals (same idea as the admin dashboard finance snapshot).
               </p>
+              {!hasDateRange && (
+                <p className="text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md px-3 py-2">
+                  No date range selected — stat cards and tables show <span className="font-semibold">all-time</span> totals.
+                </p>
+              )}
+              {hasDateRange && summary && (
+                <p className="text-xs text-muted-foreground">
+                  Filtered period: <span className="font-medium text-foreground">{summary.period.label}</span>
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" onClick={() => applyPreset("this_month")}>
@@ -503,7 +519,7 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               label="Total Billed"
               value={`$${summary.financial.totalBilled.toFixed(2)}`}
               sub={`${summary.financial.invoiceCount} invoices`}
-              growth={summary.growth.revenueChangePct}
+              growth={summary.period.allTime ? undefined : summary.growth.revenueChangePct}
             />
             <KpiCard
               icon={<TrendingUp className="h-5 w-5" />}
@@ -559,7 +575,9 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardContent className="p-5">
-                <h4 className="font-semibold mb-3">Revenue Trend</h4>
+                <h4 className="font-semibold mb-3">
+                  {summary.period.allTime ? "Monthly Revenue Trend (last 24 months)" : "Revenue Trend"}
+                </h4>
                 <ChartContainer config={revenueChartConfig} className="h-[240px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={summary.charts.revenueByDay}>
@@ -575,7 +593,9 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             </Card>
             <Card>
               <CardContent className="p-5">
-                <h4 className="font-semibold mb-3">Activity Trend</h4>
+                <h4 className="font-semibold mb-3">
+                  {summary.period.allTime ? "Monthly Activity Trend (last 24 months)" : "Activity Trend"}
+                </h4>
                 <ChartContainer config={activityChartConfig} className="h-[240px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={summary.charts.activityByDay}>

@@ -15,6 +15,7 @@ export type BuildAgentStatementInput = {
   agentId: string;
   from: Date;
   to: Date;
+  allTime?: boolean;
 };
 
 async function loadAllCommissionsForAgent(agentId: string): Promise<AdminReportCommissionRow[]> {
@@ -40,6 +41,7 @@ async function loadAllCommissionsForAgent(agentId: string): Promise<AdminReportC
 }
 
 export async function buildAgentStatement(input: BuildAgentStatementInput): Promise<AgentStatementSummary | null> {
+  const allTime = input.allTime ?? false;
   const from = reportStartOfDay(input.from);
   const to = reportEndOfDay(input.to);
 
@@ -51,15 +53,17 @@ export async function buildAgentStatement(input: BuildAgentStatementInput): Prom
   const tierInfo = computeAgentTier(allCommissions);
 
   const periodCommissions = allCommissions.filter((c) =>
-    isInReportRange(new Date(reportToMs(c.createdAt)), from, to)
+    isInReportRange(new Date(reportToMs(c.createdAt)), from, to, allTime)
   );
 
-  const periodDays = differenceInCalendarDays(to, from) + 1;
+  const periodDays = allTime ? 0 : differenceInCalendarDays(to, from) + 1;
   const priorTo = subDays(from, 1);
   const priorFrom = subDays(from, periodDays);
-  const priorCommissions = allCommissions.filter((c) =>
-    isInReportRange(new Date(reportToMs(c.createdAt)), priorFrom, priorTo)
-  );
+  const priorCommissions = allTime
+    ? []
+    : allCommissions.filter((c) =>
+        isInReportRange(new Date(reportToMs(c.createdAt)), priorFrom, priorTo, false)
+      );
 
   const totalPending = periodCommissions.filter((c) => c.status === "pending").reduce((s, c) => s + c.commissionAmount, 0);
   const totalPaid = periodCommissions.filter((c) => c.status === "paid").reduce((s, c) => s + c.commissionAmount, 0);
@@ -80,14 +84,18 @@ export async function buildAgentStatement(input: BuildAgentStatementInput): Prom
 
   const activeClientIds = new Set(periodCommissions.map((c) => c.clientId));
 
+  const chartFrom = allTime ? subDays(new Date(), 365) : from;
+  const chartTo = allTime ? new Date() : to;
   const buckets = new Map<string, { label: string; value: number }>();
-  for (let t = from.getTime(); t <= to.getTime(); t += 86400000) {
+  for (let t = chartFrom.getTime(); t <= chartTo.getTime(); t += 86400000) {
     const d = new Date(t);
-    const key = format(d, "yyyy-MM-dd");
-    buckets.set(key, { label: format(d, "MMM d"), value: 0 });
+    const key = format(d, allTime ? "yyyy-MM" : "yyyy-MM-dd");
+    if (!buckets.has(key)) {
+      buckets.set(key, { label: format(d, allTime ? "MMM yyyy" : "MMM d"), value: 0 });
+    }
   }
   for (const c of periodCommissions) {
-    const key = format(new Date(c.createdAt), "yyyy-MM-dd");
+    const key = format(new Date(c.createdAt), allTime ? "yyyy-MM" : "yyyy-MM-dd");
     const b = buckets.get(key);
     if (b) b.value += c.commissionAmount;
   }
@@ -101,7 +109,8 @@ export async function buildAgentStatement(input: BuildAgentStatementInput): Prom
     period: {
       from: from.toISOString(),
       to: to.toISOString(),
-      label: `${format(from, "MMM d, yyyy")} – ${format(to, "MMM d, yyyy")}`,
+      label: allTime ? "All time" : `${format(from, "MMM d, yyyy")} – ${format(to, "MMM d, yyyy")}`,
+      allTime,
     },
     agent: {
       id: input.agentId,
@@ -123,12 +132,14 @@ export async function buildAgentStatement(input: BuildAgentStatementInput): Prom
       activeInPeriod: activeClientIds.size,
     },
     growth: {
-      earningsChangePct: pctChange(totalEarned, priorEarnings),
+      earningsChangePct: allTime ? null : pctChange(totalEarned, priorEarnings),
       priorEarnings,
-      revenueChangePct: pctChange(
-        qualifiedRevenue,
-        priorCommissions.reduce((s, c) => s + c.invoiceAmount, 0)
-      ),
+      revenueChangePct: allTime
+        ? null
+        : pctChange(
+            qualifiedRevenue,
+            priorCommissions.reduce((s, c) => s + c.invoiceAmount, 0)
+          ),
     },
     charts: {
       earningsByDay: Array.from(buckets.values()),

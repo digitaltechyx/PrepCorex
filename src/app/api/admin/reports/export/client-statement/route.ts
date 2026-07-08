@@ -22,12 +22,13 @@ export async function GET(request: NextRequest) {
   }
 
   const exportFormat = request.nextUrl.searchParams.get("format") || "pdf";
-  const { from, to } = parseReportDateRange(request);
+  const { from, to, allTime } = parseReportDateRange(request);
 
   try {
     const summary = await buildAdminReport({
       from,
       to,
+      allTime,
       clientId,
       reportType: "financial",
       callerUid: auth.uid,
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
       return new NextResponse(csv, {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": `attachment; filename="${statementFilename("client-statement", clientLabel, from, "csv")}"`,
+          "Content-Disposition": `attachment; filename="${statementFilename("client-statement", clientLabel, from, "csv", allTime)}"`,
         },
       });
     }
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(pdf, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${statementFilename("client-statement", clientLabel, from, "pdf")}"`,
+        "Content-Disposition": `attachment; filename="${statementFilename("client-statement", clientLabel, from, "pdf", allTime)}"`,
       },
     });
   } catch (e) {

@@ -3,45 +3,9 @@ import { requireAdmin } from "@/lib/api-admin-auth";
 import { buildAdminReport } from "@/lib/admin-reports-server";
 import { buildAgentStatement } from "@/lib/agent-statement-server";
 import type { AdminReportType } from "@/lib/admin-reports-types";
-import { reportEndOfDay, reportStartOfDay } from "@/lib/admin-reports-utils";
-import { startOfMonth, endOfMonth, subMonths } from "date-fns";
+import { parseReportDateRange } from "@/lib/admin-reports-request-utils";
 
 export const dynamic = "force-dynamic";
-
-function parseReportParams(request: NextRequest, callerUid: string) {
-  const fromParam = request.nextUrl.searchParams.get("from");
-  const toParam = request.nextUrl.searchParams.get("to");
-  const preset = request.nextUrl.searchParams.get("preset");
-  const clientId = request.nextUrl.searchParams.get("clientId")?.trim() || undefined;
-  const reportType = (request.nextUrl.searchParams.get("reportType")?.trim() ||
-    "overview") as AdminReportType;
-
-  let from: Date;
-  let to: Date;
-
-  if (preset === "this_month") {
-    from = startOfMonth(new Date());
-    to = endOfMonth(new Date());
-  } else if (preset === "last_month") {
-    const d = subMonths(new Date(), 1);
-    from = startOfMonth(d);
-    to = endOfMonth(d);
-  } else if (fromParam && toParam) {
-    from = new Date(fromParam);
-    to = new Date(toParam);
-  } else {
-    from = startOfMonth(new Date());
-    to = new Date();
-  }
-
-  return {
-    from: reportStartOfDay(from),
-    to: reportEndOfDay(to),
-    clientId,
-    reportType,
-    callerUid,
-  };
-}
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request);
@@ -50,12 +14,22 @@ export async function GET(request: NextRequest) {
   }
 
   const agentId = request.nextUrl.searchParams.get("agentId")?.trim() || undefined;
+  const reportType = (request.nextUrl.searchParams.get("reportType")?.trim() ||
+    "overview") as AdminReportType;
+  const clientId = request.nextUrl.searchParams.get("clientId")?.trim() || undefined;
 
   try {
-    const params = parseReportParams(request, auth.uid);
-    const summary = await buildAdminReport(params);
+    const { from, to, allTime } = parseReportDateRange(request);
+    const summary = await buildAdminReport({
+      from,
+      to,
+      allTime,
+      clientId,
+      reportType,
+      callerUid: auth.uid,
+    });
     const agentStatement = agentId
-      ? await buildAgentStatement({ agentId, from: params.from, to: params.to })
+      ? await buildAgentStatement({ agentId, from, to, allTime })
       : null;
     return NextResponse.json({ summary, agentStatement });
   } catch (e) {
