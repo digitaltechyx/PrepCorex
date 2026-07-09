@@ -28,6 +28,8 @@ import {
 import {
   buildBinCombinationsFromDetailedRack,
   buildBinCombinationsFromLayout,
+  buildBinCombinationsFromFlexibleLayout,
+  type FlexibleShelvingConfig,
   type BinCombo,
 } from "@/lib/warehouse-storage-layout";
 
@@ -542,6 +544,31 @@ export async function generateWarehouseBinsFromDetailedRack(
     params.binsPerLevel
   );
 
+  return persistBinCombinations(params.warehouseId, params.storageAreaId, combinations, {
+    temporary: params.temporary,
+    layoutBlockId: params.layoutBlockId,
+  });
+}
+
+export type GenerateBinsFlexibleParams = {
+  warehouseId: string;
+  warehouseCode: string;
+  storageAreaId: string;
+  shelving: FlexibleShelvingConfig;
+  temporary?: boolean;
+  layoutBlockId?: string;
+};
+
+/** Optional row/bay/level tiers — bins can exist without any of them. */
+export async function generateWarehouseBinsFromFlexibleLayout(
+  params: GenerateBinsFlexibleParams
+): Promise<GenerateBinsResult> {
+  const { areaCode } = await resolveAreaForBinGeneration(params.warehouseId, params.storageAreaId);
+  const combinations = buildBinCombinationsFromFlexibleLayout(
+    params.warehouseCode,
+    areaCode,
+    params.shelving
+  );
   return persistBinCombinations(params.warehouseId, params.storageAreaId, combinations, {
     temporary: params.temporary,
     layoutBlockId: params.layoutBlockId,

@@ -1,5 +1,6 @@
 import {
   buildBinPath,
+  buildFlexibleBinPath,
   formatBayCode,
   formatBinSlotCode,
   formatLevelCode,
@@ -200,4 +201,105 @@ export function buildBinCombinationsFromLayout(
     }
   }
   return combinations;
+}
+
+export type FlexibleShelvingConfig = {
+  useRows: boolean;
+  rowCount: number;
+  useBays: boolean;
+  bayCount: number;
+  useLevels: boolean;
+  levelCount: number;
+  binCount: number;
+};
+
+function dimensionList<T>(enabled: boolean, count: number, build: (n: number) => T[]): T[] {
+  if (!enabled) return ["" as T];
+  return build(count);
+}
+
+/** Count bins for optional row/bay/level tiers (levels require bays). */
+export function countBinSlotsInFlexibleLayout(config: FlexibleShelvingConfig): number {
+  if (!Number.isFinite(config.binCount) || config.binCount < 1) return 0;
+  const rows = dimensionList(config.useRows, config.rowCount, buildRowCodes);
+  const bays = dimensionList(config.useBays, config.bayCount, buildBayCodes);
+  const levels =
+    config.useBays && config.useLevels
+      ? buildLevelCodes(config.levelCount)
+      : [""];
+  const bins = buildBinSlotCodes(config.binCount);
+  return rows.length * bays.length * levels.length * bins.length;
+}
+
+export function buildBinCombinationsFromFlexibleLayout(
+  warehouseCode: string,
+  areaCode: string,
+  config: FlexibleShelvingConfig
+): BinCombo[] {
+  if (!isValidPathSegment(warehouseCode) || !isValidPathSegment(areaCode)) {
+    throw new Error("Invalid warehouse or area code.");
+  }
+  if (!Number.isFinite(config.binCount) || config.binCount < 1 || config.binCount > 999) {
+    throw new Error("Bin count must be between 1 and 999.");
+  }
+  if (config.useLevels && !config.useBays) {
+    throw new Error("Levels require bays to be enabled.");
+  }
+  if (config.useRows) {
+    if (!Number.isFinite(config.rowCount) || config.rowCount < 1 || config.rowCount > 999) {
+      throw new Error("Row count must be between 1 and 999.");
+    }
+  }
+  if (config.useBays) {
+    if (!Number.isFinite(config.bayCount) || config.bayCount < 1 || config.bayCount > 99) {
+      throw new Error("Bay count must be between 1 and 99.");
+    }
+  }
+  if (config.useLevels) {
+    if (!Number.isFinite(config.levelCount) || config.levelCount < 1 || config.levelCount > 99) {
+      throw new Error("Level count must be between 1 and 99.");
+    }
+  }
+
+  const rows = dimensionList(config.useRows, config.rowCount, buildRowCodes);
+  const bays = dimensionList(config.useBays, config.bayCount, buildBayCodes);
+  const levels =
+    config.useBays && config.useLevels
+      ? buildLevelCodes(config.levelCount)
+      : [""];
+  const binCodes = buildBinSlotCodes(config.binCount);
+
+  const combinations: BinCombo[] = [];
+  for (const rowRaw of rows) {
+    const row = rowRaw ? normalizeRowCode(rowRaw) : "";
+    for (const bayRaw of bays) {
+      const bay = bayRaw ? bayRaw : "";
+      for (const levelRaw of levels) {
+        const level = levelRaw ? levelRaw : "";
+        for (const binCode of binCodes) {
+          const path = buildFlexibleBinPath(warehouseCode, areaCode, {
+            row: row || undefined,
+            bay: bay || undefined,
+            level: level || undefined,
+            binCode,
+          });
+          combinations.push({ area: areaCode, row, bay, level, binCode, path });
+        }
+      }
+    }
+  }
+  return combinations;
+}
+
+export function sampleFlexibleBinPath(
+  warehouseCode: string,
+  areaCode: string,
+  config: FlexibleShelvingConfig
+): string | null {
+  try {
+    const combos = buildBinCombinationsFromFlexibleLayout(warehouseCode, areaCode, config);
+    return combos[0]?.path ?? null;
+  } catch {
+    return null;
+  }
 }

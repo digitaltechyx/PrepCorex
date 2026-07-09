@@ -106,6 +106,7 @@ import {
 } from "@/lib/warehouse-storage-layout";
 import { formatPurposesList, getAreaPurposes } from "@/lib/warehouse-area-purposes";
 import { WarehouseAreaPurposesField } from "@/components/admin/warehouse-area-purposes-field";
+import { WarehouseAddAreasDialog } from "@/components/admin/warehouse-add-areas-dialog";
 
 type RackWizardMode = "new-area" | "extend-area";
 
@@ -266,6 +267,7 @@ export function WarehouseManagement() {
 
   type AreaWizardStep = "details" | "purposes" | "shelving" | "rows" | "bays" | "rackLevels" | "rackBins" | "review";
   const [areaWizardOpen, setAreaWizardOpen] = useState(false);
+  const [addAreasOpen, setAddAreasOpen] = useState(false);
   const [rackWizardMode, setRackWizardMode] = useState<RackWizardMode>("new-area");
   const [rackTargetAreaId, setRackTargetAreaId] = useState<string | null>(null);
   const [wizStep, setWizStep] = useState<AreaWizardStep>("details");
@@ -1622,19 +1624,12 @@ export function WarehouseManagement() {
 
                 <TabsContent value="areas" className="space-y-4 mt-4">
                   <p className="text-sm text-muted-foreground">
-                    Design each area your way: pick one or more purposes (including custom labels), optionally add
-                    shelving with per-row layout, and extend or add temporary shelves later. Labels can be printed for
-                    the whole warehouse or filtered by area or row.
+                    Add areas on one page with auto codes (A, B, C…), optional shelving tiers, and bin-only layouts.
+                    Extend shelving on existing areas from the Shelving action.
                   </p>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border rounded-lg p-4 bg-muted/30">
-                    <p className="text-sm text-muted-foreground shrink-0">Step-by-step wizard for all area types.</p>
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        resetAreaWizard();
-                        setAreaWizardOpen(true);
-                      }}
-                    >
+                    <p className="text-sm text-muted-foreground shrink-0">Areas, purposes, and shelving on one screen.</p>
+                    <Button type="button" onClick={() => setAddAreasOpen(true)}>
                       <Plus className="h-4 w-4 mr-2" />
                       Add area
                     </Button>
@@ -2113,8 +2108,25 @@ export function WarehouseManagement() {
         </DialogContent>
       </Dialog>
 
+      <WarehouseAddAreasDialog
+        open={addAreasOpen}
+        onOpenChange={setAddAreasOpen}
+        warehouse={selected}
+        existingAreas={areas}
+        onAddCustomPurpose={handleAddCustomPurpose}
+        onCreated={({ areasCreated, binsCreated, binsSkipped }) => {
+          toast({
+            title: `${areasCreated} area${areasCreated === 1 ? "" : "s"} created`,
+            description:
+              binsCreated || binsSkipped
+                ? `Bins created ${binsCreated}${binsSkipped ? `, skipped ${binsSkipped}` : ""}.`
+                : undefined,
+          });
+        }}
+      />
+
       <Dialog
-        open={areaWizardOpen}
+        open={areaWizardOpen && rackWizardMode === "extend-area"}
         onOpenChange={(open) => {
           setAreaWizardOpen(open);
           if (!open) resetAreaWizard();
@@ -2122,17 +2134,10 @@ export function WarehouseManagement() {
       >
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>
-              {rackWizardMode === "extend-area" ? "Add shelving" : "Add area"} — guided setup
-            </DialogTitle>
+            <DialogTitle>Add shelving — layout wizard</DialogTitle>
             <DialogDescription>
-              {wizStep === "details" && "Area code and optional name."}
-              {wizStep === "purposes" && "What happens here (any combination; add custom labels)."}
-              {wizStep === "shelving" && "Add rack/shelf bins now, or create a zone only."}
               {wizStep === "rows" &&
-                (rackWizardMode === "extend-area"
-                  ? "How many rows to add? Choose whether to refill empty row numbers first or continue after the highest row."
-                  : "How many rack rows in this area?")}
+                "How many rows to add? Choose whether to refill empty row numbers first or continue after the highest row."}
               {wizStep === "bays" && "For each row, how many bays (positions along the aisle)?"}
               {wizStep === "rackLevels" && "For each bay, how many vertical levels (1, 2, 3… in the path)?"}
               {wizStep === "rackBins" && "For each level in each bay, how many bin slots (labeled B01, B02, …)?"}

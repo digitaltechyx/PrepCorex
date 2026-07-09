@@ -166,6 +166,40 @@ export function buildBinPath(
   return [w, norm.area, norm.row, norm.bay, norm.level, norm.binCode].join("-");
 }
 
+export type FlexibleBinSegmentInput = {
+  row?: string;
+  bay?: string;
+  level?: string;
+  binCode: string;
+};
+
+/** Build path with only the hierarchy tiers that are present (row/bay/level optional). */
+export function buildFlexibleBinPath(
+  warehouseCode: string,
+  area: string,
+  segments: FlexibleBinSegmentInput
+): string {
+  const w = assertValidPathSegment("Warehouse code", warehouseCode);
+  const parts: string[] = [w, normalizeAreaCode(area)];
+  const row = String(segments.row || "").trim();
+  const bay = String(segments.bay || "").trim();
+  const level = String(segments.level || "").trim();
+  if (row) parts.push(normalizeRowCode(row));
+  if (bay) parts.push(normalizeBayCode(bay));
+  if (level) parts.push(normalizeLevelCode(level));
+  parts.push(normalizeBinSlotCode(segments.binCode));
+  return parts.join("-");
+}
+
+function classifyPathMiddleSegment(segment: string): "row" | "bay" | "level" | null {
+  const s = String(segment || "").trim().toUpperCase();
+  if (!s) return null;
+  if (/^R\d+$/.test(s)) return "row";
+  if (/^BA\d+$/.test(s) || /^[A-Z]$/.test(s)) return "bay";
+  if (/^L\d+$/.test(s)) return "level";
+  return null;
+}
+
 /** Parse comma- or newline-separated tokens; trim; drop empties. */
 export function parseTokenList(raw: string): string[] {
   return String(raw || "")
@@ -218,15 +252,34 @@ export function parseBinPath(path: string): ParsedBinPath | null {
     .split("-")
     .map((s) => s.trim())
     .filter((p) => p.length > 0);
-  if (parts.length !== 6) return null;
-  return {
-    warehouse: parts[0],
-    area: parts[1],
-    row: parts[2],
-    bay: parts[3],
-    level: parts[4],
-    pos: parts[5],
-  };
+  if (parts.length < 3) return null;
+
+  const warehouse = parts[0];
+  const area = parts[1];
+  const pos = parts[parts.length - 1];
+  let row = "";
+  let bay = "";
+  let level = "";
+
+  for (const segment of parts.slice(2, -1)) {
+    const kind = classifyPathMiddleSegment(segment);
+    if (kind === "row") row = segment;
+    else if (kind === "bay") bay = segment;
+    else if (kind === "level") level = segment;
+  }
+
+  if (parts.length === 6) {
+    return {
+      warehouse: parts[0],
+      area: parts[1],
+      row: parts[2],
+      bay: parts[3],
+      level: parts[4],
+      pos: parts[5],
+    };
+  }
+
+  return { warehouse, area, row, bay, level, pos };
 }
 
 /** Display segment without leading zeros on pure numeric tokens (e.g. `01` → `1`). */
