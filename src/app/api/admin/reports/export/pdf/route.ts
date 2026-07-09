@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (e) {
     console.error("[GET /api/admin/reports/export/pdf]", e);
-    return NextResponse.json({ error: "Failed to export PDF." }, { status: 500 });
+    const detail = e instanceof Error ? e.message : "Unknown error";
+    return NextResponse.json({ error: "Failed to export PDF.", detail }, { status: 500 });
   }
 }

@@ -74,7 +74,7 @@ function drawKpiBox(
 }
 
 function growthLabel(pct: number | null): string {
-  if (pct === null) return "—";
+  if (pct === null) return "-";
   const sign = pct >= 0 ? "+" : "";
   return `${sign}${pct.toFixed(1)}%`;
 }
@@ -198,6 +198,35 @@ function drawTable(
   }
 
   return y + SECTION_GAP;
+}
+
+function sanitizePdfText(text: string): string {
+  return String(text ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u2013\u2014\u2015]/g, "-")
+    .replace(/[\u2018\u2019\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u2033]/g, '"')
+    .replace(/[\u2026]/g, "...")
+    .replace(/[^\t\n\r\x20-\x7E\xA0-\xFF]/g, "?");
+}
+
+function drawActivityTable(doc: jsPDF, y: number, title: string, activities: AdminReportActivityRow[]): number {
+  return drawTable(
+    doc,
+    y,
+    sanitizePdfText(title),
+    ["Client", "Type", "Description", "Qty", "Status", "Date"],
+    activities.map((r) => [
+      sanitizePdfText(r.clientName),
+      sanitizePdfText(r.type),
+      sanitizePdfText(r.description),
+      r.quantity?.toString() || "-",
+      sanitizePdfText(r.status || "-"),
+      sanitizePdfText(formatActivityDate(r.occurredAt)),
+    ]),
+    [32, 28, 48, 12, 22, 24]
+  );
 }
 
 function moduleKpis(
@@ -413,29 +442,11 @@ function buildModuleReportPdf(summary: AdminReportSummary, reportType: AdminRepo
   });
   y += 36 + SECTION_GAP;
 
-  const activities = filterActivitiesByReportType(summary.rows.activities, reportType);
-  y = drawActivityTable(doc, y, `${title} — Activity`, activities);
+  const activities = filterActivitiesByReportType(summary.rows.activities, reportType).slice(0, 500);
+  y = drawActivityTable(doc, y, `${title} - Activity`, activities);
 
   drawFooter(doc);
   return new Uint8Array(doc.output("arraybuffer"));
-}
-
-function buildActivityTable(doc: jsPDF, y: number, title: string, activities: AdminReportActivityRow[]): number {
-  return drawTable(
-    doc,
-    y,
-    title,
-    ["Client", "Type", "Description", "Qty", "Status", "Date"],
-    activities.map((r) => [
-      r.clientName,
-      r.type,
-      r.description,
-      r.quantity?.toString() || "—",
-      r.status || "—",
-      formatActivityDate(r.occurredAt),
-    ]),
-    [32, 28, 48, 12, 22, 24]
-  );
 }
 
 function buildFullReportPdf(summary: AdminReportSummary): Uint8Array {

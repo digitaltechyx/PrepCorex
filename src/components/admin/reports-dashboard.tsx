@@ -235,7 +235,7 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Export failed");
+        throw new Error(data.detail || data.error || "Export failed");
       }
       const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") || "";
@@ -317,7 +317,7 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Export failed");
+        throw new Error(data.detail || data.error || "Export failed");
       }
       const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") || "";
