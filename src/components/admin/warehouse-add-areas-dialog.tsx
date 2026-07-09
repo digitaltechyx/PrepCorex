@@ -28,13 +28,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import type { WarehouseAreaDoc, WarehouseDoc } from "@/types";
 import { suggestNextAreaCodes } from "@/lib/warehouse-area-code-generator";
 import {
-  DEFAULT_WAREHOUSE_PURPOSE_SUGGESTIONS,
   mergePurposeOptions,
   normalizePurposeLabel,
+  purposeKey,
 } from "@/lib/warehouse-area-purposes";
 import {
   countBinSlotsInFlexibleLayout,
@@ -102,6 +102,44 @@ function rowToShelvingConfig(row: AreaDraftRow): FlexibleShelvingConfig {
   };
 }
 
+function ShelvingTierCell({
+  label,
+  checked,
+  onCheckedChange,
+  count,
+  onCountChange,
+  countDisabled,
+  checkboxDisabled,
+}: {
+  label: string;
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+  count: string;
+  onCountChange: (v: string) => void;
+  countDisabled?: boolean;
+  checkboxDisabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 min-w-[88px]" title={label}>
+      <Checkbox
+        checked={checked}
+        disabled={checkboxDisabled}
+        onCheckedChange={(v) => onCheckedChange(v === true)}
+        aria-label={label}
+        className="shrink-0"
+      />
+      <Input
+        inputMode="numeric"
+        className="h-7 w-14 px-2 text-xs"
+        disabled={countDisabled || !checked}
+        value={count}
+        onChange={(e) => onCountChange(e.target.value)}
+        aria-label={`${label} count`}
+      />
+    </div>
+  );
+}
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -121,16 +159,22 @@ export function WarehouseAddAreasDialog({
 }: Props) {
   const [areaCountStr, setAreaCountStr] = useState("1");
   const [rows, setRows] = useState<AreaDraftRow[]>([newDraftRow()]);
+  const [localCustomPurposes, setLocalCustomPurposes] = useState<string[]>([]);
+  const [customPurposeInput, setCustomPurposeInput] = useState("");
+  const [addingPurpose, setAddingPurpose] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const purposeOptions = useMemo(
     () =>
       mergePurposeOptions(
-        warehouse?.customPurposes,
-        existingAreas.map((a) => (Array.isArray(a.purposes) ? a.purposes : []))
+        [...(warehouse?.customPurposes || []), ...localCustomPurposes],
+        [
+          ...rows.filter((r) => r.purpose.trim()).map((r) => [r.purpose]),
+          ...existingAreas.map((a) => (Array.isArray(a.purposes) ? a.purposes : [])),
+        ]
       ),
-    [warehouse?.customPurposes, existingAreas]
+    [warehouse?.customPurposes, localCustomPurposes, rows, existingAreas]
   );
 
   const existingCodes = useMemo(
@@ -147,6 +191,8 @@ export function WarehouseAddAreasDialog({
     if (!open) return;
     setAreaCountStr("1");
     setRows([newDraftRow()]);
+    setLocalCustomPurposes([]);
+    setCustomPurposeInput("");
     setError(null);
   }, [open]);
 
@@ -197,6 +243,25 @@ export function WarehouseAddAreasDialog({
 
   const updateRow = (key: string, patch: Partial<AreaDraftRow>) => {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  };
+
+  const addCustomPurpose = async () => {
+    const label = normalizePurposeLabel(customPurposeInput);
+    if (!label) return;
+    const key = purposeKey(label);
+    const exists = purposeOptions.some((p) => purposeKey(p) === key);
+    if (!exists) {
+      setLocalCustomPurposes((prev) => [...prev, label]);
+    }
+    if (onAddCustomPurpose) {
+      setAddingPurpose(true);
+      try {
+        await onAddCustomPurpose(label);
+      } finally {
+        setAddingPurpose(false);
+      }
+    }
+    setCustomPurposeInput("");
   };
 
   const validate = (): string | null => {
@@ -278,14 +343,16 @@ export function WarehouseAddAreasDialog({
     }
   };
 
+  const showShelvingCols = rows.some((r) => r.addShelving);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[92vh] flex flex-col">
+      <DialogContent className="max-w-[min(96vw,72rem)] max-h-[92vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Add areas</DialogTitle>
           <DialogDescription>
-            Set up one or more areas on a single page. Codes are assigned A, B, C… automatically. Enable only the
-            shelving tiers you need — bins can exist without rows, bays, or levels.
+            One page for areas, purposes, and shelving. Codes auto-assign A, B, C… Enable only the tiers you need per
+            area.
           </DialogDescription>
         </DialogHeader>
 
@@ -310,24 +377,61 @@ export function WarehouseAddAreasDialog({
             </p>
           </div>
 
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex-1 space-y-1">
+              <Label className="text-xs text-muted-foreground">Add custom purpose (available in all rows)</Label>
+              <Input
+                value={customPurposeInput}
+                onChange={(e) => setCustomPurposeInput(e.target.value)}
+                placeholder="e.g. Staging, Overflow, Temp QC"
+                disabled={saving || addingPurpose}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void addCustomPurpose();
+                  }
+                }}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={saving || addingPurpose || !customPurposeInput.trim()}
+              onClick={() => void addCustomPurpose()}
+            >
+              {addingPurpose ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+              Add purpose
+            </Button>
+          </div>
+
           <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-12">#</TableHead>
-                  <TableHead className="w-20">Code</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="min-w-[140px]">Purpose</TableHead>
-                  <TableHead className="w-24 text-center">Shelving</TableHead>
+                  <TableHead className="w-10 sticky left-0 bg-background z-10">#</TableHead>
+                  <TableHead className="w-16">Code</TableHead>
+                  <TableHead className="min-w-[120px]">Name</TableHead>
+                  <TableHead className="min-w-[130px]">Purpose</TableHead>
+                  <TableHead className="w-14 text-center" title="Add shelving">
+                    Shelf
+                  </TableHead>
+                  {showShelvingCols ? (
+                    <>
+                      <TableHead className="min-w-[100px]">Rows</TableHead>
+                      <TableHead className="min-w-[100px]">Bays</TableHead>
+                      <TableHead className="min-w-[100px]">Levels</TableHead>
+                      <TableHead className="min-w-[72px]">Bins</TableHead>
+                    </>
+                  ) : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((row, index) => (
                   <TableRow key={row.key}>
-                    <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                    <TableCell className="text-muted-foreground sticky left-0 bg-background z-10">{index + 1}</TableCell>
                     <TableCell>
                       <Input
-                        className="font-mono h-8"
+                        className="font-mono h-8 w-16"
                         value={row.code}
                         onChange={(e) =>
                           updateRow(row.key, {
@@ -339,10 +443,10 @@ export function WarehouseAddAreasDialog({
                     </TableCell>
                     <TableCell>
                       <Input
-                        className="h-8"
+                        className="h-8 min-w-[120px]"
                         value={row.name}
                         onChange={(e) => updateRow(row.key, { name: e.target.value })}
-                        placeholder="Optional label"
+                        placeholder="Optional"
                       />
                     </TableCell>
                     <TableCell>
@@ -350,12 +454,12 @@ export function WarehouseAddAreasDialog({
                         value={row.purpose}
                         onValueChange={(v) => updateRow(row.key, { purpose: v })}
                       >
-                        <SelectTrigger className="h-8">
+                        <SelectTrigger className="h-8 min-w-[130px]">
                           <SelectValue placeholder="Purpose" />
                         </SelectTrigger>
                         <SelectContent>
                           {purposeOptions.map((p) => (
-                            <SelectItem key={p} value={p}>
+                            <SelectItem key={purposeKey(p)} value={p}>
                               {p}
                             </SelectItem>
                           ))}
@@ -369,95 +473,80 @@ export function WarehouseAddAreasDialog({
                         aria-label={`Add shelving for area ${row.code}`}
                       />
                     </TableCell>
+                    {showShelvingCols ? (
+                      <>
+                        <TableCell>
+                          {row.addShelving ? (
+                            <ShelvingTierCell
+                              label="Rows"
+                              checked={row.useRows}
+                              onCheckedChange={(v) => updateRow(row.key, { useRows: v })}
+                              count={row.rowCount}
+                              onCountChange={(v) => updateRow(row.key, { rowCount: v })}
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {row.addShelving ? (
+                            <ShelvingTierCell
+                              label="Bays"
+                              checked={row.useBays}
+                              onCheckedChange={(v) =>
+                                updateRow(row.key, {
+                                  useBays: v,
+                                  useLevels: v ? row.useLevels : false,
+                                })
+                              }
+                              count={row.bayCount}
+                              onCountChange={(v) => updateRow(row.key, { bayCount: v })}
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {row.addShelving ? (
+                            <ShelvingTierCell
+                              label="Levels"
+                              checked={row.useLevels}
+                              checkboxDisabled={!row.useBays}
+                              countDisabled={!row.useBays}
+                              onCheckedChange={(v) => updateRow(row.key, { useLevels: v })}
+                              count={row.levelCount}
+                              onCountChange={(v) => updateRow(row.key, { levelCount: v })}
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {row.addShelving ? (
+                            <Input
+                              inputMode="numeric"
+                              className="h-7 w-14 px-2 text-xs"
+                              value={row.binCount}
+                              onChange={(e) => updateRow(row.key, { binCount: e.target.value })}
+                              aria-label="Bin count"
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </>
+                    ) : null}
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
 
-          {rows.some((r) => r.addShelving) ? (
-            <div className="space-y-4">
-              <h4 className="text-sm font-medium">Shelving layout</h4>
-              {rows
-                .filter((r) => r.addShelving)
-                .map((row) => (
-                  <div key={`shelf-${row.key}`} className="rounded-lg border bg-muted/20 p-4 space-y-3">
-                    <p className="text-sm font-medium">
-                      Area <span className="font-mono">{row.code || "—"}</span>
-                      {row.name.trim() ? ` — ${row.name.trim()}` : ""}
-                    </p>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <div className="space-y-2 rounded-md border bg-background p-3">
-                        <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-                          <Checkbox
-                            checked={row.useRows}
-                            onCheckedChange={(v) => updateRow(row.key, { useRows: v === true })}
-                          />
-                          Rows
-                        </label>
-                        <Input
-                          inputMode="numeric"
-                          disabled={!row.useRows}
-                          value={row.rowCount}
-                          onChange={(e) => updateRow(row.key, { rowCount: e.target.value })}
-                          placeholder="Count"
-                        />
-                      </div>
-                      <div className="space-y-2 rounded-md border bg-background p-3">
-                        <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-                          <Checkbox
-                            checked={row.useBays}
-                            onCheckedChange={(v) =>
-                              updateRow(row.key, {
-                                useBays: v === true,
-                                useLevels: v === true ? row.useLevels : false,
-                              })
-                            }
-                          />
-                          Bays
-                        </label>
-                        <Input
-                          inputMode="numeric"
-                          disabled={!row.useBays}
-                          value={row.bayCount}
-                          onChange={(e) => updateRow(row.key, { bayCount: e.target.value })}
-                          placeholder="Count"
-                        />
-                      </div>
-                      <div className="space-y-2 rounded-md border bg-background p-3">
-                        <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-                          <Checkbox
-                            checked={row.useLevels}
-                            disabled={!row.useBays}
-                            onCheckedChange={(v) => updateRow(row.key, { useLevels: v === true })}
-                          />
-                          Levels
-                        </label>
-                        <Input
-                          inputMode="numeric"
-                          disabled={!row.useBays || !row.useLevels}
-                          value={row.levelCount}
-                          onChange={(e) => updateRow(row.key, { levelCount: e.target.value })}
-                          placeholder="Count"
-                        />
-                        {!row.useBays ? (
-                          <p className="text-xs text-muted-foreground">Requires bays</p>
-                        ) : null}
-                      </div>
-                      <div className="space-y-2 rounded-md border bg-background p-3">
-                        <Label className="text-sm font-medium">Bins</Label>
-                        <Input
-                          inputMode="numeric"
-                          value={row.binCount}
-                          onChange={(e) => updateRow(row.key, { binCount: e.target.value })}
-                          placeholder="Per slot group"
-                        />
-                        <p className="text-xs text-muted-foreground">Always available — can stand alone</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-            </div>
+          {showShelvingCols ? (
+            <p className="text-xs text-muted-foreground">
+              Shelving per row: checkbox + count for Rows, Bays, Levels. Bins always available when shelving is on.
+              Levels require bays.
+            </p>
           ) : null}
 
           {(preview.totalBins > 0 || preview.samples.length > 0) && (
@@ -502,5 +591,3 @@ export function WarehouseAddAreasDialog({
     </Dialog>
   );
 }
-
-export { DEFAULT_WAREHOUSE_PURPOSE_SUGGESTIONS };
