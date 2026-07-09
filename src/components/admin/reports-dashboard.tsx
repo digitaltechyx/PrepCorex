@@ -239,7 +239,7 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast({ title: type === "csv" ? "CSV downloaded" : "PDF summary downloaded" });
+      toast({ title: type === "csv" ? "CSV downloaded" : "PDF downloaded" });
     } catch (err) {
       toast({
         variant: "destructive",
@@ -352,7 +352,7 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
 
   const activityChartConfig = {
     shipped: { label: "Shipped", color: "#3b82f6" },
-    received: { label: "Received", color: "#a855f7" },
+    received: { label: "Inbound Received", color: "#a855f7" },
     requests: { label: "Requests", color: "#22c55e" },
   } satisfies ChartConfig;
 
@@ -403,7 +403,7 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               </Button>
               <Button size="sm" onClick={() => void handleExport("pdf")} disabled={exportingPdf || loading}>
                 {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileText className="h-4 w-4 mr-1" />}
-                Export PDF Summary
+                Export PDF
               </Button>
             </div>
           </div>
@@ -587,19 +587,26 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
         </div>
       ) : summary ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
             <KpiCard
               icon={<ArrowDownToLine className="h-5 w-5" />}
-              label="Units Received"
-              value={String(summary.clientActivity.unitsReceived)}
-              sub={`${summary.clientActivity.inventoryRequests} inbound requests`}
+              label="Lifetime Inbound"
+              value={String(summary.clientActivity.lifetimeInboundReceived)}
+              sub={`${summary.clientActivity.inventoryRequests} inbound requests · approved receipts`}
               accent="text-purple-700"
+            />
+            <KpiCard
+              icon={<Package className="h-5 w-5" />}
+              label="Stock On Hand"
+              value={String(summary.clientActivity.currentStockOnHand)}
+              sub="Current warehouse inventory (live snapshot)"
+              accent="text-violet-700"
             />
             <KpiCard
               icon={<ArrowUpFromLine className="h-5 w-5" />}
               label="Units Shipped"
               value={String(summary.clientActivity.unitsShipped)}
-              sub={`${summary.clientActivity.shipmentRequests} outbound requests`}
+              sub={`${summary.clientActivity.shipmentRequests} outbound requests · lifetime shipped`}
               accent="text-blue-700"
             />
             <KpiCard
@@ -666,7 +673,8 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
                   { label: "Paid", value: `$${summary.financial.totalPaid.toFixed(2)}` },
                 ]} />
                 <ValueTile title="We fulfill" items={[
-                  { label: "Units received", value: String(summary.clientActivity.unitsReceived) },
+                  { label: "Lifetime inbound", value: String(summary.clientActivity.lifetimeInboundReceived) },
+                  { label: "Stock on hand", value: String(summary.clientActivity.currentStockOnHand) },
                   { label: "Units shipped", value: String(summary.clientActivity.unitsShipped) },
                   { label: "Units disposed", value: String(summary.clientActivity.unitsDisposed) },
                   { label: "Returns handled", value: String(summary.clientActivity.returnsHandled) },
@@ -740,8 +748,9 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               <Card className="border-slate-200">
                 <CardContent className="p-5">
                   <h4 className="font-semibold mb-3">Full Report Summary</h4>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                    <MiniStat label="Units Received" value={String(summary.clientActivity.unitsReceived)} accent="text-purple-700" />
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+                    <MiniStat label="Lifetime Inbound" value={String(summary.clientActivity.lifetimeInboundReceived)} accent="text-purple-700" />
+                    <MiniStat label="Stock On Hand" value={String(summary.clientActivity.currentStockOnHand)} accent="text-violet-700" />
                     <MiniStat label="Units Shipped" value={String(summary.clientActivity.unitsShipped)} accent="text-blue-700" />
                     <MiniStat label="Units Disposed" value={String(summary.clientActivity.unitsDisposed)} accent="text-rose-700" />
                     <MiniStat label="Returns Handled" value={String(summary.clientActivity.returnsHandled)} accent="text-amber-700" />
@@ -792,7 +801,8 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               <ModuleReportPanel
                 title="Inbound Report"
                 stats={[
-                  { label: "Units Received", value: String(summary.clientActivity.unitsReceived) },
+                  { label: "Lifetime Inbound", value: String(summary.clientActivity.lifetimeInboundReceived) },
+                  { label: "Stock On Hand", value: String(summary.clientActivity.currentStockOnHand) },
                   { label: "Inventory Requests", value: String(summary.clientActivity.inventoryRequests) },
                 ]}
                 activities={filterActivitiesByReportType(summary.rows.activities, "inbound")}

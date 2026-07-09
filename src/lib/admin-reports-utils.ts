@@ -33,6 +33,15 @@ export function pickReportDateMs(data: Record<string, unknown>, fields: string[]
   return 0;
 }
 
+/** Units actually received on an approved inbound request (warehouse v2 + legacy). */
+export function inboundReceivedQuantity(data: Record<string, unknown>): number {
+  const warehouseGood = Number(data.warehouseGoodReceivedQty);
+  if (Number.isFinite(warehouseGood) && warehouseGood > 0) return warehouseGood;
+  const received = Number(data.receivedQuantity);
+  if (Number.isFinite(received) && received > 0) return received;
+  return Math.max(0, Number(data.quantity) || 0);
+}
+
 export function reportStartOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }

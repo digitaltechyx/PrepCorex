@@ -14,6 +14,7 @@ import type {
   AdminReportType,
 } from "@/lib/admin-reports-types";
 import {
+  inboundReceivedQuantity,
   isInReportRange,
   pctChange,
   pickInvoiceDateMs,
@@ -162,6 +163,34 @@ async function loadCollectionGroupActivities(
   return rows;
 }
 
+async function loadCurrentStockOnHand(allowedUserIds: Set<string>): Promise<number> {
+  let total = 0;
+  let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  const pageSize = 1000;
+
+  while (true) {
+    let query = adminDb()
+      .collectionGroup("inventory")
+      .orderBy(FieldPath.documentId())
+      .limit(pageSize);
+    if (lastDoc) query = query.startAfter(lastDoc);
+
+    const snap = await query.get();
+    if (snap.empty) break;
+
+    for (const doc of snap.docs) {
+      const uid = uidFromFirestorePath(doc.ref.path);
+      if (!allowedUserIds.has(uid)) continue;
+      total += Math.max(0, Number(doc.data().quantity) || 0);
+    }
+
+    lastDoc = snap.docs[snap.docs.length - 1];
+    if (snap.size < pageSize) break;
+  }
+
+  return total;
+}
+
 async function loadAuditRows(
   clientUsers: UserProfile[],
   from: Date,
@@ -288,7 +317,7 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
     return isInReportRange(new Date(reportToMs(c.createdAt)), from, to, allTime);
   });
 
-  const [shippedRows, inventoryRows, shipReqRows, invReqRows, returnRows, disposeRows, auditRows] =
+  const [shippedRows, inventoryRows, shipReqRows, invReqRows, returnRows, disposeRows, auditRows, currentStockOnHand] =
     await Promise.all([
       loadCollectionGroupActivities("shipped", allowedIds, from, to, allTime, (path, data) => {
         const occurredMs = pickReportDateMs(data, ["date", "createdAt", "dispatchedAt"]);
@@ -332,15 +361,18 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
         };
       }),
       loadCollectionGroupActivities("inventoryRequests", allowedIds, from, to, allTime, (path, data) => {
-        const occurredMs = pickReportDateMs(data, ["requestedAt", "addDate", "receivingDate", "approvedAt", "createdAt"]);
+        const status = String(data.status || "");
+        const occurredMs = pickReportDateMs(data, ["receivingDate", "approvedAt", "requestedAt", "addDate", "createdAt"]);
         if (!occurredMs) return null;
+        const inboundQty = status === "approved" ? inboundReceivedQuantity(data) : 0;
         return {
           id: path,
           userId: uidFromFirestorePath(path),
           clientName: userNameById.get(uidFromFirestorePath(path)) || "",
           type: "Inventory Request",
-          description: "Client inventory request",
-          status: String(data.status || ""),
+          description: String(data.productName || "Client inventory request"),
+          quantity: inboundQty > 0 ? inboundQty : undefined,
+          status,
           occurredAt: new Date(occurredMs).toISOString(),
         };
       }),
@@ -383,6 +415,7 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
         };
       }),
       loadAuditRows(clientUsers, from, to, allTime),
+      loadCurrentStockOnHand(allowedIds),
     ]);
 
   const activities = [
@@ -402,7 +435,9 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
     .filter((i) => String(i.status || "").toLowerCase() !== "paid")
     .reduce((s, i) => s + (i.grandTotal || 0), 0);
   const unitsShipped = shippedRows.reduce((s, r) => s + (r.quantity || 0), 0);
-  const unitsReceived = inventoryRows.reduce((s, r) => s + (r.quantity || 0), 0);
+  const lifetimeInboundReceived = invReqRows
+    .filter((r) => r.status === "approved")
+    .reduce((s, r) => s + (r.quantity || 0), 0);
   const handledReturns = returnRows.filter((r) => r.status === "closed");
   const approvedDispose = disposeRows.filter((r) => r.status === "approved");
   const returnsHandled = handledReturns.length;
@@ -433,7 +468,15 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
     const b = buckets.get(key);
     if (b) b.shipped += row.quantity || 0;
   }
-  for (const row of inventoryRows) {
+  for (const row of invReqRows) {
+    if (row.status !== "approved") continue;
+    const ms = reportToMs(row.occurredAt);
+    if (!ms) continue;
+    const key = bucketKeyForDate(ms, allTime);
+    const b = buckets.get(key);
+    if (b) b.received += row.quantity || 0;
+  }
+  for (const row of handledReturns) {
     const ms = reportToMs(row.occurredAt);
     if (!ms) continue;
     const key = bucketKeyForDate(ms, allTime);
@@ -500,8 +543,9 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
       commissionCount: commissions.length,
     },
     clientActivity: {
+      lifetimeInboundReceived,
+      currentStockOnHand,
       unitsShipped,
-      unitsReceived,
       unitsDisposed,
       returnsHandled,
       unitsReturned,
@@ -620,7 +664,18 @@ export async function buildAdminReportComparison(
       label: `${format(fromB, "MMM d, yyyy")} – ${format(toB, "MMM d, yyyy")}`,
     },
     metrics: [
-      comparisonMetric("Units Received", reportA.clientActivity.unitsReceived, reportB.clientActivity.unitsReceived, "number"),
+      comparisonMetric(
+        "Lifetime Inbound Received",
+        reportA.clientActivity.lifetimeInboundReceived,
+        reportB.clientActivity.lifetimeInboundReceived,
+        "number"
+      ),
+      comparisonMetric(
+        "Current Stock On Hand",
+        reportA.clientActivity.currentStockOnHand,
+        reportB.clientActivity.currentStockOnHand,
+        "number"
+      ),
       comparisonMetric("Units Shipped", reportA.clientActivity.unitsShipped, reportB.clientActivity.unitsShipped, "number"),
       comparisonMetric("Units Disposed", reportA.clientActivity.unitsDisposed, reportB.clientActivity.unitsDisposed, "number"),
       comparisonMetric("Returns Handled", reportA.clientActivity.returnsHandled, reportB.clientActivity.returnsHandled, "number"),

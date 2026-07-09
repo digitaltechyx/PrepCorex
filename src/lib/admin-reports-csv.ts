@@ -9,7 +9,8 @@ function toCsv(header: string[], rows: string[][]): string {
 function operationsSummaryRows(summary: AdminReportSummary): string[] {
   return [
     "Metric,Count",
-    `Units Received,${summary.clientActivity.unitsReceived}`,
+    `Lifetime Inbound Received,${summary.clientActivity.lifetimeInboundReceived}`,
+    `Current Stock On Hand,${summary.clientActivity.currentStockOnHand}`,
     `Units Shipped,${summary.clientActivity.unitsShipped}`,
     `Units Disposed,${summary.clientActivity.unitsDisposed}`,
     `Returns Handled,${summary.clientActivity.returnsHandled}`,
@@ -166,7 +167,8 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
         "",
         ...operationsSummaryRows(summary).filter((line) => {
           const key = line.split(",")[0];
-          if (reportType === "inbound") return ["Units Received", "Inventory Requests", "Metric"].includes(key);
+          if (reportType === "inbound")
+            return ["Lifetime Inbound Received", "Current Stock On Hand", "Inventory Requests", "Metric"].includes(key);
           if (reportType === "outbound") return ["Units Shipped", "Shipment Requests", "Metric"].includes(key);
           if (reportType === "returns")
             return ["Returns Handled", "Units Returned", "Return Requests", "Metric"].includes(key);
@@ -236,7 +238,8 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
         `Commission,Pending,${summary.commission.totalPending.toFixed(2)}`,
         `Commission,Paid,${summary.commission.totalPaid.toFixed(2)}`,
         `Activity,Units Shipped,${summary.clientActivity.unitsShipped}`,
-        `Activity,Units Received,${summary.clientActivity.unitsReceived}`,
+        `Activity,Lifetime Inbound Received,${summary.clientActivity.lifetimeInboundReceived}`,
+        `Activity,Current Stock On Hand,${summary.clientActivity.currentStockOnHand}`,
         `Activity,Units Disposed,${summary.clientActivity.unitsDisposed}`,
         `Activity,Returns Handled,${summary.clientActivity.returnsHandled}`,
         `Activity,Units Returned,${summary.clientActivity.unitsReturned}`,

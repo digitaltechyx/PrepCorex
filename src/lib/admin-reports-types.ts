@@ -83,8 +83,11 @@ export type AdminReportSummary = {
     commissionCount: number;
   };
   clientActivity: {
+    /** Approved inbound requests in the selected period (lifetime when all-time). */
+    lifetimeInboundReceived: number;
+    /** Current sellable inventory snapshot (not filtered by report dates). */
+    currentStockOnHand: number;
     unitsShipped: number;
-    unitsReceived: number;
     unitsDisposed: number;
     returnsHandled: number;
     unitsReturned: number;
