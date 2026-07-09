@@ -889,7 +889,6 @@ export function WarehouseManagement() {
       });
       return;
     }
-    const addr = warehouseLocationFormToPayload(locForm);
     setSaving(true);
     try {
       const { warehouseId } = await createWarehouseWithLocation({
