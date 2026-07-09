@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useManagedUsers } from "@/hooks/use-managed-users";
-import type { UserProfile, Invoice } from "@/types";
+import type { UserProfile } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -35,8 +35,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { collection, collectionGroup, getCountFromServer, getDocs, onSnapshot, query, where, limit } from "firebase/firestore";
+import { collection, collectionGroup, getCountFromServer, getDocs, onSnapshot, query, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAdminDashboardKpis } from "@/hooks/use-admin-dashboard-kpis";
+import { useAdminDashboardFinance } from "@/hooks/use-admin-dashboard-finance";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
   ChartContainer,
@@ -260,155 +262,32 @@ export default function AdminDashboardPage() {
     return users.filter((user) => user.uid !== adminUser.uid && user.status === "pending").length;
   }, [users, adminUser]);
 
-  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
-  const [requestsLoading, setRequestsLoading] = useState(true);
-
   const managedIdsSet = useMemo(() => (managedUserIds === null ? null : new Set(managedUserIds)), [managedUserIds]);
 
-  useEffect(() => {
-    const run = async () => {
-      try {
-        setRequestsLoading(true);
-        const userIdsForFallback = (users || [])
-          .map((u: UserProfile) => String(u?.uid || ""))
-          .filter((id) => id && id !== adminUser?.uid);
-        // For sub admin (managedUserIds set), only count per managed user. For super admin, try collectionGroup first.
-        const countStatuses = async (collectionName: string, statuses: string[]) => {
-          const counts = await Promise.all(
-            statuses.map(async (status) => {
-              try {
-                const q = query(collectionGroup(db, collectionName), where("status", "==", status));
-                const snap = await getCountFromServer(q);
-                return snap.data().count || 0;
-              } catch {
-                return 0;
-              }
-            })
-          );
-          return counts.reduce((a, b) => a + b, 0);
-        };
-        let pendingTotal = 0;
-        if (managedIdsSet === null && userIdsForFallback.length > 0) {
-        const pendingCounts = await Promise.all([
-          countStatuses("shipmentRequests", ["pending", "Pending"]).catch(() => 0),
-          countStatuses("inventoryRequests", ["pending", "Pending"]).catch(() => 0),
-          countStatuses("productReturns", ["pending", "Pending", "approved", "Approved", "in_progress", "In Progress", "in progress"]).catch(() => 0),
-        ]);
-          pendingTotal = pendingCounts.reduce((a, b) => a + b, 0);
-        }
-        if (pendingTotal === 0 && userIdsForFallback.length > 0) {
-          try {
-            const perUser = await Promise.all(
-              userIdsForFallback.map(async (uid) => {
-                const [s, i, p] = await Promise.all([
-                  getDocs(query(collection(db, `users/${uid}/shipmentRequests`), where("status", "in", ["pending", "Pending"]))),
-                  getDocs(query(collection(db, `users/${uid}/inventoryRequests`), where("status", "in", ["pending", "Pending"]))),
-                  getDocs(query(collection(db, `users/${uid}/productReturns`), where("status", "in", ["pending", "Pending", "approved", "Approved", "in_progress", "In Progress", "in progress"]))),
-                ]);
-                return s.size + i.size + p.size;
-              })
-            );
-            pendingTotal = perUser.reduce((a, b) => a + b, 0);
-          } catch {
-            // ignore
-          }
-        }
-        setPendingRequestsCount(pendingTotal);
-      } catch {
-        setPendingRequestsCount(0);
-      } finally {
-        setRequestsLoading(false);
-      }
-    };
-    run();
-    const interval = setInterval(run, 60000);
-    return () => clearInterval(interval);
-  }, [users, adminUser, managedIdsSet]);
+  const {
+    pendingRequestsCount,
+    pendingInvoicesCount,
+    pendingInvoicesAmount,
+    ordersShippedToday,
+    receivedUnitsToday,
+    requestsLoading,
+    invoicesLoading: kpiInvoicesLoading,
+    shippedAndReceivedLoading,
+  } = useAdminDashboardKpis(adminUser?.uid, users, managedUserIds);
 
-  const [ordersShippedToday, setOrdersShippedToday] = useState(0);
-  const [receivedUnitsToday, setReceivedUnitsToday] = useState(0);
-  const [shippedAndReceivedLoading, setShippedAndReceivedLoading] = useState(true);
-
-  useEffect(() => {
-    const adminUid = adminUser?.uid;
-    if (!adminUid) {
-        setOrdersShippedToday(0);
-        setReceivedUnitsToday(0);
-        setShippedAndReceivedLoading(false);
-        return;
-      }
-    let loadedShipped = false;
-    let loadedInventory = false;
-    const maybeDone = () => {
-      if (loadedShipped && loadedInventory) setShippedAndReceivedLoading(false);
-    };
-    const now = () => new Date();
-    const getTodayBounds = () => {
-      const n = now();
-      const start = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 0, 0, 0, 0).getTime();
-      const end = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1, 0, 0, 0, 0).getTime();
-      return { start, end };
-    };
-    const inToday = (ms: number, { start, end }: { start: number; end: number }) => ms >= start && ms < end;
-
-    const managedSet = managedIdsSet; // capture for listeners
-
-    const unsubShipped = onSnapshot(collectionGroup(db, "shipped"), (snapshot) => {
-      const { start, end } = getTodayBounds();
-      let count = 0;
-      snapshot.docs.forEach((d) => {
-        const pathSegments = d.ref.path.split("/");
-        const userId = pathSegments[1];
-        if (userId === adminUid) return;
-        if (managedSet !== null && !managedSet.has(userId)) return;
-        const data = d.data() as ShippedDoc;
-              const ms = toMs(data?.date);
-        if (inToday(ms, { start, end })) count += 1;
-      });
-      setOrdersShippedToday(count);
-      loadedShipped = true;
-      maybeDone();
-    }, () => {
-      loadedShipped = true;
-      maybeDone();
-    });
-
-    const unsubInventory = onSnapshot(collectionGroup(db, "inventory"), (snapshot) => {
-      const { start, end } = getTodayBounds();
-      let qty = 0;
-      snapshot.docs.forEach((d) => {
-        const pathSegments = d.ref.path.split("/");
-        const userId = pathSegments[1];
-        if (userId === adminUid) return;
-        if (managedSet !== null && !managedSet.has(userId)) return;
-        const data = d.data() as InventoryDoc;
-        const receiveMs = toMs(data?.receivingDate) || toMs(data?.dateAdded);
-        if (inToday(receiveMs, { start, end })) qty += Number(data?.quantity) || 0;
-      });
-      setReceivedUnitsToday(qty);
-      loadedInventory = true;
-      maybeDone();
-    }, () => {
-      loadedInventory = true;
-      maybeDone();
-    });
-    return () => {
-      unsubShipped();
-      unsubInventory();
-    };
-  }, [adminUser?.uid, managedIdsSet]);
-
-  const [pendingInvoicesCount, setPendingInvoicesCount] = useState(0);
-  const [pendingInvoicesAmount, setPendingInvoicesAmount] = useState(0);
-  const [invoicesLoading, setInvoicesLoading] = useState(true);
-  const [financialMetrics, setFinancialMetrics] = useState({
-    billedInRange: 0,
-    paidInRange: 0,
-    dueInRange: 0,
-    todayPaidRevenue: 0,
-    todayPaidCount: 0,
+  const { metrics: financialMetrics, loading: financeLoadingState } = useAdminDashboardFinance({
+    adminUid: adminUser?.uid,
+    managedUserIds,
+    dateRangeFrom,
+    dateRangeTo,
+    hasDateRange,
+    topClientsDays: topUsersRange,
+    pendingInvoicesAmount,
+    enabled: Boolean(users?.length),
   });
-  const [topClientsByRevenue, setTopClientsByRevenue] = useState<Array<{ user: string; count: number; fill: string }>>([]);
+
+  const topClientsByRevenue = financialMetrics.topClientsByRevenue;
+  const financeLoading = financeLoadingState;
   const [integrationStats, setIntegrationStats] = useState({
     shopify: 0,
     ebay: 0,
@@ -417,113 +296,6 @@ export default function AdminDashboardPage() {
   const [oneDriveConnected, setOneDriveConnected] = useState<boolean | null>(null);
   const [oneDriveChecking, setOneDriveChecking] = useState(true);
   const [oneDriveDisconnecting, setOneDriveDisconnecting] = useState(false);
-
-  useEffect(() => {
-    const fetchPendingInvoices = async () => {
-      try {
-        setInvoicesLoading(true);
-        let totalPending = 0;
-        let totalPendingAmount = 0;
-        let billedInRange = 0;
-        let paidInRange = 0;
-        let pendingInRangeAmount = 0;
-        let todayPaidRevenue = 0;
-        let todayPaidCount = 0;
-        const userRevenueInWindow = new Map<string, number>();
-        const todayStart = startOfDay(new Date()).getTime();
-        const todayEnd = endOfDay(new Date()).getTime();
-        const invoiceDate = (inv: Partial<Invoice>): Date | null => {
-          const ms = toMs((inv as any)?.issuedAt || (inv as any)?.date || (inv as any)?.createdAt || (inv as any)?.generatedAt);
-          if (ms) return new Date(ms);
-          const rawDate = typeof (inv as any)?.date === "string" ? (inv as any).date.trim() : "";
-          if (rawDate.includes("/")) {
-            const parts = rawDate.split("/");
-            if (parts.length === 3) {
-              const a = Number(parts[0]);
-              const b = Number(parts[1]);
-              const c = Number(parts[2]);
-              if (Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c)) {
-                const year = c < 100 ? 2000 + c : c;
-                const dayFirst = a > 12;
-                const month = dayFirst ? b : a;
-                const day = dayFirst ? a : b;
-                const parsed = new Date(year, month - 1, day);
-                if (!Number.isNaN(parsed.getTime())) return parsed;
-              }
-            }
-          }
-          return ms ? new Date(ms) : null;
-        };
-        const windowFrom = hasDateRange && dateRangeFrom ? startOfDay(dateRangeFrom) : new Date(Date.now() - topUsersRange * 86400000);
-        const windowTo = hasDateRange && dateRangeTo ? endOfDay(dateRangeTo) : new Date();
-        const inWindow = (d: Date | null) => d && d.getTime() >= windowFrom.getTime() && d.getTime() <= windowTo.getTime();
-        if (!users || users.length === 0) {
-          setPendingInvoicesCount(0);
-          setPendingInvoicesAmount(0);
-          setFinancialMetrics({ billedInRange: 0, paidInRange: 0, dueInRange: 0, todayPaidRevenue: 0, todayPaidCount: 0 });
-          setTopClientsByRevenue([]);
-          setInvoicesLoading(false);
-          return;
-        }
-        for (const user of users) {
-          const userId = user?.uid || user?.id;
-          if (!userId || typeof userId !== "string" || userId.trim() === "" || userId === adminUser?.uid) continue;
-          const displayName = user?.name || user?.email || "User";
-          let userRevenue = 0;
-          try {
-            const invoicesSnapshot = await getDocs(collection(db, `users/${userId}/invoices`));
-            const userInvoices = invoicesSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Invoice[];
-            const pending = userInvoices.filter((inv) => inv.status === "pending");
-            totalPending += pending.length;
-            totalPendingAmount += pending.reduce((sum, inv) => sum + (inv.grandTotal || 0), 0);
-            userInvoices.forEach((inv) => {
-              const d = invoiceDate(inv);
-              const includeInFinancials = hasDateRange ? isDateInRange(d, dateRangeFrom, dateRangeTo) : true;
-              if (!includeInFinancials) return;
-              const amount = Number(inv.grandTotal || 0);
-              billedInRange += amount;
-              if ((inv.status || "").toLowerCase() === "paid") paidInRange += amount;
-              if ((inv.status || "").toLowerCase() === "pending") pendingInRangeAmount += amount;
-              if ((inv.status || "").toLowerCase() === "paid" && d) {
-                const dMs = d.getTime();
-                if (dMs >= todayStart && dMs <= todayEnd) {
-                  todayPaidRevenue += amount;
-                  todayPaidCount += 1;
-                }
-              }
-              if (inWindow(d)) userRevenue += amount;
-            });
-            if (userRevenue > 0) userRevenueInWindow.set(displayName, (userRevenueInWindow.get(displayName) ?? 0) + userRevenue);
-          } catch {
-            // continue
-          }
-        }
-        setPendingInvoicesCount(totalPending);
-        setPendingInvoicesAmount(totalPendingAmount);
-        setFinancialMetrics({
-          billedInRange,
-          paidInRange,
-          dueInRange: hasDateRange ? pendingInRangeAmount : totalPendingAmount,
-          todayPaidRevenue,
-          todayPaidCount,
-        });
-        const topClients = Array.from(userRevenueInWindow.entries())
-          .map(([user, revenue]) => ({ user, count: revenue, fill: "#06b6d4" }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 6);
-        setTopClientsByRevenue(topClients);
-      } catch {
-        setPendingInvoicesCount(0);
-        setPendingInvoicesAmount(0);
-        setFinancialMetrics({ billedInRange: 0, paidInRange: 0, dueInRange: 0, todayPaidRevenue: 0, todayPaidCount: 0 });
-        setTopClientsByRevenue([]);
-      } finally {
-        setInvoicesLoading(false);
-      }
-    };
-    if (users && users.length > 0) fetchPendingInvoices();
-    else setInvoicesLoading(false);
-  }, [users, adminUser, dateRangeFrom, dateRangeTo, hasDateRange, topUsersRange]);
 
   useEffect(() => {
     const run = async () => {
@@ -748,8 +520,8 @@ export default function AdminDashboardPage() {
     { title: "Active Users", value: String(activeUsersCount), hint: "Approved users", icon: Users, iconBg: "bg-emerald-500/10 text-emerald-600", href: "/admin/dashboard/users?tab=users&status=approved" },
     {
       title: "Pending Invoices",
-      value: invoicesLoading ? "…" : String(pendingInvoicesCount),
-      hint: invoicesLoading
+      value: kpiInvoicesLoading ? "…" : String(pendingInvoicesCount),
+      hint: kpiInvoicesLoading
         ? "Outstanding…"
         : hasDateRange
           ? `Selected range outstanding $${Number(Math.max(financialMetrics.dueInRange || 0, 0)).toLocaleString("en-US")}`
@@ -851,7 +623,7 @@ export default function AdminDashboardPage() {
             </div>
           </CardHeader>
             <CardContent className="px-6 pb-6">
-            {invoicesLoading ? (
+            {financeLoading ? (
                 <Skeleton className="h-20 w-full rounded-lg" />
               ) : (
                 <div className="space-y-3">
@@ -898,7 +670,7 @@ export default function AdminDashboardPage() {
             </div>
           </CardHeader>
             <CardContent className="px-6 pb-6">
-              {invoicesLoading ? (
+              {financeLoading ? (
                 <Skeleton className="h-20 w-full rounded-lg" />
               ) : (
                 <div className="space-y-3">
@@ -1216,7 +988,7 @@ export default function AdminDashboardPage() {
                       </div>
             </CardHeader>
             <CardContent className="px-6 pb-6">
-              {invoicesLoading && topClientsByRevenue.length === 0 ? (
+              {financeLoading && topClientsByRevenue.length === 0 ? (
                 <Skeleton className="h-[260px] w-full rounded-lg" />
               ) : (
                 <ChartContainer config={topClientsConfig} className="h-[260px] w-full">

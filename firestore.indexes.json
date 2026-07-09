@@ -54,6 +54,36 @@
       "collectionGroup": "commissions",
       "queryScope": "COLLECTION",
       "fields": [{ "fieldPath": "createdAt", "order": "DESCENDING" }]
+    },
+    {
+      "collectionGroup": "shipped",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "date", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "inventory",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "receivingDate", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "inventory",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "dateAdded", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "invoices",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "shipmentRequests",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "productReturns",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
     }
   ],
   "fieldOverrides": []
