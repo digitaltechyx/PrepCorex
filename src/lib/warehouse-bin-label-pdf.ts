@@ -2,8 +2,8 @@ import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont, type PDFIm
 import QRCode from "qrcode";
 import type { WarehouseBinDoc } from "@/types";
 import {
+  buildBinLabelSegments,
   compareBinPathsForLabelPrint,
-  formatPathSegmentLabelCompact,
   parseBinPath,
 } from "@/lib/warehouse-bin-path";
 
@@ -236,16 +236,8 @@ function drawBinLabel(
   });
   page.drawImage(img, { x: qrX, y: qrY, width: qrSide, height: qrSide });
 
-  /**
-   * Display line: `NJ03 - A - 1 - A - 1 - A2` (spaces around hyphens). LEVEL stays in accent chip.
-   * Header baselines stay inside the white band so glyphs are not painted over the top gold block.
-   */
-  const whD = pdfText(parsed.warehouse);
-  const areaD = pdfText(formatPathSegmentLabelCompact(parsed.area));
-  const rowD = pdfText(formatPathSegmentLabelCompact(parsed.row));
-  const bayD = pdfText(formatPathSegmentLabelCompact(parsed.bay));
-  const levelD = pdfText(String(levelNum));
-  const binD = pdfText(formatPathSegmentLabelCompact(parsed.pos));
+  const segments = buildBinLabelSegments(bin);
+  if (segments.length === 0) return;
 
   const looseSep = " - ";
   const valSize = innerH < 72 ? 9 : 10.5;
@@ -254,97 +246,113 @@ function drawBinLabel(
   const piece = (txt: string) => fontBold.widthOfTextAtSize(txt, valSize);
   const wSep = piece(looseSep);
 
-  const levelTw = fontBold.widthOfTextAtSize(levelD, valSize);
-  /** Equal vertical padding around the level digit (Helvetica-bold caps Γëê these ratios). */
   const levelBoxPadX = 2.5;
   const gAsc = valSize * 0.72;
   const gDesc = valSize * 0.22;
   let vPad = 1.75;
-  let levelBoxH = gAsc + gDesc + vPad * 2;
-  const levelBoxW = levelTw + levelBoxPadX * 2;
 
-  const levelHeader =
-    levelBoxW < font.widthOfTextAtSize("LEVEL", headerSize) + 2 ? "LVL" : "LEVEL";
+  type LayoutPart = {
+    header: string;
+    width: number;
+    isLevel: boolean;
+    displayText: string;
+  };
 
-  const wWh = piece(whD);
-  const wArea = piece(areaD);
-  const wRow = piece(rowD);
-  const wBay = piece(bayD);
-  const wBin = piece(binD);
+  const parts: LayoutPart[] = [];
+  for (const seg of segments) {
+    if (seg.isLevel) {
+      const levelD = pdfText(seg.value);
+      const levelTw = fontBold.widthOfTextAtSize(levelD, valSize);
+      const levelBoxW = levelTw + levelBoxPadX * 2;
+      const levelHeader =
+        levelBoxW < font.widthOfTextAtSize("LEVEL", headerSize) + 2 ? "LVL" : "LEVEL";
+      parts.push({
+        header: levelHeader,
+        width: levelBoxW,
+        isLevel: true,
+        displayText: levelD,
+      });
+    } else {
+      const t = pdfText(seg.value);
+      parts.push({
+        header: seg.header,
+        width: piece(t),
+        isLevel: false,
+        displayText: t,
+      });
+    }
+  }
 
-  const prefixStr = `${whD}${looseSep}${areaD}${looseSep}${rowD}${looseSep}${bayD}${looseSep}`;
-  const suffixStr = `${looseSep}${binD}`;
-  const wPrefix = piece(prefixStr);
-  const wSuffix = piece(suffixStr);
-  const totalW = wPrefix + levelBoxW + wSuffix;
+  let totalW = 0;
+  for (let i = 0; i < parts.length; i++) {
+    totalW += parts[i].width;
+    if (i < parts.length - 1) totalW += wSep;
+  }
 
   const bandTop = innerY + botH;
-  /** Keep entire header cap height below gold / QR bottom edge (no overlap bleed). */
   const headerCap = headerSize * 0.9;
   const headerY = bandTop - headerCap - 2.25;
-  /** ~2pt extra space between header baselines and value row (screen ΓÇ£pxΓÇ¥ Γëê pt in PDF). */
   const valueBelowHeaderGap = 11.5;
   const valBaseline = innerY + Math.max(8, headerY - innerY - valueBelowHeaderGap);
 
-  let boxY = valBaseline - gDesc - vPad;
-  const chipTopMax = headerY - 3;
-  while (boxY + levelBoxH > chipTopMax && vPad > 0.55) {
-    vPad -= 0.2;
-    levelBoxH = gAsc + gDesc + vPad * 2;
-    boxY = valBaseline - gDesc - vPad;
-  }
-  if (boxY + levelBoxH > chipTopMax) {
-    boxY = chipTopMax - levelBoxH;
-  }
-
   const startX = innerX + Math.max(2, (innerW - totalW) / 2);
-
-  const zones: { label: string; centerX: number }[] = [];
   let x = startX;
-  zones.push({ label: "WH", centerX: x + wWh / 2 });
-  x += wWh + wSep;
-  zones.push({ label: "AREA", centerX: x + wArea / 2 });
-  x += wArea + wSep;
-  zones.push({ label: "ROW", centerX: x + wRow / 2 });
-  x += wRow + wSep;
-  zones.push({ label: "BAY", centerX: x + wBay / 2 });
-  x += wBay + wSep;
+  const zones: { label: string; centerX: number }[] = [];
 
-  page.drawText(pdfText(prefixStr), {
-    x: startX,
-    y: valBaseline,
-    size: valSize,
-    font: fontBold,
-    color: ink,
-  });
-
-  const levelBoxLeft = startX + wPrefix;
-  zones.push({ label: levelHeader, centerX: levelBoxLeft + levelBoxW / 2 });
-  page.drawRectangle({
-    x: levelBoxLeft,
-    y: boxY,
-    width: levelBoxW,
-    height: levelBoxH,
-    color: accent,
-  });
-  const levelTextX = levelBoxLeft + (levelBoxW - levelTw) / 2;
-  page.drawText(levelD, {
-    x: levelTextX,
-    y: valBaseline,
-    size: valSize,
-    font: fontBold,
-    color: white,
-  });
-
-  page.drawText(pdfText(suffixStr), {
-    x: levelBoxLeft + levelBoxW,
-    y: valBaseline,
-    size: valSize,
-    font: fontBold,
-    color: ink,
-  });
-
-  zones.push({ label: "BIN", centerX: levelBoxLeft + levelBoxW + wSep + wBin / 2 });
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p.isLevel) {
+      let levelBoxH = gAsc + gDesc + vPad * 2;
+      const levelBoxW = p.width;
+      let boxY = valBaseline - gDesc - vPad;
+      const chipTopMax = headerY - 3;
+      while (boxY + levelBoxH > chipTopMax && vPad > 0.55) {
+        vPad -= 0.2;
+        levelBoxH = gAsc + gDesc + vPad * 2;
+        boxY = valBaseline - gDesc - vPad;
+      }
+      if (boxY + levelBoxH > chipTopMax) {
+        boxY = chipTopMax - levelBoxH;
+      }
+      page.drawRectangle({
+        x,
+        y: boxY,
+        width: levelBoxW,
+        height: levelBoxH,
+        color: accent,
+      });
+      const levelTw = fontBold.widthOfTextAtSize(p.displayText, valSize);
+      page.drawText(p.displayText, {
+        x: x + (levelBoxW - levelTw) / 2,
+        y: valBaseline,
+        size: valSize,
+        font: fontBold,
+        color: white,
+      });
+      zones.push({ label: p.header, centerX: x + levelBoxW / 2 });
+      x += levelBoxW;
+    } else {
+      page.drawText(p.displayText, {
+        x,
+        y: valBaseline,
+        size: valSize,
+        font: fontBold,
+        color: ink,
+      });
+      zones.push({ label: p.header, centerX: x + p.width / 2 });
+      x += p.width;
+    }
+    if (i < parts.length - 1) {
+      page.drawText(pdfText(looseSep), {
+        x,
+        y: valBaseline,
+        size: valSize,
+        font: fontBold,
+        color: ink,
+      });
+      x += wSep;
+    }
+  }
 
   const innerRight = innerX + innerW;
   for (const z of zones) {

@@ -282,6 +282,71 @@ export function parseBinPath(path: string): ParsedBinPath | null {
   return { warehouse, area, row, bay, level, pos };
 }
 
+export type BinLabelSegment = {
+  header: string;
+  value: string;
+  isLevel?: boolean;
+};
+
+export type BinLabelSource = {
+  path?: string;
+  area?: string;
+  row?: string;
+  bay?: string;
+  level?: string;
+  binCode?: string;
+};
+
+function tierPresent(value: string | undefined | null): boolean {
+  const s = String(value ?? "").trim();
+  if (!s || s === "-" || s === "0") return false;
+  return true;
+}
+
+function parseLevelDisplay(level: string): number {
+  const n = parseInt(String(level).replace(/\D/g, ""), 10);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return n;
+}
+
+/** Label tiers — only non-empty row/bay/level segments (flexible shelving paths). */
+export function buildBinLabelSegments(bin: BinLabelSource): BinLabelSegment[] {
+  const parsed = bin.path ? parseBinPath(bin.path) : null;
+  const segments: BinLabelSegment[] = [];
+
+  const warehouse = parsed?.warehouse?.trim() || "";
+  const area = tierPresent(bin.area) ? String(bin.area).trim() : parsed?.area?.trim() || "";
+
+  if (warehouse) {
+    segments.push({ header: "WH", value: formatPathSegmentLabelCompact(warehouse) });
+  }
+  if (area) {
+    segments.push({ header: "AREA", value: formatPathSegmentLabelCompact(area) });
+  }
+
+  const row = tierPresent(bin.row) ? String(bin.row).trim() : "";
+  const bay = tierPresent(bin.bay) ? String(bin.bay).trim() : "";
+  const levelRaw = tierPresent(bin.level) ? String(bin.level).trim() : "";
+  const binCode = tierPresent(bin.binCode)
+    ? String(bin.binCode).trim()
+    : parsed?.pos?.trim() || "";
+
+  if (row) segments.push({ header: "ROW", value: formatPathSegmentLabelCompact(row) });
+  if (bay) segments.push({ header: "BAY", value: formatPathSegmentLabelCompact(bay) });
+  if (levelRaw) {
+    segments.push({
+      header: "LVL",
+      value: String(parseLevelDisplay(levelRaw)),
+      isLevel: true,
+    });
+  }
+  if (binCode) {
+    segments.push({ header: "BIN", value: formatPathSegmentLabelCompact(binCode) });
+  }
+
+  return segments;
+}
+
 /** Display segment without leading zeros on pure numeric tokens (e.g. `01` → `1`). */
 export function formatPathSegmentLabelCompact(segment: string): string {
   const s = String(segment || "").trim();

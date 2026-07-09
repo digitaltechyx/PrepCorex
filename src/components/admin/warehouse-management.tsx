@@ -41,7 +41,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useCollection } from "@/hooks/use-collection";
@@ -50,14 +49,12 @@ import type { Location, WarehouseAreaDoc, WarehouseBinDoc, WarehouseDoc } from "
 import {
   addWarehouseCustomPurpose,
   clearWarehouseAreaBins,
-  createWarehouseArea,
   createWarehouseFromExistingLocation,
   createWarehouseWithLocation,
   deleteWarehouseAreaCascade,
   deleteWarehouseBin,
   deleteWarehouseBinsByAreaRow,
   deleteWarehouseCascade,
-  generateWarehouseBinsFromDetailedRack,
   replaceWarehouseAreaRow,
   setWarehouseBinActive,
   updateWarehouse,
@@ -66,20 +63,16 @@ import {
   updateWarehouseWithLocation,
   migrateWarehouseBinPathFormat,
 } from "@/lib/warehouse-firestore";
-import { binSegmentsNeedMigration } from "@/lib/warehouse-bin-path";
+import { binSegmentsNeedMigration, compareBinPaths, isValidPathSegment } from "@/lib/warehouse-bin-path";
+import { countBinSlotsInDetailedRack } from "@/lib/warehouse-storage-layout";
 import { WarehouseBinEditDialog } from "@/components/admin/warehouse-bin-edit-dialog";
 import { WarehouseCartonManagement } from "@/components/admin/warehouse-carton-management";
 import { WarehouseShelvingDialog } from "@/components/admin/warehouse-shelving-dialog";
+import { WarehouseExtendShelvingDialog } from "@/components/admin/warehouse-extend-shelving-dialog";
 import {
   WarehouseRowEditDialog,
   type RowRackSavePayload,
 } from "@/components/admin/warehouse-row-edit-dialog";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  buildRowCodesWithAssignment,
-  listGapRowCodes,
-  type RowAssignMode,
-} from "@/lib/warehouse-row-rack";
 import {
   emptyWarehouseLocationForm,
   locationToFormValues,
@@ -96,19 +89,9 @@ import {
   suggestNextWarehouseCode,
 } from "@/lib/warehouse-code-generator";
 import { buildWarehouseBinLabelsPdf, downloadUint8ArrayAsFile } from "@/lib/warehouse-bin-label-pdf";
-import { buildBinPath, compareBinPaths, isValidPathSegment } from "@/lib/warehouse-bin-path";
-import {
-  buildBinSlotCodes,
-  buildBaysPerRowFromCounts,
-  buildLevelCodes,
-  buildRowCodes,
-  countBinSlotsInDetailedRack,
-} from "@/lib/warehouse-storage-layout";
 import { formatPurposesList, getAreaPurposes } from "@/lib/warehouse-area-purposes";
 import { WarehouseAreaPurposesField } from "@/components/admin/warehouse-area-purposes-field";
 import { WarehouseAddAreasDialog } from "@/components/admin/warehouse-add-areas-dialog";
-
-type RackWizardMode = "new-area" | "extend-area";
 
 export function WarehouseManagement() {
   const { toast } = useToast();
@@ -265,23 +248,7 @@ export function WarehouseManagement() {
   const [orphanCodeTouched, setOrphanCodeTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  type AreaWizardStep = "details" | "purposes" | "shelving" | "rows" | "bays" | "rackLevels" | "rackBins" | "review";
-  const [areaWizardOpen, setAreaWizardOpen] = useState(false);
   const [addAreasOpen, setAddAreasOpen] = useState(false);
-  const [rackWizardMode, setRackWizardMode] = useState<RackWizardMode>("new-area");
-  const [rackTargetAreaId, setRackTargetAreaId] = useState<string | null>(null);
-  const [wizStep, setWizStep] = useState<AreaWizardStep>("details");
-  const [wizCode, setWizCode] = useState("");
-  const [wizName, setWizName] = useState("");
-  const [wizPurposes, setWizPurposes] = useState<string[]>(["Storage"]);
-  const [wizAddShelving, setWizAddShelving] = useState(true);
-  const [wizTemporaryShelf, setWizTemporaryShelf] = useState(false);
-  const [wizRowCountStr, setWizRowCountStr] = useState("1");
-  const [wizRowAssignMode, setWizRowAssignMode] = useState<RowAssignMode>("fill-gaps");
-  const [wizBayCounts, setWizBayCounts] = useState<number[]>([]);
-  const [wizLevelsPerBay, setWizLevelsPerBay] = useState<number[][]>([]);
-  const [wizBinsPerLevel, setWizBinsPerLevel] = useState<number[][][]>([]);
-  const [wizSaving, setWizSaving] = useState(false);
 
   const [editAreaOpen, setEditAreaOpen] = useState(false);
   const [editAreaId, setEditAreaId] = useState<string | null>(null);
@@ -303,33 +270,6 @@ export function WarehouseManagement() {
   const [pdfBinFilter, setPdfBinFilter] = useState("__all__");
   const [pdfCreatedSince, setPdfCreatedSince] = useState("");
   const [pdfActiveOnly, setPdfActiveOnly] = useState(true);
-
-  const resetAreaWizard = () => {
-    setRackWizardMode("new-area");
-    setRackTargetAreaId(null);
-    setWizStep("details");
-    setWizCode("");
-    setWizName("");
-    setWizPurposes(["Storage"]);
-    setWizAddShelving(true);
-    setWizTemporaryShelf(false);
-    setWizRowCountStr("1");
-    setWizRowAssignMode("fill-gaps");
-    setWizBayCounts([]);
-    setWizLevelsPerBay([]);
-    setWizBinsPerLevel([]);
-  };
-
-  const existingRowsForRackTarget = useMemo(() => {
-    if (!rackTargetAreaId) return [] as string[];
-    const area = areas.find((a) => a.id === rackTargetAreaId);
-    if (!area) return [];
-    const codes = new Set<string>();
-    for (const b of bins) {
-      if (b.area === area.code && b.row) codes.add(b.row);
-    }
-    return [...codes].sort((a, b) => a.localeCompare(b));
-  }, [areas, bins, rackTargetAreaId]);
 
   const pdfAreaCode = useMemo(
     () => (pdfAreaFilter === "__all__" ? null : areas.find((a) => a.id === pdfAreaFilter)?.code ?? null),
@@ -434,19 +374,16 @@ export function WarehouseManagement() {
 
   const [shelvingDialogOpen, setShelvingDialogOpen] = useState(false);
   const [shelvingArea, setShelvingArea] = useState<WarehouseAreaDoc | null>(null);
+  const [extendShelvingOpen, setExtendShelvingOpen] = useState(false);
+  const [extendShelvingArea, setExtendShelvingArea] = useState<WarehouseAreaDoc | null>(null);
   const [rowEditOpen, setRowEditOpen] = useState(false);
   const [rowEditCode, setRowEditCode] = useState("");
   const [rowEditRefill, setRowEditRefill] = useState(false);
 
   const openExtendShelving = (area: WarehouseAreaDoc) => {
-    resetAreaWizard();
-    setRackWizardMode("extend-area");
-    setRackTargetAreaId(area.id);
-    setWizCode(area.code);
-    setWizName(area.name || "");
-    setWizRowCountStr("1");
-    setWizStep("rows");
-    setAreaWizardOpen(true);
+    setShelvingDialogOpen(false);
+    setExtendShelvingArea(area);
+    setExtendShelvingOpen(true);
   };
 
   const openShelving = (area: WarehouseAreaDoc) => {
@@ -664,114 +601,6 @@ export function WarehouseManagement() {
     if (!selected) return;
     await addWarehouseCustomPurpose(selected.id, label);
   };
-
-  const parseBoundedInt = (raw: string, label: string, min: number, max: number): number => {
-    const n = Number.parseInt(String(raw).trim(), 10);
-    if (!Number.isFinite(n) || n < min || n > max) {
-      throw new Error(`${label} must be a whole number between ${min} and ${max}.`);
-    }
-    return n;
-  };
-
-  const resolveWizardRowCodes = (rowCount: number): string[] =>
-    rackWizardMode === "extend-area"
-      ? buildRowCodesWithAssignment(existingRowsForRackTarget, rowCount, wizRowAssignMode)
-      : buildRowCodes(rowCount);
-
-  const gapRowCodesForExtend = useMemo(
-    () => (rackWizardMode === "extend-area" ? listGapRowCodes(existingRowsForRackTarget) : []),
-    [rackWizardMode, existingRowsForRackTarget]
-  );
-
-  const wizGridLayout = useMemo(() => {
-    try {
-      const rowCount = parseBoundedInt(wizRowCountStr, "Row count", 1, 999);
-      if (wizBayCounts.length !== rowCount) return null;
-      for (const m of wizBayCounts) {
-        if (!Number.isFinite(m) || m < 1 || m > 99) return null;
-      }
-      const rowCodes =
-        rackWizardMode === "extend-area"
-          ? buildRowCodesWithAssignment(existingRowsForRackTarget, rowCount, wizRowAssignMode)
-          : buildRowCodes(rowCount);
-      const baysByRow = buildBaysPerRowFromCounts(rowCodes, wizBayCounts);
-      return { rowCodes, baysByRow };
-    } catch {
-      return null;
-    }
-  }, [wizRowCountStr, wizBayCounts, rackWizardMode, existingRowsForRackTarget, wizRowAssignMode]);
-
-  const wizardRackLayout = useMemo(() => {
-    if (!selected) return null;
-    try {
-      const rowCount = parseBoundedInt(wizRowCountStr, "Row count", 1, 999);
-      if (wizBayCounts.length !== rowCount) return null;
-      for (let i = 0; i < wizBayCounts.length; i++) {
-        const m = wizBayCounts[i];
-        if (!Number.isFinite(m) || m < 1 || m > 99) return null;
-      }
-      const rowCodes =
-        rackWizardMode === "extend-area"
-          ? buildRowCodesWithAssignment(existingRowsForRackTarget, rowCount, wizRowAssignMode)
-          : buildRowCodes(rowCount);
-      const baysByRow = buildBaysPerRowFromCounts(rowCodes, wizBayCounts);
-      if (wizLevelsPerBay.length !== rowCodes.length || wizBinsPerLevel.length !== rowCodes.length) return null;
-      for (let ri = 0; ri < rowCodes.length; ri++) {
-        if (wizLevelsPerBay[ri].length !== baysByRow[ri].length) return null;
-        if (wizBinsPerLevel[ri].length !== baysByRow[ri].length) return null;
-        for (let bi = 0; bi < baysByRow[ri].length; bi++) {
-          const L = wizLevelsPerBay[ri][bi];
-          if (!Number.isFinite(L) || L < 1 || L > 99) return null;
-          const br = wizBinsPerLevel[ri][bi];
-          if (!br || br.length !== L) return null;
-          for (const c of br) {
-            if (!Number.isFinite(c) || c < 1 || c > 999) return null;
-          }
-        }
-      }
-      const estimated = countBinSlotsInDetailedRack(baysByRow, wizLevelsPerBay, wizBinsPerLevel);
-      if (!Number.isFinite(estimated)) return null;
-      const areaSeg = wizCode.trim();
-      if (!isValidPathSegment(areaSeg)) return null;
-      const L0 = wizLevelsPerBay[0][0];
-      const b0 = wizBinsPerLevel[0][0][0];
-      const levelCode = buildLevelCodes(L0)[0];
-      const binCode = buildBinSlotCodes(b0)[0];
-      const samplePath = buildBinPath(selected.code, areaSeg, rowCodes[0], baysByRow[0][0], levelCode, binCode);
-      return {
-        rowCodes,
-        baysByRow,
-        levelsPerBay: wizLevelsPerBay,
-        binsPerLevel: wizBinsPerLevel,
-        estimated,
-        samplePath,
-      };
-    } catch {
-      return null;
-    }
-  }, [
-    selected,
-    rackWizardMode,
-    existingRowsForRackTarget,
-    wizRowCountStr,
-    wizBayCounts,
-    wizLevelsPerBay,
-    wizBinsPerLevel,
-    wizCode,
-    wizRowAssignMode,
-  ]);
-
-  const wizRowLabels = useMemo(() => {
-    try {
-      const rc = parseBoundedInt(wizRowCountStr, "Row count", 1, 999);
-      if (rackWizardMode === "extend-area") {
-        return buildRowCodesWithAssignment(existingRowsForRackTarget, rc, wizRowAssignMode);
-      }
-      return buildRowCodes(rc);
-    } catch {
-      return [] as string[];
-    }
-  }, [wizRowCountStr, rackWizardMode, existingRowsForRackTarget, wizRowAssignMode]);
 
   const [printing, setPrinting] = useState(false);
   const [deletingWarehouse, setDeletingWarehouse] = useState(false);
@@ -1026,287 +855,6 @@ export function WarehouseManagement() {
     } finally {
       setDeletingWarehouse(false);
     }
-  };
-
-  const handleWizardCreateZoneOnly = async () => {
-    if (!selected || wizSaving) return;
-    const c = wizCode.trim();
-    if (!c) {
-      toast({ variant: "destructive", title: "Area code required" });
-      return;
-    }
-    if (!isValidPathSegment(c)) {
-      toast({
-        variant: "destructive",
-        title: "Invalid code",
-        description: "Use letters and numbers only (no spaces).",
-      });
-      return;
-    }
-    if (!wizPurposes.length) {
-      toast({ variant: "destructive", title: "Select at least one purpose" });
-      return;
-    }
-    setWizSaving(true);
-    try {
-      await createWarehouseArea(selected.id, {
-        code: c,
-        name: wizName.trim(),
-        purposes: wizPurposes,
-      });
-      toast({ title: "Area added", description: `${c} ? ${formatPurposesList(wizPurposes)}` });
-      setAreaWizardOpen(false);
-      resetAreaWizard();
-    } catch (e: unknown) {
-      toast({
-        variant: "destructive",
-        title: "Could not add area",
-        description: e instanceof Error ? e.message : String(e),
-      });
-    } finally {
-      setWizSaving(false);
-    }
-  };
-
-  const handleWizardFinishRack = async () => {
-    if (!selected || wizSaving) return;
-    if (!wizardRackLayout) {
-      toast({
-        variant: "destructive",
-        title: "Review incomplete",
-        description: "Go back and check row, bay, level, and bin counts.",
-      });
-      return;
-    }
-    if (wizardRackLayout.estimated > 25_000) {
-      toast({
-        variant: "destructive",
-        title: "Too many bins",
-        description: `This layout would create about ${wizardRackLayout.estimated.toLocaleString()} bins (limit 25,000). Reduce rows, bays, levels, or bins per level.`,
-      });
-      return;
-    }
-    setWizSaving(true);
-    try {
-      let areaId = rackTargetAreaId;
-      if (rackWizardMode === "new-area") {
-        areaId = await createWarehouseArea(selected.id, {
-          code: wizCode.trim(),
-          name: wizName.trim(),
-          purposes: wizPurposes.length ? wizPurposes : ["Storage"],
-        });
-      }
-      if (!areaId) throw new Error("Area not found.");
-
-      const layoutBlockId =
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `block-${Date.now()}`;
-
-      const res = await generateWarehouseBinsFromDetailedRack({
-        warehouseId: selected.id,
-        warehouseCode: selected.code,
-        storageAreaId: areaId,
-        rowCodes: wizardRackLayout.rowCodes,
-        baysByRow: wizardRackLayout.baysByRow,
-        levelsPerBay: wizardRackLayout.levelsPerBay,
-        binsPerLevel: wizardRackLayout.binsPerLevel,
-        temporary: wizTemporaryShelf,
-        layoutBlockId,
-      });
-      toast({
-        title: rackWizardMode === "extend-area" ? "Shelving added" : "Area & bins ready",
-        description: `Bins created ${res.created}, skipped (already exist) ${res.skipped}${
-          res.failed ? `, failed ${res.failed}` : ""
-        }.`,
-      });
-      if (res.errors.length) console.warn(res.errors);
-      setAreaWizardOpen(false);
-      resetAreaWizard();
-    } catch (e: unknown) {
-      toast({
-        variant: "destructive",
-        title: "Setup failed",
-        description: e instanceof Error ? e.message : String(e),
-      });
-    } finally {
-      setWizSaving(false);
-    }
-  };
-
-  const handleWizardPrimary = async () => {
-    if (!selected) return;
-    if (wizStep === "details") {
-      const c = wizCode.trim();
-      if (!c) {
-        toast({ variant: "destructive", title: "Area code required" });
-        return;
-      }
-      if (!isValidPathSegment(c)) {
-        toast({
-          variant: "destructive",
-          title: "Invalid code",
-          description: "Use letters and numbers only (no spaces).",
-        });
-        return;
-      }
-      if (rackWizardMode === "extend-area") {
-        setWizStep("rows");
-        return;
-      }
-      setWizStep("purposes");
-      return;
-    }
-    if (wizStep === "purposes") {
-      if (!wizPurposes.length) {
-        toast({ variant: "destructive", title: "Select at least one purpose" });
-        return;
-      }
-      setWizStep("shelving");
-      return;
-    }
-    if (wizStep === "shelving") {
-      if (!wizAddShelving) {
-        await handleWizardCreateZoneOnly();
-        return;
-      }
-      setWizStep("rows");
-      return;
-    }
-    if (wizStep === "rows") {
-      try {
-        const rc = parseBoundedInt(wizRowCountStr, "Row count", 1, 999);
-        setWizBayCounts((prev) =>
-          Array.from({ length: rc }, (_, i) => {
-            const v = prev[i];
-            return Number.isFinite(v) && v >= 1 && v <= 99 ? v : 3;
-          })
-        );
-        setWizStep("bays");
-      } catch (e: unknown) {
-        toast({
-          variant: "destructive",
-          title: "Check rows",
-          description: e instanceof Error ? e.message : String(e),
-        });
-      }
-      return;
-    }
-    if (wizStep === "bays") {
-      try {
-        const rc = parseBoundedInt(wizRowCountStr, "Row count", 1, 999);
-        if (wizBayCounts.length !== rc) {
-          toast({
-            variant: "destructive",
-            title: "Bay counts",
-            description: "Each row needs a bay count between 1 and 99.",
-          });
-          return;
-        }
-        for (let i = 0; i < wizBayCounts.length; i++) {
-          const m = wizBayCounts[i];
-          if (!Number.isFinite(m) || m < 1 || m > 99) {
-            throw new Error(`Row ${i + 1}: bay count must be between 1 and 99.`);
-          }
-        }
-        const rowCodes = resolveWizardRowCodes(rc);
-        const baysByRow = buildBaysPerRowFromCounts(rowCodes, wizBayCounts);
-        setWizLevelsPerBay(baysByRow.map((bays) => bays.map(() => 4)));
-        setWizBinsPerLevel([]);
-        setWizStep("rackLevels");
-      } catch (e: unknown) {
-        toast({
-          variant: "destructive",
-          title: "Invalid bays",
-          description: e instanceof Error ? e.message : String(e),
-        });
-      }
-      return;
-    }
-    if (wizStep === "rackLevels") {
-      try {
-        const rc = parseBoundedInt(wizRowCountStr, "Row count", 1, 999);
-        const rowCodes = resolveWizardRowCodes(rc);
-        const baysByRow = buildBaysPerRowFromCounts(rowCodes, wizBayCounts);
-        for (let ri = 0; ri < baysByRow.length; ri++) {
-          for (let bi = 0; bi < baysByRow[ri].length; bi++) {
-            const L = wizLevelsPerBay[ri]?.[bi];
-            if (!Number.isFinite(L) || L < 1 || L > 99) {
-              throw new Error(
-                `Row ${rowCodes[ri]} bay ${baysByRow[ri][bi]}: level count must be between 1 and 99.`
-              );
-            }
-          }
-        }
-        setWizBinsPerLevel(
-          baysByRow.map((bays, ri) =>
-            bays.map((_, bi) => {
-              const L = wizLevelsPerBay[ri][bi];
-              return Array.from({ length: L }, (_, li) => {
-                const priorBin = wizBinsPerLevel[ri]?.[bi]?.[li];
-                return Number.isFinite(priorBin) && priorBin >= 1 && priorBin <= 999 ? priorBin : 3;
-              });
-            })
-          )
-        );
-        setWizStep("rackBins");
-      } catch (e: unknown) {
-        toast({
-          variant: "destructive",
-          title: "Check levels",
-          description: e instanceof Error ? e.message : String(e),
-        });
-      }
-      return;
-    }
-    if (wizStep === "rackBins") {
-      try {
-        const rc = parseBoundedInt(wizRowCountStr, "Row count", 1, 999);
-        const rowCodes = resolveWizardRowCodes(rc);
-        const baysByRow = buildBaysPerRowFromCounts(rowCodes, wizBayCounts);
-        for (let ri = 0; ri < baysByRow.length; ri++) {
-          for (let bi = 0; bi < baysByRow[ri].length; bi++) {
-            const L = wizLevelsPerBay[ri][bi];
-            const row = wizBinsPerLevel[ri]?.[bi];
-            if (!row || row.length !== L) {
-              throw new Error(`Row ${rowCodes[ri]} bay ${baysByRow[ri][bi]}: enter a bin count for every level.`);
-            }
-            for (let li = 0; li < L; li++) {
-              const c = row[li];
-              if (!Number.isFinite(c) || c < 1 || c > 999) {
-                throw new Error(
-                  `Row ${rowCodes[ri]} bay ${baysByRow[ri][bi]} level ${li + 1}: bin count must be 1-999.`
-                );
-              }
-            }
-          }
-        }
-        setWizStep("review");
-      } catch (e: unknown) {
-        toast({
-          variant: "destructive",
-          title: "Check bin counts",
-          description: e instanceof Error ? e.message : String(e),
-        });
-      }
-      return;
-    }
-    if (wizStep === "review") {
-      await handleWizardFinishRack();
-    }
-  };
-
-  const handleWizardBack = () => {
-    if (wizStep === "purposes") setWizStep("details");
-    else if (wizStep === "shelving") setWizStep("purposes");
-    else if (wizStep === "rows") {
-      if (rackWizardMode === "extend-area") setAreaWizardOpen(false);
-      else setWizStep("shelving");
-    }
-    else if (wizStep === "bays") setWizStep("rows");
-    else if (wizStep === "rackLevels") setWizStep("bays");
-    else if (wizStep === "rackBins") setWizStep("rackLevels");
-    else if (wizStep === "review") setWizStep("rackBins");
   };
 
   const handlePrintPdf = async () => {
@@ -2124,388 +1672,21 @@ export function WarehouseManagement() {
         }}
       />
 
-      <Dialog
-        open={areaWizardOpen && rackWizardMode === "extend-area"}
+      <WarehouseExtendShelvingDialog
+        open={extendShelvingOpen}
         onOpenChange={(open) => {
-          setAreaWizardOpen(open);
-          if (!open) resetAreaWizard();
+          setExtendShelvingOpen(open);
+          if (!open) setExtendShelvingArea(null);
         }}
-      >
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Add shelving — layout wizard</DialogTitle>
-            <DialogDescription>
-              {wizStep === "rows" &&
-                "How many rows to add? Choose whether to refill empty row numbers first or continue after the highest row."}
-              {wizStep === "bays" && "For each row, how many bays (positions along the aisle)?"}
-              {wizStep === "rackLevels" && "For each bay, how many vertical levels (1, 2, 3… in the path)?"}
-              {wizStep === "rackBins" && "For each level in each bay, how many bin slots (labeled B01, B02, …)?"}
-              {wizStep === "review" && "Confirm before generating bins (existing paths are skipped)."}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2 overflow-y-auto min-h-0 flex-1">
-            {wizStep === "details" ? (
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label>Area code</Label>
-                  <Input
-                    value={wizCode}
-                    onChange={(e) => setWizCode(e.target.value)}
-                    placeholder="A"
-                    className="font-mono"
-                  />
-                  <p className="text-xs text-muted-foreground">Short segment in bin paths (e.g. A, R1).</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Name (optional)</Label>
-                  <Input
-                    value={wizName}
-                    onChange={(e) => setWizName(e.target.value)}
-                    placeholder="Fast-moving pick face"
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {wizStep === "purposes" && rackWizardMode === "new-area" ? (
-              <WarehouseAreaPurposesField
-                selected={wizPurposes}
-                onChange={setWizPurposes}
-                warehouseCustomPurposes={selected?.customPurposes}
-                otherAreaPurposeLists={areas.map((a) => getAreaPurposes(a))}
-                onAddCustomToWarehouse={handleAddCustomPurpose}
-                disabled={wizSaving}
-              />
-            ) : null}
-
-            {wizStep === "shelving" && rackWizardMode === "new-area" ? (
-              <div className="space-y-4">
-                <Label>Add shelving (bins) in this area?</Label>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant={wizAddShelving ? "default" : "outline"}
-                    onClick={() => setWizAddShelving(true)}
-                  >
-                    Yes — design rows / bays / levels
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={!wizAddShelving ? "default" : "outline"}
-                    onClick={() => setWizAddShelving(false)}
-                  >
-                    No — zone only (add shelving later)
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            {wizStep === "rows" ? (
-              <div className="space-y-2">
-                {rackWizardMode === "extend-area" ? (
-                  <p className="text-sm text-muted-foreground rounded-md border bg-muted/40 p-3">
-                    Area <span className="font-mono font-medium">{wizCode}</span>
-                    {existingRowsForRackTarget.length > 0 ? (
-                      <>
-                        {" "}
-                        — existing rows:{" "}
-                        <span className="font-mono">{existingRowsForRackTarget.join(", ")}</span>
-                      </>
-                    ) : (
-                      " — no rows yet"
-                    )}
-                  </p>
-                ) : null}
-                <Label>Number of rows</Label>
-                <Input
-                  inputMode="numeric"
-                  value={wizRowCountStr}
-                  onChange={(e) => setWizRowCountStr(e.target.value)}
-                  className="max-w-[120px]"
-                />
-                {rackWizardMode === "extend-area" ? (
-                  <div className="space-y-2 pt-2">
-                    <Label className="text-sm">Row numbering</Label>
-                    <RadioGroup
-                      value={wizRowAssignMode}
-                      onValueChange={(v) => setWizRowAssignMode(v as RowAssignMode)}
-                      className="space-y-2"
-                    >
-                      <div className="flex items-start gap-2 rounded-md border p-3">
-                        <RadioGroupItem value="fill-gaps" id="row-assign-gaps" className="mt-0.5" />
-                        <label htmlFor="row-assign-gaps" className="text-sm cursor-pointer space-y-0.5">
-                          <span className="font-medium">Refill gaps first</span>
-                          <p className="text-xs text-muted-foreground">
-                            Use empty row numbers (e.g. 01, 02) before adding new rows after the highest.
-                            {gapRowCodesForExtend.length > 0 ? (
-                              <>
-                                {" "}
-                                Gaps: <span className="font-mono">{gapRowCodesForExtend.join(", ")}</span>
-                              </>
-                            ) : (
-                              " No gaps right now — same as continue after highest."
-                            )}
-                          </p>
-                        </label>
-                      </div>
-                      <div className="flex items-start gap-2 rounded-md border p-3">
-                        <RadioGroupItem value="continue" id="row-assign-continue" className="mt-0.5" />
-                        <label htmlFor="row-assign-continue" className="text-sm cursor-pointer space-y-0.5">
-                          <span className="font-medium">Continue after highest row</span>
-                          <p className="text-xs text-muted-foreground">
-                            Always number after the current maximum (e.g. existing 03, 04 → next is 05).
-                          </p>
-                        </label>
-                      </div>
-                    </RadioGroup>
-                    {wizRowLabels.length > 0 ? (
-                      <p className="text-xs text-muted-foreground">
-                        New row codes: <span className="font-mono">{wizRowLabels.join(", ")}</span>
-                      </p>
-                    ) : null}
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Rows are numbered 01, 02, … (width adjusts for large counts).
-                  </p>
-                )}
-              </div>
-            ) : null}
-
-            {wizStep === "bays" ? (
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  Bays are labeled A–Z for up to 26 per row, then 01, 02, … for larger counts.
-                </p>
-                <ScrollArea className="h-72 rounded-md border p-3">
-                  <div className="space-y-3 pr-3">
-                    {wizRowLabels.map((rowLabel, i) => (
-                      <div key={rowLabel} className="flex items-center gap-3">
-                        <span className="text-sm font-mono w-12 shrink-0">{rowLabel}</span>
-                        <div className="flex-1 space-y-1">
-                          <Label className="text-xs text-muted-foreground">Bays in this row</Label>
-                          <Input
-                            inputMode="numeric"
-                            className="max-w-[100px]"
-                            value={wizBayCounts[i] != null && wizBayCounts[i] >= 1 ? String(wizBayCounts[i]) : ""}
-                            onChange={(e) => {
-                              const v = Number.parseInt(e.target.value, 10);
-                              setWizBayCounts((arr) => {
-                                const next = [...arr];
-                                next[i] = Number.isFinite(v) ? v : 0;
-                                return next;
-                              });
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
-            ) : null}
-
-            {wizStep === "rackLevels" && wizGridLayout ? (
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  Same idea as bays per row: each bay can have its own number of levels.
-                </p>
-                <ScrollArea className="h-80 rounded-md border p-3">
-                  <div className="space-y-4 pr-3">
-                    {wizGridLayout.rowCodes.map((rowLabel, ri) => (
-                      <div key={rowLabel} className="space-y-3">
-                        <div className="text-xs font-semibold text-muted-foreground">Row {rowLabel}</div>
-                        {wizGridLayout.baysByRow[ri].map((bayCode, bi) => (
-                          <div key={`${ri}-${bi}`} className="flex flex-wrap items-end gap-3 pl-2">
-                            <span className="text-sm font-mono shrink-0">
-                              {rowLabel}-{bayCode}
-                            </span>
-                            <div className="space-y-1">
-                              <Label className="text-xs text-muted-foreground">Levels in this bay</Label>
-                              <Input
-                                inputMode="numeric"
-                                className="w-[100px]"
-                                value={
-                                  wizLevelsPerBay[ri]?.[bi] != null && wizLevelsPerBay[ri][bi] >= 1
-                                    ? String(wizLevelsPerBay[ri][bi])
-                                    : ""
-                                }
-                                onChange={(e) => {
-                                  const v = Number.parseInt(e.target.value, 10);
-                                  setWizLevelsPerBay((prev) => {
-                                    if (!wizGridLayout) return prev;
-                                    const bayLen = wizGridLayout.baysByRow[ri]?.length ?? 0;
-                                    const next = prev.map((row) => [...row]);
-                                    if (!next[ri]) next[ri] = [];
-                                    while (next[ri].length < bayLen) next[ri].push(4);
-                                    next[ri][bi] = Number.isFinite(v) ? v : 0;
-                                    return next;
-                                  });
-                                }}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
-            ) : null}
-
-            {wizStep === "rackBins" && wizGridLayout ? (
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  Slots use codes B01, B02, … within each level.
-                </p>
-                <ScrollArea className="h-96 max-h-[55vh] rounded-md border p-3">
-                  <div className="space-y-6 pr-3">
-                    {wizGridLayout.rowCodes.map((rowLabel, ri) => (
-                      <div key={rowLabel} className="space-y-3">
-                        <div className="text-xs font-semibold text-muted-foreground">Row {rowLabel}</div>
-                        {wizGridLayout.baysByRow[ri].map((bayCode, bi) => {
-                          const L = wizLevelsPerBay[ri]?.[bi] ?? 0;
-                          return (
-                            <div key={`${ri}-${bi}`} className="border-l-2 border-muted pl-3 space-y-2">
-                              <div className="text-sm font-mono text-foreground">
-                                {rowLabel}-{bayCode}{" "}
-                                <span className="text-xs text-muted-foreground font-sans">
-                                  ({L} level{L !== 1 ? "s" : ""})
-                                </span>
-                              </div>
-                              {Array.from({ length: L }, (_, li) => (
-                                <div key={li} className="flex flex-wrap items-end gap-3">
-                                  <Label className="text-xs text-muted-foreground w-20 shrink-0">
-                                    L{li + 1}
-                                  </Label>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs text-muted-foreground">Bins on this level</Label>
-                                    <Input
-                                      inputMode="numeric"
-                                      className="w-[100px]"
-                                      value={
-                                        wizBinsPerLevel[ri]?.[bi]?.[li] != null &&
-                                        wizBinsPerLevel[ri][bi][li] >= 1
-                                          ? String(wizBinsPerLevel[ri][bi][li])
-                                          : ""
-                                      }
-                                      onChange={(e) => {
-                                        const v = Number.parseInt(e.target.value, 10);
-                                        setWizBinsPerLevel((prev) => {
-                                          const next = prev.map((r) => r.map((b) => [...b]));
-                                          if (!next[ri]) next[ri] = [];
-                                          while (next[ri].length <= bi) next[ri].push([]);
-                                          const row = [...(next[ri][bi] || [])];
-                                          while (row.length < L) row.push(3);
-                                          row[li] = Number.isFinite(v) ? v : 0;
-                                          next[ri][bi] = row;
-                                          return next;
-                                        });
-                                      }}
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
-            ) : null}
-
-            {wizStep === "review" ? (
-              <div className="space-y-3 text-sm rounded-lg border bg-muted/30 p-4">
-                {wizardRackLayout ? (
-                  <>
-                    <div>
-                      <span className="text-muted-foreground">Warehouse — area:</span>{" "}
-                      <span className="font-mono">
-                        {selected?.code}-{wizCode.trim()}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Sample bin path:</span>{" "}
-                      <span className="font-mono text-xs break-all">{wizardRackLayout.samplePath}</span>
-                    </div>
-                    <div className="flex items-center gap-2 pt-1">
-                      <Switch
-                        id="wiz-temp-shelf"
-                        checked={wizTemporaryShelf}
-                        onCheckedChange={setWizTemporaryShelf}
-                      />
-                      <Label htmlFor="wiz-temp-shelf" className="text-sm font-normal cursor-pointer">
-                        Mark as temporary shelf block
-                      </Label>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Estimated new bin records:</span>{" "}
-                      <strong className="text-foreground">{wizardRackLayout.estimated.toLocaleString()}</strong>
-                      <span className="text-muted-foreground"> (existing paths are skipped)</span>
-                    </div>
-                    {wizardRackLayout.estimated > 25_000 ? (
-                      <p className="text-sm text-amber-800 dark:text-amber-200">
-                        Over the 25,000 limit for one run. Reduce rows, bays, levels, or bins in the wizard and try
-                        again.
-                      </p>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className="text-muted-foreground">Fix any invalid counts on the previous steps to see a preview.</p>
-                )}
-              </div>
-            ) : null}
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0 flex-col sm:flex-row sm:justify-between">
-            <div className="flex gap-2 order-2 sm:order-1">
-              {wizStep !== "details" ? (
-                <Button type="button" variant="outline" onClick={handleWizardBack} disabled={wizSaving}>
-                  Back
-                </Button>
-              ) : null}
-            </div>
-            <div className="flex gap-2 justify-end order-1 sm:order-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setAreaWizardOpen(false);
-                  resetAreaWizard();
-                }}
-                disabled={wizSaving}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => void handleWizardPrimary()}
-                disabled={
-                  wizSaving ||
-                  (wizStep === "review" && (!wizardRackLayout || wizardRackLayout.estimated > 25_000))
-                }
-              >
-                {wizSaving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : wizStep === "details" ? (
-                  "Next"
-                ) : wizStep === "purposes" ? (
-                  "Next"
-                ) : wizStep === "shelving" ? (
-                  wizAddShelving ? "Next: rack layout" : "Create area"
-                ) : wizStep === "review" ? (
-                  rackWizardMode === "extend-area" ? "Add bins" : "Create area & bins"
-                ) : (
-                  "Next"
-                )}
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        warehouse={selected}
+        area={extendShelvingArea}
+        onCreated={({ binsCreated, binsSkipped }) => {
+          toast({
+            title: "Shelving added",
+            description: `Bins created ${binsCreated}, skipped (already exist) ${binsSkipped}.`,
+          });
+        }}
+      />
 
       <WarehouseShelvingDialog
         open={shelvingDialogOpen}
