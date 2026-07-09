@@ -1,9 +1,15 @@
 export type AdminReportType =
   | "overview"
+  | "full"
   | "financial"
   | "commission"
   | "client_activity"
   | "operations"
+  | "inbound"
+  | "outbound"
+  | "returns"
+  | "dispose"
+  | "comparison"
   | "audit";
 
 export type AdminReportInvoiceRow = {
@@ -79,6 +85,9 @@ export type AdminReportSummary = {
   clientActivity: {
     unitsShipped: number;
     unitsReceived: number;
+    unitsDisposed: number;
+    returnsHandled: number;
+    unitsReturned: number;
     shipmentRequests: number;
     inventoryRequests: number;
     returns: number;
@@ -111,6 +120,22 @@ export type AdminReportSummary = {
     agentName: string;
     referralCode?: string;
   } | null;
+};
+
+export type AdminReportComparisonMetric = {
+  label: string;
+  periodA: number;
+  periodB: number;
+  delta: number;
+  deltaPct: number | null;
+  format: "number" | "currency";
+};
+
+export type AdminReportComparisonSummary = {
+  scope: { clientId?: string; clientName?: string; allClients: boolean };
+  periodA: { from: string; to: string; label: string };
+  periodB: { from: string; to: string; label: string };
+  metrics: AdminReportComparisonMetric[];
 };
 
 export type AgentStatementSummary = {

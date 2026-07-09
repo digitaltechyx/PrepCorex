@@ -107,7 +107,7 @@ export function buildClientStatementPdf(summary: AdminReportSummary): Uint8Array
   const qW = (pageW - 28 - 6) / 3;
   drawBox(doc, 14, y, qW, 24, "Units shipped", String(summary.clientActivity.unitsShipped), [59, 130, 246]);
   drawBox(doc, 14 + qW + 3, y, qW, 24, "Units received", String(summary.clientActivity.unitsReceived), [168, 85, 247]);
-  drawBox(doc, 14 + (qW + 3) * 2, y, qW, 24, "Returns handled", String(summary.clientActivity.returns), [249, 115, 22]);
+  drawBox(doc, 14 + (qW + 3) * 2, y, qW, 24, "Returns handled", String(summary.clientActivity.returnsHandled), [249, 115, 22]);
   y += 32;
 
   drawBarChart(

@@ -1,8 +1,54 @@
-import type { AdminReportSummary, AdminReportType } from "@/lib/admin-reports-types";
+import type { AdminReportComparisonSummary, AdminReportSummary, AdminReportType } from "@/lib/admin-reports-types";
+import { filterActivitiesByReportType, moduleLabel } from "@/lib/admin-reports-modules";
 import { csvEscape } from "@/lib/admin-reports-utils";
 
 function toCsv(header: string[], rows: string[][]): string {
   return [header.map(csvEscape).join(","), ...rows.map((r) => r.map((c) => csvEscape(String(c))).join(","))].join("\r\n");
+}
+
+function operationsSummaryRows(summary: AdminReportSummary): string[] {
+  return [
+    "Metric,Count",
+    `Units Received,${summary.clientActivity.unitsReceived}`,
+    `Units Shipped,${summary.clientActivity.unitsShipped}`,
+    `Units Disposed,${summary.clientActivity.unitsDisposed}`,
+    `Returns Handled,${summary.clientActivity.returnsHandled}`,
+    `Units Returned,${summary.clientActivity.unitsReturned}`,
+    `Shipment Requests,${summary.clientActivity.shipmentRequests}`,
+    `Inventory Requests,${summary.clientActivity.inventoryRequests}`,
+    `Return Requests,${summary.clientActivity.returns}`,
+    `Dispose Requests,${summary.clientActivity.disposeRequests}`,
+    `Total Billed,${summary.financial.totalBilled.toFixed(2)}`,
+    `Total Paid,${summary.financial.totalPaid.toFixed(2)}`,
+  ];
+}
+
+export function buildAdminReportComparisonCsv(comparison: AdminReportComparisonSummary): string {
+  const scope = comparison.scope.allClients
+    ? "All clients"
+    : comparison.scope.clientName || comparison.scope.clientId || "";
+  const meta = [
+    ["Report Type", "comparison"],
+    ["Scope", scope],
+    ["Period A", comparison.periodA.label],
+    ["Period B", comparison.periodB.label],
+    [],
+  ];
+
+  return [
+    ...meta.map((r) => r.join(",")),
+    "",
+    toCsv(
+      ["Metric", "Period A", "Period B", "Delta", "Change %"],
+      comparison.metrics.map((m) => [
+        m.label,
+        m.format === "currency" ? m.periodA.toFixed(2) : String(m.periodA),
+        m.format === "currency" ? m.periodB.toFixed(2) : String(m.periodB),
+        m.format === "currency" ? m.delta.toFixed(2) : String(m.delta),
+        m.deltaPct === null ? "" : `${m.deltaPct.toFixed(1)}%`,
+      ])
+    ),
+  ].join("\r\n");
 }
 
 export function buildAdminReportCsv(summary: AdminReportSummary, reportType: AdminReportType): string {
@@ -93,16 +139,78 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
       return [
         ...meta.map((r) => r.join(",")),
         "",
-        "Metric,Count",
-        `Shipment Requests,${summary.clientActivity.shipmentRequests}`,
-        `Inventory Requests,${summary.clientActivity.inventoryRequests}`,
-        `Returns,${summary.clientActivity.returns}`,
-        `Dispose Requests,${summary.clientActivity.disposeRequests}`,
-        `Units Shipped,${summary.clientActivity.unitsShipped}`,
-        `Units Received,${summary.clientActivity.unitsReceived}`,
+        ...operationsSummaryRows(summary),
         "",
         toCsv(
           ["Client", "Activity Type", "Description", "Quantity", "Status", "Date"],
+          summary.rows.activities.map((r) => [
+            r.clientName,
+            r.type,
+            r.description,
+            r.quantity?.toString() || "",
+            r.status || "",
+            r.occurredAt,
+          ])
+        ),
+      ].join("\r\n");
+
+    case "inbound":
+    case "outbound":
+    case "returns":
+    case "dispose": {
+      const moduleActivities = filterActivitiesByReportType(summary.rows.activities, reportType);
+      return [
+        ...meta.map((r) => r.join(",")),
+        "",
+        `Module,${moduleLabel(reportType)}`,
+        "",
+        ...operationsSummaryRows(summary).filter((line) => {
+          const key = line.split(",")[0];
+          if (reportType === "inbound") return ["Units Received", "Inventory Requests", "Metric"].includes(key);
+          if (reportType === "outbound") return ["Units Shipped", "Shipment Requests", "Metric"].includes(key);
+          if (reportType === "returns")
+            return ["Returns Handled", "Units Returned", "Return Requests", "Metric"].includes(key);
+          if (reportType === "dispose") return ["Units Disposed", "Dispose Requests", "Metric"].includes(key);
+          return true;
+        }),
+        "",
+        toCsv(
+          ["Client", "Activity Type", "Description", "Quantity", "Status", "Date"],
+          moduleActivities.map((r) => [
+            r.clientName,
+            r.type,
+            r.description,
+            r.quantity?.toString() || "",
+            r.status || "",
+            r.occurredAt,
+          ])
+        ),
+      ].join("\r\n");
+    }
+
+    case "full":
+      return [
+        ...meta.map((r) => r.join(",")),
+        "",
+        ...operationsSummaryRows(summary),
+        "",
+        "Section,Metric,Value",
+        `Financial,Total Billed,${summary.financial.totalBilled.toFixed(2)}`,
+        `Financial,Total Paid,${summary.financial.totalPaid.toFixed(2)}`,
+        `Financial,Total Pending,${summary.financial.totalPending.toFixed(2)}`,
+        `Financial,Invoice Count,${summary.financial.invoiceCount}`,
+        `Commission,Total Earned,${summary.commission.totalEarned.toFixed(2)}`,
+        `Activity,Active Clients,${summary.clientActivity.activeClients}`,
+        "",
+        "=== INVOICES ===",
+        toCsv(
+          ["Client", "Invoice #", "Date", "Status", "Grand Total"],
+          summary.rows.invoices.map((r) => [r.clientName, r.invoiceNumber, r.date, r.status, r.grandTotal.toFixed(2)])
+        ),
+        "",
+        "=== ACTIVITY ===",
+        toCsv(
+          ["Client", "Type", "Description", "Qty", "Status", "Date"],
           summary.rows.activities.map((r) => [
             r.clientName,
             r.type,
@@ -129,6 +237,9 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
         `Commission,Paid,${summary.commission.totalPaid.toFixed(2)}`,
         `Activity,Units Shipped,${summary.clientActivity.unitsShipped}`,
         `Activity,Units Received,${summary.clientActivity.unitsReceived}`,
+        `Activity,Units Disposed,${summary.clientActivity.unitsDisposed}`,
+        `Activity,Returns Handled,${summary.clientActivity.returnsHandled}`,
+        `Activity,Units Returned,${summary.clientActivity.unitsReturned}`,
         `Activity,Active Clients,${summary.clientActivity.activeClients}`,
         "",
         "=== INVOICES ===",

@@ -7,6 +7,8 @@ import type {
   AdminReportActivityRow,
   AdminReportAuditRow,
   AdminReportCommissionRow,
+  AdminReportComparisonMetric,
+  AdminReportComparisonSummary,
   AdminReportInvoiceRow,
   AdminReportSummary,
   AdminReportType,
@@ -343,28 +345,40 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
         };
       }),
       loadCollectionGroupActivities("productReturns", allowedIds, from, to, allTime, (path, data) => {
-        const occurredMs = pickReportDateMs(data, ["createdAt", "updatedAt", "approvedAt", "requestedAt"]);
+        const status = String(data.status || "");
+        const isHandled = status === "closed";
+        const occurredMs = isHandled
+          ? pickReportDateMs(data, ["closedAt", "updatedAt", "createdAt"])
+          : pickReportDateMs(data, ["createdAt", "updatedAt", "approvedAt", "requestedAt"]);
         if (!occurredMs) return null;
+        const receivedQty = Number(data.receivedQuantity) || 0;
+        const requestedQty = Number(data.requestedQuantity) || 0;
         return {
           id: path,
           userId: uidFromFirestorePath(path),
           clientName: userNameById.get(uidFromFirestorePath(path)) || "",
           type: "Product Return",
-          description: "Product return request",
-          status: String(data.status || ""),
+          description: String(data.productName || data.newProductName || "Product return"),
+          quantity: isHandled ? receivedQty || requestedQty : requestedQty,
+          status,
           occurredAt: new Date(occurredMs).toISOString(),
         };
       }),
       loadCollectionGroupActivities("disposeRequests", allowedIds, from, to, allTime, (path, data) => {
-        const occurredMs = pickReportDateMs(data, ["requestedAt", "approvedAt", "createdAt"]);
+        const status = String(data.status || "");
+        const isApproved = status === "approved";
+        const occurredMs = isApproved
+          ? pickReportDateMs(data, ["approvedAt", "requestedAt", "createdAt"])
+          : pickReportDateMs(data, ["requestedAt", "createdAt"]);
         if (!occurredMs) return null;
         return {
           id: path,
           userId: uidFromFirestorePath(path),
           clientName: userNameById.get(uidFromFirestorePath(path)) || "",
           type: "Dispose Request",
-          description: "Dispose inventory request",
-          status: String(data.status || ""),
+          description: String(data.productName || "Dispose inventory"),
+          quantity: Number(data.quantity) || 0,
+          status,
           occurredAt: new Date(occurredMs).toISOString(),
         };
       }),
@@ -389,6 +403,11 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
     .reduce((s, i) => s + (i.grandTotal || 0), 0);
   const unitsShipped = shippedRows.reduce((s, r) => s + (r.quantity || 0), 0);
   const unitsReceived = inventoryRows.reduce((s, r) => s + (r.quantity || 0), 0);
+  const handledReturns = returnRows.filter((r) => r.status === "closed");
+  const approvedDispose = disposeRows.filter((r) => r.status === "approved");
+  const returnsHandled = handledReturns.length;
+  const unitsReturned = handledReturns.reduce((s, r) => s + (r.quantity || 0), 0);
+  const unitsDisposed = approvedDispose.reduce((s, r) => s + (r.quantity || 0), 0);
 
   const periodDays = allTime ? 0 : differenceInCalendarDays(to, from) + 1;
   const priorTo = subDays(from, 1);
@@ -483,6 +502,9 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
     clientActivity: {
       unitsShipped,
       unitsReceived,
+      unitsDisposed,
+      returnsHandled,
+      unitsReturned,
       shipmentRequests: shipReqRows.length,
       inventoryRequests: invReqRows.length,
       returns: returnRows.length,
@@ -533,5 +555,80 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
       audit: auditRows,
     },
     referringAgent,
+  };
+}
+
+function comparisonMetric(
+  label: string,
+  periodA: number,
+  periodB: number,
+  format: "number" | "currency"
+): AdminReportComparisonMetric {
+  const delta = periodB - periodA;
+  return {
+    label,
+    periodA,
+    periodB,
+    delta,
+    deltaPct: pctChange(periodB, periodA),
+    format,
+  };
+}
+
+export type BuildAdminReportComparisonInput = {
+  callerUid: string;
+  clientId?: string;
+  periodA: { from: Date; to: Date };
+  periodB: { from: Date; to: Date };
+};
+
+export async function buildAdminReportComparison(
+  input: BuildAdminReportComparisonInput
+): Promise<AdminReportComparisonSummary> {
+  const [reportA, reportB] = await Promise.all([
+    buildAdminReport({
+      callerUid: input.callerUid,
+      clientId: input.clientId,
+      from: input.periodA.from,
+      to: input.periodA.to,
+      allTime: false,
+    }),
+    buildAdminReport({
+      callerUid: input.callerUid,
+      clientId: input.clientId,
+      from: input.periodB.from,
+      to: input.periodB.to,
+      allTime: false,
+    }),
+  ]);
+
+  const fromA = reportStartOfDay(input.periodA.from);
+  const toA = reportEndOfDay(input.periodA.to);
+  const fromB = reportStartOfDay(input.periodB.from);
+  const toB = reportEndOfDay(input.periodB.to);
+
+  return {
+    scope: reportA.scope,
+    periodA: {
+      from: fromA.toISOString(),
+      to: toA.toISOString(),
+      label: `${format(fromA, "MMM d, yyyy")} – ${format(toA, "MMM d, yyyy")}`,
+    },
+    periodB: {
+      from: fromB.toISOString(),
+      to: toB.toISOString(),
+      label: `${format(fromB, "MMM d, yyyy")} – ${format(toB, "MMM d, yyyy")}`,
+    },
+    metrics: [
+      comparisonMetric("Units Received", reportA.clientActivity.unitsReceived, reportB.clientActivity.unitsReceived, "number"),
+      comparisonMetric("Units Shipped", reportA.clientActivity.unitsShipped, reportB.clientActivity.unitsShipped, "number"),
+      comparisonMetric("Units Disposed", reportA.clientActivity.unitsDisposed, reportB.clientActivity.unitsDisposed, "number"),
+      comparisonMetric("Returns Handled", reportA.clientActivity.returnsHandled, reportB.clientActivity.returnsHandled, "number"),
+      comparisonMetric("Units Returned", reportA.clientActivity.unitsReturned, reportB.clientActivity.unitsReturned, "number"),
+      comparisonMetric("Total Billed", reportA.financial.totalBilled, reportB.financial.totalBilled, "currency"),
+      comparisonMetric("Total Paid", reportA.financial.totalPaid, reportB.financial.totalPaid, "currency"),
+      comparisonMetric("Invoice Count", reportA.financial.invoiceCount, reportB.financial.invoiceCount, "number"),
+      comparisonMetric("Commissions Earned", reportA.commission.totalEarned, reportB.commission.totalEarned, "currency"),
+    ],
   };
 }

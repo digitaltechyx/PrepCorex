@@ -154,6 +154,18 @@ export function buildAdminReportPdf(summary: AdminReportSummary): Uint8Array {
     String(summary.clientActivity.unitsReceived),
     [168, 85, 247]
   );
+  y += 30;
+  drawKpiBox(doc, 14, y, (pageW - 31) / 2, 26, "Units disposed", String(summary.clientActivity.unitsDisposed), [244, 63, 94]);
+  drawKpiBox(
+    doc,
+    14 + (pageW - 31) / 2 + 3,
+    y,
+    (pageW - 31) / 2,
+    26,
+    "Returns handled",
+    String(summary.clientActivity.returnsHandled),
+    [249, 115, 22]
+  );
 
   y += 34 + SECTION_GAP;
   y = ensurePageSpace(doc, y, 58);
@@ -198,8 +210,8 @@ export function buildAdminReportPdf(summary: AdminReportSummary): Uint8Array {
 
   y += 30;
   drawKpiBox(doc, 14, y, kpiW, 24, "Dispose Requests", String(summary.clientActivity.disposeRequests), [244, 63, 94]);
-  drawKpiBox(doc, 14 + kpiW + 3, y, kpiW, 24, "Units Shipped", String(summary.clientActivity.unitsShipped), [59, 130, 246]);
-  drawKpiBox(doc, 14 + (kpiW + 3) * 2, y, kpiW, 24, "Units Received", String(summary.clientActivity.unitsReceived), [20, 184, 166]);
+  drawKpiBox(doc, 14 + kpiW + 3, y, kpiW, 24, "Units Disposed", String(summary.clientActivity.unitsDisposed), [244, 63, 94]);
+  drawKpiBox(doc, 14 + (kpiW + 3) * 2, y, kpiW, 24, "Returns Handled", String(summary.clientActivity.returnsHandled), [249, 115, 22]);
   drawKpiBox(
     doc,
     14 + (kpiW + 3) * 3,

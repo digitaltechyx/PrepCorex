@@ -16,10 +16,22 @@ import {
   Activity,
   Handshake,
   Send,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  RotateCcw,
+  Trash2,
+  GitCompare,
+  Layers,
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import type { UserProfile } from "@/types";
-import type { AdminReportSummary, AdminReportType, AgentStatementSummary } from "@/lib/admin-reports-types";
+import type {
+  AdminReportComparisonSummary,
+  AdminReportSummary,
+  AdminReportType,
+  AgentStatementSummary,
+} from "@/lib/admin-reports-types";
+import { filterActivitiesByReportType } from "@/lib/admin-reports-modules";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -60,11 +72,17 @@ import {
 import { getUserRoles } from "@/lib/permissions";
 
 const REPORT_TABS: { value: AdminReportType; label: string; icon: React.ReactNode }[] = [
+  { value: "full", label: "Full Report", icon: <Layers className="h-4 w-4" /> },
   { value: "overview", label: "Overview", icon: <BarChart3 className="h-4 w-4" /> },
+  { value: "inbound", label: "Inbound", icon: <ArrowDownToLine className="h-4 w-4" /> },
+  { value: "outbound", label: "Outbound", icon: <ArrowUpFromLine className="h-4 w-4" /> },
+  { value: "returns", label: "Returns", icon: <RotateCcw className="h-4 w-4" /> },
+  { value: "dispose", label: "Dispose", icon: <Trash2 className="h-4 w-4" /> },
   { value: "financial", label: "Financial", icon: <Wallet className="h-4 w-4" /> },
   { value: "commission", label: "Commission", icon: <Coins className="h-4 w-4" /> },
   { value: "client_activity", label: "Client Activity", icon: <Activity className="h-4 w-4" /> },
   { value: "operations", label: "Operations", icon: <Package className="h-4 w-4" /> },
+  { value: "comparison", label: "Compare", icon: <GitCompare className="h-4 w-4" /> },
   { value: "audit", label: "Audit", icon: <ScrollText className="h-4 w-4" /> },
 ];
 
@@ -76,10 +94,13 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
   const { toast } = useToast();
   const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
   const [toDate, setToDate] = useState<Date | undefined>(undefined);
+  const [compareFromDate, setCompareFromDate] = useState<Date | undefined>(undefined);
+  const [compareToDate, setCompareToDate] = useState<Date | undefined>(undefined);
   const [clientId, setClientId] = useState<string>("all");
   const [agentId, setAgentId] = useState<string>("none");
-  const [reportTab, setReportTab] = useState<AdminReportType>("overview");
+  const [reportTab, setReportTab] = useState<AdminReportType>("full");
   const [summary, setSummary] = useState<AdminReportSummary | null>(null);
+  const [comparison, setComparison] = useState<AdminReportComparisonSummary | null>(null);
   const [agentStatement, setAgentStatement] = useState<AgentStatementSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [exportingCsv, setExportingCsv] = useState(false);
@@ -111,6 +132,8 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
   }, [users]);
 
   const hasDateRange = Boolean(fromDate && toDate);
+  const hasCompareRange = Boolean(compareFromDate && compareToDate);
+  const canCompare = hasDateRange && hasCompareRange;
 
   const buildQuery = useCallback(
     (extra?: Record<string, string>) => {
@@ -119,13 +142,17 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
         params.set("from", fromDate.toISOString());
         params.set("to", toDate.toISOString());
       }
+      if (compareFromDate && compareToDate) {
+        params.set("compareFrom", compareFromDate.toISOString());
+        params.set("compareTo", compareToDate.toISOString());
+      }
       if (clientId !== "all") params.set("clientId", clientId);
       if (agentId !== "none") params.set("agentId", agentId);
       params.set("reportType", reportTab);
       if (extra) Object.entries(extra).forEach(([k, v]) => params.set(k, v));
       return params.toString();
     },
-    [agentId, clientId, fromDate, reportTab, toDate]
+    [agentId, clientId, compareFromDate, compareToDate, fromDate, reportTab, toDate]
   );
 
   const loadSummary = useCallback(async () => {
@@ -140,6 +167,22 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
       if (!res.ok) throw new Error(data.error || "Failed to load report");
       setSummary(data.summary);
       setAgentStatement(data.agentStatement || null);
+
+      if (canCompare) {
+        const compareParams = new URLSearchParams();
+        compareParams.set("from", fromDate!.toISOString());
+        compareParams.set("to", toDate!.toISOString());
+        compareParams.set("compareFrom", compareFromDate!.toISOString());
+        compareParams.set("compareTo", compareToDate!.toISOString());
+        if (clientId !== "all") compareParams.set("clientId", clientId);
+        const compareRes = await fetch(`/api/admin/reports/compare?${compareParams}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const compareData = await compareRes.json();
+        setComparison(compareRes.ok ? compareData.comparison : null);
+      } else {
+        setComparison(null);
+      }
     } catch (err) {
       toast({
         variant: "destructive",
@@ -147,11 +190,12 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
         description: err instanceof Error ? err.message : "Unknown error",
       });
       setSummary(null);
+      setComparison(null);
       setAgentStatement(null);
     } finally {
       setLoading(false);
     }
-  }, [buildQuery, toast]);
+  }, [buildQuery, canCompare, clientId, compareFromDate, compareToDate, fromDate, toDate, toast]);
 
   useEffect(() => {
     void loadSummary();
@@ -320,7 +364,7 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             <div className="space-y-1">
               <h3 className="text-lg font-semibold">Report Filters</h3>
               <p className="text-sm text-muted-foreground">
-                Pick a date range to filter by period, or leave dates empty for all-time totals (same idea as the admin dashboard finance snapshot).
+                Pick a date range to filter by period, or leave dates empty for all-time totals. Select one client for a custom client report. Use Period B below for side-by-side comparison.
               </p>
               {!hasDateRange && (
                 <p className="text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md px-3 py-2">
@@ -340,6 +384,16 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               <Button variant="outline" size="sm" onClick={() => applyPreset("last_month")}>
                 Last month
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFromDate(undefined);
+                  setToDate(undefined);
+                }}
+              >
+                All time
+              </Button>
               <Button variant="outline" size="sm" onClick={() => void loadSummary()} disabled={loading}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
               </Button>
@@ -355,13 +409,26 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
           </div>
 
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <DateRangePicker
-              fromDate={fromDate}
-              toDate={toDate}
-              setFromDate={setFromDate}
-              setToDate={setToDate}
-              className="w-full lg:w-auto"
-            />
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Period A (primary)</p>
+              <DateRangePicker
+                fromDate={fromDate}
+                toDate={toDate}
+                setFromDate={setFromDate}
+                setToDate={setToDate}
+                className="w-full lg:w-auto"
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Period B (compare)</p>
+              <DateRangePicker
+                fromDate={compareFromDate}
+                toDate={compareToDate}
+                setFromDate={setCompareFromDate}
+                setToDate={setCompareToDate}
+                className="w-full lg:w-auto"
+              />
+            </div>
             <Select value={clientId} onValueChange={setClientId}>
               <SelectTrigger className="w-full lg:w-[280px]">
                 <SelectValue placeholder="All clients" />
@@ -389,6 +456,13 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               </SelectContent>
             </Select>
           </div>
+          {canCompare && (
+            <p className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md px-3 py-2">
+              Comparison ready: <span className="font-medium">{comparison?.periodA.label}</span> vs{" "}
+              <span className="font-medium">{comparison?.periodB.label}</span>
+              {clientId !== "all" && summary?.scope.clientName ? ` · ${summary.scope.clientName}` : ""}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -513,34 +587,70 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
         </div>
       ) : summary ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <KpiCard
-              icon={<Wallet className="h-5 w-5" />}
-              label="Total Billed"
-              value={`$${summary.financial.totalBilled.toFixed(2)}`}
-              sub={`${summary.financial.invoiceCount} invoices`}
-              growth={summary.period.allTime ? undefined : summary.growth.revenueChangePct}
+              icon={<ArrowDownToLine className="h-5 w-5" />}
+              label="Units Received"
+              value={String(summary.clientActivity.unitsReceived)}
+              sub={`${summary.clientActivity.inventoryRequests} inbound requests`}
+              accent="text-purple-700"
             />
             <KpiCard
-              icon={<TrendingUp className="h-5 w-5" />}
-              label="Client Paid"
-              value={`$${summary.financial.totalPaid.toFixed(2)}`}
-              sub={`$${summary.financial.totalPending.toFixed(2)} pending`}
-              accent="text-emerald-700"
-            />
-            <KpiCard
-              icon={<Package className="h-5 w-5" />}
+              icon={<ArrowUpFromLine className="h-5 w-5" />}
               label="Units Shipped"
               value={String(summary.clientActivity.unitsShipped)}
-              sub={`${summary.clientActivity.unitsReceived} received`}
+              sub={`${summary.clientActivity.shipmentRequests} outbound requests`}
               accent="text-blue-700"
             />
+            <KpiCard
+              icon={<Trash2 className="h-5 w-5" />}
+              label="Units Disposed"
+              value={String(summary.clientActivity.unitsDisposed)}
+              sub={`${summary.clientActivity.disposeRequests} dispose requests`}
+              accent="text-rose-700"
+            />
+            <KpiCard
+              icon={<RotateCcw className="h-5 w-5" />}
+              label="Returns Handled"
+              value={String(summary.clientActivity.returnsHandled)}
+              sub={`${summary.clientActivity.unitsReturned} units returned`}
+              accent="text-amber-700"
+            />
+            <KpiCard
+              icon={<Wallet className="h-5 w-5" />}
+              label="Financial"
+              value={`$${summary.financial.totalBilled.toFixed(2)}`}
+              sub={`$${summary.financial.totalPaid.toFixed(2)} paid · ${summary.financial.invoiceCount} invoices`}
+              growth={summary.period.allTime ? undefined : summary.growth.revenueChangePct}
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
               icon={<Coins className="h-5 w-5" />}
               label="Commissions"
               value={`$${summary.commission.totalEarned.toFixed(2)}`}
               sub={`${summary.commission.commissionCount} records`}
               accent="text-violet-700"
+            />
+            <KpiCard
+              icon={<Activity className="h-5 w-5" />}
+              label="Active Clients"
+              value={String(summary.clientActivity.activeClients)}
+              sub={summary.scope.allClients ? "All clients in scope" : summary.scope.clientName || "Selected client"}
+            />
+            <KpiCard
+              icon={<TrendingUp className="h-5 w-5" />}
+              label="Pending Revenue"
+              value={`$${summary.financial.totalPending.toFixed(2)}`}
+              sub="Unpaid invoices"
+              accent="text-emerald-700"
+            />
+            <KpiCard
+              icon={<Package className="h-5 w-5" />}
+              label="Return Requests"
+              value={String(summary.clientActivity.returns)}
+              sub="All return requests in period"
             />
           </div>
 
@@ -556,8 +666,10 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
                   { label: "Paid", value: `$${summary.financial.totalPaid.toFixed(2)}` },
                 ]} />
                 <ValueTile title="We fulfill" items={[
-                  { label: "Units shipped", value: String(summary.clientActivity.unitsShipped) },
                   { label: "Units received", value: String(summary.clientActivity.unitsReceived) },
+                  { label: "Units shipped", value: String(summary.clientActivity.unitsShipped) },
+                  { label: "Units disposed", value: String(summary.clientActivity.unitsDisposed) },
+                  { label: "Returns handled", value: String(summary.clientActivity.returnsHandled) },
                 ]} />
                 <ValueTile title="They request" items={[
                   { label: "Shipments", value: String(summary.clientActivity.shipmentRequests) },
@@ -624,6 +736,44 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               ))}
             </TabsList>
 
+            <TabsContent value="full" className="mt-4 space-y-4">
+              <Card className="border-slate-200">
+                <CardContent className="p-5">
+                  <h4 className="font-semibold mb-3">Full Report Summary</h4>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                    <MiniStat label="Units Received" value={String(summary.clientActivity.unitsReceived)} accent="text-purple-700" />
+                    <MiniStat label="Units Shipped" value={String(summary.clientActivity.unitsShipped)} accent="text-blue-700" />
+                    <MiniStat label="Units Disposed" value={String(summary.clientActivity.unitsDisposed)} accent="text-rose-700" />
+                    <MiniStat label="Returns Handled" value={String(summary.clientActivity.returnsHandled)} accent="text-amber-700" />
+                    <MiniStat label="Total Billed" value={`$${summary.financial.totalBilled.toFixed(2)}`} accent="text-indigo-700" />
+                  </div>
+                </CardContent>
+              </Card>
+              <DetailTable
+                title="All Activity"
+                headers={["Client", "Type", "Description", "Qty", "Status", "Date"]}
+                rows={summary.rows.activities.slice(0, 150).map((r) => [
+                  r.clientName,
+                  r.type,
+                  r.description,
+                  r.quantity?.toString() || "—",
+                  r.status || "—",
+                  format(new Date(r.occurredAt), "MMM d, yyyy"),
+                ])}
+              />
+              <DetailTable
+                title="Invoices"
+                headers={["Client", "Invoice", "Date", "Status", "Amount"]}
+                rows={summary.rows.invoices.map((r) => [
+                  r.clientName,
+                  r.invoiceNumber,
+                  r.date,
+                  r.status,
+                  `$${r.grandTotal.toFixed(2)}`,
+                ])}
+              />
+            </TabsContent>
+
             <TabsContent value="overview" className="mt-4">
               <DetailTable
                 title="Recent Invoices"
@@ -635,6 +785,51 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
                   r.status,
                   `$${r.grandTotal.toFixed(2)}`,
                 ])}
+              />
+            </TabsContent>
+
+            <TabsContent value="inbound" className="mt-4">
+              <ModuleReportPanel
+                title="Inbound Report"
+                stats={[
+                  { label: "Units Received", value: String(summary.clientActivity.unitsReceived) },
+                  { label: "Inventory Requests", value: String(summary.clientActivity.inventoryRequests) },
+                ]}
+                activities={filterActivitiesByReportType(summary.rows.activities, "inbound")}
+              />
+            </TabsContent>
+
+            <TabsContent value="outbound" className="mt-4">
+              <ModuleReportPanel
+                title="Outbound Report"
+                stats={[
+                  { label: "Units Shipped", value: String(summary.clientActivity.unitsShipped) },
+                  { label: "Shipment Requests", value: String(summary.clientActivity.shipmentRequests) },
+                ]}
+                activities={filterActivitiesByReportType(summary.rows.activities, "outbound")}
+              />
+            </TabsContent>
+
+            <TabsContent value="returns" className="mt-4">
+              <ModuleReportPanel
+                title="Product Returns Report"
+                stats={[
+                  { label: "Returns Handled", value: String(summary.clientActivity.returnsHandled) },
+                  { label: "Units Returned", value: String(summary.clientActivity.unitsReturned) },
+                  { label: "Return Requests", value: String(summary.clientActivity.returns) },
+                ]}
+                activities={filterActivitiesByReportType(summary.rows.activities, "returns")}
+              />
+            </TabsContent>
+
+            <TabsContent value="dispose" className="mt-4">
+              <ModuleReportPanel
+                title="Dispose Report"
+                stats={[
+                  { label: "Units Disposed", value: String(summary.clientActivity.unitsDisposed) },
+                  { label: "Dispose Requests", value: String(summary.clientActivity.disposeRequests) },
+                ]}
+                activities={filterActivitiesByReportType(summary.rows.activities, "dispose")}
               />
             </TabsContent>
 
@@ -705,6 +900,28 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               />
             </TabsContent>
 
+            <TabsContent value="comparison" className="mt-4">
+              {!canCompare ? (
+                <Card>
+                  <CardContent className="py-12 text-center text-muted-foreground space-y-2">
+                    <GitCompare className="h-8 w-8 mx-auto text-slate-400" />
+                    <p className="font-medium">Set both date ranges to compare periods</p>
+                    <p className="text-sm">
+                      Period A (primary) and Period B (compare) are required — e.g. Jan vs Feb, or Q1 vs Q2.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : comparison ? (
+                <ComparisonPanel comparison={comparison} />
+              ) : (
+                <Card>
+                  <CardContent className="py-12 text-center text-muted-foreground">
+                    Loading comparison…
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
             <TabsContent value="audit" className="mt-4">
               <DetailTable
                 title="Audit Trail"
@@ -727,6 +944,98 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+function ModuleReportPanel({
+  title,
+  stats,
+  activities,
+}: {
+  title: string;
+  stats: { label: string; value: string }[];
+  activities: AdminReportSummary["rows"]["activities"];
+}) {
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="p-5">
+          <h4 className="font-semibold mb-3">{title}</h4>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {stats.map((stat) => (
+              <MiniStat key={stat.label} label={stat.label} value={stat.value} />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+      <DetailTable
+        title={`${title} — Activity Detail`}
+        headers={["Client", "Type", "Description", "Qty", "Status", "Date"]}
+        rows={activities.map((r) => [
+          r.clientName,
+          r.type,
+          r.description,
+          r.quantity?.toString() || "—",
+          r.status || "—",
+          format(new Date(r.occurredAt), "MMM d, yyyy"),
+        ])}
+      />
+    </div>
+  );
+}
+
+function ComparisonPanel({ comparison }: { comparison: AdminReportComparisonSummary }) {
+  return (
+    <div className="space-y-4">
+      <Card className="border-indigo-100">
+        <CardContent className="p-5">
+          <h4 className="font-semibold mb-1 flex items-center gap-2">
+            <GitCompare className="h-4 w-4 text-indigo-600" />
+            Period Comparison
+          </h4>
+          <p className="text-sm text-muted-foreground mb-4">
+            {comparison.scope.allClients
+              ? "All clients"
+              : comparison.scope.clientName || comparison.scope.clientId}{" "}
+            · Period A: <span className="font-medium text-foreground">{comparison.periodA.label}</span> vs Period B:{" "}
+            <span className="font-medium text-foreground">{comparison.periodB.label}</span>
+          </p>
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Metric</TableHead>
+                  <TableHead>Period A</TableHead>
+                  <TableHead>Period B</TableHead>
+                  <TableHead>Change</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {comparison.metrics.map((m) => (
+                  <TableRow key={m.label}>
+                    <TableCell className="font-medium">{m.label}</TableCell>
+                    <TableCell>
+                      {m.format === "currency" ? `$${m.periodA.toFixed(2)}` : m.periodA.toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      {m.format === "currency" ? `$${m.periodB.toFixed(2)}` : m.periodB.toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      <span className={m.delta >= 0 ? "text-emerald-700" : "text-red-600"}>
+                        {m.format === "currency"
+                          ? `${m.delta >= 0 ? "+" : ""}$${m.delta.toFixed(2)}`
+                          : `${m.delta >= 0 ? "+" : ""}${m.delta.toLocaleString()}`}
+                        {m.deltaPct !== null ? ` (${formatGrowth(m.deltaPct)})` : ""}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

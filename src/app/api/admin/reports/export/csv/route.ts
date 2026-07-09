@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api-admin-auth";
-import { buildAdminReportCsv } from "@/lib/admin-reports-csv";
-import { buildAdminReport } from "@/lib/admin-reports-server";
+import { buildAdminReportComparisonCsv, buildAdminReportCsv } from "@/lib/admin-reports-csv";
+import { buildAdminReport, buildAdminReportComparison } from "@/lib/admin-reports-server";
 import type { AdminReportType } from "@/lib/admin-reports-types";
 import { parseReportDateRange } from "@/lib/admin-reports-request-utils";
+import { reportEndOfDay, reportStartOfDay } from "@/lib/admin-reports-utils";
 import { format } from "date-fns";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,36 @@ export async function GET(request: NextRequest) {
 
   try {
     const { from, to, allTime } = parseReportDateRange(request);
+
+    if (reportType === "comparison") {
+      const compareFrom = request.nextUrl.searchParams.get("compareFrom");
+      const compareTo = request.nextUrl.searchParams.get("compareTo");
+      if (!from || !to || !compareFrom || !compareTo || allTime) {
+        return NextResponse.json(
+          { error: "Comparison CSV requires from/to and compareFrom/compareTo date ranges." },
+          { status: 400 }
+        );
+      }
+      const comparison = await buildAdminReportComparison({
+        callerUid: auth.uid,
+        clientId,
+        periodA: { from: reportStartOfDay(from), to: reportEndOfDay(to) },
+        periodB: { from: reportStartOfDay(new Date(compareFrom)), to: reportEndOfDay(new Date(compareTo)) },
+      });
+      const csv = buildAdminReportComparisonCsv(comparison);
+      const scope = comparison.scope.allClients
+        ? "all-clients"
+        : (comparison.scope.clientName || "client").replace(/\s+/g, "-");
+      const filename = `prepcorex-report_comparison_${scope}_${format(from, "yyyy-MM-dd")}_vs_${format(new Date(compareFrom), "yyyy-MM-dd")}.csv`;
+      return new NextResponse(csv, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+        },
+      });
+    }
+
     const summary = await buildAdminReport({
       from,
       to,
