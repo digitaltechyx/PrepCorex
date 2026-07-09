@@ -42,16 +42,20 @@ export type WarehouseAddressInput = {
   zip?: string;
 };
 
-function addressFieldsPayload(input?: WarehouseAddressInput): Record<string, string | undefined> {
+function addressFieldsPayload(input?: WarehouseAddressInput): Record<string, string> {
   if (!input) return {};
-  return {
-    country: input.country?.trim() || undefined,
-    stateOrProvince: input.stateOrProvince?.trim() || undefined,
-    street1: input.street1?.trim() || undefined,
-    street2: input.street2?.trim() || undefined,
-    city: input.city?.trim() || undefined,
-    zip: input.zip?.trim() || undefined,
+  const out: Record<string, string> = {};
+  const put = (key: keyof WarehouseAddressInput, value?: string) => {
+    const trimmed = value?.trim();
+    if (trimmed) out[key] = trimmed;
   };
+  put("country", input.country);
+  put("stateOrProvince", input.stateOrProvince);
+  put("street1", input.street1);
+  put("street2", input.street2);
+  put("city", input.city);
+  put("zip", input.zip);
+  return out;
 }
 
 export function warehousesCollectionRef() {

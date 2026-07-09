@@ -5,20 +5,44 @@ import type { Location } from "@/types";
 
 const COLLECTION = "locations";
 
+type LocationFields = {
+  name: string;
+  country?: string;
+  stateOrProvince?: string;
+  street1?: string;
+  street2?: string;
+  city?: string;
+  zip?: string;
+};
+
+/** Firestore rejects `undefined` field values — omit empty optional fields. */
+function buildLocationDocPayload(fields: LocationFields): Record<string, unknown> {
+  const doc: Record<string, unknown> = {
+    name: fields.name,
+    active: true,
+    createdAt: new Date(),
+  };
+  const optional: (keyof Omit<LocationFields, "name">)[] = [
+    "country",
+    "stateOrProvince",
+    "street1",
+    "street2",
+    "city",
+    "zip",
+  ];
+  for (const key of optional) {
+    const value = fields[key]?.trim();
+    if (value) doc[key] = value;
+  }
+  return doc;
+}
+
 type CreateLocationInput =
   | string
-  | {
-      name: string;
-      country?: string;
-      stateOrProvince?: string;
-      street1?: string;
-      street2?: string;
-      city?: string;
-      zip?: string;
-    };
+  | LocationFields;
 
 export async function createLocation(input: CreateLocationInput): Promise<string> {
-  const payload =
+  const fields: LocationFields =
     typeof input === "string"
       ? { name: input.trim(), country: "", stateOrProvince: "" }
       : {
@@ -30,17 +54,7 @@ export async function createLocation(input: CreateLocationInput): Promise<string
           city: (input.city || "").trim(),
           zip: (input.zip || "").trim(),
         };
-  const ref = await addDoc(collection(db, COLLECTION), {
-    name: payload.name,
-    country: payload.country || undefined,
-    stateOrProvince: payload.stateOrProvince || undefined,
-    street1: payload.street1 || undefined,
-    street2: payload.street2 || undefined,
-    city: payload.city || undefined,
-    zip: payload.zip || undefined,
-    active: true,
-    createdAt: new Date(),
-  });
+  const ref = await addDoc(collection(db, COLLECTION), buildLocationDocPayload(fields));
   invalidateDefaultWarehouseLocationCache();
   return ref.id;
 }

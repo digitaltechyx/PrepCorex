@@ -83,12 +83,18 @@ import {
 import {
   emptyWarehouseLocationForm,
   locationToFormValues,
+  resolveCountryFromForm,
+  resolveStateFromForm,
   validateWarehouseLocationForm,
   warehouseLocationFormToPayload,
   WarehouseLocationAddressFields,
   type WarehouseLocationFormValues,
 } from "@/components/admin/warehouse-location-address-fields";
 import { formatLocationPath } from "@/lib/region-display";
+import {
+  formatWarehouseCodeLabel,
+  suggestNextWarehouseCode,
+} from "@/lib/warehouse-code-generator";
 import { buildWarehouseBinLabelsPdf, downloadUint8ArrayAsFile } from "@/lib/warehouse-bin-label-pdf";
 import { buildBinPath, compareBinPaths, isValidPathSegment } from "@/lib/warehouse-bin-path";
 import {
@@ -250,9 +256,12 @@ export function WarehouseManagement() {
   const [editOpen, setEditOpen] = useState(false);
   const [newCode, setNewCode] = useState("");
   const [newName, setNewName] = useState("");
+  const [codeTouched, setCodeTouched] = useState(false);
+  const [codeSuggestionLabel, setCodeSuggestionLabel] = useState("");
   const [locForm, setLocForm] = useState<WarehouseLocationFormValues>(emptyWarehouseLocationForm);
   const [orphanSetupCode, setOrphanSetupCode] = useState("");
   const [orphanSetupName, setOrphanSetupName] = useState("");
+  const [orphanCodeTouched, setOrphanCodeTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
   type AreaWizardStep = "details" | "purposes" | "shelving" | "rows" | "bays" | "rackLevels" | "rackBins" | "review";
@@ -768,11 +777,71 @@ export function WarehouseManagement() {
   const resetCreateForm = () => {
     setNewCode("");
     setNewName("");
+    setCodeTouched(false);
+    setCodeSuggestionLabel("");
     setLocForm(emptyWarehouseLocationForm());
   };
 
-  const suggestWarehouseCode = (label: string) =>
-    label.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 16);
+  const warehouseCodeCandidates = useMemo(
+    () =>
+      warehouses.map((w) => ({
+        code: w.code,
+        stateOrProvince: w.stateOrProvince,
+        country: w.country,
+      })),
+    [warehouses]
+  );
+
+  const suggestCodeForRegion = (
+    country: string,
+    stateOrProvince: string
+  ): { code: string; label: string; sequence: number } | null => {
+    if (!stateOrProvince.trim()) return null;
+    try {
+      return suggestNextWarehouseCode({
+        country,
+        stateOrProvince,
+        existing: warehouseCodeCandidates,
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    if (!createOpen || codeTouched) return;
+    const country = resolveCountryFromForm(locForm);
+    const state = resolveStateFromForm(locForm);
+    const suggestion = suggestCodeForRegion(country, state);
+    if (!suggestion) return;
+    setNewCode(suggestion.code);
+    setCodeSuggestionLabel(suggestion.label);
+    setLocForm((prev) => ({
+      ...prev,
+      locationName: prev.locationName.trim() ? prev.locationName : suggestion.label,
+    }));
+    setNewName((prev) =>
+      prev.trim() ? prev : `${state} ${String(suggestion.sequence).padStart(2, "0")}`
+    );
+  }, [
+    createOpen,
+    codeTouched,
+    locForm.selectedCountry,
+    locForm.selectedStateOrProvince,
+    locForm.newCountryName,
+    locForm.newStateOrProvinceName,
+    warehouseCodeCandidates,
+  ]);
+
+  const openCreateWarehouseDialog = () => {
+    resetCreateForm();
+    setLocForm({
+      ...emptyWarehouseLocationForm(),
+      selectedCountry: "United States",
+      country: "United States",
+    });
+    setCreateOpen(true);
+  };
 
   const openEdit = () => {
     if (!selected) return;
@@ -804,7 +873,13 @@ export function WarehouseManagement() {
       toast({ variant: "destructive", title: "Address required", description: locErr });
       return;
     }
-    if (!newCode.trim() || !isValidPathSegment(newCode.trim())) {
+    const addr = warehouseLocationFormToPayload(locForm);
+    let code = newCode.trim();
+    if (!code) {
+      const suggestion = suggestCodeForRegion(addr.country, addr.stateOrProvince);
+      if (suggestion) code = suggestion.code;
+    }
+    if (!code || !isValidPathSegment(code)) {
       toast({
         variant: "destructive",
         title: "Invalid code",
@@ -816,7 +891,7 @@ export function WarehouseManagement() {
     setSaving(true);
     try {
       const { warehouseId } = await createWarehouseWithLocation({
-        code: newCode.trim(),
+        code,
         name: newName.trim() || addr.name,
         locationName: addr.name,
         country: addr.country,
@@ -1286,17 +1361,28 @@ export function WarehouseManagement() {
     [selectedOrphanId, activeLocations]
   );
 
+  useEffect(() => {
+    if (!selectedOrphan || orphanCodeTouched) return;
+    const suggestion = suggestCodeForRegion(
+      selectedOrphan.country || "United States",
+      selectedOrphan.stateOrProvince || ""
+    );
+    if (!suggestion) return;
+    setOrphanSetupCode(suggestion.code);
+    setOrphanSetupName((prev) => (prev.trim() ? prev : selectedOrphan.name || suggestion.label));
+  }, [selectedOrphan, orphanCodeTouched, warehouseCodeCandidates]);
+
   const selectWarehouse = (id: string) => {
     setSelectedId(id);
     setSelectedOrphanId(null);
   };
 
   const selectOrphanLocation = (locationId: string) => {
-    const loc = activeLocations.find((l) => l.id === locationId);
     setSelectedOrphanId(locationId);
     setSelectedId("");
-    setOrphanSetupCode(suggestWarehouseCode(loc?.name || ""));
-    setOrphanSetupName(loc?.name || "");
+    setOrphanCodeTouched(false);
+    setOrphanSetupCode("");
+    setOrphanSetupName("");
   };
 
   return (
@@ -1313,7 +1399,7 @@ export function WarehouseManagement() {
             appear in the sidebar until you link them.
           </p>
         </div>
-        <Button onClick={() => { resetCreateForm(); setCreateOpen(true); }} className="shrink-0">
+        <Button onClick={openCreateWarehouseDialog} className="shrink-0">
           <Plus className="h-4 w-4 mr-2" />
           New warehouse
         </Button>
@@ -1418,9 +1504,17 @@ export function WarehouseManagement() {
                 <Label>Warehouse code (bin paths)</Label>
                 <Input
                   value={orphanSetupCode}
-                  onChange={(e) => setOrphanSetupCode(e.target.value.toUpperCase())}
-                  placeholder="NJ01"
+                  onChange={(e) => {
+                    setOrphanCodeTouched(true);
+                    setOrphanSetupCode(e.target.value.toUpperCase());
+                  }}
+                  placeholder="NJ03"
                 />
+                {orphanSetupCode ? (
+                  <p className="text-xs text-muted-foreground">
+                    Shown as {formatWarehouseCodeLabel(orphanSetupCode)} · used in barcodes as {orphanSetupCode}
+                  </p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label>Display name (optional)</Label>
@@ -1949,9 +2043,17 @@ export function WarehouseManagement() {
                 <Label>Warehouse code</Label>
                 <Input
                   value={newCode}
-                  onChange={(e) => setNewCode(e.target.value.toUpperCase())}
-                  placeholder="NJ02"
+                  onChange={(e) => {
+                    setCodeTouched(true);
+                    setNewCode(e.target.value.toUpperCase());
+                  }}
+                  placeholder="NJ03"
                 />
+                <p className="text-xs text-muted-foreground">
+                  {codeSuggestionLabel
+                    ? `Auto-suggested ${codeSuggestionLabel} for this state (stored as ${newCode || "—"} in bin paths). Edit if needed.`
+                    : "Select a state to auto-generate the next code (e.g. NJ-03 after NJ-01 and NJ-02)."}
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Display name</Label>
