@@ -31,7 +31,7 @@ import type {
   AdminReportType,
   AgentStatementSummary,
 } from "@/lib/admin-reports-types";
-import { filterActivitiesByReportType } from "@/lib/admin-reports-modules";
+import { filterActivitiesByReportType, moduleLabel } from "@/lib/admin-reports-modules";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -213,14 +213,24 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
     }
   }, [clientId, summary?.referringAgent?.agentId]);
 
-  const handleExport = async (type: "csv" | "pdf") => {
+  const handleExport = async (type: "csv" | "pdf", exportReportType: AdminReportType = reportTab) => {
+    if (exportReportType === "comparison" && !canCompare) {
+      toast({
+        variant: "destructive",
+        title: "Comparison export unavailable",
+        description: "Select Period A and Period B date ranges to export a comparison report.",
+      });
+      return;
+    }
     const setBusy = type === "csv" ? setExportingCsv : setExportingPdf;
     setBusy(true);
     try {
       const token = await auth.currentUser?.getIdToken();
       if (!token) throw new Error("Not authenticated");
       const path = type === "csv" ? "/api/admin/reports/export/csv" : "/api/admin/reports/export/pdf";
-      const res = await fetch(`${path}?${buildQuery()}`, {
+      const params = new URLSearchParams(buildQuery());
+      params.set("reportType", exportReportType);
+      const res = await fetch(`${path}?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -239,7 +249,10 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast({ title: type === "csv" ? "CSV downloaded" : "PDF downloaded" });
+      toast({
+        title: type === "csv" ? "CSV downloaded" : "PDF downloaded",
+        description: `${moduleLabel(exportReportType)} report`,
+      });
     } catch (err) {
       toast({
         variant: "destructive",
@@ -397,13 +410,24 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               <Button variant="outline" size="sm" onClick={() => void loadSummary()} disabled={loading}>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => void handleExport("csv")} disabled={exportingCsv || loading}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleExport("csv", reportTab)}
+                disabled={exportingCsv || loading}
+                title={`Export ${moduleLabel(reportTab)} as CSV`}
+              >
                 {exportingCsv ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileSpreadsheet className="h-4 w-4 mr-1" />}
-                Export CSV
+                {moduleLabel(reportTab)} CSV
               </Button>
-              <Button size="sm" onClick={() => void handleExport("pdf")} disabled={exportingPdf || loading}>
+              <Button
+                size="sm"
+                onClick={() => void handleExport("pdf", reportTab)}
+                disabled={exportingPdf || loading}
+                title={`Export ${moduleLabel(reportTab)} as PDF`}
+              >
                 {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileText className="h-4 w-4 mr-1" />}
-                Export PDF
+                {moduleLabel(reportTab)} PDF
               </Button>
             </div>
           </div>
@@ -745,6 +769,13 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             </TabsList>
 
             <TabsContent value="full" className="mt-4 space-y-4">
+              <ReportExportBar
+                reportType="full"
+                onExportCsv={() => void handleExport("csv", "full")}
+                onExportPdf={() => void handleExport("pdf", "full")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
+              />
               <Card className="border-slate-200">
                 <CardContent className="p-5">
                   <h4 className="font-semibold mb-3">Full Report Summary</h4>
@@ -783,7 +814,14 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               />
             </TabsContent>
 
-            <TabsContent value="overview" className="mt-4">
+            <TabsContent value="overview" className="mt-4 space-y-4">
+              <ReportExportBar
+                reportType="overview"
+                onExportCsv={() => void handleExport("csv", "overview")}
+                onExportPdf={() => void handleExport("pdf", "overview")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
+              />
               <DetailTable
                 title="Recent Invoices"
                 headers={["Client", "Invoice", "Date", "Status", "Amount"]}
@@ -800,6 +838,11 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             <TabsContent value="inbound" className="mt-4">
               <ModuleReportPanel
                 title="Inbound Report"
+                reportType="inbound"
+                onExportCsv={() => void handleExport("csv", "inbound")}
+                onExportPdf={() => void handleExport("pdf", "inbound")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
                 stats={[
                   { label: "Lifetime Inbound", value: String(summary.clientActivity.lifetimeInboundReceived) },
                   { label: "Stock On Hand", value: String(summary.clientActivity.currentStockOnHand) },
@@ -812,6 +855,11 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             <TabsContent value="outbound" className="mt-4">
               <ModuleReportPanel
                 title="Outbound Report"
+                reportType="outbound"
+                onExportCsv={() => void handleExport("csv", "outbound")}
+                onExportPdf={() => void handleExport("pdf", "outbound")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
                 stats={[
                   { label: "Units Shipped", value: String(summary.clientActivity.unitsShipped) },
                   { label: "Shipment Requests", value: String(summary.clientActivity.shipmentRequests) },
@@ -823,6 +871,11 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             <TabsContent value="returns" className="mt-4">
               <ModuleReportPanel
                 title="Product Returns Report"
+                reportType="returns"
+                onExportCsv={() => void handleExport("csv", "returns")}
+                onExportPdf={() => void handleExport("pdf", "returns")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
                 stats={[
                   { label: "Returns Handled", value: String(summary.clientActivity.returnsHandled) },
                   { label: "Units Returned", value: String(summary.clientActivity.unitsReturned) },
@@ -835,6 +888,11 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             <TabsContent value="dispose" className="mt-4">
               <ModuleReportPanel
                 title="Dispose Report"
+                reportType="dispose"
+                onExportCsv={() => void handleExport("csv", "dispose")}
+                onExportPdf={() => void handleExport("pdf", "dispose")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
                 stats={[
                   { label: "Units Disposed", value: String(summary.clientActivity.unitsDisposed) },
                   { label: "Dispose Requests", value: String(summary.clientActivity.disposeRequests) },
@@ -843,7 +901,14 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               />
             </TabsContent>
 
-            <TabsContent value="financial" className="mt-4">
+            <TabsContent value="financial" className="mt-4 space-y-4">
+              <ReportExportBar
+                reportType="financial"
+                onExportCsv={() => void handleExport("csv", "financial")}
+                onExportPdf={() => void handleExport("pdf", "financial")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
+              />
               <DetailTable
                 title="Invoice Detail (CSV export includes full list)"
                 headers={["Client", "Invoice", "Date", "Status", "Subtotal", "Total"]}
@@ -858,7 +923,14 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               />
             </TabsContent>
 
-            <TabsContent value="commission" className="mt-4">
+            <TabsContent value="commission" className="mt-4 space-y-4">
+              <ReportExportBar
+                reportType="commission"
+                onExportCsv={() => void handleExport("csv", "commission")}
+                onExportPdf={() => void handleExport("pdf", "commission")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
+              />
               <DetailTable
                 title="Commission Detail"
                 headers={["Agent", "Client", "Invoice", "Rate", "Commission", "Status"]}
@@ -873,7 +945,14 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               />
             </TabsContent>
 
-            <TabsContent value="client_activity" className="mt-4">
+            <TabsContent value="client_activity" className="mt-4 space-y-4">
+              <ReportExportBar
+                reportType="client_activity"
+                onExportCsv={() => void handleExport("csv", "client_activity")}
+                onExportPdf={() => void handleExport("pdf", "client_activity")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
+              />
               <DetailTable
                 title="Client Activity Log"
                 headers={["Client", "Type", "Description", "Qty", "Date"]}
@@ -887,7 +966,14 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               />
             </TabsContent>
 
-            <TabsContent value="operations" className="mt-4">
+            <TabsContent value="operations" className="mt-4 space-y-4">
+              <ReportExportBar
+                reportType="operations"
+                onExportCsv={() => void handleExport("csv", "operations")}
+                onExportPdf={() => void handleExport("pdf", "operations")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
+              />
               <div className="grid gap-3 sm:grid-cols-4 mb-4">
                 {summary.charts.requestMix.map((m) => (
                   <Card key={m.type}>
@@ -910,7 +996,16 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               />
             </TabsContent>
 
-            <TabsContent value="comparison" className="mt-4">
+            <TabsContent value="comparison" className="mt-4 space-y-4">
+              {canCompare ? (
+                <ReportExportBar
+                  reportType="comparison"
+                  onExportCsv={() => void handleExport("csv", "comparison")}
+                  onExportPdf={() => void handleExport("pdf", "comparison")}
+                  exportingCsv={exportingCsv}
+                  exportingPdf={exportingPdf}
+                />
+              ) : null}
               {!canCompare ? (
                 <Card>
                   <CardContent className="py-12 text-center text-muted-foreground space-y-2">
@@ -932,7 +1027,14 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               )}
             </TabsContent>
 
-            <TabsContent value="audit" className="mt-4">
+            <TabsContent value="audit" className="mt-4 space-y-4">
+              <ReportExportBar
+                reportType="audit"
+                onExportCsv={() => void handleExport("csv", "audit")}
+                onExportPdf={() => void handleExport("pdf", "audit")}
+                exportingCsv={exportingCsv}
+                exportingPdf={exportingPdf}
+              />
               <DetailTable
                 title="Audit Trail"
                 headers={["Module", "Event", "Description", "Client/Agent", "Date"]}
@@ -958,17 +1060,67 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
   );
 }
 
+function ReportExportBar({
+  reportType,
+  onExportCsv,
+  onExportPdf,
+  exportingCsv,
+  exportingPdf,
+}: {
+  reportType: AdminReportType;
+  onExportCsv: () => void;
+  onExportPdf: () => void;
+  exportingCsv: boolean;
+  exportingPdf: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3">
+      <p className="text-sm text-muted-foreground">
+        Download <span className="font-medium text-foreground">{moduleLabel(reportType)}</span> only — not the full
+        combined report.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" onClick={onExportCsv} disabled={exportingCsv || exportingPdf}>
+          {exportingCsv ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileSpreadsheet className="h-4 w-4 mr-1" />}
+          {moduleLabel(reportType)} CSV
+        </Button>
+        <Button size="sm" onClick={onExportPdf} disabled={exportingCsv || exportingPdf}>
+          {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileText className="h-4 w-4 mr-1" />}
+          {moduleLabel(reportType)} PDF
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ModuleReportPanel({
   title,
   stats,
   activities,
+  reportType,
+  onExportCsv,
+  onExportPdf,
+  exportingCsv,
+  exportingPdf,
 }: {
   title: string;
   stats: { label: string; value: string }[];
   activities: AdminReportSummary["rows"]["activities"];
+  reportType: AdminReportType;
+  onExportCsv: () => void;
+  onExportPdf: () => void;
+  exportingCsv: boolean;
+  exportingPdf: boolean;
 }) {
   return (
     <div className="space-y-4">
+      <ReportExportBar
+        reportType={reportType}
+        onExportCsv={onExportCsv}
+        onExportPdf={onExportPdf}
+        exportingCsv={exportingCsv}
+        exportingPdf={exportingPdf}
+      />
       <Card>
         <CardContent className="p-5">
           <h4 className="font-semibold mb-3">{title}</h4>

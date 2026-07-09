@@ -34,8 +34,20 @@ export function moduleLabel(reportType: AdminReportType): string {
       return "Dispose";
     case "full":
       return "Full Report";
+    case "overview":
+      return "Overview";
+    case "financial":
+      return "Financial";
+    case "commission":
+      return "Commission";
+    case "client_activity":
+      return "Client Activity";
+    case "operations":
+      return "Operations";
     case "comparison":
       return "Comparison";
+    case "audit":
+      return "Audit";
     default:
       return reportType;
   }
