@@ -2,6 +2,8 @@ import { jsPDF } from "jspdf";
 import type { AgentStatementSummary } from "@/lib/admin-reports-types";
 import { formatReportMoney } from "@/lib/admin-reports-utils";
 
+const CHART_LABEL_SPACE = 10;
+
 function drawBarChart(
   doc: jsPDF,
   x: number,
@@ -11,11 +13,11 @@ function drawBarChart(
   data: { label: string; value: number }[],
   title: string,
   color: [number, number, number]
-) {
+): number {
   doc.setFontSize(11);
   doc.setTextColor(30, 41, 59);
   doc.text(title, x, y);
-  y += 6;
+  y += 8;
   const max = Math.max(...data.map((d) => d.value), 1);
   const barW = Math.max(4, (width - 10) / Math.max(data.length, 1) - 2);
   const chartBottom = y + height;
@@ -29,9 +31,10 @@ function drawBarChart(
     if (data.length <= 14) {
       doc.setFontSize(6);
       doc.setTextColor(100, 116, 139);
-      doc.text(point.label.slice(0, 5), bx, chartBottom + 4);
+      doc.text(point.label.slice(0, 5), bx, chartBottom + 5);
     }
   });
+  return chartBottom + CHART_LABEL_SPACE;
 }
 
 function drawBox(
@@ -110,7 +113,7 @@ export function buildAgentStatementPdf(summary: AgentStatementSummary): Uint8Arr
   drawBox(doc, 14 + half + 3, y, half, 24, "Active this period", String(summary.clients.activeInPeriod), [20, 184, 166]);
   y += 32;
 
-  drawBarChart(
+  y = drawBarChart(
     doc,
     14,
     y,
@@ -120,7 +123,7 @@ export function buildAgentStatementPdf(summary: AgentStatementSummary): Uint8Arr
     "Daily Commission Earned",
     [109, 40, 217]
   );
-  y += 48;
+  y += 8;
 
   if (summary.charts.revenueByClient.length > 0) {
     doc.setFontSize(10);
