@@ -2,16 +2,19 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { format, subMonths, startOfMonth } from "date-fns";
+import { format } from "date-fns";
 import {
   Award,
   BarChart3,
+  Calendar,
   ChevronRight,
   Coins,
   Copy,
   Check,
+  Download,
   ExternalLink,
   Landmark,
+  Loader2,
   Search,
   TrendingUp,
   Users,
@@ -53,27 +56,58 @@ import {
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { ListPagination, paginateList } from "@/components/ui/list-pagination";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { useToast } from "@/hooks/use-toast";
+import {
+  affiliateDateRangeLabel,
+  isInAffiliateDateRange,
+} from "@/lib/affiliate-date-filter";
 import {
   computeAgentTier,
   getTierBadgeClass,
   parseCommissionDate,
 } from "@/lib/affiliate-tier-utils";
 
+function commissionsToCsv(commissions: Commission[], agentName: string): string {
+  const header = ["Agent", "Invoice", "Client", "Invoice Amount", "Rate", "Commission", "Status", "Date"];
+  const escape = (value: string) => `"${value.replace(/"/g, '""')}"`;
+  const rows = commissions.map((commission) => {
+    const date = parseCommissionDate(commission.createdAt);
+    const rate = commission.commissionRate ?? "";
+    return [
+      agentName,
+      commission.invoiceNumber || "",
+      commission.clientName || "",
+      String(commission.invoiceAmount ?? 0),
+      rate ? `${rate}%` : "",
+      String(commission.commissionAmount ?? 0),
+      commission.status || "",
+      date ? format(date, "yyyy-MM-dd") : "",
+    ];
+  });
+  return [header, ...rows].map((row) => row.map((cell) => escape(String(cell))).join(",")).join("\n");
+}
+
 interface AffiliateManagementDashboardProps {
   users: UserProfile[];
 }
 
 export function AffiliateManagementDashboard({ users }: AffiliateManagementDashboardProps) {
+  const { toast } = useToast();
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "approved" | "pending" | "deleted">("all");
   const [agentPage, setAgentPage] = useState(1);
   const [selectedAgent, setSelectedAgent] = useState<AgentSummary | null>(null);
-  const [monthFilter, setMonthFilter] = useState("all");
+  const [agentDateFrom, setAgentDateFrom] = useState<Date | undefined>();
+  const [agentDateTo, setAgentDateTo] = useState<Date | undefined>();
   const [commissionPage, setCommissionPage] = useState(1);
+  const [commissionDownloading, setCommissionDownloading] = useState(false);
   const [clientPage, setClientPage] = useState(1);
   const [copiedCode, setCopiedCode] = useState(false);
+
+  const hasAgentDateRange = Boolean(agentDateFrom && agentDateTo);
 
   useEffect(() => {
     const load = async () => {
@@ -100,19 +134,6 @@ export function AffiliateManagementDashboard({ users }: AffiliateManagementDashb
 
   const { agentSummaries, networkStats, getClientWindow } = useAdminAffiliateData(users, commissions);
 
-  const monthOptions = useMemo(() => {
-    const options = [{ value: "all", label: "All months" }];
-    const today = new Date();
-    for (let i = 0; i < 12; i++) {
-      const d = startOfMonth(subMonths(today, i));
-      options.push({
-        value: format(d, "yyyy-MM"),
-        label: format(d, "MMMM yyyy"),
-      });
-    }
-    return options;
-  }, []);
-
   const filteredAgents = useMemo(() => {
     return agentSummaries
       .filter((summary) => {
@@ -138,11 +159,10 @@ export function AffiliateManagementDashboard({ users }: AffiliateManagementDashb
   const selectedCommissions = useMemo(() => {
     if (!selectedAgent) return [];
     return selectedAgent.commissions.filter((c) => {
-      if (monthFilter === "all") return true;
       const date = parseCommissionDate(c.createdAt);
-      return date ? format(date, "yyyy-MM") === monthFilter : false;
+      return isInAffiliateDateRange(date, agentDateFrom, agentDateTo);
     });
-  }, [selectedAgent, monthFilter]);
+  }, [selectedAgent, agentDateFrom, agentDateTo]);
 
   const selectedMonthTotals = useMemo(() => {
     const revenue = selectedCommissions.reduce((sum, c) => sum + (c.invoiceAmount || 0), 0);
@@ -178,6 +198,47 @@ export function AffiliateManagementDashboard({ users }: AffiliateManagementDashb
     navigator.clipboard.writeText(code);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 1800);
+  };
+
+  const openAgentDetails = (summary: AgentSummary) => {
+    setAgentDateFrom(undefined);
+    setAgentDateTo(undefined);
+    setCommissionPage(1);
+    setClientPage(1);
+    setSelectedAgent(summary);
+  };
+
+  const downloadCommissionsCsv = () => {
+    if (!selectedAgent) return;
+    setCommissionDownloading(true);
+    try {
+      const csv = commissionsToCsv(selectedCommissions, selectedAgent.agent.name || "Agent");
+      const rangeLabel = affiliateDateRangeLabel(agentDateFrom, agentDateTo);
+      const filename = `affiliate-commissions_${selectedAgent.agent.uid}_${rangeLabel}.csv`;
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Commissions downloaded",
+        description: hasAgentDateRange
+          ? "CSV export for the selected date range saved."
+          : "All-time CSV export saved.",
+      });
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Download failed",
+        description: "Could not export commissions.",
+      });
+    } finally {
+      setCommissionDownloading(false);
+    }
   };
 
   if (loading) {
@@ -340,12 +401,7 @@ export function AffiliateManagementDashboard({ users }: AffiliateManagementDashb
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => {
-                            setSelectedAgent(summary);
-                            setMonthFilter("all");
-                            setCommissionPage(1);
-                            setClientPage(1);
-                          }}
+                          onClick={() => openAgentDetails(summary)}
                         >
                           View details
                           <ChevronRight className="ml-1 h-4 w-4" />
@@ -373,7 +429,16 @@ export function AffiliateManagementDashboard({ users }: AffiliateManagementDashb
         </CardContent>
       </Card>
 
-      <Sheet open={!!selectedAgent} onOpenChange={(open) => !open && setSelectedAgent(null)}>
+      <Sheet
+        open={!!selectedAgent}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedAgent(null);
+            setAgentDateFrom(undefined);
+            setAgentDateTo(undefined);
+          }
+        }}
+      >
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
           {selectedAgent && (
             <>
@@ -409,6 +474,31 @@ export function AffiliateManagementDashboard({ users }: AffiliateManagementDashb
                   <MiniStat label="Paid" value={`$${selectedAgent.paidTotal.toFixed(2)}`} accent="text-emerald-700" />
                 </div>
               </SheetHeader>
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border bg-slate-50/80 px-3 py-3">
+                <div>
+                  <p className="text-xs font-medium text-slate-700 flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5" />
+                    Commissions &amp; audit date filter
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Leave empty for all time, or pick a range for commissions and audit export.
+                  </p>
+                </div>
+                <DateRangePicker
+                  fromDate={agentDateFrom}
+                  toDate={agentDateTo}
+                  setFromDate={(d) => {
+                    setAgentDateFrom(d);
+                    setCommissionPage(1);
+                  }}
+                  setToDate={(d) => {
+                    setAgentDateTo(d);
+                    setCommissionPage(1);
+                  }}
+                  className="h-9 min-w-[240px] bg-white text-sm"
+                />
+              </div>
 
               <Tabs defaultValue="overview" className="mt-4">
                 <TabsList className="grid w-full grid-cols-4">
@@ -530,24 +620,29 @@ export function AffiliateManagementDashboard({ users }: AffiliateManagementDashb
 
                 <TabsContent value="commissions" className="mt-4 space-y-3">
                   <div className="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
-                    <Select value={monthFilter} onValueChange={(v) => { setMonthFilter(v); setCommissionPage(1); }}>
-                      <SelectTrigger className="w-[200px]">
-                        <SelectValue placeholder="Filter by month" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {monthOptions.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                     <p className="text-xs text-muted-foreground">
-                      Payouts are processed in{" "}
+                      {hasAgentDateRange && agentDateFrom && agentDateTo
+                        ? `Showing ${format(agentDateFrom, "MMM d, yyyy")} – ${format(agentDateTo, "MMM d, yyyy")}`
+                        : "Showing all time"}
+                      {" · "}Payouts are processed in{" "}
                       <Link href="/admin/dashboard/invoices" className="text-blue-600 hover:underline">
                         Invoices → Commissions
                       </Link>
                     </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={downloadCommissionsCsv}
+                      disabled={commissionDownloading || selectedCommissions.length === 0}
+                    >
+                      {commissionDownloading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4" />
+                      )}
+                      <span className="ml-2">Download CSV</span>
+                    </Button>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -632,6 +727,11 @@ export function AffiliateManagementDashboard({ users }: AffiliateManagementDashb
                   <AffiliateAuditTrailPanel
                     agentId={selectedAgent.agent.uid}
                     agentName={selectedAgent.agent.name}
+                    fromDate={agentDateFrom}
+                    toDate={agentDateTo}
+                    onFromDateChange={setAgentDateFrom}
+                    onToDateChange={setAgentDateTo}
+                    showDatePicker={false}
                   />
                 </TabsContent>
               </Tabs>

@@ -1,5 +1,6 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
+import { filterByIsoDateRange } from "@/lib/affiliate-date-filter";
 import { getAffiliateAuditEventLabel } from "@/lib/affiliate-audit-trail-display";
 import type { AffiliateAuditEvent, AffiliateAuditEventType } from "@/types";
 
@@ -74,9 +75,9 @@ export async function appendAffiliateAuditEvent(
 }
 
 export async function getAffiliateAuditTrail(
-  options: { agentId?: string; limit?: number } = {}
+  options: { agentId?: string; limit?: number; from?: Date; to?: Date } = {}
 ): Promise<AffiliateAuditEvent[]> {
-  const limit = Math.min(Math.max(options.limit ?? 500, 1), 2000);
+  const limit = Math.min(Math.max(options.limit ?? 500, 1), 5000);
   const col = adminDb().collection("affiliateAuditTrail");
 
   let events: AffiliateAuditEvent[];
@@ -89,7 +90,6 @@ export async function getAffiliateAuditTrail(
     try {
       const snap = await col.orderBy("occurredAt", "desc").limit(limit).get();
       events = snap.docs.map((doc) => mapDoc(doc.id, doc.data()));
-      return events;
     } catch {
       const snap = await col.limit(limit).get();
       events = snap.docs.map((doc) => mapDoc(doc.id, doc.data()));
@@ -97,7 +97,20 @@ export async function getAffiliateAuditTrail(
   }
 
   events.sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
+
+  if (options.from || options.to) {
+    events = filterByIsoDateRange(events, options.from, options.to);
+  }
+
   return events.slice(0, limit);
+}
+
+export function filterAffiliateAuditEvents(
+  events: AffiliateAuditEvent[],
+  from?: Date,
+  to?: Date
+): AffiliateAuditEvent[] {
+  return filterByIsoDateRange(events, from, to);
 }
 
 /** Backfill display events from commission records when live audit log is sparse. */

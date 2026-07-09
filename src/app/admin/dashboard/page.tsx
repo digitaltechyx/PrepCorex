@@ -37,8 +37,7 @@ import {
 } from "@/components/ui/table";
 import { collection, collectionGroup, getCountFromServer, getDocs, onSnapshot, query, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useAdminDashboardKpis } from "@/hooks/use-admin-dashboard-kpis";
-import { useAdminDashboardFinance } from "@/hooks/use-admin-dashboard-finance";
+import { useAdminDashboardSummary } from "@/hooks/use-admin-dashboard-summary";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
   ChartContainer,
@@ -270,24 +269,22 @@ export default function AdminDashboardPage() {
     pendingInvoicesAmount,
     ordersShippedToday,
     receivedUnitsToday,
-    requestsLoading,
-    invoicesLoading: kpiInvoicesLoading,
-    shippedAndReceivedLoading,
-  } = useAdminDashboardKpis(adminUser?.uid, users, managedUserIds);
-
-  const { metrics: financialMetrics, loading: financeLoadingState } = useAdminDashboardFinance({
+    financialMetrics,
+    topClientsByRevenue,
+    loading: dashboardSummaryLoading,
+  } = useAdminDashboardSummary({
     adminUid: adminUser?.uid,
-    managedUserIds,
     dateRangeFrom,
     dateRangeTo,
     hasDateRange,
     topClientsDays: topUsersRange,
-    pendingInvoicesAmount,
-    enabled: Boolean(users?.length),
+    enabled: Boolean(users?.length && adminUser?.uid),
   });
 
-  const topClientsByRevenue = financialMetrics.topClientsByRevenue;
-  const financeLoading = financeLoadingState;
+  const requestsLoading = dashboardSummaryLoading;
+  const kpiInvoicesLoading = dashboardSummaryLoading;
+  const shippedAndReceivedLoading = dashboardSummaryLoading;
+  const financeLoading = dashboardSummaryLoading;
   const [integrationStats, setIntegrationStats] = useState({
     shopify: 0,
     ebay: 0,
@@ -618,7 +615,9 @@ export default function AdminDashboardPage() {
                 </div>
                 <div>
                   <CardTitle className="text-base font-semibold text-slate-900">Finance snapshot</CardTitle>
-                  <CardDescription className="text-slate-500">Selected date range</CardDescription>
+                  <CardDescription className="text-slate-500">
+                    {hasDateRange ? "Selected date range" : "All time"}
+                  </CardDescription>
                 </div>
             </div>
           </CardHeader>

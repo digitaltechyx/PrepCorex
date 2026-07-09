@@ -4,10 +4,17 @@ import { requireAdmin } from "@/lib/api-admin-auth";
 import {
   appendAffiliateAuditEvent,
   enrichAffiliateAuditWithCommissions,
+  filterAffiliateAuditEvents,
   getAffiliateAuditTrail,
 } from "@/lib/affiliate-audit-trail-server";
 
 export const dynamic = "force-dynamic";
+
+function parseDateParam(value: string | null): Date | undefined {
+  if (!value?.trim()) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
 
 const postSchema = z.object({
   agentId: z.string().min(1),
@@ -36,14 +43,17 @@ export async function GET(request: NextRequest) {
   }
 
   const agentId = request.nextUrl.searchParams.get("agentId")?.trim() || undefined;
+  const from = parseDateParam(request.nextUrl.searchParams.get("from"));
+  const to = parseDateParam(request.nextUrl.searchParams.get("to"));
   const limitParam = request.nextUrl.searchParams.get("limit");
   const limit = Math.min(Math.max(Number(limitParam) || 500, 1), 2000);
 
   try {
-    let events = await getAffiliateAuditTrail({ agentId, limit });
+    let events = await getAffiliateAuditTrail({ agentId, limit: agentId ? 5000 : limit, from, to });
     if (agentId) {
       const agentName = request.nextUrl.searchParams.get("agentName")?.trim() || undefined;
       events = await enrichAffiliateAuditWithCommissions(agentId, agentName, events);
+      events = filterAffiliateAuditEvents(events, from, to);
       events = events.slice(0, limit);
     }
     return NextResponse.json({ events, count: events.length });

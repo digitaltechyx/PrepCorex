@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
-import { Download, Loader2, RefreshCw, ScrollText } from "lucide-react";
+import { Calendar, Download, Loader2, RefreshCw, ScrollText } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import type { AffiliateAuditEvent } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
   Table,
   TableBody,
@@ -24,13 +25,35 @@ import {
 type AffiliateAuditTrailPanelProps = {
   agentId?: string;
   agentName?: string | null;
+  fromDate?: Date;
+  toDate?: Date;
+  onFromDateChange?: (date?: Date) => void;
+  onToDateChange?: (date?: Date) => void;
+  showDatePicker?: boolean;
 };
 
-export function AffiliateAuditTrailPanel({ agentId, agentName }: AffiliateAuditTrailPanelProps) {
+export function AffiliateAuditTrailPanel({
+  agentId,
+  agentName,
+  fromDate: controlledFrom,
+  toDate: controlledTo,
+  onFromDateChange,
+  onToDateChange,
+  showDatePicker = true,
+}: AffiliateAuditTrailPanelProps) {
   const { toast } = useToast();
   const [events, setEvents] = useState<AffiliateAuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [internalFrom, setInternalFrom] = useState<Date | undefined>();
+  const [internalTo, setInternalTo] = useState<Date | undefined>();
+
+  const isControlled = onFromDateChange !== undefined && onToDateChange !== undefined;
+  const fromDate = isControlled ? controlledFrom : internalFrom;
+  const toDate = isControlled ? controlledTo : internalTo;
+  const setFromDate = isControlled ? onFromDateChange! : setInternalFrom;
+  const setToDate = isControlled ? onToDateChange! : setInternalTo;
+  const hasDateRange = Boolean(fromDate && toDate);
 
   const loadEvents = useCallback(async () => {
     setLoading(true);
@@ -41,6 +64,10 @@ export function AffiliateAuditTrailPanel({ agentId, agentName }: AffiliateAuditT
       const params = new URLSearchParams();
       if (agentId) params.set("agentId", agentId);
       if (agentName) params.set("agentName", agentName);
+      if (hasDateRange && fromDate && toDate) {
+        params.set("from", fromDate.toISOString());
+        params.set("to", toDate.toISOString());
+      }
       params.set("limit", "500");
 
       const res = await fetch(`/api/admin/affiliate-management/audit-trail?${params}`, {
@@ -60,7 +87,7 @@ export function AffiliateAuditTrailPanel({ agentId, agentName }: AffiliateAuditT
     } finally {
       setLoading(false);
     }
-  }, [agentId, toast]);
+  }, [agentId, agentName, fromDate, toDate, hasDateRange, toast]);
 
   useEffect(() => {
     void loadEvents();
@@ -75,6 +102,10 @@ export function AffiliateAuditTrailPanel({ agentId, agentName }: AffiliateAuditT
       const params = new URLSearchParams();
       if (agentId) params.set("agentId", agentId);
       if (agentName) params.set("agentName", agentName);
+      if (hasDateRange && fromDate && toDate) {
+        params.set("from", fromDate.toISOString());
+        params.set("to", toDate.toISOString());
+      }
       params.set("limit", "2000");
 
       const res = await fetch(
@@ -102,7 +133,9 @@ export function AffiliateAuditTrailPanel({ agentId, agentName }: AffiliateAuditT
 
       toast({
         title: "Audit trail downloaded",
-        description: "CSV export saved to your downloads folder.",
+        description: hasDateRange
+          ? "CSV export for the selected date range saved."
+          : "All-time CSV export saved.",
       });
     } catch (err) {
       toast({
@@ -135,9 +168,19 @@ export function AffiliateAuditTrailPanel({ agentId, agentName }: AffiliateAuditT
             {agentId
               ? `Commission events, approvals, and referrals for ${agentName || "this agent"}.`
               : "Network-wide affiliate program activity."}
+            {hasDateRange ? " Showing selected date range." : " Showing all time."}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {showDatePicker && (
+            <DateRangePicker
+              fromDate={fromDate}
+              toDate={toDate}
+              setFromDate={setFromDate}
+              setToDate={setToDate}
+              className="h-9 min-w-[220px] text-sm"
+            />
+          )}
           <Button type="button" variant="outline" size="sm" onClick={() => void loadEvents()} disabled={loading}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             <span className="ml-2 hidden sm:inline">Refresh</span>
@@ -149,6 +192,15 @@ export function AffiliateAuditTrailPanel({ agentId, agentName }: AffiliateAuditT
         </div>
       </div>
 
+      {!showDatePicker && (
+        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <Calendar className="h-3.5 w-3.5" />
+          {hasDateRange && fromDate && toDate
+            ? `Filtered: ${format(fromDate, "MMM d, yyyy")} – ${format(toDate, "MMM d, yyyy")}`
+            : "All time (use the date picker above to filter)"}
+        </p>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-10 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" />
@@ -156,7 +208,7 @@ export function AffiliateAuditTrailPanel({ agentId, agentName }: AffiliateAuditT
         </div>
       ) : events.length === 0 ? (
         <div className="rounded-md border border-dashed py-10 text-center text-sm text-muted-foreground">
-          No affiliate audit events recorded yet.
+          No affiliate audit events for this period.
         </div>
       ) : (
         <div className="rounded-md border max-h-[420px] overflow-auto">
