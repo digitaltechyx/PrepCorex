@@ -540,6 +540,11 @@ export interface InventoryItem {
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
   imageUrl?: string;
   imageUrls?: string[];
+  /** When warehouse putaway first added this stock to the client inventory. */
+  receivingDate?: { seconds: number; nanoseconds: number } | string | Date;
+  /** Inbound inventory request that created/restocked this item. */
+  sourceRequestId?: string;
+  remarks?: string;
   /** Copied from approved inbound request; refreshed on same 6-hour schedule. */
   inboundTrackings?: InboundTrackingEntry[];
   /** Internal warehouse location (admin-facing operations). */

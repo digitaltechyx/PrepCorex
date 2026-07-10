@@ -135,14 +135,14 @@ async function syncPutawayLine(input: {
 
   const photoUrls = mergePhotoUrls(cartonPhotoUrls(input.carton), requestPhotoUrls(requestData));
 
-  // Already synced qty — still backfill missing product photos when possible.
+  // Already synced qty — still backfill missing product photos / receiving date when possible.
   if (existingLog.exists()) {
-    if (photoUrls.length === 0) return;
     const inventoryId = String(existingLog.data()?.inventoryId ?? "").trim();
     if (!inventoryId) return;
     const invRef = doc(db, "users", clientUserId, "inventory", inventoryId);
     const invSnap = await getDoc(invRef);
     if (!invSnap.exists()) return;
+    const patch: Record<string, unknown> = {};
     const prevUrls = Array.isArray(invSnap.data()?.imageUrls)
       ? (invSnap.data()?.imageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
       : [];
@@ -150,12 +150,16 @@ async function syncPutawayLine(input: {
       typeof invSnap.data()?.imageUrl === "string" && String(invSnap.data()?.imageUrl).trim()
         ? [String(invSnap.data()?.imageUrl).trim()]
         : [];
-    if (prevUrls.length > 0 || prevSingle.length > 0) return;
-    await updateDoc(invRef, {
-      imageUrls: photoUrls,
-      imageUrl: photoUrls[0],
-      updatedAt: serverTimestamp(),
-    });
+    if (photoUrls.length > 0 && prevUrls.length === 0 && prevSingle.length === 0) {
+      patch.imageUrls = photoUrls;
+      patch.imageUrl = photoUrls[0];
+    }
+    if (!invSnap.data()?.receivingDate) {
+      patch.receivingDate = serverTimestamp();
+    }
+    if (Object.keys(patch).length === 0) return;
+    patch.updatedAt = serverTimestamp();
+    await updateDoc(invRef, patch);
     return;
   }
 
@@ -198,6 +202,8 @@ async function syncPutawayLine(input: {
       damagedQuantity: nextDamaged,
       status: nextGood > 0 ? "In Stock" : "Out of Stock",
       updatedAt: serverTimestamp(),
+      // Warehouse putaway is the moment stock is received into client inventory.
+      receivingDate: serverTimestamp(),
     };
 
     if (!invSnap.exists()) {
@@ -233,6 +239,10 @@ async function syncPutawayLine(input: {
       }
       if (requestId && !invSnap.data()?.sourceRequestId) {
         invPatch.sourceRequestId = requestId;
+      }
+      // Don't overwrite an earlier receiving date on restock — only set if missing.
+      if (invSnap.data()?.receivingDate) {
+        delete invPatch.receivingDate;
       }
       tx.update(inventoryRef, invPatch);
     }

@@ -581,38 +581,92 @@ export function InventoryTable({
     };
   }, [effectiveUserId, inboundBatches]);
 
-  // Backfill product photos onto inventory rows created before putaway copied images.
+  // Backfill receiving date + product photos from inbound requests / receive logs.
   useEffect(() => {
-    if (!effectiveUserId || data.length === 0 || inventoryRequests.length === 0) return;
+    if (!effectiveUserId || data.length === 0) return;
     let cancelled = false;
-    const key = `inv-image-backfill-v1:${effectiveUserId}`;
+    const key = `inv-receive-meta-backfill-v3:${effectiveUserId}`;
     try {
       if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) === "1") return;
     } catch {
       /* ignore */
     }
 
+    const findRequestForItem = (item: InventoryItem): InventoryRequest | undefined => {
+      const sourceId = String(item.sourceRequestId ?? "").trim();
+      if (sourceId) {
+        const byId = inventoryRequests.find((r) => r.id === sourceId);
+        if (byId) return byId;
+      }
+      const itemSku = String(item.sku ?? "").trim().toLowerCase();
+      if (!itemSku) return undefined;
+      const approved = inventoryRequests.filter((r) => {
+        const st = String(r.status ?? "").toLowerCase();
+        return st === "approved" || st === "pending";
+      });
+      return approved.find((r) => {
+        const reqSku = String((r as InventoryRequest & { sku?: string }).sku ?? "")
+          .trim()
+          .toLowerCase();
+        return reqSku && reqSku === itemSku;
+      });
+    };
+
     void (async () => {
       let patched = 0;
+      let logPhotosByInventoryId = new Map<string, string[]>();
+      try {
+        const { getDocs, collection: fsCollection } = await import("firebase/firestore");
+        const logsSnap = await getDocs(fsCollection(db, "users", effectiveUserId, "inboundReceiveLogs"));
+        for (const d of logsSnap.docs) {
+          const row = d.data() as { inventoryId?: string; photoUrls?: string[] };
+          const invId = String(row.inventoryId ?? "").trim();
+          if (!invId) continue;
+          const urls = Array.isArray(row.photoUrls)
+            ? row.photoUrls.map((u) => String(u || "").trim()).filter(Boolean)
+            : [];
+          if (urls.length === 0) continue;
+          const prev = logPhotosByInventoryId.get(invId) ?? [];
+          logPhotosByInventoryId.set(invId, [...new Set([...prev, ...urls])]);
+        }
+      } catch {
+        /* optional — rules/index may block */
+      }
+
       for (const item of data) {
         if (cancelled) return;
-        if (getImageUrls(item as InventoryItem & { imageUrl?: string; imageUrls?: string[] }).length > 0) {
-          continue;
+        const hasImages = getImageUrls(item).length > 0;
+        const hasReceivingDate = Boolean(item.receivingDate);
+        if (hasImages && hasReceivingDate) continue;
+
+        const req = findRequestForItem(item);
+        const fromReq = hasImages
+          ? []
+          : getImageUrls(req as InventoryRequest & { imageUrl?: string; imageUrls?: string[] });
+        const fromLog = hasImages ? [] : logPhotosByInventoryId.get(item.id) ?? [];
+        const urls = [...new Set([...fromReq, ...fromLog])];
+        const patch: Record<string, unknown> = {};
+        if (!hasImages && urls.length > 0) {
+          patch.imageUrls = urls;
+          patch.imageUrl = urls[0];
         }
-        const sourceId = String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId ?? "").trim();
-        if (!sourceId) continue;
-        const req = inventoryRequests.find((r) => r.id === sourceId);
-        const urls = getImageUrls(req as InventoryRequest & { imageUrl?: string; imageUrls?: string[] });
-        if (urls.length === 0) continue;
+        if (!hasReceivingDate) {
+          patch.receivingDate =
+            req?.receivingDate ??
+            req?.approvedAt ??
+            item.dateAdded ??
+            Timestamp.now();
+        }
+        if (req?.id && !item.sourceRequestId) {
+          patch.sourceRequestId = req.id;
+        }
+        if (Object.keys(patch).length === 0) continue;
+        patch.updatedAt = Timestamp.now();
         try {
-          await updateDoc(doc(db, "users", effectiveUserId, "inventory", item.id), {
-            imageUrls: urls,
-            imageUrl: urls[0],
-            updatedAt: Timestamp.now(),
-          });
+          await updateDoc(doc(db, "users", effectiveUserId, "inventory", item.id), patch);
           patched += 1;
         } catch (err) {
-          console.warn("[inventory] image backfill failed", item.id, err);
+          console.warn("[inventory] receive meta backfill failed", item.id, err);
         }
       }
       if (cancelled) return;
@@ -622,7 +676,7 @@ export function InventoryTable({
         /* ignore */
       }
       if (patched > 0) {
-        console.info(`[inventory] Backfilled images on ${patched} product(s)`);
+        console.info(`[inventory] Backfilled receiving date/images on ${patched} product(s)`);
       }
     })();
 
@@ -1018,6 +1072,12 @@ export function InventoryTable({
       const imageUrls = getImageUrls(item as any).length > 0
         ? getImageUrls(item as any)
         : getImageUrls(matchingRequest as any);
+
+      const receivingDate =
+        item.receivingDate ||
+        matchingRequest?.receivingDate ||
+        matchingRequest?.approvedAt ||
+        undefined;
       
       return {
         ...item,
@@ -1031,6 +1091,7 @@ export function InventoryTable({
           (item as any).receivedQuantity ?? (matchingRequest as any)?.receivedQuantity ?? item.quantity,
         remarks: remarks && remarks.trim() ? remarks.trim() : undefined,
         imageUrls: imageUrls,
+        receivingDate,
         retailIdentifier: (item as any).retailIdentifier || (matchingRequest as any)?.retailIdentifier,
         expiryDate: (item as any).expiryDate || (matchingRequest as any)?.expiryDate,
         variantLabel: (item as any).variantLabel || (matchingRequest as any)?.variantLabel,
