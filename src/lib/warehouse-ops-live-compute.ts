@@ -422,6 +422,8 @@ export function buildInboundDockQueueLive(input: {
     const row: InboundRequestRow = {
       ...data,
       id: doc.id,
+      // Normalize so dock UI / approve filters match Firestore casing variants.
+      status: (status === "pending" ? "pending" : status === "approved" ? "approved" : data.status) as InventoryRequest["status"],
       userId: clientUserId,
       clientUserId,
       clientDisplayName: displayClient(clientById.get(clientUserId), clientUserId),

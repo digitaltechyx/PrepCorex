@@ -1,10 +1,15 @@
-import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
   formatExpiryForInput,
   loadInboundRequestQueue,
   type InboundRequestRow,
 } from "@/lib/warehouse-inbound-requests";
+import {
+  inboundBatchLinesPath,
+  refreshInboundBatchCounts,
+  syncBatchLineStatus,
+} from "@/lib/inbound-batch";
 import type { InventoryRequest, UserProfile, WarehouseDoc } from "@/types";
 
 export type InboundReceivePrefill = {
@@ -190,6 +195,18 @@ function expectedRequestQty(req: Pick<InventoryRequest, "receivedQuantity" | "re
   return Math.max(0, req.quantity ?? 0);
 }
 
+function normRequestStatus(status: unknown): string {
+  return String(status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function isPendingRequestStatus(status: unknown): boolean {
+  const s = normRequestStatus(status);
+  return s === "pending" || s === "pending_approval";
+}
+
 /**
  * Warehouse-ops dock approve for product inbound (v2).
  * Marks request approved + fulfillment open — stock is added after receive/putaway, not here.
@@ -203,10 +220,18 @@ export async function approveInboundRequestAtDock(input: {
   const snap = await getDoc(requestRef);
   if (!snap.exists()) throw new Error("Request not found.");
   const data = snap.data() as InventoryRequest;
-  if (data.status !== "pending") {
-    throw new Error("Only pending requests can be approved.");
+  const status = normRequestStatus(data.status);
+  // Already approved (double-click / race with live UI) — treat as success.
+  if (status === "approved") return;
+  if (!isPendingRequestStatus(data.status)) {
+    throw new Error(
+      `Only pending requests can be approved (current: ${String(data.status ?? "unknown")}).`
+    );
   }
-  if (data.inventoryType && data.inventoryType !== "product" && data.inventoryType !== "container") {
+  const invType = String(data.inventoryType ?? "")
+    .trim()
+    .toLowerCase();
+  if (invType && invType !== "product" && invType !== "container") {
     throw new Error("Dock approve is for product or container inbound. Use admin for box/pallet.");
   }
 
@@ -223,6 +248,31 @@ export async function approveInboundRequestAtDock(input: {
     warehouseDamagedReceivedQty: 0,
     updatedAt: serverTimestamp(),
   });
+
+  // Keep linked inbound batch line in sync when this request was mirrored from a batch.
+  const batchId = String((data as InventoryRequest & { batchId?: string }).batchId ?? "").trim();
+  const batchLineId = String(
+    (data as InventoryRequest & { batchLineId?: string }).batchLineId ?? ""
+  ).trim();
+  if (batchId && batchLineId) {
+    try {
+      await syncBatchLineStatus(input.clientUserId, batchId, batchLineId, "approved");
+      const linesSnap = await getDocs(
+        collection(db, inboundBatchLinesPath(input.clientUserId, batchId))
+      );
+      const counts = { pending: 0, approved: 0, rejected: 0, cancelled: 0, total: linesSnap.size };
+      linesSnap.forEach((lineDoc) => {
+        const s = normRequestStatus(lineDoc.data().status);
+        if (s === "approved") counts.approved += 1;
+        else if (s === "rejected") counts.rejected += 1;
+        else if (s === "cancelled") counts.cancelled += 1;
+        else counts.pending += 1;
+      });
+      await refreshInboundBatchCounts(input.clientUserId, batchId, counts);
+    } catch (err) {
+      console.warn("[dock-approve] batch line sync failed", err);
+    }
+  }
 }
 
 export async function rejectInboundRequestAtDock(input: {
@@ -235,8 +285,12 @@ export async function rejectInboundRequestAtDock(input: {
   const snap = await getDoc(requestRef);
   if (!snap.exists()) throw new Error("Request not found.");
   const data = snap.data() as InventoryRequest;
-  if (data.status !== "pending") {
-    throw new Error("Only pending requests can be rejected.");
+  const status = normRequestStatus(data.status);
+  if (status === "rejected" || status === "cancelled") return;
+  if (!isPendingRequestStatus(data.status)) {
+    throw new Error(
+      `Only pending requests can be rejected (current: ${String(data.status ?? "unknown")}).`
+    );
   }
   await updateDoc(requestRef, {
     status: "rejected",
@@ -245,6 +299,33 @@ export async function rejectInboundRequestAtDock(input: {
     rejectionReason: (input.reason || "").trim() || "Rejected at warehouse dock",
     updatedAt: serverTimestamp(),
   });
+
+  const batchId = String((data as InventoryRequest & { batchId?: string }).batchId ?? "").trim();
+  const batchLineId = String(
+    (data as InventoryRequest & { batchLineId?: string }).batchLineId ?? ""
+  ).trim();
+  if (batchId && batchLineId) {
+    try {
+      await syncBatchLineStatus(input.clientUserId, batchId, batchLineId, "rejected", {
+        rejectedBy: input.rejectedBy,
+        rejectionReason: (input.reason || "").trim() || "Rejected at warehouse dock",
+      });
+      const linesSnap = await getDocs(
+        collection(db, inboundBatchLinesPath(input.clientUserId, batchId))
+      );
+      const counts = { pending: 0, approved: 0, rejected: 0, cancelled: 0, total: linesSnap.size };
+      linesSnap.forEach((lineDoc) => {
+        const s = normRequestStatus(lineDoc.data().status);
+        if (s === "approved") counts.approved += 1;
+        else if (s === "rejected") counts.rejected += 1;
+        else if (s === "cancelled") counts.cancelled += 1;
+        else counts.pending += 1;
+      });
+      await refreshInboundBatchCounts(input.clientUserId, batchId, counts);
+    } catch (err) {
+      console.warn("[dock-reject] batch line sync failed", err);
+    }
+  }
 }
 
 /** Mark a container inbound as fully received/closed after dock open-receive of contents. */

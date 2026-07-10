@@ -123,11 +123,25 @@ export function WarehouseOpsDockIntake({
     [selectedKeys, rowByKey]
   );
   const selectedPending = useMemo(
-    () => selectedRows.filter((r) => r.status === "pending"),
+    () =>
+      selectedRows.filter((r) => {
+        const s = String(r.status ?? "")
+          .trim()
+          .toLowerCase()
+          .replace(/[\s-]+/g, "_");
+        return s === "pending" || s === "pending_approval";
+      }),
     [selectedRows]
   );
   const pendingCount = useMemo(
-    () => inboundOpen.filter((r) => r.status === "pending").length,
+    () =>
+      inboundOpen.filter((r) => {
+        const s = String(r.status ?? "")
+          .trim()
+          .toLowerCase()
+          .replace(/[\s-]+/g, "_");
+        return s === "pending" || s === "pending_approval";
+      }).length,
     [inboundOpen]
   );
 
@@ -138,7 +152,13 @@ export function WarehouseOpsDockIntake({
   }, [clientsLoading]);
 
   async function approveRows(rows: InboundRequestRow[]) {
-    const pending = rows.filter((r) => r.status === "pending");
+    const pending = rows.filter((r) => {
+      const s = String(r.status ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_");
+      return s === "pending" || s === "pending_approval";
+    });
     if (pending.length === 0) return;
     if (!operatorId) throw new Error("Sign in required to approve requests.");
     for (const row of pending) {
@@ -598,7 +618,11 @@ function InboundSelectRow({
   onReject?: () => void;
 }) {
   const tracking = firstTrackingOnRow(row);
-  const pending = row.status === "pending";
+  const statusNorm = String(row.status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const pending = statusNorm === "pending" || statusNorm === "pending_approval";
   return (
     <div className="flex w-full items-start gap-3 rounded-md border px-3 py-3 text-sm">
       <label className="flex items-start gap-3 min-w-0 flex-1 cursor-pointer">
