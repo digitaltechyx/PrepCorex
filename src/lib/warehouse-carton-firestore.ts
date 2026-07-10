@@ -68,7 +68,7 @@ function counterDocRef(warehouseId: string) {
 
 async function nextLabelSequence(
   warehouseId: string,
-  field: "cartonSeq" | "palletSeq" | "packageSeq"
+  field: "cartonSeq" | "palletSeq" | "packageSeq" | "containerSeq"
 ): Promise<number> {
   const ref = counterDocRef(warehouseId);
   return runTransaction(db, async (tx) => {
