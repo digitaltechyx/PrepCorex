@@ -8,6 +8,7 @@ import {
   runTransaction,
   serverTimestamp,
   Timestamp,
+  updateDoc,
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -37,11 +38,28 @@ function buildSyncKey(input: {
 }
 
 function cartonPhotoUrls(carton: WarehouseCartonDoc): string[] {
-  if (Array.isArray(carton.photoUrls) && carton.photoUrls.length > 0) {
-    return carton.photoUrls.filter(Boolean);
-  }
+  const fromList = Array.isArray(carton.photoUrls)
+    ? carton.photoUrls.map((u) => String(u || "").trim()).filter(Boolean)
+    : [];
+  if (fromList.length > 0) return [...new Set(fromList)];
   if (carton.photoUrl?.trim()) return [carton.photoUrl.trim()];
   return [];
+}
+
+function requestPhotoUrls(request: InventoryRequest | null): string[] {
+  if (!request) return [];
+  const data = request as InventoryRequest & { imageUrl?: string; imageUrls?: string[] };
+  if (Array.isArray(data.imageUrls) && data.imageUrls.length > 0) {
+    return [...new Set(data.imageUrls.map((u) => String(u || "").trim()).filter(Boolean))];
+  }
+  if (typeof data.imageUrl === "string" && data.imageUrl.trim()) {
+    return [data.imageUrl.trim()];
+  }
+  return [];
+}
+
+function mergePhotoUrls(...groups: string[][]): string[] {
+  return [...new Set(groups.flat().map((u) => String(u || "").trim()).filter(Boolean))];
 }
 
 function expectedRequestQty(req: InventoryRequest): number {
@@ -105,12 +123,6 @@ async function syncPutawayLine(input: {
 
   const logRef = doc(db, "users", clientUserId, "inboundReceiveLogs", syncKey);
   const existingLog = await getDoc(logRef);
-  if (existingLog.exists()) return;
-
-  const isDamaged = input.line.condition === "damaged";
-  const goodQty = isDamaged ? 0 : Math.max(0, Math.floor(input.putawayQty));
-  const damagedQty = isDamaged ? Math.max(0, Math.floor(input.putawayQty)) : 0;
-  if (goodQty === 0 && damagedQty === 0) return;
 
   const requestId = input.line.inventoryRequestId?.trim() || input.carton.inventoryRequestId?.trim() || "";
   let requestData: InventoryRequest | null = null;
@@ -121,6 +133,37 @@ async function syncPutawayLine(input: {
     }
   }
 
+  const photoUrls = mergePhotoUrls(cartonPhotoUrls(input.carton), requestPhotoUrls(requestData));
+
+  // Already synced qty — still backfill missing product photos when possible.
+  if (existingLog.exists()) {
+    if (photoUrls.length === 0) return;
+    const inventoryId = String(existingLog.data()?.inventoryId ?? "").trim();
+    if (!inventoryId) return;
+    const invRef = doc(db, "users", clientUserId, "inventory", inventoryId);
+    const invSnap = await getDoc(invRef);
+    if (!invSnap.exists()) return;
+    const prevUrls = Array.isArray(invSnap.data()?.imageUrls)
+      ? (invSnap.data()?.imageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
+      : [];
+    const prevSingle =
+      typeof invSnap.data()?.imageUrl === "string" && String(invSnap.data()?.imageUrl).trim()
+        ? [String(invSnap.data()?.imageUrl).trim()]
+        : [];
+    if (prevUrls.length > 0 || prevSingle.length > 0) return;
+    await updateDoc(invRef, {
+      imageUrls: photoUrls,
+      imageUrl: photoUrls[0],
+      updatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  const isDamaged = input.line.condition === "damaged";
+  const goodQty = isDamaged ? 0 : Math.max(0, Math.floor(input.putawayQty));
+  const damagedQty = isDamaged ? Math.max(0, Math.floor(input.putawayQty)) : 0;
+  if (goodQty === 0 && damagedQty === 0) return;
+
   const productName =
     input.line.productTitle?.trim() ||
     requestData?.productName?.trim() ||
@@ -128,7 +171,6 @@ async function syncPutawayLine(input: {
     "Product";
   const sku = input.line.sku?.trim() || requestData?.sku?.trim() || null;
   const isRestock = requestData?.productSubType === "restock";
-  const photoUrls = cartonPhotoUrls(input.carton);
   const remarks = input.carton.notes?.trim() || requestData?.remarks?.trim() || null;
 
   const inventoryRef = await findInventoryDocRef(clientUserId, {
@@ -169,14 +211,25 @@ async function syncPutawayLine(input: {
       if (Array.isArray(requestData?.inboundTrackings) && requestData.inboundTrackings.length > 0) {
         invPatch.inboundTrackings = requestData.inboundTrackings;
       }
+      if (remarks) invPatch.remarks = remarks;
+      if (photoUrls.length > 0) {
+        invPatch.imageUrls = photoUrls;
+        invPatch.imageUrl = photoUrls[0];
+      }
       tx.set(inventoryRef, invPatch);
     } else {
       if (remarks) invPatch.remarks = remarks;
       if (photoUrls.length > 0) {
         const prevUrls = Array.isArray(invSnap.data()?.imageUrls)
-          ? (invSnap.data()?.imageUrls as string[])
+          ? (invSnap.data()?.imageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
           : [];
-        invPatch.imageUrls = [...new Set([...prevUrls, ...photoUrls])];
+        const prevSingle =
+          typeof invSnap.data()?.imageUrl === "string" && String(invSnap.data()?.imageUrl).trim()
+            ? [String(invSnap.data()?.imageUrl).trim()]
+            : [];
+        const merged = mergePhotoUrls(prevUrls, prevSingle, photoUrls);
+        invPatch.imageUrls = merged;
+        invPatch.imageUrl = merged[0] ?? null;
       }
       if (requestId && !invSnap.data()?.sourceRequestId) {
         invPatch.sourceRequestId = requestId;

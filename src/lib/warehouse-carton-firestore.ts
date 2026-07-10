@@ -222,6 +222,9 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     carrier: data.carrier != null ? String(data.carrier) : null,
     notes: data.notes != null ? String(data.notes) : null,
     photoUrl: data.photoUrl != null ? String(data.photoUrl) : null,
+    photoUrls: Array.isArray(data.photoUrls)
+      ? (data.photoUrls as unknown[]).map((u) => String(u || "").trim()).filter(Boolean)
+      : undefined,
     receivedBy: data.receivedBy != null ? String(data.receivedBy) : null,
     stagingArea: data.stagingArea != null ? String(data.stagingArea) : null,
     receivedAt: data.receivedAt as WarehouseCartonDoc["receivedAt"],

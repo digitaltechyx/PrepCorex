@@ -581,6 +581,56 @@ export function InventoryTable({
     };
   }, [effectiveUserId, inboundBatches]);
 
+  // Backfill product photos onto inventory rows created before putaway copied images.
+  useEffect(() => {
+    if (!effectiveUserId || data.length === 0 || inventoryRequests.length === 0) return;
+    let cancelled = false;
+    const key = `inv-image-backfill-v1:${effectiveUserId}`;
+    try {
+      if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) === "1") return;
+    } catch {
+      /* ignore */
+    }
+
+    void (async () => {
+      let patched = 0;
+      for (const item of data) {
+        if (cancelled) return;
+        if (getImageUrls(item as InventoryItem & { imageUrl?: string; imageUrls?: string[] }).length > 0) {
+          continue;
+        }
+        const sourceId = String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId ?? "").trim();
+        if (!sourceId) continue;
+        const req = inventoryRequests.find((r) => r.id === sourceId);
+        const urls = getImageUrls(req as InventoryRequest & { imageUrl?: string; imageUrls?: string[] });
+        if (urls.length === 0) continue;
+        try {
+          await updateDoc(doc(db, "users", effectiveUserId, "inventory", item.id), {
+            imageUrls: urls,
+            imageUrl: urls[0],
+            updatedAt: Timestamp.now(),
+          });
+          patched += 1;
+        } catch (err) {
+          console.warn("[inventory] image backfill failed", item.id, err);
+        }
+      }
+      if (cancelled) return;
+      try {
+        sessionStorage.setItem(key, "1");
+      } catch {
+        /* ignore */
+      }
+      if (patched > 0) {
+        console.info(`[inventory] Backfilled images on ${patched} product(s)`);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveUserId, data, inventoryRequests]);
+
   // Refresh stale carrier statuses (> 6 hours) when inventory loads
   useEffect(() => {
     if (!user || !effectiveUserId) return;
