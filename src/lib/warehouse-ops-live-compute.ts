@@ -21,6 +21,7 @@ import {
   pickStatusFromRequest,
 } from "@/lib/warehouse-outbound-request-status";
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
+import { resolveInboundTrackings } from "@/lib/inbound-tracking";
 import { fbaPackPhaseFromRequest, isFbaLabelWorkflowRequest } from "@/lib/fba-shipment-workflow";
 import {
   shipFromForRequest,
@@ -77,17 +78,25 @@ function inboundNeedsLegacyInventoryCheck(req: Omit<InventoryRequest, "id">): bo
   return true;
 }
 
+function normInboundStatus(status: unknown): string {
+  return String(status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
 function isAwaitingDockReceive(
   row: Pick<InventoryRequest, "status" | "remainingQty" | "inboundTrackings" | "cartonReceivedQty">,
   legacyFulfilled: boolean
 ): boolean {
+  const status = normInboundStatus(row.status);
+  if (status === "rejected" || status === "cancelled") return false;
+  // Pending always listed for dock review (match Notifications), even if qty is already 0.
+  if (status === "pending") return true;
+  if (status !== "approved") return false;
   if (row.remainingQty <= 0) return false;
-  if (row.status === "pending") return false;
-  if (row.status !== "approved") return false;
   if (legacyFulfilled) return false;
-  const hasTracking = (row.inboundTrackings ?? []).length > 0;
-  const warehouseStarted = row.cartonReceivedQty > 0;
-  return hasTracking || warehouseStarted;
+  return true;
 }
 
 function countInboundDockLive(input: {
@@ -97,9 +106,6 @@ function countInboundDockLive(input: {
   inventoryDocs: LiveFirestoreDoc[];
   legacyInventoryByUser?: Map<string, Array<Record<string, unknown>>>;
 }): number {
-  const eligibleClientIds = new Set(
-    input.clients.filter((c) => clientMatchesWarehouse(c, input.warehouse)).map((c) => c.uid)
-  );
   const cartonMap = buildCartonQtyByInventoryRequestId(input.cartons);
   const legacyInventory = input.legacyInventoryByUser ?? new Map();
 
@@ -107,15 +113,15 @@ function countInboundDockLive(input: {
   for (const doc of input.inventoryDocs) {
     const data = doc.data as Omit<InventoryRequest, "id">;
     if (data.inventoryType && data.inventoryType !== "product") continue;
-    if (data.status !== "approved") continue;
+    const status = normInboundStatus(data.status);
+    if (status !== "approved" && status !== "pending") continue;
 
     const clientUserId = userIdFromDocPath(doc.path);
-    if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;
+    if (!clientUserId) continue;
 
     const expectedQty = expectedQuantity({ ...data, id: doc.id });
     const cartonReceivedQty = cartonMap.get(doc.id) ?? 0;
     const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
-    if (remainingQty <= 0) continue;
 
     const legacyFulfilled = inboundNeedsLegacyInventoryCheck(data)
       ? isLegacyAdminFulfilledInboundRequest({
@@ -127,7 +133,7 @@ function countInboundDockLive(input: {
       : false;
 
     if (data.fulfillmentStatus === "closed") continue;
-    if (data.status === "approved" && legacyFulfilled && cartonReceivedQty === 0) continue;
+    if (status === "approved" && legacyFulfilled && cartonReceivedQty === 0) continue;
 
     if (
       !isAwaitingDockReceive(
@@ -380,9 +386,7 @@ export function buildInboundDockQueueLive(input: {
   legacyInventoryByUser?: Map<string, Array<Record<string, unknown>>>;
 }): InboundRequestRow[] {
   const clientById = new Map(input.clients.map((c) => [c.uid, c]));
-  const eligibleClientIds = new Set(
-    input.clients.filter((c) => clientMatchesWarehouse(c, input.warehouse)).map((c) => c.uid)
-  );
+  // Do not filter by warehouse location assignment — inbound dock should mirror Notifications.
   const cartonMap = buildCartonQtyByInventoryRequestId(input.cartons);
   const legacyInventory = input.legacyInventoryByUser ?? new Map();
   const rows: InboundRequestRow[] = [];
@@ -390,21 +394,24 @@ export function buildInboundDockQueueLive(input: {
   for (const doc of input.inventoryDocs) {
     const data = doc.data as Omit<InventoryRequest, "id">;
     if (data.inventoryType && data.inventoryType !== "product") continue;
-    if (data.status !== "approved") continue;
+    const status = normInboundStatus(data.status);
+    if (status !== "approved" && status !== "pending") continue;
 
     const clientUserId = userIdFromDocPath(doc.path);
-    if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;
+    if (!clientUserId) continue;
 
     const expectedQty = expectedQuantity({ ...data, id: doc.id });
     const cartonReceivedQty = cartonMap.get(doc.id) ?? 0;
     const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
 
-    const legacyFulfilled = isLegacyAdminFulfilledInboundRequest({
-      clientUserId,
-      requestId: doc.id,
-      req: data,
-      inventoryByUser: legacyInventory,
-    });
+    const legacyFulfilled = inboundNeedsLegacyInventoryCheck(data)
+      ? isLegacyAdminFulfilledInboundRequest({
+          clientUserId,
+          requestId: doc.id,
+          req: data,
+          inventoryByUser: legacyInventory,
+        })
+      : false;
 
     const row: InboundRequestRow = {
       ...data,
@@ -415,16 +422,23 @@ export function buildInboundDockQueueLive(input: {
       expectedQty,
       cartonReceivedQty,
       remainingQty,
+      inboundTrackings: resolveInboundTrackings(
+        data as InventoryRequest & { trackingNumber?: string; carrier?: string }
+      ),
     };
 
     if (!isAwaitingDockReceive(row, legacyFulfilled)) continue;
     if (data.fulfillmentStatus === "closed") continue;
-    if (data.status === "approved" && legacyFulfilled && cartonReceivedQty === 0) continue;
+    if (status === "approved" && legacyFulfilled && cartonReceivedQty === 0) continue;
 
     rows.push(row);
   }
 
   return rows.sort((a, b) => {
+    // Pending first so receivers see work to approve.
+    if (a.status === "pending" !== (b.status === "pending")) {
+      return a.status === "pending" ? -1 : 1;
+    }
     if (a.remainingQty > 0 !== b.remainingQty > 0) {
       return a.remainingQty > 0 ? -1 : 1;
     }

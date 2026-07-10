@@ -186,23 +186,27 @@ function newCrossdockCarton(): CartonDraft {
   };
 }
 
-function cartonsFromInboundRequest(row: InboundRequestRow, crossdock: boolean): CartonDraft[] {
-  const pre = inboundRequestPrefill(row);
+function cartonsFromInboundRequests(rows: InboundRequestRow[], crossdock: boolean): CartonDraft[] {
+  if (rows.length === 0) {
+    return [crossdock ? newCrossdockCarton() : newCarton()];
+  }
   if (crossdock) {
-    return [
-      {
+    return rows.map((row) => {
+      const pre = inboundRequestPrefill(row);
+      return {
         ...newCrossdockCarton(),
         clientId: pre.clientUserId,
         clientLabel: pre.clientDisplayName,
         inventoryRequestId: pre.inventoryRequestId,
-      },
-    ];
+      };
+    });
   }
   return [
     {
       ...newCarton(),
-      lines: [
-        {
+      lines: rows.map((row) => {
+        const pre = inboundRequestPrefill(row);
+        return {
           ...newLine(),
           sku: pre.sku,
           productTitle: pre.productName,
@@ -211,8 +215,8 @@ function cartonsFromInboundRequest(row: InboundRequestRow, crossdock: boolean): 
           inventoryRequestId: pre.inventoryRequestId,
           clientId: pre.clientUserId,
           clientLabel: pre.clientDisplayName,
-        },
-      ],
+        };
+      }),
     },
   ];
 }
@@ -238,7 +242,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   const [formRestore, setFormRestore] = useState<StoredReceiveFormSnapshot | null>(null);
   const [restoreKey, setRestoreKey] = useState(0);
   const [selectedReturn, setSelectedReturn] = useState<ReturnRequestRow | null>(null);
-  const [selectedInbound, setSelectedInbound] = useState<InboundRequestRow | null>(null);
+  const [selectedInbounds, setSelectedInbounds] = useState<InboundRequestRow[]>([]);
   const [dockTracking, setDockTracking] = useState("");
 
   function startModule(m: ReceiveModule) {
@@ -258,8 +262,8 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
     setType(null);
   }
 
-  function handleDockInbound(row: InboundRequestRow, tracking: string) {
-    setSelectedInbound(row);
+  function handleDockInbound(rows: InboundRequestRow[], tracking: string) {
+    setSelectedInbounds(rows);
     setDockTracking(tracking);
     setSelectedReturn(null);
     setPhase("hub");
@@ -274,13 +278,13 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   function handleDockWalkIn(tracking: string) {
     setDockTracking(tracking);
     setSelectedReturn(null);
-    setSelectedInbound(null);
+    setSelectedInbounds([]);
     setPhase("hub");
   }
 
   function backToDockIntake() {
     setSelectedReturn(null);
-    setSelectedInbound(null);
+    setSelectedInbounds([]);
     setPhase("dock-intake");
   }
 
@@ -339,24 +343,30 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   Tracking: {dockTracking}
                 </p>
               ) : null}
-              {selectedInbound ? (
+              {selectedInbounds.length > 0 ? (
                 <Card className="border-blue-200/80 bg-blue-50/30">
-                  <CardContent className="py-3 text-sm space-y-1">
-                    <p className="font-medium text-blue-900">Dock matched inbound request</p>
-                    <p>
-                      <span className="text-muted-foreground">First line:</span>{" "}
-                      {selectedInbound.clientDisplayName} — {selectedInbound.productName}
+                  <CardContent className="py-3 text-sm space-y-2">
+                    <p className="font-medium text-blue-900">
+                      Dock matched {selectedInbounds.length} request
+                      {selectedInbounds.length === 1 ? "" : "s"}
                     </p>
+                    <ul className="space-y-1 text-xs">
+                      {selectedInbounds.map((row) => (
+                        <li key={`${row.clientUserId}:${row.id}`}>
+                          {row.clientDisplayName} — {row.productName}
+                          {row.sku ? ` (${row.sku})` : ""} · {row.remainingQty} left
+                        </li>
+                      ))}
+                    </ul>
                     <p className="text-muted-foreground text-xs">
-                      Add more SKU lines in the same carton and link each line to its own client
-                      request (mixed carton).
+                      Open receiving will prefill one line per selected request in the same carton.
                     </p>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-xs"
-                      onClick={() => setSelectedInbound(null)}
+                      onClick={() => setSelectedInbounds([])}
                     >
                       Clear dock match (walk-in)
                     </Button>
@@ -447,15 +457,15 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
             </>
           ) : type && module ? (
             <ReceiveForm
-              key={`receive-${module}-${type}-${restoreKey}-${selectedInbound?.id ?? "none"}`}
+              key={`receive-${module}-${type}-${restoreKey}-${selectedInbounds.map((r) => r.id).join(",") || "none"}`}
               warehouse={warehouse}
               type={type}
               receiveModule={module}
               receiveMode={module === "loose" ? "unpackaged" : "crossdock"}
-              inboundRequest={selectedInbound}
+              inboundRequests={selectedInbounds}
               dockTracking={dockTracking}
               clients={clients}
-              onInboundRequestChange={setSelectedInbound}
+              onInboundRequestsChange={setSelectedInbounds}
               onBack={backFromForm}
               initialSnapshot={formRestore}
               onSnapshotConsumed={() => setFormRestore(null)}
@@ -518,10 +528,10 @@ function ReceiveForm({
   type,
   receiveModule,
   receiveMode,
-  inboundRequest,
+  inboundRequests = [],
   dockTracking,
   clients: clientsForReload,
-  onInboundRequestChange,
+  onInboundRequestsChange,
   onBack,
   initialSnapshot,
   onSnapshotConsumed,
@@ -531,10 +541,10 @@ function ReceiveForm({
   type: ReceiveType;
   receiveModule: ReceiveModule;
   receiveMode: "crossdock" | "unpackaged";
-  inboundRequest?: InboundRequestRow | null;
+  inboundRequests?: InboundRequestRow[];
   dockTracking?: string;
   clients: UserProfile[];
-  onInboundRequestChange?: (row: InboundRequestRow | null) => void;
+  onInboundRequestsChange?: (rows: InboundRequestRow[]) => void;
   onBack: () => void;
   initialSnapshot?: StoredReceiveFormSnapshot | null;
   onSnapshotConsumed?: () => void;
@@ -624,12 +634,13 @@ function ReceiveForm({
   }, [reloadInboundQueue]);
 
   useEffect(() => {
-    if (initialSnapshot || !inboundRequest) return;
-    const key = `${inboundRequest.clientUserId}:${inboundRequest.id}:${type}:${receiveModule}`;
+    if (initialSnapshot || inboundRequests.length === 0) return;
+    const key = `${inboundRequests.map((r) => `${r.clientUserId}:${r.id}`).join("|")}:${type}:${receiveModule}`;
     if (inboundPrefillKeyRef.current === key) return;
     inboundPrefillKeyRef.current = key;
 
-    const pre = inboundRequestPrefill(inboundRequest);
+    const primary = inboundRequests[0];
+    const pre = inboundRequestPrefill(primary);
     if (dockTracking?.trim()) {
       setTrackingNumber(dockTracking.trim());
     }
@@ -646,10 +657,10 @@ function ReceiveForm({
     }
 
     if (isCrossdockClosedUnit || receiveModule === "loose") {
-      setCartons(cartonsFromInboundRequest(inboundRequest, isCrossdockClosedUnit));
+      setCartons(cartonsFromInboundRequests(inboundRequests, isCrossdockClosedUnit));
     }
   }, [
-    inboundRequest,
+    inboundRequests,
     initialSnapshot,
     type,
     receiveModule,
@@ -783,8 +794,9 @@ function ReceiveForm({
   function addCarton() {
     setCartons((prev) => {
       const next = isCrossdockClosedUnit ? newCrossdockCarton() : newCarton();
-      if (inboundRequest) {
-        const pre = inboundRequestPrefill(inboundRequest);
+      const primary = inboundRequests[0];
+      if (primary) {
+        const pre = inboundRequestPrefill(primary);
         next.clientId = pre.clientUserId;
         next.clientLabel = pre.clientDisplayName;
         next.inventoryRequestId = pre.inventoryRequestId;
@@ -887,12 +899,13 @@ function ReceiveForm({
     receiveEntries?: Array<{ clientUserId: string; sku: string; productName?: string | null; quantity: number }>;
     palletId?: string | null;
   }): { clientUserId: string; clientDisplayName: string } | null {
-    if (inboundRequest?.clientUserId) {
+    if (inboundRequests[0]?.clientUserId) {
+      const primary = inboundRequests[0];
       return {
-        clientUserId: inboundRequest.clientUserId,
+        clientUserId: primary.clientUserId,
         clientDisplayName:
-          inboundRequest.clientDisplayName ||
-          clientDisplayName(inboundRequest.clientUserId),
+          primary.clientDisplayName ||
+          clientDisplayName(primary.clientUserId),
       };
     }
     if (palletDraft.clientId?.trim()) {
@@ -965,8 +978,9 @@ function ReceiveForm({
     setTrackingNumber(dockTracking?.trim() || "");
     setCarrier("");
     setNotes("");
-    if (inboundRequest) {
-      const pre = inboundRequestPrefill(inboundRequest);
+    if (inboundRequests.length > 0) {
+      const primary = inboundRequests[0];
+      const pre = inboundRequestPrefill(primary);
       setShipmentClientId(pre.clientUserId);
       setShipmentClientLabel(pre.clientDisplayName);
       if (isCrossdockPalletOnly) {
@@ -976,7 +990,7 @@ function ReceiveForm({
           crossdockLot: generateCrossdockReceiveLot(),
         });
       } else {
-        setCartons(cartonsFromInboundRequest(inboundRequest, isCrossdockClosedUnit));
+        setCartons(cartonsFromInboundRequests(inboundRequests, isCrossdockClosedUnit));
       }
       return;
     }
@@ -993,19 +1007,20 @@ function ReceiveForm({
     }
   }
 
-  async function refreshInboundRequestAfterReceive(): Promise<InboundRequestRow | null> {
-    if (!inboundRequest) return null;
-    const updated = await reloadInboundRequestRow({
-      warehouse,
-      clients: clientsForReload,
-      clientUserId: inboundRequest.clientUserId,
-      requestId: inboundRequest.id,
-    });
-    onInboundRequestChange?.(updated);
-    if (updated) {
-      inboundPrefillKeyRef.current = null;
-    }
-    return updated;
+  async function refreshInboundRequestsAfterReceive(): Promise<void> {
+    if (inboundRequests.length === 0) return;
+    const updated = await Promise.all(
+      inboundRequests.map((row) =>
+        reloadInboundRequestRow({
+          warehouse,
+          clients: clientsForReload,
+          clientUserId: row.clientUserId,
+          requestId: row.id,
+        })
+      )
+    );
+    onInboundRequestsChange?.(updated.filter((r): r is InboundRequestRow => r != null));
+    inboundPrefillKeyRef.current = null;
   }
 
   function clientDisplayName(clientId: string): string {
@@ -1128,7 +1143,8 @@ function ReceiveForm({
           }
         }
       }
-      if (inboundRequest) {
+      if (inboundRequests.length === 1) {
+        const only = inboundRequests[0];
         const receiveUnits = cartons.reduce((sum, c) => {
           const copies = showCopies ? Math.max(1, parseInt(c.copies, 10) || 1) : 1;
           const units = c.lines.reduce(
@@ -1137,10 +1153,10 @@ function ReceiveForm({
           );
           return sum + copies * units;
         }, 0);
-        if (receiveUnits > inboundRequest.remainingQty) {
+        if (receiveUnits > only.remainingQty) {
           toast({
             title: "Over receive",
-            description: `This request has ${inboundRequest.remainingQty} remaining — you entered ${receiveUnits} units on linked lines.`,
+            description: `This request has ${only.remainingQty} remaining — you entered ${receiveUnits} units on linked lines.`,
             variant: "destructive",
           });
           return;
@@ -1216,7 +1232,7 @@ function ReceiveForm({
         const client =
           isCrossdockClosedUnit || receiveModule === "loose" ? resolveCartonClient(c) : null;
         const requestId =
-          c.inventoryRequestId?.trim() || inboundRequest?.id?.trim() || null;
+          c.inventoryRequestId?.trim() || inboundRequests[0]?.id?.trim() || null;
         return {
           copies,
           lines: flatLines,
@@ -1359,8 +1375,8 @@ function ReceiveForm({
           operatorId,
         });
         await reloadInboundQueue();
-        if (inboundRequest) {
-          await refreshInboundRequestAfterReceive();
+        if (inboundRequests.length > 0) {
+          await refreshInboundRequestsAfterReceive();
         }
       }
 
@@ -1502,17 +1518,23 @@ function ReceiveForm({
       <WarehouseOpsHeader title={titleByType[type]} />
       <p className="text-sm text-muted-foreground -mt-2">{subtitleByType[type]}</p>
 
-      {inboundRequest ? (
+      {inboundRequests.length > 0 ? (
         <Card className="border-blue-200/80 bg-blue-50/30">
-          <CardContent className="py-3 text-sm space-y-1">
-            <p className="font-medium text-blue-900">Dock matched request (line 1)</p>
-            <p>
-              {inboundRequest.clientDisplayName} — {inboundRequest.productName} (
-              {inboundRequest.remainingQty} left)
+          <CardContent className="py-3 text-sm space-y-2">
+            <p className="font-medium text-blue-900">
+              Dock matched {inboundRequests.length} request
+              {inboundRequests.length === 1 ? "" : "s"}
             </p>
+            <ul className="space-y-1 text-xs">
+              {inboundRequests.map((row) => (
+                <li key={`${row.clientUserId}:${row.id}`}>
+                  {row.clientDisplayName} — {row.productName} ({row.remainingQty} left)
+                </li>
+              ))}
+            </ul>
             <p className="text-xs text-muted-foreground">
-              Use <strong>Inbound request</strong> on each line to link more SKUs in this same
-              carton to their own client requests.
+              Lines are prefilled from the selected requests. You can still add or unlink lines
+              with <strong>Inbound request</strong> on each SKU.
             </p>
           </CardContent>
         </Card>

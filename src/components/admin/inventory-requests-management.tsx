@@ -1014,7 +1014,8 @@ export function InventoryRequestsManagement({
                         <Badge variant="outline">Batch</Badge>
                       </TableCell>
                       <TableCell className="font-medium" colSpan={2}>
-                        Inbound batch · {batch.totalLines} items
+                        Inbound {batch.totalLines > 1 ? "batch" : "request"} · {batch.totalLines} item
+                        {batch.totalLines === 1 ? "" : "s"}
                         <span className="block text-xs text-muted-foreground">
                           Shipment: {formatShipmentTypeLabel(batch.shipmentType)}
                           {batch.loadContents

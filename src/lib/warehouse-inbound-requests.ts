@@ -4,6 +4,7 @@ import { isActiveWarehouseCarton } from "@/lib/warehouse-carton-states";
 import { listWarehouseCartons } from "@/lib/warehouse-carton-firestore";
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
 import { normalizeReturnTracking } from "@/lib/return-tracking-client";
+import { resolveInboundTrackings } from "@/lib/inbound-tracking";
 import type { InventoryRequest, UserProfile, WarehouseCartonDoc, WarehouseDoc } from "@/types";
 
 export type ReceivingScenario = "client_request" | "walk_in" | "mixed_pallet" | "damaged";
@@ -80,25 +81,28 @@ export function isLegacyAdminFulfilledInboundRequest(input: {
   });
 }
 
-/** Warehouse dock should only show requests that need physical receive (not admin-notifications queue). */
+/** Warehouse dock: pending (needs review) + approved awaiting physical receive. */
 function isAwaitingDockReceive(row: InboundRequestRow, legacyFulfilled: boolean): boolean {
+  const status = String(row.status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (status === "rejected" || status === "cancelled") return false;
+  // Pending always listed for dock review (match Notifications), even if qty is already 0.
+  if (status === "pending") return true;
+  if (status !== "approved") return false;
   if (row.remainingQty <= 0) return false;
-  // Pending → admin notifications only; not dock receive yet.
-  if (row.status === "pending") return false;
-  if (row.status !== "approved") return false;
   if (legacyFulfilled) return false;
-  const hasTracking = (row.inboundTrackings ?? []).length > 0;
-  const warehouseStarted = row.cartonReceivedQty > 0;
-  return hasTracking || warehouseStarted;
+  return true;
 }
 
 export function inboundRequestMatchesTracking(
-  row: Pick<InventoryRequest, "inboundTrackings">,
+  row: Pick<InventoryRequest, "inboundTrackings"> & { trackingNumber?: string; carrier?: string },
   trackingRaw: string
 ): boolean {
   const needle = normalizeReturnTracking(trackingRaw);
   if (!needle) return false;
-  const trackings = row.inboundTrackings ?? [];
+  const trackings = resolveInboundTrackings(row);
   return trackings.some((t) => normalizeReturnTracking(t.trackingNumber) === needle);
 }
 
@@ -200,9 +204,8 @@ export async function countInboundDockQueue(input: {
   cartons?: WarehouseCartonDoc[];
 }): Promise<number> {
   const { warehouse, clients } = input;
-  const eligibleClientIds = new Set(
-    clients.filter((c) => clientMatchesWarehouse(c, warehouse)).map((c) => c.uid)
-  );
+  // Match Notifications / dock queue: all clients, not only warehouse-assigned.
+  const eligibleClientIds = new Set(clients.map((c) => c.uid));
 
   const statuses = ["approved"];
   let docs: Array<{ id: string; data: () => Omit<InventoryRequest, "id">; ref: { path: string } }> = [];
@@ -304,14 +307,18 @@ export async function loadInboundRequestQueue(input: {
   warehouse: WarehouseDoc;
   clients: UserProfile[];
   includePending?: boolean;
-  /** Dock intake: approved + tracking (or receive started), excludes legacy admin-fulfilled stock. */
+  /** Dock intake: pending + approved awaiting receive (with or without tracking). */
   dockQueue?: boolean;
 }): Promise<InboundRequestRow[]> {
   const { warehouse, clients, dockQueue = false } = input;
-  const includePending = dockQueue ? false : (input.includePending ?? true);
+  // Dock queue includes pending so warehouse ops can review/approve before receive.
+  const includePending = dockQueue ? true : (input.includePending ?? true);
   const clientById = new Map(clients.map((c) => [c.uid, c]));
+  // Dock: all clients (match Notifications). Other callers: warehouse-linked only.
   const eligibleClientIds = new Set(
-    clients.filter((c) => clientMatchesWarehouse(c, warehouse)).map((c) => c.uid)
+    (dockQueue ? clients : clients.filter((c) => clientMatchesWarehouse(c, warehouse))).map(
+      (c) => c.uid
+    )
   );
 
   const statuses = includePending ? ["pending", "approved"] : ["approved"];
@@ -370,6 +377,9 @@ export async function loadInboundRequestQueue(input: {
       expectedQty,
       cartonReceivedQty,
       remainingQty,
+      inboundTrackings: resolveInboundTrackings(
+        data as InventoryRequest & { trackingNumber?: string; carrier?: string }
+      ),
     };
 
     if (dockQueue && !isAwaitingDockReceive(row, legacyFulfilled)) {
@@ -392,6 +402,9 @@ export async function loadInboundRequestQueue(input: {
   }
 
   return rows.sort((a, b) => {
+    if (a.status === "pending" !== (b.status === "pending")) {
+      return a.status === "pending" ? -1 : 1;
+    }
     if (a.remainingQty > 0 !== b.remainingQty > 0) {
       return a.remainingQty > 0 ? -1 : 1;
     }

@@ -16,6 +16,8 @@ import {
 import { db } from "@/lib/firebase";
 import { useWarehouseOps } from "@/components/warehouse-ops/warehouse-ops-provider";
 import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
+import { useCollection } from "@/hooks/use-collection";
+import type { UserProfile } from "@/types";
 import {
   parseWarehouseCartonDoc,
   parseWarehousePalletDoc,
@@ -24,6 +26,7 @@ import {
 } from "@/lib/warehouse-carton-firestore";
 import { buildCrossdockDispatchQueue, buildCrossdockHoldQueue, type CrossdockDispatchUnit } from "@/lib/warehouse-crossdock-dispatch";
 import { warehouseCycleCountTasksCollectionRef, isAssignedCycleCountTask } from "@/lib/warehouse-cycle-count";
+import { mirrorUnlinkedPendingBatchLines } from "@/lib/inbound-batch";
 import {
   computeWarehouseOpsLiveStats,
   getLiveOutboundQueues,
@@ -191,7 +194,25 @@ const WarehouseOpsLiveContext = createContext<WarehouseOpsLiveContextValue | und
 
 export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNode }) {
   const { selectedWarehouse } = useWarehouseOps();
-  const { clients, loading: clientsLoading } = useWarehouseOpsClients();
+  const { clients, loading: clientsLoading } = useWarehouseOpsClients({
+    includeUnapproved: true,
+  });
+  // Notifications includes every user account; inbound receiving must too (not only role=user clients).
+  const { data: allUsers = [], loading: allUsersLoading } = useCollection<UserProfile>("users");
+  const inboundUsers = useMemo(() => {
+    const byId = new Map<string, UserProfile>();
+    for (const u of allUsers) {
+      const uid = String(u.uid || (u as UserProfile & { id?: string }).id || "").trim();
+      if (!uid) continue;
+      byId.set(uid, { ...u, uid });
+    }
+    // Ensure warehouse-ops clients are present even if users collection is briefly empty.
+    for (const c of clients) {
+      if (c.uid && !byId.has(c.uid)) byId.set(c.uid, c);
+    }
+    return Array.from(byId.values());
+  }, [allUsers, clients]);
+  const inboundUsersLoading = allUsersLoading || clientsLoading;
   const warehouseId = selectedWarehouse?.id;
 
   const cycleQuery = useMemo(
@@ -208,6 +229,43 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
   const { cartons, loading: cartonsLoading, syncError: cartonsSyncError } =
     useWarehouseCartonsLive(warehouseId);
   const { pallets, loading: palletsLoading } = useWarehousePalletsLive(warehouseId);
+
+  // Older inbound batches only stored lines under inboundBatches — mirror them so receiving sees them.
+  useEffect(() => {
+    if (inboundUsersLoading || inboundUsers.length === 0) return;
+    let cancelled = false;
+    const key = `wh-ops-batch-mirror-v3:${inboundUsers
+      .map((c) => c.uid)
+      .sort()
+      .join(",")
+      .slice(0, 200)}`;
+    try {
+      if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) === "1") {
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+    void mirrorUnlinkedPendingBatchLines(inboundUsers.map((c) => c.uid))
+      .then((created) => {
+        if (cancelled) return;
+        try {
+          sessionStorage.setItem(key, "1");
+        } catch {
+          /* ignore */
+        }
+        if (created > 0) {
+          console.info(`[warehouse-ops] Mirrored ${created} batch line(s) into inventory requests`);
+        }
+      })
+      .catch((err) => {
+        console.warn("[warehouse-ops] Batch line mirror failed", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inboundUsers, inboundUsersLoading]);
+
   const {
     docs: shipmentDocs,
     loading: shipmentsLoading,
@@ -227,8 +285,10 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     subcollection: "inventoryRequests",
     constraints: INVENTORY_LIVE_CONSTRAINTS,
     warehouse: selectedWarehouse ?? undefined,
-    clients,
-    clientsLoading,
+    clients: inboundUsers,
+    clientsLoading: inboundUsersLoading,
+    // Match admin Notifications: all accounts' inbound, not only warehouse-assigned clients.
+    matchWarehouseClients: false,
   });
   const {
     docs: returnDocs,
@@ -374,7 +434,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       crossdockHoldQueue: crossdockHold,
       inboundDockQueue: buildInboundDockQueueLive({
         warehouse: selectedWarehouse,
-        clients,
+        clients: inboundUsers,
         cartons,
         inventoryDocs,
         legacyInventoryByUser,
@@ -390,6 +450,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
   }, [
     selectedWarehouse,
     clients,
+    inboundUsers,
     cartons,
     pallets,
     shipmentDocs,

@@ -3,6 +3,34 @@ import type { InboundTrackingEntry } from "@/types";
 /** Re-fetch carrier status when older than this (6 hours). */
 export const INBOUND_TRACKING_REFRESH_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * Prefer inboundTrackings[]; fall back to legacy flat trackingNumber/carrier on the doc or batch line.
+ */
+export function resolveInboundTrackings(
+  data:
+    | {
+        inboundTrackings?: InboundTrackingEntry[] | null;
+        trackingNumber?: string | null;
+        carrier?: string | null;
+      }
+    | null
+    | undefined
+): InboundTrackingEntry[] {
+  if (!data) return [];
+  if (Array.isArray(data.inboundTrackings) && data.inboundTrackings.length > 0) {
+    return data.inboundTrackings;
+  }
+  const trackingNumber = String(data.trackingNumber ?? "").trim();
+  if (!trackingNumber) return [];
+  return [
+    {
+      id: `legacy_${trackingNumber.replace(/\W+/g, "").slice(0, 24) || "trk"}`,
+      trackingNumber,
+      carrier: data.carrier?.trim() || null,
+    },
+  ];
+}
+
 export function isInboundTrackingStale(
   entry: Pick<InboundTrackingEntry, "lastCheckedAt">,
   now = Date.now()

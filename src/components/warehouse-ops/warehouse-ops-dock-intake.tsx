@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -11,21 +13,48 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import {
   scanDockIntake,
   type ReturnRequestRow,
 } from "@/lib/warehouse-returns";
+import { resolveInboundTrackings } from "@/lib/inbound-tracking";
 import type { InboundRequestRow } from "@/lib/warehouse-inbound-requests";
+import {
+  approveInboundRequestAtDock,
+  rejectInboundRequestAtDock,
+} from "@/lib/warehouse-inbound-receive";
 import type { UserProfile, WarehouseDoc } from "@/types";
-import { Loader2, Package, RotateCcw, ScanLine, Truck } from "lucide-react";
+import { Check, Loader2, Package, RotateCcw, ScanLine, Search, Truck, X } from "lucide-react";
+
+function inboundKey(row: InboundRequestRow): string {
+  return `${row.clientUserId}:${row.id}`;
+}
+
+function firstTrackingOnRow(row: InboundRequestRow): string {
+  const list = resolveInboundTrackings(row);
+  for (const t of list) {
+    const n = String(t.trackingNumber ?? "").trim();
+    if (n) return n;
+  }
+  return "";
+}
+
+function firstTrackingFromRows(rows: InboundRequestRow[]): string {
+  for (const row of rows) {
+    const t = firstTrackingOnRow(row);
+    if (t) return t;
+  }
+  return "";
+}
 
 type Props = {
   warehouse: WarehouseDoc;
   clients: UserProfile[];
   clientsLoading?: boolean;
-  onInbound: (row: InboundRequestRow, tracking: string) => void;
+  onInbound: (rows: InboundRequestRow[], tracking: string) => void;
   onReturn: (row: ReturnRequestRow, tracking: string) => void;
   onWalkIn: (tracking: string) => void;
   onSkip?: () => void;
@@ -41,31 +70,161 @@ export function WarehouseOpsDockIntake({
   onSkip,
 }: Props) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const operatorId = user?.uid ?? "";
   const { inboundDockQueue, returnDockQueue, liveLoading } = useWarehouseOpsLive();
   const [tracking, setTracking] = useState("");
   const [scanning, setScanning] = useState(false);
+  const [managingKey, setManagingKey] = useState<string | null>(null);
+  const [listFilter, setListFilter] = useState("");
   const [lastScan, setLastScan] = useState<{
     tracking: string;
     inbound: InboundRequestRow[];
     returns: ReturnRequestRow[];
   } | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
-  const inboundOpen = useMemo(
-    () => inboundDockQueue.filter((r) => r.remainingQty > 0),
-    [inboundDockQueue]
-  );
+  // Show full dock queue (pending + approved awaiting receive). Do not drop pending with 0 remaining.
+  const inboundOpen = inboundDockQueue;
   const returnOpen = useMemo(
     () => returnDockQueue.filter((r) => r.remainingQty > 0),
     [returnDockQueue]
   );
   const listsLoading = clientsLoading || liveLoading;
 
+  const filteredInboundOpen = useMemo(() => {
+    const q = listFilter.trim().toLowerCase();
+    if (!q) return inboundOpen;
+    return inboundOpen.filter((r) => {
+      const trackings = resolveInboundTrackings(r)
+        .map((t) => String(t.trackingNumber ?? ""))
+        .join(" ");
+      const hay =
+        `${r.clientDisplayName} ${r.productName} ${r.sku ?? ""} ${trackings}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [inboundOpen, listFilter]);
+
+  const scanInbound = lastScan?.inbound ?? [];
+  const scanReturns = lastScan?.returns ?? [];
+
+  const rowByKey = useMemo(() => {
+    const map = new Map<string, InboundRequestRow>();
+    for (const r of inboundOpen) map.set(inboundKey(r), r);
+    for (const r of scanInbound) map.set(inboundKey(r), r);
+    return map;
+  }, [inboundOpen, scanInbound]);
+
+  const selectedRows = useMemo(
+    () =>
+      [...selectedKeys]
+        .map((k) => rowByKey.get(k))
+        .filter((r): r is InboundRequestRow => Boolean(r)),
+    [selectedKeys, rowByKey]
+  );
+  const selectedPending = useMemo(
+    () => selectedRows.filter((r) => r.status === "pending"),
+    [selectedRows]
+  );
+  const pendingCount = useMemo(
+    () => inboundOpen.filter((r) => r.status === "pending").length,
+    [inboundOpen]
+  );
+
   useEffect(() => {
     if (!clientsLoading) {
       inputRef.current?.focus();
     }
   }, [clientsLoading]);
+
+  async function approveRows(rows: InboundRequestRow[]) {
+    const pending = rows.filter((r) => r.status === "pending");
+    if (pending.length === 0) return;
+    if (!operatorId) throw new Error("Sign in required to approve requests.");
+    for (const row of pending) {
+      await approveInboundRequestAtDock({
+        clientUserId: row.clientUserId,
+        requestId: row.id,
+        approvedBy: operatorId,
+      });
+    }
+  }
+
+  async function handleApproveRow(row: InboundRequestRow) {
+    const key = inboundKey(row);
+    setManagingKey(key);
+    try {
+      await approveRows([row]);
+      toast({
+        title: "Request approved",
+        description: `${row.productName} is ready to receive.`,
+      });
+    } catch (e) {
+      toast({
+        title: "Approve failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setManagingKey(null);
+    }
+  }
+
+  async function handleRejectRow(row: InboundRequestRow) {
+    if (row.status !== "pending") return;
+    const reason = window.prompt("Reject reason (optional):", "");
+    if (reason === null) return;
+    const key = inboundKey(row);
+    setManagingKey(key);
+    try {
+      if (!operatorId) throw new Error("Sign in required to reject requests.");
+      await rejectInboundRequestAtDock({
+        clientUserId: row.clientUserId,
+        requestId: row.id,
+        rejectedBy: operatorId,
+        reason,
+      });
+      setSelectedKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      toast({
+        title: "Request rejected",
+        description: row.productName,
+      });
+    } catch (e) {
+      toast({
+        title: "Reject failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setManagingKey(null);
+    }
+  }
+
+  async function handleApproveSelected() {
+    if (selectedPending.length === 0) return;
+    setManagingKey("__bulk__");
+    try {
+      await approveRows(selectedPending);
+      toast({
+        title: `${selectedPending.length} request${selectedPending.length === 1 ? "" : "s"} approved`,
+        description: "Ready to receive.",
+      });
+    } catch (e) {
+      toast({
+        title: "Approve failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setManagingKey(null);
+    }
+  }
 
   async function handleScan(pathOverride?: string) {
     const v = (pathOverride ?? tracking).trim();
@@ -75,10 +234,17 @@ export function WarehouseOpsDockIntake({
     try {
       const result = await scanDockIntake({ warehouse, clients, trackingRaw: v });
       setLastScan(result);
+      setSelectedKeys(new Set(result.inbound.map(inboundKey)));
       if (result.inbound.length === 0 && result.returns.length === 0) {
         toast({
           title: "No match",
-          description: "Not on inbound or return tracking — use walk-in receive.",
+          description: "Not on inbound or return tracking — search by client name below, or walk-in.",
+        });
+        searchRef.current?.focus();
+      } else if (result.inbound.length > 1) {
+        toast({
+          title: `${result.inbound.length} requests on this tracking`,
+          description: "Select the SKUs in this carton/pallet, then start receive.",
         });
       }
     } catch (e) {
@@ -92,8 +258,69 @@ export function WarehouseOpsDockIntake({
     }
   }
 
-  const scanInbound = lastScan?.inbound ?? [];
-  const scanReturns = lastScan?.returns ?? [];
+  function toggleKey(key: string, checked: boolean) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  function selectAllFiltered() {
+    setSelectedKeys(new Set(filteredInboundOpen.map(inboundKey)));
+  }
+
+  function selectAllScanInbound() {
+    setSelectedKeys(new Set(scanInbound.map(inboundKey)));
+  }
+
+  function clearSelection() {
+    setSelectedKeys(new Set());
+  }
+
+  function startReceiveSelected(trackingOverride?: string) {
+    if (selectedRows.length === 0) return;
+    void (async () => {
+      setManagingKey("__start__");
+      try {
+        if (selectedPending.length > 0) {
+          await approveRows(selectedPending);
+          toast({
+            title: `Approved ${selectedPending.length} pending request${selectedPending.length === 1 ? "" : "s"}`,
+            description: "Continuing to receive…",
+          });
+        }
+        const receivable = selectedRows.filter((r) => r.remainingQty > 0);
+        if (receivable.length === 0) {
+          toast({
+            title: "Nothing left to receive",
+            description: "Selected requests have no remaining quantity.",
+          });
+          return;
+        }
+        const track =
+          trackingOverride?.trim() ||
+          lastScan?.tracking?.trim() ||
+          firstTrackingFromRows(receivable) ||
+          "";
+        onInbound(
+          receivable.map((r) =>
+            r.status === "pending" ? { ...r, status: "approved" as const } : r
+          ),
+          track
+        );
+      } catch (e) {
+        toast({
+          title: "Could not start receive",
+          description: e instanceof Error ? e.message : "Unknown error",
+          variant: "destructive",
+        });
+      } finally {
+        setManagingKey(null);
+      }
+    })();
+  }
 
   return (
     <div className="space-y-4">
@@ -101,11 +328,11 @@ export function WarehouseOpsDockIntake({
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <ScanLine className="h-4 w-4" />
-            Dock intake — scan tracking
+            Scan tracking (optional)
           </CardTitle>
           <CardDescription>
-            Same dock for inbound and returns. Scan the carrier label first — we check inbound,
-            then return. If nothing matches, receive as walk-in.
+            If the box/pallet has a carrier label, scan it to auto-find matching requests. If there
+            is no tracking, search by client name in the list below.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex gap-2">
@@ -131,25 +358,41 @@ export function WarehouseOpsDockIntake({
         <div className="space-y-3">
           {scanInbound.length > 0 ? (
             <Card>
-              <CardHeader className="pb-2">
+              <CardHeader className="pb-2 space-y-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Truck className="h-4 w-4 text-blue-600" />
-                  Inbound match
+                  Tracking match — {scanInbound.length} request
+                  {scanInbound.length === 1 ? "" : "s"} on{" "}
+                  <span className="font-mono text-xs">{lastScan.tracking}</span>
                 </CardTitle>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={selectAllScanInbound}>
+                    Select all matches
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={clearSelection}>
+                    Clear
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={selectedRows.length === 0}
+                    onClick={() => startReceiveSelected(lastScan.tracking)}
+                  >
+                    Start receive ({selectedRows.length})
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-2">
                 {scanInbound.map((row) => (
-                  <Button
-                    key={`${row.clientUserId}-${row.id}`}
-                    variant="outline"
-                    className="w-full h-auto py-3 flex flex-col items-start"
-                    onClick={() => onInbound(row, lastScan.tracking)}
-                  >
-                    <span className="font-medium">{row.clientDisplayName}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {row.productName} · {row.remainingQty} remaining
-                    </span>
-                  </Button>
+                  <InboundSelectRow
+                    key={inboundKey(row)}
+                    row={row}
+                    checked={selectedKeys.has(inboundKey(row))}
+                    onCheckedChange={(v) => toggleKey(inboundKey(row), v)}
+                    managing={managingKey === inboundKey(row)}
+                    onApprove={() => void handleApproveRow(row)}
+                    onReject={() => void handleRejectRow(row)}
+                  />
                 ))}
               </CardContent>
             </Card>
@@ -186,9 +429,9 @@ export function WarehouseOpsDockIntake({
             <Card>
               <CardContent className="py-4 space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  No inbound or return request uses tracking{" "}
-                  <span className="font-mono">{lastScan.tracking}</span>. Pick from open lists below
-                  or walk-in receive.
+                  No request uses tracking{" "}
+                  <span className="font-mono">{lastScan.tracking}</span>. Search by client name
+                  below, or walk-in receive.
                 </p>
                 <Button className="w-full" onClick={() => onWalkIn(lastScan.tracking)}>
                   Walk-in receive (unallocated)
@@ -199,52 +442,142 @@ export function WarehouseOpsDockIntake({
         </div>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <OpenListCard
-          title="Open inbound (no scan)"
-          icon={<Package className="h-4 w-4" />}
-          empty="No open inbound requests awaiting dock receive."
-          loading={clientsLoading || listsLoading}
-          rows={inboundOpen.slice(0, 8)}
-          renderRow={(row) => (
-            <button
-              key={`${row.clientUserId}-${row.id}`}
-              type="button"
-              className="w-full text-left rounded-md border px-3 py-2 text-sm hover:bg-muted/60"
-              onClick={() => onInbound(row, "")}
-            >
-              <div className="font-medium">{row.clientDisplayName}</div>
-              <div className="text-xs text-muted-foreground">
-                {row.productName} · {row.remainingQty} left
-              </div>
-            </button>
+      <Card className="border-blue-200/70">
+        <CardHeader className="pb-3 space-y-3">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Search className="h-4 w-4" />
+              Find requests (always available)
+            </CardTitle>
+            <CardDescription className="mt-1">
+              All clients&apos; pending and approved product inbound (same scope as Notifications),
+              with or without tracking. Search by client name, approve pending, then receive.
+              Pending are listed first.
+              {pendingCount > 0 ? (
+                <>
+                  {" "}
+                  <strong>{pendingCount} pending</strong> need review.
+                </>
+              ) : null}
+            </CardDescription>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Input
+              ref={searchRef}
+              value={listFilter}
+              onChange={(e) => setListFilter(e.target.value)}
+              placeholder="Search client / user name, product, SKU…"
+              className="sm:max-w-md"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={selectAllFiltered}>
+                Select all shown
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={clearSelection}>
+                Clear
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={selectedPending.length === 0 || managingKey != null}
+                onClick={() => void handleApproveSelected()}
+              >
+                {managingKey === "__bulk__" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                ) : (
+                  <Check className="h-3.5 w-3.5 mr-1" />
+                )}
+                Approve selected ({selectedPending.length})
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={selectedRows.length === 0 || managingKey != null}
+                onClick={() => startReceiveSelected()}
+              >
+                {managingKey === "__start__" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                ) : null}
+                Start receive ({selectedRows.length})
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Showing {filteredInboundOpen.length} of {inboundOpen.length} open request
+            {inboundOpen.length === 1 ? "" : "s"}
+            {selectedRows.length > 0 ? ` · ${selectedRows.length} selected` : ""}
+          </p>
+        </CardHeader>
+        <CardContent>
+          {listsLoading ? (
+            <p className="text-xs text-muted-foreground flex items-center gap-2 py-4">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading requests…
+            </p>
+          ) : filteredInboundOpen.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">
+              {listFilter.trim()
+                ? "No requests match that search."
+                : "No approved inbound requests awaiting receive for this warehouse."}
+            </p>
+          ) : (
+            <div className="max-h-[360px] overflow-y-scroll overscroll-contain space-y-2 pr-1">
+              {filteredInboundOpen.map((row) => (
+                <InboundSelectRow
+                  key={inboundKey(row)}
+                  row={row}
+                  checked={selectedKeys.has(inboundKey(row))}
+                  onCheckedChange={(v) => toggleKey(inboundKey(row), v)}
+                  managing={managingKey === inboundKey(row)}
+                  onApprove={() => void handleApproveRow(row)}
+                  onReject={() => void handleRejectRow(row)}
+                />
+              ))}
+            </div>
           )}
-        />
-        <OpenListCard
-          title="Open returns (no scan)"
-          icon={<RotateCcw className="h-4 w-4" />}
-          empty="No open return requests."
-          loading={clientsLoading || listsLoading}
-          rows={returnOpen.slice(0, 8)}
-          renderRow={(row) => (
-            <button
-              key={`${row.clientUserId}-${row.id}`}
-              type="button"
-              className="w-full text-left rounded-md border border-orange-100 px-3 py-2 text-sm hover:bg-orange-50/50"
-              onClick={() => onReturn(row, "")}
-            >
-              <div className="font-medium">{row.clientDisplayName}</div>
-              <div className="text-xs text-muted-foreground">
-                {row.productLabel} · {row.remainingQty} left
-              </div>
-            </button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <RotateCcw className="h-4 w-4" />
+            Open returns
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {listsLoading ? (
+            <p className="text-xs text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading…
+            </p>
+          ) : returnOpen.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No open return requests.</p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto space-y-2">
+              {returnOpen.slice(0, 20).map((row) => (
+                <button
+                  key={`${row.clientUserId}-${row.id}`}
+                  type="button"
+                  className="w-full text-left rounded-md border border-orange-100 px-3 py-2 text-sm hover:bg-orange-50/50"
+                  onClick={() => onReturn(row, "")}
+                >
+                  <div className="font-medium">{row.clientDisplayName}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {row.productLabel} · {row.remainingQty} left
+                  </div>
+                </button>
+              ))}
+            </div>
           )}
-        />
-      </div>
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap gap-2">
         <Button variant="secondary" onClick={() => onWalkIn(tracking.trim())}>
-          Skip scan — walk-in receive
+          <Package className="h-4 w-4 mr-1" />
+          Walk-in receive (no request)
         </Button>
         {onSkip ? (
           <Button variant="ghost" onClick={onSkip}>
@@ -256,41 +589,92 @@ export function WarehouseOpsDockIntake({
   );
 }
 
-function OpenListCard<T>({
-  title,
-  icon,
-  empty,
-  loading = false,
-  rows,
-  renderRow,
+function InboundSelectRow({
+  row,
+  checked,
+  onCheckedChange,
+  managing,
+  onApprove,
+  onReject,
 }: {
-  title: string;
-  icon: React.ReactNode;
-  empty: string;
-  loading?: boolean;
-  rows: T[];
-  renderRow: (row: T) => React.ReactNode;
+  row: InboundRequestRow;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  managing?: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
 }) {
+  const tracking = firstTrackingOnRow(row);
+  const pending = row.status === "pending";
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          {icon}
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {loading ? (
-          <p className="text-xs text-muted-foreground flex items-center gap-2">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Loading…
-          </p>
-        ) : rows.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{empty}</p>
-        ) : (
-          rows.map((row) => renderRow(row))
-        )}
-      </CardContent>
-    </Card>
+    <div className="flex w-full items-start gap-3 rounded-md border px-3 py-3 text-sm">
+      <label className="flex items-start gap-3 min-w-0 flex-1 cursor-pointer">
+        <Checkbox
+          checked={checked}
+          onCheckedChange={(v) => onCheckedChange(v === true)}
+          className="mt-0.5"
+          aria-label={`Select ${row.productName}`}
+        />
+        <span className="min-w-0 flex-1 text-left space-y-1">
+          <span className="font-medium block">{row.clientDisplayName}</span>
+          <span className="text-xs text-muted-foreground block">
+            {row.productName}
+            {row.sku ? ` · ${row.sku}` : ""} · {row.remainingQty} remaining
+          </span>
+          <span className="flex flex-wrap gap-1">
+            {pending ? (
+              <Badge className="bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-100 text-[10px] px-1.5 py-0">
+                Pending
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-emerald-800 border-emerald-300">
+                Approved
+              </Badge>
+            )}
+            {tracking ? (
+              <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0">
+                {tracking}
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                No tracking
+              </Badge>
+            )}
+          </span>
+        </span>
+      </label>
+      {pending ? (
+        <div className="flex flex-col gap-1 shrink-0">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-7 px-2 text-xs"
+            disabled={managing}
+            onClick={(e) => {
+              e.preventDefault();
+              onApprove?.();
+            }}
+          >
+            {managing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 mr-1" />}
+            Approve
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs text-destructive"
+            disabled={managing}
+            onClick={(e) => {
+              e.preventDefault();
+              onReject?.();
+            }}
+          >
+            <X className="h-3 w-3 mr-1" />
+            Reject
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 }

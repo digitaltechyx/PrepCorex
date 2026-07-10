@@ -40,14 +40,21 @@ export async function addInboundTrackingToRequests(
 ): Promise<void> {
   const tasks = pairs
     .filter((p) => p.trackingNumber?.trim())
-    .map((p) =>
-      addInboundTrackingViaApi(user, {
-        userId,
-        requestId: p.requestId,
-        trackingNumber: p.trackingNumber!.trim(),
-        carrier: p.carrier,
-      })
-    );
+    .map(async (p) => {
+      try {
+        await addInboundTrackingViaApi(user, {
+          userId,
+          requestId: p.requestId,
+          trackingNumber: p.trackingNumber!.trim(),
+          carrier: p.carrier,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        // Already attached (e.g. mirrored from batch line) — treat as success.
+        if (/already on the request/i.test(message)) return;
+        throw err;
+      }
+    });
   if (tasks.length === 0) return;
   await Promise.all(tasks);
 }

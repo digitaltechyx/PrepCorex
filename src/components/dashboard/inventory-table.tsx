@@ -57,6 +57,7 @@ import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { formatInboundQuantityDisplay } from "@/lib/inventory-qty-display";
 import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath } from "@/lib/inbound-batch";
+import { resolveInboundTrackings } from "@/lib/inbound-tracking";
 import {
   formatInboundRequestRowQuantity,
   inboundRequestDisplayStatus,
@@ -755,12 +756,32 @@ export function InventoryTable({
   const combinedInventory = useMemo(() => {
     // Get approved requests to match with inventory items for remarks
     const approvedRequests = inventoryRequests.filter(req => req.status === "approved");
+
+    const trackingsForBatch = (batchId: string): InboundTrackingEntry[] => {
+      const linked = inventoryRequests.filter(
+        (req) => (req as InventoryRequest & { batchId?: string }).batchId === batchId
+      );
+      const seen = new Set<string>();
+      const out: InboundTrackingEntry[] = [];
+      for (const req of linked) {
+        for (const t of resolveInboundTrackings(req as InventoryRequest & { trackingNumber?: string; carrier?: string })) {
+          const key = t.trackingNumber.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(t);
+        }
+      }
+      return out;
+    };
     
     const pendingBatchItems = inboundBatches
       .filter((batch) => batch.status === "pending" || batch.status === "partial")
       .map((batch) => ({
         id: `batch-${batch.id}`,
-        productName: `Inbound batch (${batch.totalLines} items)`,
+        productName:
+          batch.totalLines > 1
+            ? `Inbound batch (${batch.totalLines} items)`
+            : "Inbound request (1 item)",
         sku: [
           formatShipmentTypeLabel(batch.shipmentType),
           batch.loadContents ? formatLoadContentsLabel(batch.loadContents) : null,
@@ -790,7 +811,7 @@ export function InventoryTable({
         isBatch: true,
         batchId: batch.id,
         batchData: batch,
-        inboundTrackings: undefined,
+        inboundTrackings: trackingsForBatch(batch.id),
         remarksPhotoAt: undefined,
       }));
 
@@ -818,7 +839,9 @@ export function InventoryTable({
         isRequest: true,
         requestId: req.id,
         requestData: req,
-        inboundTrackings: (req as InventoryRequest & { inboundTrackings?: InboundTrackingEntry[] }).inboundTrackings,
+        inboundTrackings: resolveInboundTrackings(
+          req as InventoryRequest & { trackingNumber?: string; carrier?: string }
+        ),
         remarksPhotoAt: getRemarksPhotoAt(req),
       }));
 
@@ -847,7 +870,9 @@ export function InventoryTable({
         isRequest: true,
         requestId: req.id,
         requestData: req,
-        inboundTrackings: (req as InventoryRequest & { inboundTrackings?: InboundTrackingEntry[] }).inboundTrackings,
+        inboundTrackings: resolveInboundTrackings(
+          req as InventoryRequest & { trackingNumber?: string; carrier?: string }
+        ),
         remarksPhotoAt: getRemarksPhotoAt(req),
       }));
 

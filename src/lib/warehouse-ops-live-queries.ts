@@ -34,6 +34,11 @@ type UseWarehouseClientDocsLiveInput = {
   warehouse: WarehouseDoc | undefined;
   clients: UserProfile[];
   clientsLoading: boolean;
+  /**
+   * When true (default), only clients linked to this warehouse.
+   * Set false for inbound inventory so receiving matches admin Notifications (all clients).
+   */
+  matchWarehouseClients?: boolean;
 };
 
 /**
@@ -41,7 +46,14 @@ type UseWarehouseClientDocsLiveInput = {
  * falls back to per-user listeners (same pattern as loadInboundRequestQueue).
  */
 export function useWarehouseClientDocsLive(input: UseWarehouseClientDocsLiveInput) {
-  const { subcollection, constraints, warehouse, clients, clientsLoading } = input;
+  const {
+    subcollection,
+    constraints,
+    warehouse,
+    clients,
+    clientsLoading,
+    matchWarehouseClients = true,
+  } = input;
   const [docs, setDocs] = useState<LiveFirestoreDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -51,11 +63,11 @@ export function useWarehouseClientDocsLive(input: UseWarehouseClientDocsLiveInpu
 
   const eligibleClientIds = useMemo(() => {
     if (!warehouse) return [];
-    return clients
-      .filter((c) => clientMatchesWarehouse(c, warehouse))
-      .map((c) => c.uid)
-      .sort();
-  }, [clients, warehouse]);
+    const list = matchWarehouseClients
+      ? clients.filter((c) => clientMatchesWarehouse(c, warehouse))
+      : clients;
+    return list.map((c) => c.uid).sort();
+  }, [clients, warehouse, matchWarehouseClients]);
 
   const eligibleKey = eligibleClientIds.join(",");
   const scopeKey = `${warehouse?.id ?? ""}:${eligibleKey}:${subcollection}`;
@@ -160,7 +172,8 @@ export function useWarehouseClientDocsLive(input: UseWarehouseClientDocsLiveInpu
 }
 
 export const SHIPMENT_LIVE_CONSTRAINTS = [where("status", "==", "confirmed")] as QueryConstraint[];
-export const INVENTORY_LIVE_CONSTRAINTS = [where("status", "==", "approved")] as QueryConstraint[];
+/** No status filter — Notifications loads all requests; we normalize status client-side so casing / odd values are not dropped. */
+export const INVENTORY_LIVE_CONSTRAINTS = [] as QueryConstraint[];
 export const RETURN_LIVE_CONSTRAINTS = [
   where("status", "in", ["approved", "in_progress"]),
 ] as QueryConstraint[];

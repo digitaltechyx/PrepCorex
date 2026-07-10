@@ -1,11 +1,11 @@
-import { addDoc, collection, doc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
   formatExpiryForInput,
   loadInboundRequestQueue,
   type InboundRequestRow,
 } from "@/lib/warehouse-inbound-requests";
-import type { UserProfile, WarehouseDoc } from "@/types";
+import type { InventoryRequest, UserProfile, WarehouseDoc } from "@/types";
 
 export type InboundReceivePrefill = {
   clientUserId: string;
@@ -180,4 +180,67 @@ export async function recordInboundReceiveEvents(input: {
       at: serverTimestamp(),
     });
   }
+}
+
+function expectedRequestQty(req: Pick<InventoryRequest, "receivedQuantity" | "requestedQuantity" | "quantity">): number {
+  if (typeof req.receivedQuantity === "number" && req.receivedQuantity > 0) return req.receivedQuantity;
+  if (typeof req.requestedQuantity === "number" && req.requestedQuantity > 0) return req.requestedQuantity;
+  return Math.max(0, req.quantity ?? 0);
+}
+
+/**
+ * Warehouse-ops dock approve for product inbound (v2).
+ * Marks request approved + fulfillment open — stock is added after receive/putaway, not here.
+ */
+export async function approveInboundRequestAtDock(input: {
+  clientUserId: string;
+  requestId: string;
+  approvedBy: string;
+}): Promise<void> {
+  const requestRef = doc(db, `users/${input.clientUserId}/inventoryRequests`, input.requestId);
+  const snap = await getDoc(requestRef);
+  if (!snap.exists()) throw new Error("Request not found.");
+  const data = snap.data() as InventoryRequest;
+  if (data.status !== "pending") {
+    throw new Error("Only pending requests can be approved.");
+  }
+  if (data.inventoryType && data.inventoryType !== "product") {
+    throw new Error("Dock approve is for product inbound requests. Use admin for box/pallet/container.");
+  }
+
+  const qty = expectedRequestQty(data);
+  await updateDoc(requestRef, {
+    status: "approved",
+    approvedBy: input.approvedBy,
+    approvedAt: serverTimestamp(),
+    receivingDate: serverTimestamp(),
+    requestedQuantity: typeof data.requestedQuantity === "number" ? data.requestedQuantity : qty,
+    receivedQuantity: qty,
+    fulfillmentStatus: "open",
+    warehouseGoodReceivedQty: 0,
+    warehouseDamagedReceivedQty: 0,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function rejectInboundRequestAtDock(input: {
+  clientUserId: string;
+  requestId: string;
+  rejectedBy: string;
+  reason?: string;
+}): Promise<void> {
+  const requestRef = doc(db, `users/${input.clientUserId}/inventoryRequests`, input.requestId);
+  const snap = await getDoc(requestRef);
+  if (!snap.exists()) throw new Error("Request not found.");
+  const data = snap.data() as InventoryRequest;
+  if (data.status !== "pending") {
+    throw new Error("Only pending requests can be rejected.");
+  }
+  await updateDoc(requestRef, {
+    status: "rejected",
+    rejectedBy: input.rejectedBy,
+    rejectedAt: serverTimestamp(),
+    rejectionReason: (input.reason || "").trim() || "Rejected at warehouse dock",
+    updatedAt: serverTimestamp(),
+  });
 }

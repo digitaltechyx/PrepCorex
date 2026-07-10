@@ -12,10 +12,10 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
-  isExpiryPast,
   listWarehouseCartons,
   warehouseCartonDocRef,
 } from "@/lib/warehouse-carton-firestore";
+import { isExpiryPast } from "@/lib/warehouse-carton-states";
 import { getWarehouseCarton } from "@/lib/warehouse-receive-corrections";
 import {
   linesToFirestorePayload,

@@ -722,7 +722,7 @@ export function AddInventoryRequestForm({
           description: `Processing ${lines.length} rows in the background. Progress is shown on the inventory page.`,
         });
       } else {
-        await submitInboundBatch({
+        const submitted = await submitInboundBatch({
           userId: ownerId,
           userName: ownerName,
           shipmentType: shipmentType || undefined,
@@ -730,9 +730,27 @@ export function AddInventoryRequestForm({
           productNotes: isContainerOnlyDraft ? productNotes.trim() || undefined : undefined,
           lines,
         });
+        if (user && submitted.requestIds.length > 0) {
+          try {
+            await addInboundTrackingToRequests(
+              user,
+              ownerId,
+              submitted.requestIds.map((requestId, index) => ({
+                requestId,
+                trackingNumber: lines[index]?.trackingNumber,
+                carrier: lines[index]?.carrier,
+              }))
+            );
+          } catch (trackingErr) {
+            console.warn("Inbound tracking attach failed after draft submit", trackingErr);
+          }
+        }
         toast({
           title: "Success",
-          description: `Inbound batch submitted (${draftLines.length} items). Waiting for admin approval.`,
+          description:
+            draftLines.length > 1
+              ? `Inbound batch submitted (${draftLines.length} items). Waiting for admin approval.`
+              : "Inventory request submitted. Waiting for admin approval.",
         });
       }
       setDraftLines([]);
@@ -1032,7 +1050,7 @@ export function AddInventoryRequestForm({
 
       const isContainerBatch = batchLines.every((line) => line.inventoryType === "container");
 
-      await submitInboundBatch({
+      const submitted = await submitInboundBatch({
         userId: ownerId,
         userName: ownerName,
         shipmentType: shipmentType || undefined,
@@ -1041,6 +1059,28 @@ export function AddInventoryRequestForm({
         lines: batchLines,
       });
 
+      if (user && submitted.requestIds.length > 0) {
+        try {
+          await addInboundTrackingToRequests(
+            user,
+            ownerId,
+            submitted.requestIds.map((requestId, index) => ({
+              requestId,
+              trackingNumber: batchLines[index]?.trackingNumber,
+              carrier: batchLines[index]?.carrier,
+            }))
+          );
+        } catch (trackingErr) {
+          console.warn("Inbound tracking attach failed after submit", trackingErr);
+          toast({
+            title: "Request submitted",
+            description:
+              "Tracking could not be verified with the carrier yet. You can add it again from Inventory.",
+            variant: "destructive",
+          });
+        }
+      }
+
       const submittedCount = batchLines.length;
 
       toast({
@@ -1048,7 +1088,7 @@ export function AddInventoryRequestForm({
         description:
           submittedCount > 1
             ? `Inbound batch submitted (${submittedCount} items). Waiting for admin approval.`
-            : "Inbound batch submitted. Waiting for admin approval.",
+            : "Inventory request submitted. Waiting for admin approval.",
       });
 
       form.reset({

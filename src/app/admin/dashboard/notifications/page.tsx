@@ -14,7 +14,7 @@ import type {
   DisposeBatch,
   InboundTrackingEntry,
 } from "@/types";
-import { summarizeInboundTrackings } from "@/lib/inbound-tracking";
+import { summarizeInboundTrackings, resolveInboundTrackings } from "@/lib/inbound-tracking";
 import { db } from "@/lib/firebase";
 import { collection, collectionGroup, getDocs, query } from "firebase/firestore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -363,13 +363,16 @@ export default function AdminNotificationsPage() {
             const base = collectionGroup(db, "inventoryRequests");
             const q = query(base);
             const snap = await getDocs(q);
-            const rows: NotificationRow[] = snap.docs.map((d) => {
+            const rows: NotificationRow[] = snap.docs
+              .map((d) => {
               const userId = d.ref.path.split("/")[1];
               const data = d.data() as any as InventoryRequest;
+              // Multi-line batch lines are shown via the parent inbound batch row.
+              if ((data as any).batchId) return null;
               const dateMs = toMs((data as any).requestedAt) || toMs((data as any).addDate) || 0;
               const productName = (data as any).productName || (data as any).newProductName || "Inventory Request";
               return {
-                type: "inventory_request",
+                type: "inventory_request" as const,
                 id: d.id,
                 userId,
                 status: String((data as any).status || ""),
@@ -382,26 +385,44 @@ export default function AdminNotificationsPage() {
                         `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`
                       )
                     : `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
-                inboundTrackings: Array.isArray((data as any).inboundTrackings)
-                  ? ((data as any).inboundTrackings as InboundTrackingEntry[])
-                  : undefined,
+                inboundTrackings: resolveInboundTrackings(
+                  data as InventoryRequest & { trackingNumber?: string; carrier?: string }
+                ),
               };
-            });
+            })
+              .filter((r): r is NotificationRow => r != null);
             const batchSnap = await getDocs(query(collectionGroup(db, "inboundBatches")));
-            const batchRows: NotificationRow[] = batchSnap.docs.map((d) => {
+            const batchRows: NotificationRow[] = batchSnap.docs
+              .map((d) => {
               const userId = d.ref.path.split("/")[1];
               const data = d.data() as any as InboundBatch;
+              const totalLines = Number((data as any).totalLines || 0);
+              // Batches are for 2+ lines only; keep legacy 1-line batches visible.
+              if (totalLines === 1) {
+                const dateMs = toMs((data as any).requestedAt) || toMs((data as any).addDate) || 0;
+                return {
+                  type: "inventory_request" as const,
+                  id: d.id,
+                  userId,
+                  status: String((data as any).status || ""),
+                  createdAtMs: dateMs,
+                  title: `Inventory Request • 1 item`,
+                  subtitle: `${Number((data as any).pendingLines || 0).toLocaleString()} pending · open batch to process`,
+                };
+              }
+              if (totalLines < 1) return null;
               const dateMs = toMs((data as any).requestedAt) || toMs((data as any).addDate) || 0;
               return {
-                type: "inventory_request",
+                type: "inventory_request" as const,
                 id: d.id,
                 userId,
                 status: String((data as any).status || ""),
                 createdAtMs: dateMs,
-                title: `Inbound Batch • ${Number((data as any).totalLines || 0).toLocaleString()} items`,
+                title: `Inbound Batch • ${totalLines.toLocaleString()} items`,
                 subtitle: `${Number((data as any).pendingLines || 0).toLocaleString()} pending · ${Number((data as any).approvedLines || 0).toLocaleString()} approved · ${Number((data as any).rejectedLines || 0).toLocaleString()} rejected`,
               };
-            });
+            })
+              .filter((r): r is NotificationRow => r != null);
             setInventoryRequests([...rows, ...batchRows]);
           } catch (e) {
             anyFailed = true;
@@ -409,8 +430,10 @@ export default function AdminNotificationsPage() {
               const base = collection(db, `users/${uid}/inventoryRequests`);
               const q = query(base);
               const snap = await getDocs(q);
-              return snap.docs.map((d) => {
+              return snap.docs
+                .map((d) => {
                 const data = d.data() as any as InventoryRequest;
+                if ((data as any).batchId) return null;
                 const dateMs = toMs((data as any).requestedAt) || toMs((data as any).addDate) || 0;
                 const productName = (data as any).productName || (data as any).newProductName || "Inventory Request";
                 const row: NotificationRow = {
@@ -427,30 +450,47 @@ export default function AdminNotificationsPage() {
                           `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`
                         )
                       : `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
-                  inboundTrackings: Array.isArray((data as any).inboundTrackings)
-                    ? ((data as any).inboundTrackings as InboundTrackingEntry[])
-                    : undefined,
+                  inboundTrackings: resolveInboundTrackings(
+                    data as InventoryRequest & { trackingNumber?: string; carrier?: string }
+                  ),
                 };
                 return row;
-              });
+              })
+                .filter((r): r is NotificationRow => r != null);
             }));
             const batchResults = await Promise.all(userIds.map(async (uid) => {
               const base = collection(db, `users/${uid}/inboundBatches`);
               const snap = await getDocs(query(base));
-              return snap.docs.map((d) => {
+              return snap.docs
+                .map((d) => {
                 const data = d.data() as any as InboundBatch;
+                const totalLines = Number((data as any).totalLines || 0);
+                if (totalLines < 1) return null;
                 const dateMs = toMs((data as any).requestedAt) || toMs((data as any).addDate) || 0;
+                if (totalLines === 1) {
+                  const row: NotificationRow = {
+                    type: "inventory_request",
+                    id: d.id,
+                    userId: uid,
+                    status: String((data as any).status || ""),
+                    createdAtMs: dateMs,
+                    title: `Inventory Request • 1 item`,
+                    subtitle: `${Number((data as any).pendingLines || 0).toLocaleString()} pending · open batch to process`,
+                  };
+                  return row;
+                }
                 const row: NotificationRow = {
                   type: "inventory_request",
                   id: d.id,
                   userId: uid,
                   status: String((data as any).status || ""),
                   createdAtMs: dateMs,
-                  title: `Inbound Batch • ${Number((data as any).totalLines || 0).toLocaleString()} items`,
+                  title: `Inbound Batch • ${totalLines.toLocaleString()} items`,
                   subtitle: `${Number((data as any).pendingLines || 0).toLocaleString()} pending · ${Number((data as any).approvedLines || 0).toLocaleString()} approved · ${Number((data as any).rejectedLines || 0).toLocaleString()} rejected`,
                 };
                 return row;
-              });
+              })
+                .filter((r): r is NotificationRow => r != null);
             }));
             setInventoryRequests([...results.flat(), ...batchResults.flat()]);
           }
@@ -578,13 +618,19 @@ export default function AdminNotificationsPage() {
   }, [shipmentRequests, inventoryRequests, productReturns, disposeRequests]);
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: allRows.length };
+    const scoped = allRows.filter((r) => {
+      if (typeFilter !== "all" && r.type !== typeFilter) return false;
+      if (userIdFilter && userIdFilter !== "all" && r.userId !== userIdFilter) return false;
+      if (!inRange(r.createdAtMs, fromDate, toDate)) return false;
+      return true;
+    });
+    const counts: Record<string, number> = { all: scoped.length };
     const statuses: Exclude<StatusFilter, "all">[] = ["pending", "paid", "approved", "confirmed", "rejected", "in_progress", "closed", "cancelled"];
     statuses.forEach((s) => {
-      counts[s] = allRows.filter((r) => normStatus(r.status) === s).length;
+      counts[s] = scoped.filter((r) => normStatus(r.status) === s).length;
     });
     return counts;
-  }, [allRows]);
+  }, [allRows, fromDate, toDate, typeFilter, userIdFilter]);
 
   const filteredRows = useMemo(() => {
     const byTab = (r: NotificationRow) => activeTab === "all" ? true : normStatus(r.status) === activeTab;
