@@ -68,6 +68,18 @@ function expectedQuantity(req: InventoryRequest): number {
   return Math.max(0, req.quantity ?? 0);
 }
 
+function remainingInboundQty(
+  data: Omit<InventoryRequest, "id">,
+  cartonReceivedQty: number
+): number {
+  if (data.inventoryType === "container") {
+    return data.fulfillmentStatus === "closed"
+      ? 0
+      : Math.max(1, expectedQuantity({ ...data, id: "" }));
+  }
+  return Math.max(0, expectedQuantity({ ...data, id: "" }) - cartonReceivedQty);
+}
+
 function expectedReturnQty(r: ProductReturn): number {
   return Math.max(0, Math.floor(r.requestedQuantity ?? 0));
 }
@@ -124,7 +136,7 @@ function countInboundDockLive(input: {
 
     const expectedQty = expectedQuantity({ ...data, id: doc.id });
     const cartonReceivedQty = cartonMap.get(doc.id) ?? 0;
-    const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
+    const remainingQty = remainingInboundQty(data, cartonReceivedQty);
 
     const legacyFulfilled = inboundNeedsLegacyInventoryCheck(data)
       ? isLegacyAdminFulfilledInboundRequest({
@@ -408,7 +420,7 @@ export function buildInboundDockQueueLive(input: {
 
     const expectedQty = expectedQuantity({ ...data, id: doc.id });
     const cartonReceivedQty = cartonMap.get(doc.id) ?? 0;
-    const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
+    const remainingQty = remainingInboundQty(data, cartonReceivedQty);
 
     const legacyFulfilled = inboundNeedsLegacyInventoryCheck(data)
       ? isLegacyAdminFulfilledInboundRequest({

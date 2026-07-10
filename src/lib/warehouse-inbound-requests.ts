@@ -129,6 +129,17 @@ function expectedQuantity(req: InventoryRequest): number {
   return Math.max(0, req.quantity ?? 0);
 }
 
+/** Container handling is 1 unit; product qty inside must not zero-out remaining. */
+function remainingInboundQty(
+  data: Omit<InventoryRequest, "id">,
+  cartonReceivedQty: number
+): number {
+  if (data.inventoryType === "container") {
+    return data.fulfillmentStatus === "closed" ? 0 : Math.max(1, expectedQuantity({ ...data, id: "" }));
+  }
+  return Math.max(0, expectedQuantity({ ...data, id: "" }) - cartonReceivedQty);
+}
+
 /** Sum carton qty per inventory request id from an already-loaded carton list. */
 export function buildCartonQtyByInventoryRequestId(
   cartons: WarehouseCartonDoc[]
@@ -254,7 +265,7 @@ export async function countInboundDockQueue(input: {
 
     const expectedQty = expectedQuantity({ ...data, id: d.id });
     const cartonReceivedQty = cartonMap.get(d.id) ?? 0;
-    const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
+    const remainingQty = remainingInboundQty(data, cartonReceivedQty);
     if (remainingQty <= 0) continue;
 
     candidates.push({
@@ -359,7 +370,7 @@ export async function loadInboundRequestQueue(input: {
 
     const expectedQty = expectedQuantity({ ...data, id: d.id });
     const cartonReceivedQty = cartonMap.get(d.id) ?? 0;
-    const remainingQty = Math.max(0, expectedQty - cartonReceivedQty);
+    const remainingQty = remainingInboundQty(data, cartonReceivedQty);
 
     const legacyFulfilled = isLegacyAdminFulfilledInboundRequest({
       clientUserId,

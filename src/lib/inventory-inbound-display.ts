@@ -22,10 +22,10 @@ export function warehouseGoodReceivedQty(req: InventoryRequest): number {
   return Math.max(0, Number(req.warehouseGoodReceivedQty ?? 0));
 }
 
-/** Product inbound v2: approved request still visible until fully received at warehouse. */
+/** Product or container inbound still visible until warehouse fully receives / closes it. */
 export function isOpenProductInboundRequest(req: InventoryRequest): boolean {
   if (req.status !== "approved") return false;
-  if (req.inventoryType !== "product") return false;
+  if (req.inventoryType !== "product" && req.inventoryType !== "container") return false;
   if (req.fulfillmentStatus === "closed") return false;
   return true;
 }
@@ -37,12 +37,17 @@ export function inboundRequestDisplayStatus(req: InventoryRequest): InboundTable
   return "Awaiting Receiving";
 }
 
-/** Hide request row once warehouse good qty meets approved expectation and inventory exists. */
+/** Hide request row once warehouse good qty meets approved expectation and inventory exists.
+ *  Container handling rows hide once closed (products from inside show as normal inventory). */
 export function shouldShowApprovedInboundRequestRow(
   req: InventoryRequest,
   inventory: InventoryItem[]
 ): boolean {
   if (!isOpenProductInboundRequest(req)) return false;
+
+  if (req.inventoryType === "container") {
+    return true;
+  }
 
   const expected = expectedApprovedInboundQty(req);
   const good = warehouseGoodReceivedQty(req);

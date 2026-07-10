@@ -101,7 +101,6 @@ import {
   recordInboundReceiveBatch,
   reloadInboundRequestRow,
   validateInboundReceiveQty,
-  completeContainerInboundRequest,
 } from "@/lib/warehouse-inbound-receive";
 import {
   loadInboundRequestQueue,
@@ -452,7 +451,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                 title="Open receiving"
                 description={
                   selectedInbounds.length === 0
-                    ? "Client must be known — assign the user, count SKUs into their inventory, then putaway."
+                    ? "Client must be known — assign the user, count SKUs (carton, pallet, package, or container), then putaway."
                     : "Open and count at the dock — products go to client inventory after putaway; inbound closes."
                 }
                 onClick={() => startModule("loose")}
@@ -547,15 +546,17 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   description="Small bags or totes — one PKG label with full SKU manifest. Scan PKG at putaway."
                   onClick={() => pickPackage("loose")}
                 />
-                {selectedInbounds.some(isContainerInbound) ? (
-                  <TypePickerCard
-                    color="orange"
-                    icon={<Truck className="h-8 w-8" />}
-                    title="Container shell"
-                    description="Optional CTR label for the container first — then open-receive SKUs with the client."
-                    onClick={() => pickPackage("container")}
-                  />
-                ) : null}
+                <TypePickerCard
+                  color="orange"
+                  icon={<Truck className="h-8 w-8" />}
+                  title="Container"
+                  description={
+                    selectedInbounds.some(isContainerInbound)
+                      ? "Receive products inside the container — count SKUs for the client, then putaway. Request closes after putaway."
+                      : "Open a container — assign client, count SKUs inside, then putaway into their inventory."
+                  }
+                  onClick={() => pickPackage("container")}
+                />
               </div>
             </>
           ) : type && module ? (
@@ -638,7 +639,7 @@ function TypePickerCard({
 
 function ReceiveForm({
   warehouse,
-  type,
+  type: typeProp,
   receiveModule,
   receiveMode,
   inboundRequests = [],
@@ -671,6 +672,9 @@ function ReceiveForm({
   const supervisor = isOpsSupervisor(userProfile);
   const operatorName = userProfile?.name || userProfile?.email || user?.uid || null;
   const operatorId = user?.uid ?? null;
+  /** Open receiving a container = count SKUs inside (same form as carton), not CTR shell. */
+  const openContainerContents = receiveModule === "loose" && typeProp === "container";
+  const type: ReceiveType = openContainerContents ? "carton" : typeProp;
   const isCrossdockCarton = receiveModule === "crossdock" && type === "carton";
   const isCrossdockPackage = receiveModule === "crossdock" && type === "loose";
   const isCrossdockClosedUnit = isCrossdockCarton || isCrossdockPackage;
@@ -1576,30 +1580,21 @@ function ReceiveForm({
         }
       }
 
-      // Container handling requests: close after contents are open-received for that client.
-      const containerReqs = inboundRequests.filter(isContainerInbound);
-      for (const row of containerReqs) {
-        await completeContainerInboundRequest({
-          clientUserId: row.clientUserId,
-          requestId: row.id,
-          completedBy: operatorId,
-        });
-      }
-      if (containerReqs.length > 0) {
-        await reloadInboundQueue();
-        await refreshInboundRequestsAfterReceive();
-      }
-
-      const linkedAnyRequest = receiveEntries.length > 0 || containerReqs.length > 0;
+      // Container handling request stays open until putaway syncs product inventory, then closes.
+      const linkedAnyRequest = receiveEntries.length > 0;
 
       toast({
         title: isCrossdockPackage
           ? "Cross-dock packages received"
           : receiveModule === "loose"
-          ? "Open receiving complete"
+          ? openContainerContents
+            ? "Container contents received"
+            : "Open receiving complete"
           : "Cross-dock received",
         description: linkedAnyRequest
-          ? `Mixed carton linked to ${new Set(receiveEntries.map((e) => e.inventoryRequestId)).size} request(s). ${created.length} label${created.length > 1 ? "s" : ""} printed.`
+          ? openContainerContents || inboundRequests.some(isContainerInbound)
+            ? `Contents linked to client. ${created.length} label${created.length > 1 ? "s" : ""} printed. Putaway next — inventory updates and the container request leaves their table.`
+            : `Mixed carton linked to ${new Set(receiveEntries.map((e) => e.inventoryRequestId)).size} request(s). ${created.length} label${created.length > 1 ? "s" : ""} printed.`
           : isCrossdockPackage
             ? `${totalCartonCount} PKG label${totalCartonCount === 1 ? "" : "s"} printed. Allocate client, then Putaway.`
             : type === "loose"
@@ -1694,7 +1689,9 @@ function ReceiveForm({
   const titleByType: Record<ReceiveType, string> =
     receiveModule === "loose"
       ? {
-          carton: "Open receiving — cartons",
+          carton: openContainerContents
+            ? "Open receiving — container contents"
+            : "Open receiving — cartons",
           pallet: "Open receiving — pallet",
           loose: "Open receiving — packages",
           container: "Container receive — counts + CTR label",
@@ -1708,8 +1705,9 @@ function ReceiveForm({
   const subtitleByType: Record<ReceiveType, string> =
     receiveModule === "loose"
       ? {
-          carton:
-            "Open each carton and enter every SKU and quantity. CTN labels print for putaway.",
+          carton: openContainerContents
+            ? "Count products inside the container for this client. After putaway, inventory updates and the container request leaves their table."
+            : "Open each carton and enter every SKU and quantity. CTN labels print for putaway.",
           pallet:
             "One pallet label plus a CTN label per carton — enter SKUs inside each carton.",
           loose:
@@ -1732,7 +1730,7 @@ function ReceiveForm({
     container: "border-sky-300 bg-sky-700 hover:bg-sky-800",
   };
 
-  if (type === "container") {
+  if (typeProp === "container" && receiveModule === "crossdock") {
     return (
       <ContainerReceiveForm
         warehouse={warehouse}
@@ -1752,7 +1750,8 @@ function ReceiveForm({
           {type === "loose" && receiveModule === "loose" ? "Back" : "Change package type"}
         </Button>
         <Badge variant="outline" className="capitalize">
-          {receiveModule === "crossdock" ? "Cross-dock" : "Open receiving"} · {type}
+          {receiveModule === "crossdock" ? "Cross-dock" : "Open receiving"} ·{" "}
+          {openContainerContents ? "container" : type}
         </Badge>
         {onSwitchToOpenReceive ? (
           <Button

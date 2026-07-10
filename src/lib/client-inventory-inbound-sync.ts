@@ -178,10 +178,12 @@ async function syncPutawayLine(input: {
 
   const productName =
     input.line.productTitle?.trim() ||
-    requestData?.productName?.trim() ||
+    (requestData?.inventoryType === "container"
+      ? null
+      : requestData?.productName?.trim()) ||
     input.carton.productTitle?.trim() ||
     "Product";
-  const sku = input.line.sku?.trim() || requestData?.sku?.trim() || null;
+  const sku = input.line.sku?.trim() || (requestData?.inventoryType === "container" ? null : requestData?.sku?.trim()) || null;
   const isRestock = requestData?.productSubType === "restock";
   const remarks = input.carton.notes?.trim() || requestData?.remarks?.trim() || null;
 
@@ -190,7 +192,10 @@ async function syncPutawayLine(input: {
     requestData,
     productName,
     sku,
-    productId: requestData?.productId?.trim() || null,
+    productId:
+      requestData?.inventoryType === "container"
+        ? null
+        : requestData?.productId?.trim() || null,
   });
 
   await runTransaction(db, async (tx) => {
@@ -282,12 +287,16 @@ async function syncPutawayLine(input: {
 
     if (requestId && requestData) {
       const reqRef = doc(db, "users", clientUserId, "inventoryRequests", requestId);
+      const isContainerReq = requestData.inventoryType === "container";
       const prevReqGood = Math.max(0, Number(requestData.warehouseGoodReceivedQty ?? 0));
       const prevReqDamaged = Math.max(0, Number(requestData.warehouseDamagedReceivedQty ?? 0));
-      const nextReqGood = prevReqGood + goodQty;
-      const nextReqDamaged = prevReqDamaged + damagedQty;
-      const expected = expectedRequestQty(requestData);
-      const totalReceived = nextReqGood + nextReqDamaged;
+      // Container handling is 1 unit — don't inflate with product SKU quantities inside.
+      const nextReqGood = isContainerReq ? Math.max(prevReqGood, 1) : prevReqGood + goodQty;
+      const nextReqDamaged = isContainerReq ? prevReqDamaged : prevReqDamaged + damagedQty;
+      const expected = isContainerReq ? 1 : expectedRequestQty(requestData);
+      const totalReceived = isContainerReq
+        ? nextReqGood
+        : nextReqGood + nextReqDamaged;
 
       const reqPatch: Record<string, unknown> = {
         warehouseGoodReceivedQty: nextReqGood,
@@ -303,7 +312,12 @@ async function syncPutawayLine(input: {
       ) {
         reqPatch.fulfillmentStatus = "closed";
         reqPatch.closedAt = serverTimestamp();
-        reqPatch.closeReason = "Fully received at warehouse";
+        reqPatch.closeReason = isContainerReq
+          ? "Container contents put away — products added to inventory"
+          : "Fully received at warehouse";
+        if (isContainerReq) {
+          reqPatch.receivingDate = serverTimestamp();
+        }
       }
 
       tx.update(reqRef, reqPatch);
@@ -329,7 +343,8 @@ async function findInventoryDocRef(
     if (snap.exists()) return ref;
   }
 
-  if (input.requestId) {
+  // Container handling requests can link many SKUs — never merge them into one inventory row.
+  if (input.requestId && input.requestData?.inventoryType !== "container") {
     const snap = await getDocs(
       query(inventoryCol, where("sourceRequestId", "==", input.requestId), limit(1))
     );
