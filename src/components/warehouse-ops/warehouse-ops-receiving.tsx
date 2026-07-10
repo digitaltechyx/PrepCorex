@@ -127,7 +127,13 @@ import {
 type ReceiveType = "carton" | "pallet" | "loose" | "container";
 /** crossdock = closed labels only; loose module = open receiving at dock */
 type ReceiveModule = "crossdock" | "loose";
-type ReceivePhase = "dock-intake" | "return-receive" | "hub" | "pick-package" | "form";
+type ReceivePhase =
+  | "dock-intake"
+  | "return-receive"
+  | "hub"
+  | "pick-package"
+  | "pick-container-contents"
+  | "form";
 
 function isContainerInbound(row: { inventoryType?: string }): boolean {
   return row.inventoryType === "container";
@@ -275,6 +281,8 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   const [phase, setPhase] = useState<ReceivePhase>("dock-intake");
   const [module, setModule] = useState<ReceiveModule | null>(null);
   const [type, setType] = useState<ReceiveType | null>(null);
+  /** Open-receive: counting cartons/pallets/packages that arrived inside a container. */
+  const [fromContainer, setFromContainer] = useState(false);
   const [formRestore, setFormRestore] = useState<StoredReceiveFormSnapshot | null>(null);
   const [restoreKey, setRestoreKey] = useState(0);
   const [selectedReturn, setSelectedReturn] = useState<ReturnRequestRow | null>(null);
@@ -285,9 +293,22 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
     setModule(m);
     setPhase("pick-package");
     setType(null);
+    setFromContainer(false);
   }
 
   function pickPackage(t: ReceiveType) {
+    if (module === "loose" && t === "container") {
+      setFromContainer(true);
+      setType(null);
+      setPhase("pick-container-contents");
+      return;
+    }
+    setType(t);
+    setPhase("form");
+  }
+
+  function pickContainerContent(t: "carton" | "pallet" | "loose") {
+    setFromContainer(true);
     setType(t);
     setPhase("form");
   }
@@ -296,6 +317,13 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
     setPhase("hub");
     setModule(null);
     setType(null);
+    setFromContainer(false);
+  }
+
+  function backFromContainerContents() {
+    setPhase("pick-package");
+    setType(null);
+    setFromContainer(false);
   }
 
   function handleDockInbound(rows: InboundRequestRow[], tracking: string) {
@@ -325,6 +353,11 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   }
 
   function backFromForm() {
+    if (fromContainer) {
+      setPhase("pick-container-contents");
+      setType(null);
+      return;
+    }
     if (type === "loose" && module === "loose") {
       setPhase("hub");
       setModule(null);
@@ -508,7 +541,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   color="orange"
                   icon={<Truck className="h-8 w-8" />}
                   title="Container"
-                  description="Count cartons/pallets/packages inside — one CTR label, lot, photos."
+                  description="Count cartons, pallets, and/or packages inside — one CTR label, lot, photos."
                   onClick={() => pickPackage("container")}
                 />
               </div>
@@ -552,16 +585,64 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   title="Container"
                   description={
                     selectedInbounds.some(isContainerInbound)
-                      ? "Receive products inside the container — count SKUs for the client, then putaway. Request closes after putaway."
-                      : "Open a container — assign client, count SKUs inside, then putaway into their inventory."
+                      ? "Container can hold cartons, pallets, packages, or all of them — pick what’s inside next."
+                      : "Open a container — then count cartons, pallets, and/or packages inside for the client."
                   }
                   onClick={() => pickPackage("container")}
                 />
               </div>
             </>
+          ) : phase === "pick-container-contents" && module === "loose" ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="-ml-2"
+                onClick={backFromContainerContents}
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                A container can contain <strong>cartons</strong>, <strong>pallets</strong>,{" "}
+                <strong>packages</strong>, or <strong>all of them</strong>. Pick what you are
+                counting now — finish one type, then come back for the others.
+              </p>
+              {selectedInbounds.some(isContainerInbound) ? (
+                <Card className="border-blue-200/80 bg-blue-50/40">
+                  <CardContent className="py-3 text-xs text-blue-900">
+                    Container request stays open until putaway. After putaway, products show in the
+                    client inventory and the container request leaves their table.
+                  </CardContent>
+                </Card>
+              ) : null}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <TypePickerCard
+                  color="orange"
+                  icon={<Package className="h-8 w-8" />}
+                  title="Cartons inside"
+                  description="Open cartons from the container — enter SKUs and quantities."
+                  onClick={() => pickContainerContent("carton")}
+                />
+                <TypePickerCard
+                  color="indigo"
+                  icon={<Boxes className="h-8 w-8" />}
+                  title="Pallets inside"
+                  description="Pallets unloaded from the container — count cartons and SKUs on each."
+                  onClick={() => pickContainerContent("pallet")}
+                />
+                <TypePickerCard
+                  color="emerald"
+                  icon={<PackageOpen className="h-8 w-8" />}
+                  title="Packages inside"
+                  description="Polybags / small packs from the container — PKG label with SKU manifest."
+                  onClick={() => pickContainerContent("loose")}
+                />
+              </div>
+            </>
           ) : type && module ? (
             <ReceiveForm
-              key={`receive-${module}-${type}-${restoreKey}-${selectedInbounds.map((r) => r.id).join(",") || "none"}`}
+              key={`receive-${module}-${type}-${fromContainer ? "ctr" : "std"}-${restoreKey}-${selectedInbounds.map((r) => r.id).join(",") || "none"}`}
               warehouse={warehouse}
               type={type}
               receiveModule={module}
@@ -569,6 +650,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
               inboundRequests={selectedInbounds}
               dockTracking={dockTracking}
               clients={clients}
+              fromContainer={fromContainer}
               onInboundRequestsChange={setSelectedInbounds}
               onBack={backFromForm}
               onSwitchToOpenReceive={
@@ -578,6 +660,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                       setFormRestore(null);
                       setPhase("pick-package");
                       setType(null);
+                      setFromContainer(false);
                     }
                   : undefined
               }
@@ -645,6 +728,7 @@ function ReceiveForm({
   inboundRequests = [],
   dockTracking,
   clients: clientsForReload,
+  fromContainer = false,
   onInboundRequestsChange,
   onBack,
   onSwitchToOpenReceive,
@@ -659,6 +743,8 @@ function ReceiveForm({
   inboundRequests?: InboundRequestRow[];
   dockTracking?: string;
   clients: UserProfile[];
+  /** True when counting units unloaded from a container. */
+  fromContainer?: boolean;
   onInboundRequestsChange?: (rows: InboundRequestRow[]) => void;
   onBack: () => void;
   /** Cross-dock → open receiving (count SKUs into inventory). Keeps dock-matched requests. */
@@ -672,9 +758,8 @@ function ReceiveForm({
   const supervisor = isOpsSupervisor(userProfile);
   const operatorName = userProfile?.name || userProfile?.email || user?.uid || null;
   const operatorId = user?.uid ?? null;
-  /** Open receiving a container = count SKUs inside (same form as carton), not CTR shell. */
-  const openContainerContents = receiveModule === "loose" && typeProp === "container";
-  const type: ReceiveType = openContainerContents ? "carton" : typeProp;
+  const type: ReceiveType = typeProp;
+  const openContainerContents = fromContainer && receiveModule === "loose";
   const isCrossdockCarton = receiveModule === "crossdock" && type === "carton";
   const isCrossdockPackage = receiveModule === "crossdock" && type === "loose";
   const isCrossdockClosedUnit = isCrossdockCarton || isCrossdockPackage;
@@ -1690,10 +1775,14 @@ function ReceiveForm({
     receiveModule === "loose"
       ? {
           carton: openContainerContents
-            ? "Open receiving — container contents"
+            ? "Container — cartons inside"
             : "Open receiving — cartons",
-          pallet: "Open receiving — pallet",
-          loose: "Open receiving — packages",
+          pallet: openContainerContents
+            ? "Container — pallets inside"
+            : "Open receiving — pallet",
+          loose: openContainerContents
+            ? "Container — packages inside"
+            : "Open receiving — packages",
           container: "Container receive — counts + CTR label",
         }
       : {
@@ -1706,14 +1795,16 @@ function ReceiveForm({
     receiveModule === "loose"
       ? {
           carton: openContainerContents
-            ? "Count products inside the container for this client. After putaway, inventory updates and the container request leaves their table."
+            ? "Count SKUs in cartons unloaded from the container. Putaway next — then inventory updates."
             : "Open each carton and enter every SKU and quantity. CTN labels print for putaway.",
-          pallet:
-            "One pallet label plus a CTN label per carton — enter SKUs inside each carton.",
-          loose:
-            "Polybags, totes, or open units — PKG label with SKU count. Scan PKG at putaway.",
+          pallet: openContainerContents
+            ? "Count cartons/SKUs on pallets unloaded from the container."
+            : "One pallet label plus a CTN label per carton — enter SKUs inside each carton.",
+          loose: openContainerContents
+            ? "Count packages/polybags unloaded from the container — PKG label with SKU manifest."
+            : "Polybags, totes, or open units — PKG label with SKU count. Scan PKG at putaway.",
           container:
-            "Enter how many cartons, pallets, and packages are inside. One CTR label. Assign client later, then open-receive SKUs into inventory.",
+            "A container can hold cartons, pallets, packages, or all of them. Enter counts, photos, one CTR label.",
         }
       : {
           carton:
@@ -1721,7 +1812,8 @@ function ReceiveForm({
           pallet: "One PLT label only — do not count cartons inside. Putaway later.",
           loose:
             "Closed polybags or small packs — PKG labels only. Open and count SKUs at putaway.",
-          container: "Use open receiving for containers.",
+          container:
+            "A container can hold cartons, pallets, packages, or all of them. Count units inside, photos, one CTR label.",
         };
   const accentByType: Record<ReceiveType, string> = {
     carton: "border-orange-300 bg-orange-600 hover:bg-orange-700",
@@ -1750,8 +1842,8 @@ function ReceiveForm({
           {type === "loose" && receiveModule === "loose" ? "Back" : "Change package type"}
         </Button>
         <Badge variant="outline" className="capitalize">
-          {receiveModule === "crossdock" ? "Cross-dock" : "Open receiving"} ·{" "}
-          {openContainerContents ? "container" : type}
+          {receiveModule === "crossdock" ? "Cross-dock" : "Open receiving"}
+          {openContainerContents ? " · container" : ""} · {type}
         </Badge>
         {onSwitchToOpenReceive ? (
           <Button
@@ -2584,8 +2676,10 @@ function ContainerReceiveForm({
       </div>
       <WarehouseOpsHeader title="Container receive" />
       <p className="text-sm text-muted-foreground -mt-2">
-        Walk-in / closed: count units inside (no SKUs), take photos, print one CTR label with lot.
-        When the client is known, use open receiving to put products in their inventory.
+        A container can hold <strong>cartons</strong>, <strong>pallets</strong>,{" "}
+        <strong>packages</strong>, or <strong>all of them</strong>. Count units inside (no SKUs
+        yet), take photos, print one CTR label with lot. When the client is known, open-receive
+        each type into their inventory.
       </p>
 
       {containerReq ? (
@@ -2601,7 +2695,10 @@ function ContainerReceiveForm({
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Contents count</CardTitle>
-          <CardDescription>At least one count must be greater than zero.</CardDescription>
+          <CardDescription>
+            Enter how many cartons, pallets, and/or packages are inside (any combination). At
+            least one count must be greater than zero.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1">
