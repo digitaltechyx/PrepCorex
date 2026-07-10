@@ -160,8 +160,14 @@ function RegionCombobox({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-        <div className="p-2 border-b">
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] p-0 overflow-hidden"
+        align="start"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onWheel={(e) => e.stopPropagation()}
+      >
+        <div className="p-2 border-b shrink-0">
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -170,7 +176,11 @@ function RegionCombobox({
             autoFocus
           />
         </div>
-        <div className="max-h-60 overflow-y-auto p-1">
+        <div
+          className="h-[280px] overflow-y-scroll overscroll-contain p-1"
+          role="listbox"
+          onWheel={(e) => e.stopPropagation()}
+        >
           {filtered.length === 0 ? (
             <p className="px-2 py-3 text-sm text-muted-foreground">No match.</p>
           ) : (
