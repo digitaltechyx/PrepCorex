@@ -56,7 +56,7 @@ import { doc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 import { formatInboundQuantityDisplay } from "@/lib/inventory-qty-display";
-import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath } from "@/lib/inbound-batch";
+import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath, mirrorUnlinkedPendingBatchLines } from "@/lib/inbound-batch";
 import { resolveInboundTrackings } from "@/lib/inbound-tracking";
 import {
   formatInboundRequestRowQuantity,
@@ -548,6 +548,39 @@ export function InventoryTable({
     effectiveUserId ? inboundBatchesPath(effectiveUserId) : ""
   );
 
+  // Legacy 1-line batches often lack mirrored inventoryRequests — client can create for self.
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    const needsMirror = inboundBatches.some(
+      (b) =>
+        (b.status === "pending" || b.status === "partial") && Number(b.totalLines || 0) === 1
+    );
+    if (!needsMirror) return;
+    let cancelled = false;
+    const key = `inv-batch-mirror-v1:${effectiveUserId}`;
+    try {
+      if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) === "1") return;
+    } catch {
+      /* ignore */
+    }
+    void mirrorUnlinkedPendingBatchLines([effectiveUserId])
+      .then((created) => {
+        if (cancelled) return;
+        try {
+          sessionStorage.setItem(key, "1");
+        } catch {
+          /* ignore */
+        }
+        if (created > 0) {
+          console.info(`[inventory] Mirrored ${created} batch line(s) for display`);
+        }
+      })
+      .catch((err) => console.warn("[inventory] Batch mirror failed", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveUserId, inboundBatches]);
+
   // Refresh stale carrier statuses (> 6 hours) when inventory loads
   useEffect(() => {
     if (!user || !effectiveUserId) return;
@@ -582,10 +615,18 @@ export function InventoryTable({
   }, [user, effectiveUserId, toast]);
 
   const pendingCount =
-    inboundBatches.filter((b) => b.status === "pending" || b.status === "partial").length +
-    inventoryRequests.filter(
-      (req) => req.status === "pending" && !(req as InventoryRequest & { batchId?: string }).batchId
-    ).length;
+    inboundBatches.filter(
+      (b) =>
+        (b.status === "pending" || b.status === "partial") && Number(b.totalLines || 0) > 1
+    ).length +
+    inventoryRequests.filter((req) => {
+      if (req.status !== "pending") return false;
+      const batchId = (req as InventoryRequest & { batchId?: string }).batchId;
+      if (!batchId) return true;
+      // 1-line batch mirrors count as normal pending requests (not batch parents).
+      const parent = inboundBatches.find((b) => b.id === batchId);
+      return !parent || Number(parent.totalLines || 0) <= 1;
+    }).length;
   const awaitingReceivingCount = useMemo(
     () => inventoryRequests.filter((req) => shouldShowApprovedInboundRequestRow(req, data)).length,
     [inventoryRequests, data]
@@ -774,12 +815,36 @@ export function InventoryTable({
       return out;
     };
     
+    const multiLineOpenBatchIds = new Set(
+      inboundBatches
+        .filter(
+          (batch) =>
+            (batch.status === "pending" || batch.status === "partial") &&
+            Number(batch.totalLines || 0) > 1
+        )
+        .map((batch) => batch.id)
+    );
+
+    const mirroredOneLineBatchIds = new Set(
+      inventoryRequests
+        .map((req) => (req as InventoryRequest & { batchId?: string }).batchId)
+        .filter((id): id is string => Boolean(id))
+    );
+
+    // Batches are for 2+ lines only. Legacy 1-line batches show as product rows once mirrored;
+    // until then keep a temporary batch row so the request is not invisible.
     const pendingBatchItems = inboundBatches
-      .filter((batch) => batch.status === "pending" || batch.status === "partial")
+      .filter((batch) => {
+        if (batch.status !== "pending" && batch.status !== "partial") return false;
+        const lines = Number(batch.totalLines || 0);
+        if (lines > 1) return true;
+        if (lines === 1 && !mirroredOneLineBatchIds.has(batch.id)) return true;
+        return false;
+      })
       .map((batch) => ({
         id: `batch-${batch.id}`,
         productName:
-          batch.totalLines > 1
+          Number(batch.totalLines || 0) > 1
             ? `Inbound batch (${batch.totalLines} items)`
             : "Inbound request (1 item)",
         sku: [
@@ -815,9 +880,14 @@ export function InventoryTable({
         remarksPhotoAt: undefined,
       }));
 
-    // Convert pending requests to display format (legacy single-line requests only)
+    // Convert pending requests to display format (hide lines that belong to multi-line batch parents)
     const pendingItems = inventoryRequests
-      .filter((req) => req.status === "pending" && !(req as InventoryRequest & { batchId?: string }).batchId)
+      .filter((req) => {
+        if (req.status !== "pending") return false;
+        const batchId = (req as InventoryRequest & { batchId?: string }).batchId;
+        if (batchId && multiLineOpenBatchIds.has(batchId)) return false;
+        return true;
+      })
       .map(req => ({
         id: `request-${req.id}`,
         productName: req.productName,

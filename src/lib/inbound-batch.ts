@@ -482,7 +482,11 @@ export async function mirrorUnlinkedPendingBatchLines(userIds: string[]): Promis
       for (const lineDoc of linesSnap.docs) {
         const line = { id: lineDoc.id, ...(lineDoc.data() as Omit<InboundBatchLine, "id">) };
         if (line.status && line.status !== "pending") continue;
-        if (line.inventoryType && line.inventoryType !== "product") continue;
+        const type = String(line.inventoryType ?? "")
+          .trim()
+          .toLowerCase();
+        // Mirror product + container; treat missing type as product (legacy lines).
+        if (type && type !== "product" && type !== "container") continue;
 
         if (!line.inventoryRequestId) {
           await ensureInventoryRequestForBatchLine(userId, batch, line);
@@ -490,12 +494,21 @@ export async function mirrorUnlinkedPendingBatchLines(userIds: string[]): Promis
           continue;
         }
 
+        // Stale pointer — recreate mirror.
+        const reqRef = doc(db, `users/${userId}/inventoryRequests`, line.inventoryRequestId);
+        const snap = await getDoc(reqRef);
+        if (!snap.exists()) {
+          await ensureInventoryRequestForBatchLine(userId, batch, {
+            ...line,
+            inventoryRequestId: undefined,
+          });
+          created += 1;
+          continue;
+        }
+
         // Backfill tracking onto an existing mirrored request when the line had tracking.
         const tn = String(line.trackingNumber ?? "").trim();
         if (!tn) continue;
-        const reqRef = doc(db, `users/${userId}/inventoryRequests`, line.inventoryRequestId);
-        const snap = await getDoc(reqRef);
-        if (!snap.exists()) continue;
         const data = snap.data() as Record<string, unknown>;
         const existing = Array.isArray(data.inboundTrackings) ? data.inboundTrackings : [];
         if (existing.length > 0) continue;

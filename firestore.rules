@@ -145,10 +145,11 @@ service cloud.firestore {
       allow list: if signedIn();
     }
 
-    // Ops floor staff: read client inbound requests for receiving queue
+    // Ops floor staff: read client inbound requests for receiving queue.
+    // Admins/operators may create mirrors from inbound batch lines for dock receiving.
     match /users/{userId}/inventoryRequests/{requestId} {
       allow read: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
-      allow create: if isSelf(userId);
+      allow create: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
       allow update: if isAdminOrSubAdmin() || isWarehouseOperator() || (
         isSelf(userId) &&
         resource.data.status == 'pending' &&

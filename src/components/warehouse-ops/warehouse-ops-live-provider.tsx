@@ -16,6 +16,7 @@ import {
 import { db } from "@/lib/firebase";
 import { useWarehouseOps } from "@/components/warehouse-ops/warehouse-ops-provider";
 import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
+import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import type { UserProfile } from "@/types";
 import {
@@ -194,6 +195,7 @@ const WarehouseOpsLiveContext = createContext<WarehouseOpsLiveContextValue | und
 
 export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNode }) {
   const { selectedWarehouse } = useWarehouseOps();
+  const { user } = useAuth();
   const { clients, loading: clientsLoading } = useWarehouseOpsClients({
     includeUnapproved: true,
   });
@@ -231,11 +233,13 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
   const { pallets, loading: palletsLoading } = useWarehousePalletsLive(warehouseId);
 
   // Older inbound batches only stored lines under inboundBatches — mirror them so receiving sees them.
+  // Client SDK create was self-only; API uses admin SDK. Also retry client mirror after rules allow ops create.
   useEffect(() => {
-    if (inboundUsersLoading || inboundUsers.length === 0) return;
+    if (inboundUsersLoading || inboundUsers.length === 0 || !user) return;
     let cancelled = false;
-    const key = `wh-ops-batch-mirror-v3:${inboundUsers
-      .map((c) => c.uid)
+    const userIds = inboundUsers.map((c) => c.uid).filter(Boolean);
+    const key = `wh-ops-batch-mirror-v4:${userIds
+      .slice()
       .sort()
       .join(",")
       .slice(0, 200)}`;
@@ -246,25 +250,49 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     } catch {
       /* ignore */
     }
-    void mirrorUnlinkedPendingBatchLines(inboundUsers.map((c) => c.uid))
-      .then((created) => {
-        if (cancelled) return;
+
+    void (async () => {
+      let created = 0;
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/inbound-batches/mirror-lines", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ userIds }),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { created?: number; repaired?: number };
+          created = (data.created ?? 0) + (data.repaired ?? 0);
+        } else {
+          // Fallback: client mirror (works after firestore.rules allow ops create).
+          created = await mirrorUnlinkedPendingBatchLines(userIds);
+        }
+      } catch (err) {
+        console.warn("[warehouse-ops] Batch line mirror API failed; trying client", err);
         try {
-          sessionStorage.setItem(key, "1");
-        } catch {
-          /* ignore */
+          created = await mirrorUnlinkedPendingBatchLines(userIds);
+        } catch (err2) {
+          console.warn("[warehouse-ops] Batch line mirror failed", err2);
         }
-        if (created > 0) {
-          console.info(`[warehouse-ops] Mirrored ${created} batch line(s) into inventory requests`);
-        }
-      })
-      .catch((err) => {
-        console.warn("[warehouse-ops] Batch line mirror failed", err);
-      });
+      }
+      if (cancelled) return;
+      try {
+        sessionStorage.setItem(key, "1");
+      } catch {
+        /* ignore */
+      }
+      if (created > 0) {
+        console.info(`[warehouse-ops] Mirrored ${created} batch line(s) into inventory requests`);
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
-  }, [inboundUsers, inboundUsersLoading]);
+  }, [inboundUsers, inboundUsersLoading, user]);
 
   const {
     docs: shipmentDocs,
