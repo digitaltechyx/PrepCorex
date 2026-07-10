@@ -1,5 +1,6 @@
 import {
   collection,
+  getDoc,
   getDocs,
   query,
   where,
@@ -12,6 +13,7 @@ import { db } from "@/lib/firebase";
 import {
   warehouseCartonsCollectionRef,
   warehouseCartonDocRef,
+  parseWarehouseCartonDoc,
 } from "@/lib/warehouse-carton-firestore";
 import { warehouseBinsCollectionRef } from "@/lib/warehouse-firestore";
 import {
@@ -537,10 +539,20 @@ export async function applyPutawayAssignments(
 
   await batch.commit();
 
+  // Re-read carton so putaway sync gets photoUrls / notes saved at receive (in-memory scan may omit them).
+  const freshSnap = await getDoc(warehouseCartonDocRef(warehouseId, cartonId));
+  const cartonForSync = freshSnap.exists()
+    ? parseWarehouseCartonDoc(freshSnap.id, freshSnap.data() as Record<string, unknown>)
+    : carton;
+  // Keep line putaway placements from this commit (fresh read already has them after batch).
+  if (freshSnap.exists()) {
+    cartonForSync.lines = nextLines;
+  }
+
   await syncClientInventoryFromPutaway({
     warehouseId,
     cartonId,
-    carton,
+    carton: cartonForSync,
     applied: [
       ...appliedBins.map((a) => ({
         lineId: a.lineId,

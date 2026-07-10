@@ -581,11 +581,11 @@ export function InventoryTable({
     };
   }, [effectiveUserId, inboundBatches]);
 
-  // Backfill receiving date + product photos from inbound requests / receive logs.
+  // Backfill receiving date + product photos (request, receive logs, warehouse cartons via API).
   useEffect(() => {
-    if (!effectiveUserId || data.length === 0) return;
+    if (!effectiveUserId || !user || data.length === 0) return;
     let cancelled = false;
-    const key = `inv-receive-meta-backfill-v3:${effectiveUserId}`;
+    const key = `inv-receive-meta-backfill-v4:${effectiveUserId}`;
     try {
       if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) === "1") return;
     } catch {
@@ -600,11 +600,7 @@ export function InventoryTable({
       }
       const itemSku = String(item.sku ?? "").trim().toLowerCase();
       if (!itemSku) return undefined;
-      const approved = inventoryRequests.filter((r) => {
-        const st = String(r.status ?? "").toLowerCase();
-        return st === "approved" || st === "pending";
-      });
-      return approved.find((r) => {
+      return inventoryRequests.find((r) => {
         const reqSku = String((r as InventoryRequest & { sku?: string }).sku ?? "")
           .trim()
           .toLowerCase();
@@ -614,7 +610,26 @@ export function InventoryTable({
 
     void (async () => {
       let patched = 0;
-      let logPhotosByInventoryId = new Map<string, string[]>();
+
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/inventory/backfill-photos", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ userId: effectiveUserId }),
+        });
+        if (res.ok) {
+          const body = (await res.json()) as { patchedInventory?: number };
+          patched += body.patchedInventory ?? 0;
+        }
+      } catch (err) {
+        console.warn("[inventory] warehouse photo backfill API failed", err);
+      }
+
+      const logPhotosByInventoryId = new Map<string, string[]>();
       try {
         const { getDocs, collection: fsCollection } = await import("firebase/firestore");
         const logsSnap = await getDocs(fsCollection(db, "users", effectiveUserId, "inboundReceiveLogs"));
@@ -630,7 +645,7 @@ export function InventoryTable({
           logPhotosByInventoryId.set(invId, [...new Set([...prev, ...urls])]);
         }
       } catch {
-        /* optional — rules/index may block */
+        /* optional */
       }
 
       for (const item of data) {
@@ -683,7 +698,7 @@ export function InventoryTable({
     return () => {
       cancelled = true;
     };
-  }, [effectiveUserId, data, inventoryRequests]);
+  }, [effectiveUserId, data, inventoryRequests, user]);
 
   // Refresh stale carrier statuses (> 6 hours) when inventory loads
   useEffect(() => {
@@ -1312,7 +1327,7 @@ export function InventoryTable({
                     <div className="flex items-center gap-2 min-w-0">
                       <InventoryAvatar
                         item={item as any}
-                        className="h-10 w-10 shrink-0"
+                        className="h-14 w-14 shrink-0"
                         onImageClick={handleImagePreview}
                       />
                       <InventoryProductName
@@ -1524,7 +1539,9 @@ export function InventoryTable({
           <Table containerClassName="overflow-x-auto overflow-y-hidden mouse-h-scroll">
             <TableHeader>
               <TableRow>
-                <TableHead className="text-xs sm:text-sm w-[280px] max-w-[280px]">Product</TableHead>
+                <TableHead className="text-xs sm:text-sm w-[300px] max-w-[300px]">
+                  Product
+                </TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell w-[92px]">Source</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">SKU</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden lg:table-cell">Identifier</TableHead>
@@ -1555,12 +1572,12 @@ export function InventoryTable({
                    isLowStockVisual && lowStockRowCardClass
                  )}
                >
-                    <TableCell className="font-medium w-[280px] max-w-[280px] align-top overflow-visible">
+                    <TableCell className="font-medium w-[300px] max-w-[300px] align-middle overflow-visible">
                       <div className="flex flex-col sm:block min-w-0">
-                        <div className="flex items-start gap-2 min-w-0">
+                        <div className="flex items-center gap-3 min-w-0">
                           <InventoryAvatar
                             item={item as any}
-                            className="h-8 w-8 shrink-0"
+                            className="h-14 w-14 shrink-0"
                             onImageClick={handleImagePreview}
                           />
                           <InventoryProductName

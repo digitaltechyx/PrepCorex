@@ -26,6 +26,7 @@ import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { uploadReceivePhotos } from "@/lib/inbound-receive-photos";
+import { attachReceivePhotosToInventoryRequests } from "@/lib/attach-receive-photos-to-requests";
 import {
   ReceiveStorageAssignmentDialog,
   type ReceiveStorageAssignContext,
@@ -1433,6 +1434,39 @@ function ReceiveForm({
           photoUrl: receivePhotoUrls[0] ?? null,
         })),
       });
+
+      if (receivePhotoUrls.length > 0) {
+        const photoTargets: Array<{ clientUserId: string; inventoryRequestId: string }> = [];
+        for (const c of payloadCartons) {
+          const cid = c.clientId?.trim() || shipmentClientId.trim();
+          if (c.inventoryRequestId?.trim() && cid) {
+            photoTargets.push({
+              clientUserId: cid,
+              inventoryRequestId: c.inventoryRequestId.trim(),
+            });
+          }
+          for (const l of c.lines) {
+            const lineClient = l.clientId?.trim() || cid;
+            const lineReq = l.inventoryRequestId?.trim();
+            if (lineClient && lineReq) {
+              photoTargets.push({ clientUserId: lineClient, inventoryRequestId: lineReq });
+            }
+          }
+        }
+        for (const row of inboundRequests) {
+          if (row.clientUserId && row.id) {
+            photoTargets.push({ clientUserId: row.clientUserId, inventoryRequestId: row.id });
+          }
+        }
+        try {
+          await attachReceivePhotosToInventoryRequests({
+            entries: photoTargets,
+            photoUrls: receivePhotoUrls,
+          });
+        } catch (err) {
+          console.warn("[receive] attach photos to inventory requests failed", err);
+        }
+      }
 
       const [allCartons, allPallets] = await Promise.all([
         listWarehouseCartons(warehouse.id),
