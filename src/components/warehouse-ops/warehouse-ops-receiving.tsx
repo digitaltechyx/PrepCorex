@@ -115,7 +115,9 @@ import {
 import type { ReturnRequestRow } from "@/lib/warehouse-returns";
 import {
   batchHasPutaway,
+  batchPutawayComplete,
   clearStoredLastBatch,
+  palletHasPutaway,
   readStoredLastBatch,
   voidWarehouseCartons,
   writeStoredLastBatch,
@@ -806,16 +808,28 @@ function ReceiveForm({
   } | null>(null);
 
   useEffect(() => {
-    const stored = readStoredLastBatch(warehouse.id);
-    if (!stored) return;
-    const palletOnly = !stored.cartonIds?.length && !!stored.palletId;
-    if (!stored.cartonIds?.length && !stored.palletId) return;
-    void (async () => {
+    let cancelled = false;
+
+    async function loadLastBatch() {
+      const stored = readStoredLastBatch(warehouse.id);
+      if (!stored) {
+        if (!cancelled) setLastBatch(null);
+        return;
+      }
+      const palletOnly = !stored.cartonIds?.length && !!stored.palletId;
+      if (!stored.cartonIds?.length && !stored.palletId) {
+        clearStoredLastBatch(warehouse.id);
+        if (!cancelled) setLastBatch(null);
+        return;
+      }
+
       if (palletOnly && stored.palletId) {
         const pallets = await listWarehousePallets(warehouse.id);
+        if (cancelled) return;
         const p = pallets.find((x) => x.id === stored.palletId);
-        if (!p) {
+        if (!p || palletHasPutaway(p) || p.status === "dispatched" || p.status === "available") {
           clearStoredLastBatch(warehouse.id);
+          setLastBatch(null);
           return;
         }
         setLastBatch({
@@ -827,12 +841,15 @@ function ReceiveForm({
         });
         return;
       }
+
       const all = await listWarehouseCartons(warehouse.id);
+      if (cancelled) return;
       const cartons = stored.cartonIds
         .map((id) => all.find((c) => c.id === id))
         .filter((c): c is WarehouseCartonDoc => !!c && c.status !== "voided");
-      if (cartons.length === 0) {
+      if (cartons.length === 0 || batchPutawayComplete(cartons)) {
         clearStoredLastBatch(warehouse.id);
+        setLastBatch(null);
         return;
       }
       setLastBatch({
@@ -841,7 +858,21 @@ function ReceiveForm({
         cartonIds: stored.cartonIds,
         cartons,
       });
-    })();
+    }
+
+    void loadLastBatch();
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadLastBatch();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
   }, [warehouse.id]);
 
   // Loose / polybag: one virtual carton for all lines. Pallet loose: many cartons on one PLT.
@@ -1606,13 +1637,25 @@ function ReceiveForm({
     }
   }
 
+  const showLastBatch =
+    !!lastBatch &&
+    (lastBatch.palletOnly
+      ? !!lastBatch.palletId
+      : lastBatch.cartons.length > 0 && !batchPutawayComplete(lastBatch.cartons));
+
   const canUndoLastBatch =
+    showLastBatch &&
     lastBatch &&
     (lastBatch.palletOnly
       ? !!lastBatch.palletId
       : lastBatch.cartons.length > 0 &&
         lastBatch.cartons.every((c) => c.status !== "voided") &&
         (!batchHasPutaway(lastBatch.cartons) || supervisor));
+
+  const showContinueToPutaway =
+    showLastBatch &&
+    lastBatch &&
+    (lastBatch.palletOnly || !batchPutawayComplete(lastBatch.cartons));
 
   const titleByType: Record<ReceiveType, string> =
     receiveModule === "loose"
@@ -2301,7 +2344,7 @@ function ReceiveForm({
         }
       />
 
-      {lastBatch ? (
+      {showLastBatch && lastBatch ? (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">
@@ -2386,12 +2429,14 @@ function ReceiveForm({
                   </AlertDialogContent>
                 </AlertDialog>
               ) : null}
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/warehouse-ops/putaway">
-                  Continue to putaway
-                  <ChevronRight className="h-4 w-4 ml-1" />
-                </Link>
-              </Button>
+              {showContinueToPutaway ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/warehouse-ops/putaway">
+                    Continue to putaway
+                    <ChevronRight className="h-4 w-4 ml-1" />
+                  </Link>
+                </Button>
+              ) : null}
             </div>
           </CardContent>
         </Card>

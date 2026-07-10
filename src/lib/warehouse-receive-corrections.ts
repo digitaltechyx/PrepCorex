@@ -31,18 +31,56 @@ export type ReceiveLineInput = {
   damaged?: boolean;
 };
 
-/** True when any line or root bin is assigned (putaway started or completed). */
+/** True when any line, root bin, disposition, or post-dock status shows putaway started/done. */
 export function cartonHasPutaway(carton: WarehouseCartonDoc): boolean {
-  if (carton.status === "stowed" || carton.status === "stowed_partial" || carton.status === "split") {
+  if (carton.putawayDisposition) return true;
+  if (
+    carton.status === "stowed" ||
+    carton.status === "stowed_partial" ||
+    carton.status === "split" ||
+    carton.status === "available" ||
+    carton.status === "on_hold" ||
+    carton.status === "quarantine" ||
+    carton.status === "closed"
+  ) {
     return true;
   }
   if (carton.binId) return true;
   const lines = carton.lines ?? [];
-  return lines.some((l) => !!l.binId);
+  return lines.some((l) => Boolean(l.binId) || Boolean(l.stagingArea?.trim()));
 }
 
 export function batchHasPutaway(cartons: WarehouseCartonDoc[]): boolean {
   return cartons.some(cartonHasPutaway);
+}
+
+/** True when this carton no longer needs "Continue to putaway" from last receive. */
+export function cartonPutawayComplete(carton: WarehouseCartonDoc): boolean {
+  if (carton.status === "voided") return true;
+  if (carton.putawayDisposition === "forward" || carton.putawayDisposition === "keep_closed") {
+    return true;
+  }
+  if (
+    carton.status === "stowed" ||
+    carton.status === "split" ||
+    carton.status === "available" ||
+    carton.status === "closed"
+  ) {
+    return true;
+  }
+  if (carton.putawayDisposition === "open_for_storage" && carton.status === "on_hold") {
+    return true;
+  }
+  const lines = carton.lines ?? [];
+  if (lines.length === 0) {
+    return Boolean(carton.binId) || Boolean(carton.putawayDisposition);
+  }
+  // Fully placed when every line has a bin or destination area.
+  return lines.every((l) => Boolean(l.binId) || Boolean(l.stagingArea?.trim()));
+}
+
+export function batchPutawayComplete(cartons: WarehouseCartonDoc[]): boolean {
+  return cartons.length > 0 && cartons.every(cartonPutawayComplete);
 }
 
 export function canVoidCarton(carton: WarehouseCartonDoc, supervisor: boolean): boolean {
