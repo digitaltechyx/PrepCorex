@@ -647,20 +647,17 @@ export function WarehouseManagement() {
     if (!suggestion) return;
     setNewCode(suggestion.code);
     setCodeSuggestionLabel(suggestion.label);
+    // Keep warehouse code, display name, and location name aligned on the official short code (e.g. NY-01).
     setLocForm((prev) => ({
       ...prev,
-      locationName: prev.locationName.trim() ? prev.locationName : suggestion.label,
+      locationName: suggestion.label,
     }));
-    setNewName((prev) =>
-      prev.trim() ? prev : `${state} ${String(suggestion.sequence).padStart(2, "0")}`
-    );
+    setNewName(suggestion.label);
   }, [
     createOpen,
     codeTouched,
     locForm.selectedCountry,
     locForm.selectedStateOrProvince,
-    locForm.newCountryName,
-    locForm.newStateOrProvinceName,
     warehouseCodeCandidates,
   ]);
 
@@ -684,16 +681,18 @@ export function WarehouseManagement() {
     if (linked) {
       setLocForm(locationToFormValues(linked));
     } else {
-      setLocForm({
-        ...emptyWarehouseLocationForm(),
-        locationName: selected.name,
-        selectedCountry: selected.country || "",
-        selectedStateOrProvince: selected.stateOrProvince || "",
-        street1: selected.street1 || "",
-        street2: selected.street2 || "",
-        city: selected.city || "",
-        zip: selected.zip || "",
-      });
+      setLocForm(
+        locationToFormValues({
+          id: selected.linkedLocationId || selected.id,
+          name: selected.name,
+          country: selected.country,
+          stateOrProvince: selected.stateOrProvince,
+          street1: selected.street1,
+          street2: selected.street2,
+          city: selected.city,
+          zip: selected.zip,
+        } as Location)
+      );
     }
     setEditOpen(true);
   };

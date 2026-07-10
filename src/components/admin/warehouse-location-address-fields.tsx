@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -10,7 +12,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import type { Location } from "@/types";
+import {
+  WAREHOUSE_COUNTRIES,
+  normalizeRegionName,
+  normalizeWarehouseCountry,
+  regionOptionsForCountry,
+  type RegionOption,
+} from "@/lib/region-display";
 
 export type WarehouseLocationFormValues = {
   locationName: string;
@@ -41,8 +52,8 @@ export const emptyWarehouseLocationForm = (): WarehouseLocationFormValues => ({
 });
 
 export function locationToFormValues(loc: Location): WarehouseLocationFormValues {
-  const country = (loc.country || "").trim();
-  const state = (loc.stateOrProvince || "").trim();
+  const country = normalizeWarehouseCountry(loc.country) || (loc.country || "").trim();
+  const state = normalizeRegionName(country, loc.stateOrProvince);
   return {
     locationName: loc.name || "",
     selectedCountry: country || "",
@@ -59,19 +70,26 @@ export function locationToFormValues(loc: Location): WarehouseLocationFormValues
 }
 
 export function resolveCountryFromForm(f: WarehouseLocationFormValues): string {
-  return (f.selectedCountry === "__new__" ? f.newCountryName : f.selectedCountry).trim();
+  return normalizeWarehouseCountry(f.selectedCountry) || f.selectedCountry.trim();
 }
 
 export function resolveStateFromForm(f: WarehouseLocationFormValues): string {
-  return (f.selectedStateOrProvince === "__new__" ? f.newStateOrProvinceName : f.selectedStateOrProvince).trim();
+  return normalizeRegionName(resolveCountryFromForm(f), f.selectedStateOrProvince);
 }
 
 export function validateWarehouseLocationForm(f: WarehouseLocationFormValues): string | null {
   if (!f.locationName.trim()) return "Enter a location name.";
   const country = resolveCountryFromForm(f);
-  if (!country) return "Select or enter a country.";
+  if (!country || !normalizeWarehouseCountry(country)) {
+    return "Select United States or Canada.";
+  }
   const state = resolveStateFromForm(f);
-  if (!state) return "Select or enter a state or province.";
+  if (!state) return "Select a state or province.";
+  const options = regionOptionsForCountry(country);
+  const known = options.some(
+    (o) => o.name.toLowerCase() === state.toLowerCase() || o.code === state.toUpperCase()
+  );
+  if (!known) return "Select a valid state or province from the list.";
   if (!f.street1.trim()) return "Enter street address.";
   if (!f.city.trim()) return "Enter city.";
   if (!f.zip.trim()) return "Enter zip or postal code.";
@@ -90,6 +108,103 @@ export function warehouseLocationFormToPayload(f: WarehouseLocationFormValues) {
   };
 }
 
+function RegionCombobox({
+  options,
+  value,
+  onChange,
+  disabled,
+  placeholder,
+}: {
+  options: RegionOption[];
+  value: string;
+  onChange: (name: string) => void;
+  disabled?: boolean;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
+  const selected = useMemo(
+    () => options.find((o) => o.name === value || o.code === value.toUpperCase()) ?? null,
+    [options, value]
+  );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(
+      (o) =>
+        o.name.toLowerCase().includes(q) ||
+        o.code.toLowerCase().includes(q)
+    );
+  }, [options, query]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="w-full justify-between font-normal"
+        >
+          <span className={cn("truncate", !selected && "text-muted-foreground")}>
+            {selected ? `${selected.name} (${selected.code})` : placeholder}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <div className="p-2 border-b">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name or code…"
+            className="h-8"
+            autoFocus
+          />
+        </div>
+        <div className="max-h-60 overflow-y-auto p-1">
+          {filtered.length === 0 ? (
+            <p className="px-2 py-3 text-sm text-muted-foreground">No match.</p>
+          ) : (
+            filtered.map((o) => {
+              const isSelected = selected?.code === o.code;
+              return (
+                <button
+                  key={o.code}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm",
+                    "hover:bg-accent hover:text-accent-foreground",
+                    isSelected && "bg-accent/60"
+                  )}
+                  onClick={() => {
+                    onChange(o.name);
+                    setOpen(false);
+                  }}
+                >
+                  <Check className={cn("h-4 w-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                  <span className="flex-1 truncate">{o.name}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{o.code}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 type Props = {
   values: WarehouseLocationFormValues;
   onChange: (next: WarehouseLocationFormValues) => void;
@@ -102,34 +217,17 @@ type Props = {
 export function WarehouseLocationAddressFields({
   values,
   onChange,
-  existingLocations,
+  existingLocations: _existingLocations,
   disabled,
   hideLocationName,
 }: Props) {
-  const countries = useMemo(() => {
-    const vals = new Set<string>(["United States"]);
-    for (const loc of existingLocations) {
-      const c = (loc.country || "").trim();
-      if (c) vals.add(c);
-    }
-    return Array.from(vals).sort((a, b) => a.localeCompare(b));
-  }, [existingLocations]);
+  void _existingLocations;
 
   const resolvedCountry = resolveCountryFromForm(values);
-
-  const statesOrProvinces = useMemo(() => {
-    if (!resolvedCountry) return [] as string[];
-    const vals = new Set<string>();
-    for (const loc of existingLocations) {
-      if ((loc.country || "").trim().toLowerCase() !== resolvedCountry.toLowerCase()) continue;
-      const s = (loc.stateOrProvince || "").trim();
-      if (s) vals.add(s);
-    }
-    if (resolvedCountry.toLowerCase() === "united states") {
-      vals.add("New Jersey");
-    }
-    return Array.from(vals).sort((a, b) => a.localeCompare(b));
-  }, [existingLocations, resolvedCountry]);
+  const regionOptions = useMemo(
+    () => regionOptionsForCountry(resolvedCountry),
+    [resolvedCountry]
+  );
 
   const patch = (partial: Partial<WarehouseLocationFormValues>) => onChange({ ...values, ...partial });
 
@@ -141,7 +239,7 @@ export function WarehouseLocationAddressFields({
           <Input
             value={values.locationName}
             onChange={(e) => patch({ locationName: e.target.value })}
-            placeholder="e.g. NJ1, NJ2, New Jersey Edison"
+            placeholder="e.g. NY-01, NJ-02"
             disabled={disabled}
           />
           <p className="text-xs text-muted-foreground">
@@ -154,12 +252,14 @@ export function WarehouseLocationAddressFields({
         <div className="space-y-2">
           <Label>Country</Label>
           <Select
-            value={values.selectedCountry || undefined}
+            value={normalizeWarehouseCountry(values.selectedCountry) || undefined}
             onValueChange={(v) =>
               patch({
                 selectedCountry: v,
+                country: v,
                 selectedStateOrProvince: "",
                 newStateOrProvinceName: "",
+                newCountryName: "",
               })
             }
             disabled={disabled}
@@ -168,58 +268,37 @@ export function WarehouseLocationAddressFields({
               <SelectValue placeholder="Select country" />
             </SelectTrigger>
             <SelectContent>
-              {countries.map((c) => (
+              {WAREHOUSE_COUNTRIES.map((c) => (
                 <SelectItem key={c} value={c}>
                   {c}
                 </SelectItem>
               ))}
-              <SelectItem value="__new__">+ Add new country</SelectItem>
             </SelectContent>
           </Select>
         </div>
-        {values.selectedCountry === "__new__" ? (
-          <div className="space-y-2">
-            <Label>New country</Label>
-            <Input
-              value={values.newCountryName}
-              onChange={(e) => patch({ newCountryName: e.target.value })}
-              disabled={disabled}
-            />
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <Label>State / province</Label>
-            <Select
-              value={values.selectedStateOrProvince || undefined}
-              onValueChange={(v) => patch({ selectedStateOrProvince: v })}
-              disabled={disabled || !resolvedCountry}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select state" />
-              </SelectTrigger>
-              <SelectContent>
-                {statesOrProvinces.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-                <SelectItem value="__new__">+ Add new state</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-      </div>
-
-      {values.selectedStateOrProvince === "__new__" ? (
         <div className="space-y-2">
-          <Label>New state / province</Label>
-          <Input
-            value={values.newStateOrProvinceName}
-            onChange={(e) => patch({ newStateOrProvinceName: e.target.value })}
-            disabled={disabled}
+          <Label>{resolvedCountry === "Canada" ? "Province / territory" : "State"}</Label>
+          <RegionCombobox
+            options={regionOptions}
+            value={values.selectedStateOrProvince}
+            onChange={(name) =>
+              patch({
+                selectedStateOrProvince: name,
+                stateOrProvince: name,
+                newStateOrProvinceName: "",
+              })
+            }
+            disabled={disabled || !resolvedCountry}
+            placeholder={
+              resolvedCountry === "Canada"
+                ? "Search province…"
+                : resolvedCountry
+                  ? "Search state…"
+                  : "Select country first"
+            }
           />
         </div>
-      ) : null}
+      </div>
 
       <div className="space-y-2">
         <Label>Street address</Label>
