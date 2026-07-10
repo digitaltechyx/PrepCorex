@@ -230,6 +230,8 @@ export interface WarehouseCartonDoc {
   receivedBy?: string | null;
   /** Receiving staging area code (e.g. RCV-STAGE-A). */
   stagingArea?: string | null;
+  /** Closed walk-in / cross-dock receive lot printed on the label. */
+  receiveLot?: string | null;
   /** When the carton was received (separate from createdAt for clarity). */
   receivedAt?: { seconds: number; nanoseconds: number } | Date;
   /** When a receive was voided (undo / correction). */

@@ -12,6 +12,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { isCrossdockClosedCarton } from "@/lib/warehouse-crossdock";
 import type { InventoryRequest, WarehouseCartonDoc, WarehouseCartonLine } from "@/types";
 
 export type PutawaySyncAssignment = {
@@ -80,7 +81,14 @@ export async function syncClientInventoryFromPutaway(input: {
   applied: PutawaySyncAssignment[];
   operatorId?: string | null;
 }): Promise<void> {
-  if (input.carton.receiveMode === "crossdock") return;
+  // Closed cross-dock (placeholder SKU only) never updates client inventory.
+  // Opened / convert-to-open-receive cartons do sync once real SKUs exist.
+  if (
+    input.carton.receiveMode === "crossdock" &&
+    (isCrossdockClosedCarton(input.carton) || input.carton.isClosedCrossdock === true)
+  ) {
+    return;
+  }
 
   for (const assignment of input.applied) {
     const line = input.carton.lines?.find((l) => l.lineId === assignment.lineId);

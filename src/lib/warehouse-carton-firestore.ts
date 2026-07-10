@@ -227,6 +227,7 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
       : undefined,
     receivedBy: data.receivedBy != null ? String(data.receivedBy) : null,
     stagingArea: data.stagingArea != null ? String(data.stagingArea) : null,
+    receiveLot: data.receiveLot != null ? String(data.receiveLot) : null,
     receivedAt: data.receivedAt as WarehouseCartonDoc["receivedAt"],
     voidedAt: data.voidedAt as WarehouseCartonDoc["voidedAt"],
     voidedBy: data.voidedBy != null ? String(data.voidedBy) : null,
@@ -392,6 +393,7 @@ export async function createWarehouseCarton(input: {
   photoUrls?: string[];
   receivedBy?: string | null;
   stagingArea?: string | null;
+  receiveLot?: string | null;
 }): Promise<string> {
   const warehouseId = input.warehouseId;
   const cartonCode =
@@ -452,6 +454,7 @@ export async function createWarehouseCarton(input: {
     ...(input.photoUrls && input.photoUrls.length > 0 ? { photoUrls: input.photoUrls } : {}),
     ...(input.receivedBy !== undefined ? { receivedBy: input.receivedBy?.trim() || null } : {}),
     ...(input.stagingArea !== undefined ? { stagingArea: input.stagingArea?.trim() || null } : {}),
+    ...(input.receiveLot !== undefined ? { receiveLot: input.receiveLot?.trim() || null } : {}),
     ...(status === "received" ? { receivedAt: serverTimestamp() } : {}),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -763,6 +766,7 @@ export async function createReceiveBatch(input: {
         isPackage: input.isPackage ?? false,
         receiveMode: input.receiveMode ?? null,
         isClosedCrossdock: useClosedCrossdock,
+        ...(useClosedCrossdock && crossdockLot ? { receiveLot: crossdockLot } : {}),
         trackingNumber: cfg.trackingNumber ?? input.pallet?.trackingNumber ?? null,
         carrier: cfg.carrier ?? input.pallet?.carrier ?? null,
         notes: cfg.notes ?? null,

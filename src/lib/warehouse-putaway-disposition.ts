@@ -135,6 +135,11 @@ export async function openCrossdockCartonForStorage(input: {
   carton: WarehouseCartonDoc;
   lines: OpenCrossdockLineInput[];
   operatorId?: string | null;
+  /** When set (Allocate / known client), stamp owner and treat as open receive for inventory. */
+  clientId?: string | null;
+  clientDisplayName?: string | null;
+  /** Convert closed cross-dock into open-receive so putaway can sync client inventory. */
+  convertToOpenReceive?: boolean;
 }): Promise<void> {
   if (!isCrossdockClosedCarton(input.carton)) {
     throw new Error("This carton is not a closed cross-dock unit.");
@@ -154,6 +159,15 @@ export async function openCrossdockCartonForStorage(input: {
     throw new Error("Add at least one SKU with quantity ≥ 1.");
   }
 
+  const ownerId =
+    input.clientId?.trim() || input.carton.clientId?.trim() || null;
+  const ownerLabel =
+    input.clientDisplayName?.trim() ||
+    input.carton.receivedForClient?.trim() ||
+    null;
+  const asOpenReceive = Boolean(input.convertToOpenReceive && ownerId);
+  const stagingArea = input.carton.stagingArea?.trim() || null;
+
   const lines: WarehouseCartonLine[] = valid.map((l, i) => {
     const lot = resolveReceiveLot({ sku: l.sku, expiry: l.expiry, lot: l.lot });
     return {
@@ -165,8 +179,11 @@ export async function openCrossdockCartonForStorage(input: {
       expiry: l.expiry,
       condition: "good" as const,
       binId: null,
-      allocationStatus: "unallocated" as const,
-      clientId: input.carton.clientId ?? null,
+      stagingArea,
+      allocationStatus: (ownerId ? "allocated" : "unallocated") as
+        | "allocated"
+        | "unallocated",
+      clientId: ownerId,
       inventoryRequestId: input.carton.inventoryRequestId ?? null,
     };
   });
@@ -191,6 +208,7 @@ export async function openCrossdockCartonForStorage(input: {
       expiry: l.expiry ? l.expiry.slice(0, 10) : null,
       condition: l.condition,
       binId: null,
+      stagingArea: l.stagingArea ?? null,
       allocationStatus: l.allocationStatus ?? "unallocated",
       clientId: l.clientId ?? null,
       inventoryRequestId: l.inventoryRequestId ?? null,
@@ -203,12 +221,19 @@ export async function openCrossdockCartonForStorage(input: {
     isMixed,
     isClosedCrossdock: false,
     putawayDisposition: "open_for_storage",
+    ...(ownerId
+      ? {
+          clientId: ownerId,
+          receivedForClient: ownerLabel,
+        }
+      : {}),
+    ...(asOpenReceive ? { receiveMode: "unpackaged" as const } : {}),
     updatedAt: serverTimestamp(),
   });
 
   const eventsRef = collection(db, WAREHOUSES, input.warehouseId, "movementEvents");
   batch.set(doc(eventsRef), {
-    type: "putaway",
+    type: asOpenReceive ? "allocate_open_receive" : "putaway",
     cartonId: input.cartonId,
     cartonCode: input.carton.cartonCode,
     lineId: null,
@@ -218,7 +243,10 @@ export async function openCrossdockCartonForStorage(input: {
     toBinId: null,
     toBinPath: null,
     putawayDisposition: "open_for_storage",
-    note: `Opened for storage — ${lines.length} SKU line(s)`,
+    clientId: ownerId,
+    note: asOpenReceive
+      ? `Allocate open receive — ${lines.length} SKU line(s) → client`
+      : `Opened for storage — ${lines.length} SKU line(s)`,
     operatorId: input.operatorId ?? null,
     at: serverTimestamp(),
   });

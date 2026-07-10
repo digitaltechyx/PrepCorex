@@ -13,9 +13,15 @@ import { db } from "@/lib/firebase";
 import { isActiveWarehouseCarton } from "@/lib/warehouse-carton-states";
 import {
   listWarehouseCartons,
+  parseWarehouseCartonDoc,
   warehouseCartonDocRef,
 } from "@/lib/warehouse-carton-firestore";
+import { syncClientInventoryFromPutaway } from "@/lib/client-inventory-inbound-sync";
 import { isCrossdockClosedSku } from "@/lib/warehouse-crossdock";
+import {
+  openCrossdockCartonForStorage,
+  type OpenCrossdockLineInput,
+} from "@/lib/warehouse-putaway-disposition";
 import {
   loadClientInventoryByUser,
   isLegacyAdminFulfilledInboundRequest,
@@ -44,9 +50,12 @@ export type UnallocatedLine = {
   /** Client captured at receive (carton root), before line allocation */
   cartonClientId: string | null;
   cartonClientLabel: string | null;
+  /** Receive lot printed on closed walk-in / cross-dock labels */
+  receiveLot: string | null;
   line: WarehouseCartonLine;
   binId: string | null;
   binPath: string | null;
+  stagingArea: string | null;
   receivedAt: Date | null;
   ageDays: number | null;
 };
@@ -159,7 +168,15 @@ export async function loadAllocateData(
     const age = ageInDays(receivedAt);
 
     for (const l of lines) {
-      if (l.allocationStatus === "allocated" || l.allocationStatus === "picked") continue;
+      const closedPlaceholder = isCrossdockClosedSku(l.sku);
+      // Keep closed walk-in / cross-dock units visible until opened (even after client assign).
+      if (
+        !closedPlaceholder &&
+        (l.allocationStatus === "allocated" || l.allocationStatus === "picked")
+      ) {
+        continue;
+      }
+      if (closedPlaceholder && l.allocationStatus === "picked") continue;
       unallocatedLines.push({
         warehouseId: warehouse.id,
         cartonId: c.id,
@@ -167,9 +184,11 @@ export async function loadAllocateData(
         palletId: c.palletId ?? null,
         cartonClientId: c.clientId ?? null,
         cartonClientLabel: c.receivedForClient?.trim() || null,
+        receiveLot: c.receiveLot?.trim() || l.lot?.trim() || null,
         line: l,
         binId: l.binId ?? null,
         binPath: l.binId ? binPath.get(l.binId) ?? null : null,
+        stagingArea: l.stagingArea?.trim() || c.stagingArea?.trim() || null,
         receivedAt,
         ageDays: age,
       });
@@ -467,6 +486,78 @@ export async function unallocateLine(input: {
     at: serverTimestamp(),
   });
   await batch.commit();
+}
+
+/**
+ * Unknown-owner closed receive → owner found:
+ * assign registered client, replace CLOSED placeholder with SKUs (open receive),
+ * and sync client inventory when the unit already has a putaway area/bin.
+ */
+export async function assignClientAndOpenClosedCarton(input: {
+  warehouseId: string;
+  cartonId: string;
+  clientId: string;
+  clientDisplayName?: string | null;
+  lines: OpenCrossdockLineInput[];
+  operatorId?: string | null;
+}): Promise<{ synced: boolean; cartonCode: string; lineCount: number }> {
+  const clientId = input.clientId.trim();
+  if (!clientId) throw new Error("Select a registered client.");
+
+  const cartonRef = warehouseCartonDocRef(input.warehouseId, input.cartonId);
+  const snap = await getDoc(cartonRef);
+  if (!snap.exists()) throw new Error("Carton not found.");
+  const carton = parseWarehouseCartonDoc(
+    snap.id,
+    snap.data() as Record<string, unknown>
+  );
+
+  await openCrossdockCartonForStorage({
+    warehouseId: input.warehouseId,
+    cartonId: input.cartonId,
+    carton,
+    lines: input.lines,
+    operatorId: input.operatorId ?? null,
+    clientId,
+    clientDisplayName: input.clientDisplayName ?? null,
+    convertToOpenReceive: true,
+  });
+
+  const freshSnap = await getDoc(cartonRef);
+  if (!freshSnap.exists()) {
+    throw new Error("Carton missing after open receive.");
+  }
+  const opened = parseWarehouseCartonDoc(
+    freshSnap.id,
+    freshSnap.data() as Record<string, unknown>
+  );
+  const lines = opened.lines ?? [];
+  const stagingArea = opened.stagingArea?.trim() || null;
+  const hasPlacement =
+    Boolean(stagingArea) || lines.some((l) => Boolean(l.binId?.trim() || l.stagingArea?.trim()));
+
+  let synced = false;
+  if (hasPlacement && lines.length > 0) {
+    await syncClientInventoryFromPutaway({
+      warehouseId: input.warehouseId,
+      cartonId: input.cartonId,
+      carton: opened,
+      applied: lines.map((l) => ({
+        lineId: l.lineId,
+        quantity: l.quantity,
+        binId: l.binId ?? null,
+        stagingArea: l.stagingArea?.trim() || stagingArea,
+      })),
+      operatorId: input.operatorId ?? null,
+    });
+    synced = true;
+  }
+
+  return {
+    synced,
+    cartonCode: opened.cartonCode,
+    lineCount: lines.length,
+  };
 }
 
 /** Build aging buckets for display (0-7d, 8-30d, 30+d). */

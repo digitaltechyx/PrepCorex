@@ -35,6 +35,7 @@ import type { UserProfile, WarehouseDoc } from "@/types";
 import {
   agingBucket,
   allocateLine,
+  assignClientAndOpenClosedCarton,
   loadAllocateData,
   loadOpenRequests,
   unallocateLine,
@@ -52,6 +53,8 @@ import {
   Package,
   Boxes,
   Sparkles,
+  PackageOpen,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -95,6 +98,13 @@ export function WarehouseAllocate({ warehouse }: Props) {
   const [restockClient, setRestockClient] = useState<string>("");
   const [restockSaving, setRestockSaving] = useState(false);
 
+  const [openReceiveTarget, setOpenReceiveTarget] = useState<UnallocatedLine | null>(null);
+  const [openReceiveClient, setOpenReceiveClient] = useState<string>("");
+  const [openReceiveLines, setOpenReceiveLines] = useState<
+    Array<{ id: string; sku: string; qty: string; lot: string; expiry: string }>
+  >([{ id: "ln1", sku: "", qty: "1", lot: "", expiry: "" }]);
+  const [openReceiveSaving, setOpenReceiveSaving] = useState(false);
+
   const [overrideTarget, setOverrideTarget] = useState<{
     request: OpenInventoryRequest;
     line: UnallocatedLine;
@@ -133,20 +143,36 @@ export function WarehouseAllocate({ warehouse }: Props) {
   }, [refresh, usersLoading]);
 
   const filteredUnallocated = useMemo(() => {
-    const skuQ = skuFilter.trim().toUpperCase();
+    const q = skuFilter.trim().toUpperCase();
     return unallocated.filter((u) => {
       if (clientFilter) {
         const matchesClient =
           u.cartonClientId === clientFilter || u.line.clientId === clientFilter;
         if (!matchesClient) return false;
       }
-      if (!skuQ) return true;
-      const inSku = u.line.sku.toUpperCase().includes(skuQ);
-      const inCode = u.cartonCode.toUpperCase().includes(skuQ);
-      if (isCrossdockClosedSku(u.line.sku)) return inCode || skuQ === "CLOSED";
-      return inSku;
+      if (!q) return true;
+      const clientName = (
+        clientById.get(u.cartonClientId ?? "")?.name ||
+        clientById.get(u.line.clientId ?? "")?.name ||
+        u.cartonClientLabel ||
+        ""
+      ).toUpperCase();
+      const hay = [
+        u.line.sku,
+        u.cartonCode,
+        u.receiveLot ?? "",
+        u.line.lot ?? "",
+        u.line.productTitle ?? "",
+        clientName,
+      ]
+        .join(" ")
+        .toUpperCase();
+      if (isCrossdockClosedSku(u.line.sku) && (q === "CLOSED" || hay.includes(q))) {
+        return true;
+      }
+      return hay.includes(q);
     });
-  }, [unallocated, skuFilter, clientFilter]);
+  }, [unallocated, skuFilter, clientFilter, clientById]);
 
   const filteredRequests = useMemo(() => {
     return requests.filter((r) => {
@@ -259,6 +285,73 @@ export function WarehouseAllocate({ warehouse }: Props) {
     }
   }
 
+  function openClosedReceiveDialog(u: UnallocatedLine) {
+    const prefillClient =
+      u.line.clientId?.trim() || u.cartonClientId?.trim() || "";
+    setOpenReceiveTarget(u);
+    setOpenReceiveClient(prefillClient);
+    setOpenReceiveLines([
+      {
+        id: "ln1",
+        sku: "",
+        qty: "1",
+        lot: u.receiveLot ?? u.line.lot ?? "",
+        expiry: "",
+      },
+    ]);
+  }
+
+  async function handleOpenReceiveConfirm() {
+    if (!openReceiveTarget) return;
+    if (!openReceiveClient) {
+      toast({ title: "Pick a registered client", variant: "destructive" });
+      return;
+    }
+    const payload = openReceiveLines.map((l) => ({
+      sku: l.sku,
+      quantity: parseInt(l.qty, 10) || 0,
+      lot: l.lot || null,
+      expiry: l.expiry || null,
+    }));
+    if (!payload.some((l) => l.sku.trim() && l.quantity >= 1)) {
+      toast({
+        title: "Add SKUs",
+        description: "Enter at least one SKU with quantity ≥ 1.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setOpenReceiveSaving(true);
+    try {
+      const client = clientById.get(openReceiveClient);
+      const result = await assignClientAndOpenClosedCarton({
+        warehouseId: warehouse.id,
+        cartonId: openReceiveTarget.cartonId,
+        clientId: openReceiveClient,
+        clientDisplayName: client?.name || client?.email || null,
+        lines: payload,
+        operatorId,
+      });
+      toast({
+        title: "Open receive complete",
+        description: result.synced
+          ? `${result.cartonCode}: ${result.lineCount} SKU line(s) added to ${client?.name ?? "client"} inventory.`
+          : `${result.cartonCode}: ${result.lineCount} SKU line(s) assigned. Putaway next so inventory updates.`,
+      });
+      setOpenReceiveTarget(null);
+      setOpenReceiveClient("");
+      await refresh();
+    } catch (e) {
+      toast({
+        title: "Open receive failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setOpenReceiveSaving(false);
+    }
+  }
+
   async function handleUnallocate(cartonId: string, lineId: string) {
     try {
       await unallocateLine({ warehouseId: warehouse.id, cartonId, lineId, operatorId });
@@ -279,7 +372,8 @@ export function WarehouseAllocate({ warehouse }: Props) {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Allocate inventory</h1>
           <p className="text-sm text-muted-foreground">
-            Manually match received stock to client requests, or restock directly to a client.
+            Match stock to requests, or find closed walk-in lots by name/lot and open-receive
+            into a registered client&apos;s inventory.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -292,13 +386,13 @@ export function WarehouseAllocate({ warehouse }: Props) {
       <Card>
         <CardContent className="py-3 flex flex-wrap gap-3 items-end">
           <div className="space-y-1 flex-1 min-w-[200px]">
-            <Label className="text-xs">SKU filter</Label>
+            <Label className="text-xs">Search lot, carton, SKU, or name</Label>
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
               <Input
                 value={skuFilter}
                 onChange={(e) => setSkuFilter(e.target.value)}
-                placeholder="Match either side"
+                placeholder="Lot, carton code, SKU, or client name"
                 className="pl-7"
               />
             </div>
@@ -401,9 +495,9 @@ export function WarehouseAllocate({ warehouse }: Props) {
               ) : null}
             </CardTitle>
             <CardDescription className="text-xs">
-              Each row is one SKU line inside a carton (or pallet). Match lines to requests — not
-              the whole carton at once unless it is single-SKU. Closed cross-dock cartons are
-              assigned to a client via Restock; SKUs are captured at putaway.
+              Each row is one SKU line inside a carton (or pallet). Closed walk-in units: search by
+              lot or carton, assign the registered client, then open-receive SKUs into their
+              inventory.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 max-h-[60vh] overflow-y-auto">
@@ -488,10 +582,19 @@ export function WarehouseAllocate({ warehouse }: Props) {
                             {closedClient
                               ? closedClient.name || closedClient.email
                               : closedClientLabel}
-                            {u.line.lot ? ` · Lot ${u.line.lot}` : ""} — putaway next
+                            {u.receiveLot || u.line.lot
+                              ? ` · Lot ${u.receiveLot || u.line.lot}`
+                              : ""}{" "}
+                            — open-receive SKUs next
                           </>
                         ) : (
-                          <>Contents not opened — assign client, then putaway decides placement.</>
+                          <>
+                            Contents not opened
+                            {u.receiveLot || u.line.lot
+                              ? ` · Lot ${u.receiveLot || u.line.lot}`
+                              : ""}{" "}
+                            — assign client and open-receive.
+                          </>
                         )
                       ) : (
                         <>
@@ -505,12 +608,26 @@ export function WarehouseAllocate({ warehouse }: Props) {
                             </>
                           ) : null}
                           {u.cartonCode}
-                          {u.line.lot ? ` · Lot ${u.line.lot}` : ""}
+                          {u.receiveLot || u.line.lot
+                            ? ` · Lot ${u.receiveLot || u.line.lot}`
+                            : ""}
                           {u.line.expiry ? ` · Exp ${u.line.expiry.slice(0, 10)}` : ""}
                         </>
                       )}
                     </p>
                     <div className="flex flex-wrap gap-2 pt-1">
+                      {closedCrossdock ? (
+                        <Button
+                          size="sm"
+                          className="bg-indigo-600 hover:bg-indigo-700"
+                          onClick={() => openClosedReceiveDialog(u)}
+                        >
+                          <PackageOpen className="h-3 w-3 mr-1" />
+                          {closedClient || closedClientLabel || u.cartonClientId
+                            ? "Open receive (enter SKUs)…"
+                            : "Assign client & open receive…"}
+                        </Button>
+                      ) : null}
                       {!closedCrossdock && selectedRequest ? (
                         <Button
                           size="sm"
@@ -525,18 +642,18 @@ export function WarehouseAllocate({ warehouse }: Props) {
                           Select a request on the left to allocate.
                         </span>
                       ) : null}
-                      {closedCrossdock && (closedClient || closedClientLabel) ? null : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setRestockTarget(u);
-                          setRestockClient(u.cartonClientId ?? "");
-                        }}
-                      >
-                        Restock to client…
-                      </Button>
-                      )}
+                      {!closedCrossdock ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setRestockTarget(u);
+                            setRestockClient(u.cartonClientId ?? "");
+                          }}
+                        >
+                          Restock to client…
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -623,6 +740,148 @@ export function WarehouseAllocate({ warehouse }: Props) {
             </Button>
             <Button onClick={() => void handleRestock()} disabled={restockSaving || !restockClient}>
               {restockSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Restock"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!openReceiveTarget}
+        onOpenChange={(o) => {
+          if (!o) {
+            setOpenReceiveTarget(null);
+            setOpenReceiveClient("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackageOpen className="h-4 w-4 text-indigo-600" />
+              Open receive for client
+            </DialogTitle>
+            <DialogDescription>
+              Closed walk-in / unknown-owner stock. Pick the registered client, enter SKUs, and
+              their inventory table updates (if already put away). Otherwise putaway next.
+            </DialogDescription>
+          </DialogHeader>
+          {openReceiveTarget ? (
+            <div className="space-y-3">
+              <div className="rounded border bg-muted/40 px-3 py-2 text-sm">
+                <p className="font-mono font-semibold">{openReceiveTarget.cartonCode}</p>
+                <p className="text-xs text-muted-foreground">
+                  {openReceiveTarget.receiveLot || openReceiveTarget.line.lot
+                    ? `Lot ${openReceiveTarget.receiveLot || openReceiveTarget.line.lot}`
+                    : "No lot on file"}
+                  {openReceiveTarget.stagingArea
+                    ? ` · Area ${openReceiveTarget.stagingArea}`
+                    : openReceiveTarget.binPath
+                      ? ` · ${openReceiveTarget.binPath}`
+                      : " · not put away yet"}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Registered client</Label>
+                <Select value={openReceiveClient || ""} onValueChange={setOpenReceiveClient}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick a client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients.map((c) => (
+                      <SelectItem key={c.uid} value={c.uid}>
+                        {c.name || c.email || c.uid}
+                        {c.clientId ? ` (${c.clientId})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">SKU lines</Label>
+                {openReceiveLines.map((line, idx) => (
+                  <div key={line.id} className="grid gap-2 sm:grid-cols-4 border rounded-md p-2">
+                    <div className="space-y-1 sm:col-span-2">
+                      <Label className="text-[10px] text-muted-foreground">SKU</Label>
+                      <Input
+                        value={line.sku}
+                        onChange={(e) => {
+                          const next = [...openReceiveLines];
+                          next[idx] = { ...line, sku: e.target.value };
+                          setOpenReceiveLines(next);
+                        }}
+                        placeholder="SKU"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">Qty</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={line.qty}
+                        onChange={(e) => {
+                          const next = [...openReceiveLines];
+                          next[idx] = { ...line, qty: e.target.value };
+                          setOpenReceiveLines(next);
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px] text-muted-foreground">Lot</Label>
+                      <Input
+                        value={line.lot}
+                        onChange={(e) => {
+                          const next = [...openReceiveLines];
+                          next[idx] = { ...line, lot: e.target.value };
+                          setOpenReceiveLines(next);
+                        }}
+                        placeholder="Optional"
+                      />
+                    </div>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setOpenReceiveLines((prev) => [
+                      ...prev,
+                      {
+                        id: `ln${Date.now()}`,
+                        sku: "",
+                        qty: "1",
+                        lot: openReceiveTarget.receiveLot ?? "",
+                        expiry: "",
+                      },
+                    ])
+                  }
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  Add SKU line
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setOpenReceiveTarget(null);
+                setOpenReceiveClient("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleOpenReceiveConfirm()}
+              disabled={openReceiveSaving || !openReceiveClient}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              {openReceiveSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Open receive & update inventory"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
