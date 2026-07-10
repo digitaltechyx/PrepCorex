@@ -194,6 +194,14 @@ export interface WarehouseCartonDoc {
   isLoose?: boolean;
   /** True when this is a cross-dock polybag/small pack (PKG code, not CTN). */
   isPackage?: boolean;
+  /** True when this is a shipping container (CTR code) — contents counted as cartons/pallets/packages. */
+  isContainer?: boolean;
+  /** Declared carton count inside the container (dock count, before SKU open-receive). */
+  containerCartonCount?: number | null;
+  /** Declared pallet count inside the container. */
+  containerPalletCount?: number | null;
+  /** Declared package/polybag count inside the container. */
+  containerPackageCount?: number | null;
   /** crossdock = closed carton/pallet; unpackaged = units without master carton. */
   receiveMode?: WarehouseReceiveMode | null;
   /** True when received closed — no SKU manifest until putaway opens it. */

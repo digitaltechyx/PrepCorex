@@ -57,7 +57,6 @@ type Props = {
   onInbound: (rows: InboundRequestRow[], tracking: string) => void;
   onReturn: (row: ReturnRequestRow, tracking: string) => void;
   onWalkIn: (tracking: string) => void;
-  onSkip?: () => void;
 };
 
 export function WarehouseOpsDockIntake({
@@ -67,7 +66,6 @@ export function WarehouseOpsDockIntake({
   onInbound,
   onReturn,
   onWalkIn,
-  onSkip,
 }: Props) {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -579,11 +577,6 @@ export function WarehouseOpsDockIntake({
           <Package className="h-4 w-4 mr-1" />
           Walk-in receive (no request)
         </Button>
-        {onSkip ? (
-          <Button variant="ghost" onClick={onSkip}>
-            Continue without intake
-          </Button>
-        ) : null}
       </div>
     </div>
   );
@@ -631,6 +624,11 @@ function InboundSelectRow({
                 Approved
               </Badge>
             )}
+            {row.inventoryType === "container" ? (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-sky-900 border-sky-300">
+                Container
+              </Badge>
+            ) : null}
             {tracking ? (
               <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0">
                 {tracking}

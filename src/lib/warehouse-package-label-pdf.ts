@@ -231,8 +231,12 @@ function drawManifestPackageLabel(
   const skuCount = manifestSkuCount(pkg);
   const lotLabel = resolveManifestLotLabel(pkg);
   const damagedQty = manifestDamagedQty(pkg);
+  const lines = pkg.lines ?? [];
 
   drawFieldRow(page, textX, ty - 10, "SKUS", String(skuCount), font, fontBold, textW, 8);
+  ty -= 22;
+  const totalUnits = lines.reduce((sum, l) => sum + Math.max(0, l.quantity), 0);
+  drawFieldRow(page, textX, ty - 10, "UNITS", String(totalUnits), font, fontBold, textW, 8);
   ty -= 22;
   if (lotLabel) {
     drawFieldRow(page, textX, ty - 10, "LOT", lotLabel, font, fontBold, textW, 6.5);
@@ -250,40 +254,14 @@ function drawManifestPackageLabel(
     ty -= 10;
   }
 
-  const lines = pkg.lines ?? [];
-  page.drawText(pdfText(`LINES (${lines.length})`), {
+  page.drawText(pdfText("SKU list on putaway / system"), {
     x: textX,
     y: ty,
-    size: 5,
+    size: 5.5,
     font,
     color: muted,
+    maxWidth: textW,
   });
-  ty -= 9;
-  const lineSize = 6;
-  const lineHeight = lineSize + 2;
-  const maxLines = Math.floor((ty - bodyBottom - 4) / lineHeight);
-  for (const line of lines.slice(0, maxLines)) {
-    const tag = line.condition === "damaged" ? " (DMG)" : "";
-    page.drawText(pdfText(`${line.sku} x ${line.quantity}${tag}`), {
-      x: textX,
-      y: ty,
-      size: lineSize,
-      font: line.condition === "damaged" ? fontBold : font,
-      color: line.condition === "damaged" ? rgb(0.7, 0.15, 0.15) : ink,
-      maxWidth: textW,
-    });
-    ty -= lineHeight;
-  }
-  if (lines.length > maxLines) {
-    page.drawText(pdfText(`+${lines.length - maxLines} more`), {
-      x: textX,
-      y: ty,
-      size: 5,
-      font,
-      color: muted,
-      maxWidth: textW,
-    });
-  }
 
   page.drawRectangle({
     x: innerX,

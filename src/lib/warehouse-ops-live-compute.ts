@@ -112,7 +112,8 @@ function countInboundDockLive(input: {
   let count = 0;
   for (const doc of input.inventoryDocs) {
     const data = doc.data as Omit<InventoryRequest, "id">;
-    if (data.inventoryType && data.inventoryType !== "product") continue;
+    if (data.inventoryType && data.inventoryType !== "product" && data.inventoryType !== "container")
+      continue;
     const status = normInboundStatus(data.status);
     if (status !== "approved" && status !== "pending") continue;
 
@@ -393,7 +394,8 @@ export function buildInboundDockQueueLive(input: {
 
   for (const doc of input.inventoryDocs) {
     const data = doc.data as Omit<InventoryRequest, "id">;
-    if (data.inventoryType && data.inventoryType !== "product") continue;
+    if (data.inventoryType && data.inventoryType !== "product" && data.inventoryType !== "container")
+      continue;
     const status = normInboundStatus(data.status);
     if (status !== "approved" && status !== "pending") continue;
 

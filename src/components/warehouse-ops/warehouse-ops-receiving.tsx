@@ -34,9 +34,11 @@ import type { WarehouseDoc, WarehouseCartonDoc } from "@/types";
 import {
   createCrossdockPalletReceive,
   createReceiveBatch,
+  createContainerReceive,
   listWarehouseCartons,
   listWarehousePallets,
 } from "@/lib/warehouse-carton-firestore";
+import { printContainerLabels } from "@/lib/warehouse-container-label-pdf";
 import {
   buildWarehouseCartonLabelsPdf,
   downloadUint8ArrayAsFile,
@@ -59,6 +61,7 @@ import {
   ScanLine,
   RotateCcw,
   ArrowRightLeft,
+  Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { detectCarrier } from "@/lib/carrier-detect";
@@ -97,6 +100,7 @@ import {
   recordInboundReceiveBatch,
   reloadInboundRequestRow,
   validateInboundReceiveQty,
+  completeContainerInboundRequest,
 } from "@/lib/warehouse-inbound-receive";
 import {
   loadInboundRequestQueue,
@@ -118,10 +122,14 @@ import {
   type StoredReceiveFormSnapshot,
 } from "@/lib/warehouse-receive-corrections";
 
-type ReceiveType = "carton" | "pallet" | "loose";
+type ReceiveType = "carton" | "pallet" | "loose" | "container";
 /** crossdock = closed labels only; loose module = open receiving at dock */
 type ReceiveModule = "crossdock" | "loose";
 type ReceivePhase = "dock-intake" | "return-receive" | "hub" | "pick-package" | "form";
+
+function isContainerInbound(row: { inventoryType?: string }): boolean {
+  return row.inventoryType === "container";
+}
 
 type LineDraft = {
   id: string;
@@ -189,6 +197,32 @@ function newCrossdockCarton(): CartonDraft {
 function cartonsFromInboundRequests(rows: InboundRequestRow[], crossdock: boolean): CartonDraft[] {
   if (rows.length === 0) {
     return [crossdock ? newCrossdockCarton() : newCarton()];
+  }
+  // Container inbound: empty open-receive carton prefilled with client (enter SKUs inside).
+  if (rows.every(isContainerInbound)) {
+    const row = rows[0];
+    return [
+      {
+        ...newCarton(),
+        clientId: row.clientUserId,
+        clientLabel: row.clientDisplayName,
+        inventoryRequestId: row.id,
+        lines: [
+          {
+            id: crypto.randomUUID(),
+            sku: "",
+            productTitle: "",
+            goodQty: "1",
+            damagedQty: "0",
+            lot: "",
+            expiry: "",
+            clientId: row.clientUserId,
+            clientLabel: row.clientDisplayName,
+            inventoryRequestId: row.id,
+          },
+        ],
+      },
+    ];
   }
   if (crossdock) {
     return rows.map((row) => {
@@ -316,7 +350,6 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
               onInbound={handleDockInbound}
               onReturn={handleDockReturn}
               onWalkIn={handleDockWalkIn}
-              onSkip={() => setPhase("hub")}
             />
           ) : phase === "return-receive" && selectedReturn ? (
             <WarehouseOpsReturnReceive
@@ -344,7 +377,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                 </p>
               ) : null}
               {selectedInbounds.length > 0 ? (
-                <Card className="border-blue-200/80 bg-blue-50/30">
+                <Card className="border-blue-200/80 bg-blue-50/40">
                   <CardContent className="py-3 text-sm space-y-2">
                     <p className="font-medium text-blue-900">
                       Dock matched {selectedInbounds.length} request
@@ -358,8 +391,19 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                         </li>
                       ))}
                     </ul>
-                    <p className="text-muted-foreground text-xs">
-                      Open receiving will prefill one line per selected request in the same carton.
+                    <p className="text-xs text-blue-900/80">
+                      {selectedInbounds.every(isContainerInbound) ? (
+                        <>
+                          <strong>Container</strong> inbound — use <strong>Open receiving</strong>{" "}
+                          to count products inside (inventory + close request), or receive the
+                          container shell first (counts + CTR label).
+                        </>
+                      ) : (
+                        <>
+                          Receiver chooses: <strong>Cross-dock</strong> (closed — ship or putaway)
+                          or <strong>Open receiving</strong> (count SKUs → client inventory).
+                        </>
+                      )}
                     </p>
                     <Button
                       type="button"
@@ -372,19 +416,42 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                     </Button>
                   </CardContent>
                 </Card>
-              ) : null}
+              ) : (
+                <Card className="border-amber-200/80 bg-amber-50/40">
+                  <CardContent className="py-3 text-sm space-y-1">
+                    <p className="font-medium text-amber-950">No request selected (walk-in)</p>
+                    <p className="text-xs text-amber-950/80">
+                      Receive with <strong>lot + photos + one label</strong> only. When you know the
+                      client, use <strong>Open receiving</strong>, assign that user, count SKUs —
+                      then putaway so inventory shows in their table.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
               <TypePickerCard
                 color="indigo"
                 icon={<ArrowRightLeft className="h-8 w-8" />}
-                title="Cross-dock receiving"
-                description="Closed cartons, pallets, or polybags — CTN/PLT labels only. SKUs and clients at allocate / putaway."
+                title={
+                  selectedInbounds.length === 0
+                    ? "Walk-in / closed receive"
+                    : "Cross-dock receiving"
+                }
+                description={
+                  selectedInbounds.length === 0
+                    ? "No request — generate lot, take photos, print one label (carton, pallet, package, or container). No SKUs yet."
+                    : "Closed cartons, pallets, or polybags — labels only. Then ship or putaway. SKUs later if kept."
+                }
                 onClick={() => startModule("crossdock")}
               />
               <TypePickerCard
                 color="emerald"
                 icon={<PackageOpen className="h-8 w-8" />}
                 title="Open receiving"
-                description="Open and count at the dock — cartons, pallets with cartons inside, or polybags / totes."
+                description={
+                  selectedInbounds.length === 0
+                    ? "Client must be known — assign the user, count SKUs into their inventory, then putaway."
+                    : "Open and count at the dock — products go to client inventory after putaway; inbound closes."
+                }
                 onClick={() => startModule("loose")}
               />
             </>
@@ -394,28 +461,53 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                 <ArrowLeft className="h-4 w-4 mr-1" />
                 Back
               </Button>
-              <p className="text-sm text-muted-foreground">Cross-dock — what are you receiving?</p>
+              <p className="text-sm text-muted-foreground">
+                {selectedInbounds.length === 0
+                  ? "Walk-in — lot + photos + one label (no SKUs yet)"
+                  : "Cross-dock — what are you receiving?"}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-emerald-300 text-emerald-900 hover:bg-emerald-50 w-fit"
+                onClick={() => {
+                  setModule("loose");
+                  setFormRestore(null);
+                  setType(null);
+                }}
+              >
+                <PackageOpen className="h-4 w-4 mr-1" />
+                Switch to open receiving instead
+              </Button>
               <div className="grid gap-3 sm:grid-cols-2">
                 <TypePickerCard
                   color="orange"
                   icon={<Package className="h-8 w-8" />}
                   title="Carton"
-                  description="One or more closed cartons. CTN labels only — contents counted later."
+                  description="One closed carton — CTN label, auto lot, photos. SKUs when client is known."
                   onClick={() => pickPackage("carton")}
                 />
                 <TypePickerCard
                   color="indigo"
                   icon={<Boxes className="h-8 w-8" />}
                   title="Pallet"
-                  description="Closed pallet — one PLT label. Cartons inside are not listed at the dock."
+                  description="One closed pallet — PLT label, auto lot, photos."
                   onClick={() => pickPackage("pallet")}
                 />
                 <TypePickerCard
                   color="emerald"
                   icon={<PackageOpen className="h-8 w-8" />}
                   title="Package / polybag"
-                  description="Closed bag or small pack — PKG label. No SKU at the dock."
+                  description="Closed bag — PKG label, auto lot, photos."
                   onClick={() => pickPackage("loose")}
+                />
+                <TypePickerCard
+                  color="orange"
+                  icon={<Truck className="h-8 w-8" />}
+                  title="Container"
+                  description="Count cartons/pallets/packages inside — one CTR label, lot, photos."
+                  onClick={() => pickPackage("container")}
                 />
               </div>
             </>
@@ -426,7 +518,9 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                 Back
               </Button>
               <p className="text-sm text-muted-foreground">
-                Open receiving — open, inspect, and enter SKUs at the dock.
+                {selectedInbounds.length === 0
+                  ? "Client known — count SKUs into their inventory (required). Unknown owner? Use Walk-in / closed receive first."
+                  : "Open receiving — open, inspect, and enter SKUs at the dock."}
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <TypePickerCard
@@ -450,10 +544,16 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   description="Small bags or totes — one PKG label with full SKU manifest. Scan PKG at putaway."
                   onClick={() => pickPackage("loose")}
                 />
+                {selectedInbounds.some(isContainerInbound) ? (
+                  <TypePickerCard
+                    color="orange"
+                    icon={<Truck className="h-8 w-8" />}
+                    title="Container shell"
+                    description="Optional CTR label for the container first — then open-receive SKUs with the client."
+                    onClick={() => pickPackage("container")}
+                  />
+                ) : null}
               </div>
-              <p className="text-xs text-muted-foreground">
-                Shipping containers (mixed cartons + pallets + bags) — coming next.
-              </p>
             </>
           ) : type && module ? (
             <ReceiveForm
@@ -467,6 +567,16 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
               clients={clients}
               onInboundRequestsChange={setSelectedInbounds}
               onBack={backFromForm}
+              onSwitchToOpenReceive={
+                module === "crossdock"
+                  ? () => {
+                      setModule("loose");
+                      setFormRestore(null);
+                      setPhase("pick-package");
+                      setType(null);
+                    }
+                  : undefined
+              }
               initialSnapshot={formRestore}
               onSnapshotConsumed={() => setFormRestore(null)}
               onRestoreForm={(snap) => {
@@ -533,6 +643,7 @@ function ReceiveForm({
   clients: clientsForReload,
   onInboundRequestsChange,
   onBack,
+  onSwitchToOpenReceive,
   initialSnapshot,
   onSnapshotConsumed,
   onRestoreForm,
@@ -546,6 +657,8 @@ function ReceiveForm({
   clients: UserProfile[];
   onInboundRequestsChange?: (rows: InboundRequestRow[]) => void;
   onBack: () => void;
+  /** Cross-dock → open receiving (count SKUs into inventory). Keeps dock-matched requests. */
+  onSwitchToOpenReceive?: () => void;
   initialSnapshot?: StoredReceiveFormSnapshot | null;
   onSnapshotConsumed?: () => void;
   onRestoreForm?: (snap: StoredReceiveFormSnapshot) => void;
@@ -1121,6 +1234,24 @@ function ReceiveForm({
     }
 
     if (!isCrossdockClosedUnit) {
+      if (inboundRequests.length === 0) {
+        const hasClient =
+          Boolean(shipmentClientId.trim()) ||
+          cartons.some(
+            (c) =>
+              Boolean(c.clientId?.trim()) ||
+              c.lines.some((l) => Boolean(l.clientId?.trim()))
+          );
+        if (!hasClient) {
+          toast({
+            title: "Client required",
+            description:
+              "Open receiving without a dock request needs a client so inventory shows in their table after putaway. For unknown owner, use Walk-in / closed receive (lot + photos + one label) first.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
       for (const c of cartons) {
         for (const l of c.lines) {
           if (!l.sku.trim()) {
@@ -1380,7 +1511,21 @@ function ReceiveForm({
         }
       }
 
-      const linkedAnyRequest = receiveEntries.length > 0;
+      // Container handling requests: close after contents are open-received for that client.
+      const containerReqs = inboundRequests.filter(isContainerInbound);
+      for (const row of containerReqs) {
+        await completeContainerInboundRequest({
+          clientUserId: row.clientUserId,
+          requestId: row.id,
+          completedBy: operatorId,
+        });
+      }
+      if (containerReqs.length > 0) {
+        await reloadInboundQueue();
+        await refreshInboundRequestsAfterReceive();
+      }
+
+      const linkedAnyRequest = receiveEntries.length > 0 || containerReqs.length > 0;
 
       toast({
         title: isCrossdockPackage
@@ -1475,11 +1620,13 @@ function ReceiveForm({
           carton: "Open receiving — cartons",
           pallet: "Open receiving — pallet",
           loose: "Open receiving — packages",
+          container: "Container receive — counts + CTR label",
         }
       : {
           carton: "Cross-dock — cartons",
           pallet: "Cross-dock — pallet",
           loose: "Cross-dock — packages",
+          container: "Container",
         };
   const subtitleByType: Record<ReceiveType, string> =
     receiveModule === "loose"
@@ -1489,7 +1636,9 @@ function ReceiveForm({
           pallet:
             "One pallet label plus a CTN label per carton — enter SKUs inside each carton.",
           loose:
-            "Polybags, totes, or open units — PKG label with full SKU manifest. Scan PKG at putaway.",
+            "Polybags, totes, or open units — PKG label with SKU count. Scan PKG at putaway.",
+          container:
+            "Enter how many cartons, pallets, and packages are inside. One CTR label. Assign client later, then open-receive SKUs into inventory.",
         }
       : {
           carton:
@@ -1497,16 +1646,30 @@ function ReceiveForm({
           pallet: "One PLT label only — do not count cartons inside. Putaway later.",
           loose:
             "Closed polybags or small packs — PKG labels only. Open and count SKUs at putaway.",
+          container: "Use open receiving for containers.",
         };
   const accentByType: Record<ReceiveType, string> = {
     carton: "border-orange-300 bg-orange-600 hover:bg-orange-700",
     pallet: "border-indigo-300 bg-indigo-600 hover:bg-indigo-700",
     loose: "border-emerald-300 bg-emerald-600 hover:bg-emerald-700",
+    container: "border-sky-300 bg-sky-700 hover:bg-sky-800",
   };
+
+  if (type === "container") {
+    return (
+      <ContainerReceiveForm
+        warehouse={warehouse}
+        inboundRequests={inboundRequests}
+        dockTracking={dockTracking}
+        clients={clientsForReload}
+        onBack={onBack}
+      />
+    );
+  }
 
   return (
     <div className="max-w-4xl space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="ghost" size="sm" onClick={onBack}>
           <ArrowLeft className="h-4 w-4 mr-1" />
           {type === "loose" && receiveModule === "loose" ? "Back" : "Change package type"}
@@ -1514,9 +1677,27 @@ function ReceiveForm({
         <Badge variant="outline" className="capitalize">
           {receiveModule === "crossdock" ? "Cross-dock" : "Open receiving"} · {type}
         </Badge>
+        {onSwitchToOpenReceive ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-emerald-300 text-emerald-900 hover:bg-emerald-50"
+            onClick={onSwitchToOpenReceive}
+          >
+            <PackageOpen className="h-4 w-4 mr-1" />
+            Switch to open receiving
+          </Button>
+        ) : null}
       </div>
       <WarehouseOpsHeader title={titleByType[type]} />
       <p className="text-sm text-muted-foreground -mt-2">{subtitleByType[type]}</p>
+      {onSwitchToOpenReceive ? (
+        <p className="text-xs text-muted-foreground -mt-1">
+          Client or dock may expect cross-dock, but you can switch to open receiving to count
+          products into inventory and close the inbound.
+        </p>
+      ) : null}
 
       {inboundRequests.length > 0 ? (
         <Card className="border-blue-200/80 bg-blue-50/30">
@@ -1607,7 +1788,12 @@ function ReceiveForm({
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Photos (optional, multiple)</Label>
+              <Label className="text-xs">
+                Photos
+                {isCrossdockClosedUnit || isCrossdockPalletOnly
+                  ? " (recommended)"
+                  : " (optional, multiple)"}
+              </Label>
               <Input
                 type="file"
                 accept="image/*"
@@ -1702,10 +1888,14 @@ function ReceiveForm({
       {receiveModule === "loose" && !isCrossdockPalletOnly ? (
         <Card className="border-emerald-200/80">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Client (optional)</CardTitle>
+            <CardTitle className="text-sm">
+              Client
+              {inboundRequests.length === 0 ? " (required)" : " (optional)"}
+            </CardTitle>
             <CardDescription className="text-xs">
-              Applies to every carton or package below unless you override per unit. Shown in
-              Allocate when matching stock to clients.
+              {inboundRequests.length === 0
+                ? "Assign the owner so counted SKUs land in their inventory after putaway. Unknown owner? Use Walk-in / closed receive first."
+                : "Applies to every carton or package below unless you override per unit. Shown in Allocate when matching stock to clients."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -2221,6 +2411,255 @@ function ReceiveForm({
           resetForm();
         }}
       />
+    </div>
+  );
+}
+
+/** Walk-in / dock container: lot + photos + one CTR label (client optional until open receive). */
+function ContainerReceiveForm({
+  warehouse,
+  inboundRequests,
+  dockTracking,
+  clients,
+  onBack,
+}: {
+  warehouse: WarehouseDoc;
+  inboundRequests: InboundRequestRow[];
+  dockTracking?: string;
+  clients: UserProfile[];
+  onBack: () => void;
+}) {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const operatorId = user?.uid ?? null;
+  const containerReq = inboundRequests.find(isContainerInbound) ?? inboundRequests[0] ?? null;
+
+  const [cartonCount, setCartonCount] = useState("0");
+  const [palletCount, setPalletCount] = useState("0");
+  const [packageCount, setPackageCount] = useState("0");
+  const [trackingNumber, setTrackingNumber] = useState(dockTracking?.trim() || "");
+  const [carrier, setCarrier] = useState("");
+  const [notes, setNotes] = useState("");
+  const [receiveLot, setReceiveLot] = useState(() => generateCrossdockReceiveLot());
+  const [clientId, setClientId] = useState(containerReq?.clientUserId ?? "");
+  const [clientLabel, setClientLabel] = useState(containerReq?.clientDisplayName ?? "");
+  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+  const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit() {
+    setSaving(true);
+    try {
+      const photoUrls =
+        photoFiles.length > 0
+          ? await uploadReceivePhotos({
+              warehouseId: warehouse.id,
+              files: photoFiles,
+              uploadedBy: operatorId,
+            })
+          : [];
+      const { container } = await createContainerReceive({
+        warehouseId: warehouse.id,
+        cartonCount: parseInt(cartonCount, 10) || 0,
+        palletCount: parseInt(palletCount, 10) || 0,
+        packageCount: parseInt(packageCount, 10) || 0,
+        receivedBy: operatorId,
+        trackingNumber: trackingNumber.trim() || null,
+        carrier: carrier.trim() || null,
+        notes: notes.trim() || null,
+        clientId: clientId.trim() || null,
+        clientDisplayName: clientLabel.trim() || null,
+        inventoryRequestId: containerReq?.id ?? null,
+        receiveLot,
+        photoUrl: photoUrls[0] ?? null,
+        photoUrls,
+      });
+
+      await printContainerLabels([container]);
+      toast({
+        title: "Container received",
+        description: clientId
+          ? `${container.cartonCode} · ${receiveLot}. Next: Open receiving → enter SKUs for this client, then putaway.`
+          : `${container.cartonCode} · ${receiveLot}. When you find the user, open-receive with that client so inventory shows in their table.`,
+      });
+      photoPreviews.forEach((u) => URL.revokeObjectURL(u));
+      onBack();
+    } catch (e) {
+      toast({
+        title: "Container receive failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="max-w-xl space-y-4">
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Back
+        </Button>
+        <Badge variant="outline">Container · CTR label</Badge>
+      </div>
+      <WarehouseOpsHeader title="Container receive" />
+      <p className="text-sm text-muted-foreground -mt-2">
+        Walk-in / closed: count units inside (no SKUs), take photos, print one CTR label with lot.
+        When the client is known, use open receiving to put products in their inventory.
+      </p>
+
+      {containerReq ? (
+        <Card className="border-blue-200 bg-blue-50/40">
+          <CardContent className="py-3 text-sm">
+            Dock request: <strong>{containerReq.clientDisplayName}</strong> —{" "}
+            {containerReq.productName}
+            {containerReq.containerSize ? ` · ${containerReq.containerSize}` : ""}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Contents count</CardTitle>
+          <CardDescription>At least one count must be greater than zero.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Cartons</Label>
+            <Input
+              type="number"
+              min={0}
+              value={cartonCount}
+              onChange={(e) => setCartonCount(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Pallets</Label>
+            <Input
+              type="number"
+              min={0}
+              value={palletCount}
+              onChange={(e) => setPalletCount(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Packages</Label>
+            <Input
+              type="number"
+              min={0}
+              value={packageCount}
+              onChange={(e) => setPackageCount(e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Receive lot (auto)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-1">
+          <div className="flex gap-2">
+            <Input
+              readOnly
+              value={receiveLot}
+              className="font-mono text-sm bg-muted/50 flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setReceiveLot(generateCrossdockReceiveLot())}
+            >
+              New lot
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Prints on the CTR label. Same pattern as walk-in carton/pallet lots.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Client (optional)</CardTitle>
+          <CardDescription>
+            Leave empty for unknown owner — when found, open-receive with that user so inventory
+            shows in their table.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CrossdockClientCombobox
+            clients={clients}
+            clientId={clientId}
+            clientLabel={clientLabel}
+            onChange={(next) => {
+              setClientId(next.clientId);
+              setClientLabel(next.clientLabel);
+            }}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-4 space-y-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Tracking #</Label>
+            <Input
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Carrier</Label>
+            <Input
+              value={carrier}
+              onChange={(e) => setCarrier(e.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Notes</Label>
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Photos (recommended)</Label>
+            <Input
+              type="file"
+              accept="image/*"
+              multiple
+              className="text-xs"
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                setPhotoFiles(files);
+                photoPreviews.forEach((u) => URL.revokeObjectURL(u));
+                setPhotoPreviews(files.map((f) => URL.createObjectURL(f)));
+              }}
+            />
+            {photoPreviews.length > 0 ? (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {photoPreviews.map((src, i) => (
+                  <img
+                    key={src}
+                    src={src}
+                    alt={`Container photo ${i + 1}`}
+                    className="h-16 w-16 rounded border object-cover"
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Button className="w-full" disabled={saving} onClick={() => void handleSubmit()}>
+        {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Printer className="h-4 w-4 mr-2" />}
+        Receive container &amp; print CTR label
+      </Button>
     </div>
   );
 }

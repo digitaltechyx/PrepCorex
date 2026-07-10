@@ -17,6 +17,7 @@ import {
   encodeCartonBarcode,
   encodePalletBarcode,
   encodePackageBarcode,
+  encodeContainerBarcode,
   cartonBarcodeFromDoc,
   decodePalletBarcode,
 } from "@/lib/warehouse-carton-barcode";
@@ -111,6 +112,12 @@ export async function generatePackageCode(warehouseId: string): Promise<string> 
   return `PKG-${year}-${String(seq).padStart(5, "0")}`;
 }
 
+export async function generateContainerCode(warehouseId: string): Promise<string> {
+  const seq = await nextLabelSequence(warehouseId, "containerSeq");
+  const year = new Date().getFullYear();
+  return `CTR-${year}-${String(seq).padStart(5, "0")}`;
+}
+
 function parseLines(raw: unknown): WarehouseCartonLine[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: WarehouseCartonLine[] = [];
@@ -181,6 +188,13 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     isMixed: data.isMixed === true,
     isLoose: data.isLoose === true,
     isPackage: data.isPackage === true,
+    isContainer: data.isContainer === true,
+    containerCartonCount:
+      typeof data.containerCartonCount === "number" ? data.containerCartonCount : null,
+    containerPalletCount:
+      typeof data.containerPalletCount === "number" ? data.containerPalletCount : null,
+    containerPackageCount:
+      typeof data.containerPackageCount === "number" ? data.containerPackageCount : null,
     receiveMode:
       data.receiveMode === "crossdock" || data.receiveMode === "unpackaged"
         ? data.receiveMode
@@ -822,6 +836,110 @@ export async function createCrossdockPalletReceive(input: {
     photoUrl: input.photoUrl ?? null,
   });
   return { palletId };
+}
+
+/**
+ * Dock receive for a shipping container: count cartons/pallets/packages only,
+ * print one CTR label + lot. Client optional — assign later, then open-receive SKUs.
+ */
+export async function createContainerReceive(input: {
+  warehouseId: string;
+  cartonCount: number;
+  palletCount: number;
+  packageCount: number;
+  receivedBy?: string | null;
+  stagingArea?: string | null;
+  trackingNumber?: string | null;
+  carrier?: string | null;
+  notes?: string | null;
+  clientId?: string | null;
+  clientDisplayName?: string | null;
+  inventoryRequestId?: string | null;
+  receiveLot?: string | null;
+  photoUrl?: string | null;
+  photoUrls?: string[];
+}): Promise<{ containerId: string; container: WarehouseCartonDoc }> {
+  const cartonCount = Math.max(0, Math.floor(input.cartonCount));
+  const palletCount = Math.max(0, Math.floor(input.palletCount));
+  const packageCount = Math.max(0, Math.floor(input.packageCount));
+  if (cartonCount + palletCount + packageCount < 1) {
+    throw new Error("Enter at least one carton, pallet, or package count.");
+  }
+
+  const warehouseId = input.warehouseId;
+  const cartonCode = await generateContainerCode(warehouseId);
+  const barcode = encodeContainerBarcode(cartonCode);
+  const clientId = input.clientId?.trim() || null;
+  const display = input.clientDisplayName?.trim() || null;
+  const requestId = input.inventoryRequestId?.trim() || null;
+  const totalUnits = cartonCount + palletCount + packageCount;
+  const lot = input.receiveLot?.trim() || generateCrossdockReceiveLot();
+  const photoUrls = (input.photoUrls ?? []).filter(Boolean);
+  const photoUrl = input.photoUrl?.trim() || photoUrls[0] || null;
+
+  const ref = await addDoc(warehouseCartonsCollectionRef(warehouseId), {
+    cartonCode,
+    sku: "CONTAINER",
+    lot,
+    expiry: null,
+    quantity: totalUnits,
+    status: "receiving",
+    clientId,
+    receivedForClient: display,
+    binId: null,
+    palletId: null,
+    productTitle: display ? `Container — ${display}` : "Shipping container",
+    inventoryRequestId: requestId,
+    productReturnId: null,
+    barcode,
+    lines: [],
+    isMixed: false,
+    isLoose: false,
+    isPackage: false,
+    isContainer: true,
+    containerCartonCount: cartonCount,
+    containerPalletCount: palletCount,
+    containerPackageCount: packageCount,
+    receiveMode: "crossdock",
+    isClosedCrossdock: true,
+    putawayDisposition: null,
+    trackingNumber: input.trackingNumber?.trim() || null,
+    carrier: input.carrier?.trim() || null,
+    notes: input.notes?.trim() || null,
+    photoUrl,
+    photoUrls,
+    receivedBy: input.receivedBy ?? null,
+    stagingArea: input.stagingArea ?? null,
+    receivedAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  const container = docToCarton(ref.id, {
+    cartonCode,
+    sku: "CONTAINER",
+    lot,
+    quantity: totalUnits,
+    status: "receiving",
+    clientId,
+    receivedForClient: display,
+    productTitle: display ? `Container — ${display}` : "Shipping container",
+    inventoryRequestId: requestId,
+    barcode,
+    isContainer: true,
+    containerCartonCount: cartonCount,
+    containerPalletCount: palletCount,
+    containerPackageCount: packageCount,
+    receiveMode: "crossdock",
+    isClosedCrossdock: true,
+    trackingNumber: input.trackingNumber?.trim() || null,
+    carrier: input.carrier?.trim() || null,
+    notes: input.notes?.trim() || null,
+    photoUrl,
+    photoUrls,
+  });
+
+  return { containerId: ref.id, container };
 }
 
 export { cartonBarcodeFromDoc };

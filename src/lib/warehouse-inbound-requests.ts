@@ -247,7 +247,7 @@ export async function countInboundDockQueue(input: {
 
   for (const d of docs) {
     const data = d.data() as Omit<InventoryRequest, "id">;
-    if (data.inventoryType && data.inventoryType !== "product") continue;
+    if (data.inventoryType && data.inventoryType !== "product" && data.inventoryType !== "container") continue;
 
     const clientUserId = userIdFromDocPath(d.ref.path);
     if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;
@@ -352,7 +352,7 @@ export async function loadInboundRequestQueue(input: {
   const rows: InboundRequestRow[] = [];
   for (const d of docs) {
     const data = d.data() as Omit<InventoryRequest, "id">;
-    if (data.inventoryType && data.inventoryType !== "product") continue;
+    if (data.inventoryType && data.inventoryType !== "product" && data.inventoryType !== "container") continue;
 
     const clientUserId = userIdFromDocPath(d.ref.path);
     if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;

@@ -172,6 +172,7 @@ function drawCartonLabel(
     const skuCount = mixedCartonSkuCount(carton);
     const damagedQty = mixedCartonDamagedQty(carton);
     const lotLabel = resolveCartonLotLabel(carton);
+    const totalUnits = carton.lines.reduce((sum, l) => sum + Math.max(0, l.quantity), 0);
 
     drawFieldRow(
       page,
@@ -179,6 +180,19 @@ function drawCartonLabel(
       ty - 10,
       "SKUS",
       String(skuCount),
+      font,
+      fontBold,
+      textW,
+      8
+    );
+    ty -= 22;
+
+    drawFieldRow(
+      page,
+      textX,
+      ty - 10,
+      "UNITS",
+      String(totalUnits),
       font,
       fontBold,
       textW,
@@ -212,41 +226,14 @@ function drawCartonLabel(
       ty -= 10;
     }
 
-    page.drawText(pdfText(`LINES (${carton.lines.length})`), {
+    page.drawText(pdfText("SKU list on putaway / system"), {
       x: textX,
       y: ty,
-      size: 5,
+      size: 5.5,
       font,
       color: muted,
+      maxWidth: textW,
     });
-    ty -= 9;
-    const lineSize = innerW < 200 ? 6 : 6.5;
-    const lineHeight = lineSize + 2;
-    const maxLines = Math.floor((ty - bodyBottom - 4) / lineHeight);
-    const shown = carton.lines.slice(0, maxLines);
-    for (const line of shown) {
-      const tag = line.condition === "damaged" ? " (DMG)" : "";
-      const text = pdfText(`${line.sku} x ${line.quantity}${tag}`);
-      page.drawText(text, {
-        x: textX,
-        y: ty,
-        size: lineSize,
-        font: line.condition === "damaged" ? fontBold : font,
-        color: line.condition === "damaged" ? rgb(0.7, 0.15, 0.15) : ink,
-        maxWidth: textW,
-      });
-      ty -= lineHeight;
-    }
-    if (carton.lines.length > shown.length) {
-      page.drawText(pdfText(`+${carton.lines.length - shown.length} more (see manifest)`), {
-        x: textX,
-        y: ty,
-        size: 5,
-        font,
-        color: muted,
-        maxWidth: textW,
-      });
-    }
   } else {
     const skuSize = innerW < 200 ? 10 : 11;
     page.drawText(pdfText("SKU"), { x: textX, y: ty, size: 5, font, color: muted });

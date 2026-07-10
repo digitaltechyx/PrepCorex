@@ -133,6 +133,8 @@ export function validateInboundReceiveQty(input: {
     const requestId = key.slice(sep + 1);
     const row = input.queue.find((r) => r.clientUserId === clientUserId && r.id === requestId);
     if (!row) continue;
+    // Container handling requests are 1 unit (the container); product lines inside are not capped by that.
+    if (row.inventoryType === "container") continue;
     if (qty > row.remainingQty) {
       return `${row.clientDisplayName} — ${row.productName}: ${qty} entered but only ${row.remainingQty} remaining on the request.`;
     }
@@ -204,8 +206,8 @@ export async function approveInboundRequestAtDock(input: {
   if (data.status !== "pending") {
     throw new Error("Only pending requests can be approved.");
   }
-  if (data.inventoryType && data.inventoryType !== "product") {
-    throw new Error("Dock approve is for product inbound requests. Use admin for box/pallet/container.");
+  if (data.inventoryType && data.inventoryType !== "product" && data.inventoryType !== "container") {
+    throw new Error("Dock approve is for product or container inbound. Use admin for box/pallet.");
   }
 
   const qty = expectedRequestQty(data);
@@ -242,5 +244,28 @@ export async function rejectInboundRequestAtDock(input: {
     rejectedAt: serverTimestamp(),
     rejectionReason: (input.reason || "").trim() || "Rejected at warehouse dock",
     updatedAt: serverTimestamp(),
+  });
+}
+
+/** Mark a container inbound as fully received/closed after dock open-receive of contents. */
+export async function completeContainerInboundRequest(input: {
+  clientUserId: string;
+  requestId: string;
+  completedBy?: string | null;
+}): Promise<void> {
+  const requestRef = doc(db, `users/${input.clientUserId}/inventoryRequests`, input.requestId);
+  const snap = await getDoc(requestRef);
+  if (!snap.exists()) return;
+  const data = snap.data() as InventoryRequest;
+  if (data.inventoryType !== "container") return;
+  const qty = expectedRequestQty(data);
+  await updateDoc(requestRef, {
+    status: data.status === "pending" ? "approved" : data.status,
+    fulfillmentStatus: "closed",
+    warehouseGoodReceivedQty: qty,
+    receivedQuantity: qty,
+    receivingDate: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    ...(input.completedBy ? { warehouseCompletedBy: input.completedBy } : {}),
   });
 }
