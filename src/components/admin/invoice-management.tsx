@@ -389,20 +389,24 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   });
 
   const invoiceDashboardStats = useMemo(() => {
-    const totalUsers = userSummaries.length;
-    const unpaidUsers = userSummaries.filter((s) => s.pendingCount > 0).length;
-    const fullyPaidUsers = userSummaries.filter((s) => s.pendingCount === 0 && s.paidCount > 0).length;
-    const totalPendingAmount = userSummaries.reduce((sum, s) => sum + (Number.isFinite(s.totalAmount) ? s.totalAmount : 0), 0);
+    const allInvoices = Object.values(userInvoices).flat();
+    const dueAmount = userSummaries.reduce(
+      (sum, s) => sum + (Number.isFinite(s.totalAmount) ? s.totalAmount : 0),
+      0
+    );
     const todayKey = new Date().toISOString().slice(0, 10);
-    const todaysRevenue = Object.values(userInvoices)
-      .flat()
+    const overdueInvoices = allInvoices.filter((inv) => {
+      if (inv.status !== "pending") return false;
+      const due = String(inv.dueDate || "").trim().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return false;
+      return due < todayKey;
+    }).length;
+    const todaysRevenue = allInvoices
       .filter((inv) => inv.status === "paid" && String(inv.date || "").slice(0, 10) === todayKey)
       .reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
     return {
-      totalUsers,
-      unpaidUsers,
-      fullyPaidUsers,
-      totalPendingAmount,
+      dueAmount,
+      overdueInvoices,
       todaysRevenue,
     };
   }, [userSummaries, userInvoices]);
@@ -1048,82 +1052,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
         <TabsContent value="invoices" className="space-y-6">
           {/* Invoice Dashboard Stats */}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            <Card
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                setUserFilterTab("all");
-                setUsersPage(1);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setUserFilterTab("all");
-                  setUsersPage(1);
-                }
-              }}
-              className={`border-2 border-slate-200/60 bg-gradient-to-br from-slate-50 to-slate-100/40 shadow-sm cursor-pointer transition-all hover:shadow-md ${
-                userFilterTab === "all" ? "ring-2 ring-slate-400" : ""
-              }`}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-700">Total Users</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold text-slate-900">{invoiceDashboardStats.totalUsers}</p>
-                <p className="text-xs text-slate-600 mt-1">Users in invoice system</p>
-              </CardContent>
-            </Card>
-            <Card
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                setUserFilterTab("unpaid");
-                setUsersPage(1);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setUserFilterTab("unpaid");
-                  setUsersPage(1);
-                }
-              }}
-              className={`border-2 border-amber-200/60 bg-gradient-to-br from-amber-50 to-amber-100/40 shadow-sm cursor-pointer transition-all hover:shadow-md ${
-                userFilterTab === "unpaid" ? "ring-2 ring-amber-400" : ""
-              }`}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-amber-800">Users With Unpaid</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold text-amber-900">{invoiceDashboardStats.unpaidUsers}</p>
-                <p className="text-xs text-amber-700 mt-1">Need payment follow-up</p>
-              </CardContent>
-            </Card>
-            <Card
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                setUserFilterTab("paid");
-                setUsersPage(1);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setUserFilterTab("paid");
-                  setUsersPage(1);
-                }
-              }}
-              className={`border-2 border-emerald-200/60 bg-gradient-to-br from-emerald-50 to-emerald-100/40 shadow-sm cursor-pointer transition-all hover:shadow-md ${
-                userFilterTab === "paid" ? "ring-2 ring-emerald-400" : ""
-              }`}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-emerald-800">Fully Settled Users</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold text-emerald-900">{invoiceDashboardStats.fullyPaidUsers}</p>
-                <p className="text-xs text-emerald-700 mt-1">No pending invoices</p>
-              </CardContent>
-            </Card>
+          <div className="grid gap-4 sm:grid-cols-3">
             <Card
               role="button"
               tabIndex={0}
@@ -1142,11 +1071,24 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
               }`}
             >
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-indigo-800">Pending Amount</CardTitle>
+                <CardTitle className="text-sm font-medium text-indigo-800">Due Amount</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-bold text-indigo-900">${invoiceDashboardStats.totalPendingAmount.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-indigo-900">
+                  ${invoiceDashboardStats.dueAmount.toFixed(2)}
+                </p>
                 <p className="text-xs text-indigo-700 mt-1">Outstanding across users</p>
+              </CardContent>
+            </Card>
+            <Card className="border-2 border-rose-200/60 bg-gradient-to-br from-rose-50 to-rose-100/40 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-rose-800">Overdue Invoices</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-rose-900">
+                  {invoiceDashboardStats.overdueInvoices}
+                </p>
+                <p className="text-xs text-rose-700 mt-1">Pending past due date</p>
               </CardContent>
             </Card>
             <Card className="border-2 border-teal-200/60 bg-gradient-to-br from-teal-50 to-cyan-100/40 shadow-sm">
@@ -1154,7 +1096,9 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                 <CardTitle className="text-sm font-medium text-teal-800">Today&apos;s Revenue</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-bold text-teal-900">${invoiceDashboardStats.todaysRevenue.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-teal-900">
+                  ${invoiceDashboardStats.todaysRevenue.toFixed(2)}
+                </p>
                 <p className="text-xs text-teal-700 mt-1">Paid invoices dated today</p>
               </CardContent>
             </Card>
