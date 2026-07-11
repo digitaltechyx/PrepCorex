@@ -98,6 +98,8 @@ import {
   BinSummary,
   emptyPutawayLineSlot,
   isPutawayLineSlotReady,
+  parsePutawayQty,
+  putawayQtyError,
   type PutawayDestinationContext,
   type PutawayLineSlot,
   type ResolvedBin,
@@ -464,18 +466,26 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
   function assignmentFromSlot(
     line: WarehouseCartonLine,
     slot: PutawayLineSlot | undefined,
-    ctx: PutawayDestinationContext = putawayCtx
+    ctx: PutawayDestinationContext = putawayCtx,
+    allowPartialQty = true
   ): PutawayLineAssignment | null {
     if (!slot || !isPutawayLineSlotReady(line, slot, ctx)) return null;
+    const qty =
+      allowPartialQty && line.quantity > 1 ? parsePutawayQty(line, slot) : line.quantity;
     if (lineEligibleAreasHaveBins(ctx.areas, ctx.bins, line) && slot.resolved) {
       return {
         lineId: line.lineId,
         binId: slot.resolved.bin.id,
         binPath: slot.resolved.bin.path,
+        quantity: qty,
       };
     }
     if (!lineEligibleAreasHaveBins(ctx.areas, ctx.bins, line) && slot.areaCode.trim()) {
-      return { lineId: line.lineId, stagingArea: slot.areaCode.trim() };
+      return {
+        lineId: line.lineId,
+        stagingArea: slot.areaCode.trim(),
+        quantity: qty,
+      };
     }
     return null;
   }
@@ -633,7 +643,12 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
 
   function validateWholeAssignment(): Array<{ line: WarehouseCartonLine; error: string | null }> {
     if (!carton?.lines) return [];
+    const allowPartial = linesPending.length === 1;
     return linesPending.map((l) => {
+      if (allowPartial) {
+        const qtyErr = putawayQtyError(l, wholeSlot);
+        if (qtyErr) return { line: l, error: qtyErr };
+      }
       if (!isPutawayLineSlotReady(l, wholeSlot, putawayCtx)) {
         return { line: l, error: "Choose a valid bin or area." };
       }
@@ -643,10 +658,33 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
 
   function validatePerLineAssignment(line: WarehouseCartonLine): string | null {
     const slot = perLine[line.lineId];
+    const qtyErr = putawayQtyError(line, slot);
+    if (qtyErr) return qtyErr;
     if (!isPutawayLineSlotReady(line, slot, putawayCtx)) {
       return "Choose a valid bin or area.";
     }
     return null;
+  }
+
+  function reloadCartonAfterPartial(fresh: WarehouseCartonDoc) {
+    const pending = (fresh.lines ?? []).filter((l) => !isLinePutawayPlaced(l));
+    setCarton(fresh);
+    setMode(fresh.isMixed || (fresh.lines?.length ?? 0) > 1 ? "split" : "whole");
+    setPerLine(initPerLineFromCarton(fresh, putawayCtx));
+    setWholeSlot(
+      pending[0] ? emptyPutawayLineSlot(pending[0], putawayCtx) : emptyPutawayLineSlot()
+    );
+    setQtySplits(
+      !fresh.isMixed && pending.length === 1 && pending[0].quantity > 1
+        ? [
+            {
+              id: "qs1",
+              qty: String(pending[0].quantity),
+              bin: emptyPutawayLineSlot(pending[0], putawayCtx),
+            },
+          ]
+        : []
+    );
   }
 
   async function handleCrossdockAreaConfirm() {
@@ -808,12 +846,18 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
   function validateManifestLine(entry: ManifestLine): string | null {
     const key = manifestLineKey(entry.carton.id, entry.line.lineId);
     if (palletMode === "whole") {
+      if (palletManifest.length === 1) {
+        const qtyErr = putawayQtyError(entry.line, palletWholeBin);
+        if (qtyErr) return qtyErr;
+      }
       if (!isPutawayLineSlotReady(entry.line, palletWholeBin, putawayCtx)) {
         return "Choose a valid bin or area.";
       }
       return null;
     }
     const slot = perLine[key];
+    const qtyErr = putawayQtyError(entry.line, slot);
+    if (qtyErr) return qtyErr;
     if (!isPutawayLineSlotReady(entry.line, slot, putawayCtx)) {
       return "Choose a valid bin or area.";
     }
@@ -849,13 +893,14 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     const blocking: string[] = [];
 
     if (palletMode === "whole") {
+      const allowPartial = palletManifest.length === 1;
       for (const entry of palletManifest) {
         const err = validateManifestLine(entry);
         if (err) {
           blocking.push(`${entry.carton.cartonCode} · ${skuLabel(entry.line)}: ${err}`);
           continue;
         }
-        const a = assignmentFromSlot(entry.line, palletWholeBin);
+        const a = assignmentFromSlot(entry.line, palletWholeBin, putawayCtx, allowPartial);
         if (!a) {
           blocking.push(`${entry.carton.cartonCode} · ${skuLabel(entry.line)}: invalid destination`);
           continue;
@@ -873,7 +918,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           blocking.push(`${entry.carton.cartonCode} · ${skuLabel(entry.line)}: ${err}`);
           continue;
         }
-        const a = assignmentFromSlot(entry.line, slot);
+        const a = assignmentFromSlot(entry.line, slot, putawayCtx, true);
         if (!a) continue;
         const list = assignmentsByCarton.get(entry.carton.id) ?? [];
         list.push(a);
@@ -997,8 +1042,9 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         if (v.error) blocking.push(`${skuLabel(v.line)}: ${v.error}`);
       }
       if (blocking.length === 0) {
+        const allowPartial = linesPending.length === 1;
         for (const l of linesPending) {
-          const a = assignmentFromSlot(l, wholeSlot);
+          const a = assignmentFromSlot(l, wholeSlot, putawayCtx, allowPartial);
           if (a) assignments.push(a);
         }
       }
@@ -1010,7 +1056,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           blocking.push(`${skuLabel(l)}: ${err}`);
           continue;
         }
-        const a = assignmentFromSlot(l, slot);
+        const a = assignmentFromSlot(l, slot, putawayCtx, true);
         if (a) assignments.push(a);
       }
     }
@@ -1041,18 +1087,31 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         assignments,
         { operatorId: operatorId ?? operatorName, warehouseAreas }
       );
-      toast({
-        title:
-          result.status === "stowed"
-            ? "Stowed"
-            : result.status === "split"
-            ? "Split into multiple bins"
-            : result.status === "stowed_partial"
-            ? "Partially stowed"
-            : "Updated",
-        description: `${assignments.length} line${assignments.length > 1 ? "s" : ""} placed.`,
-      });
-      resetCarton();
+      const placedUnits = assignments.reduce((s, a) => s + (a.quantity ?? 0), 0);
+      const fresh = await findCartonByCode(warehouse.id, carton.cartonCode);
+      const stillPending = (fresh?.lines ?? []).filter((l) => !isLinePutawayPlaced(l));
+      const remainingUnits = stillPending.reduce((s, l) => s + (l.quantity || 0), 0);
+
+      if (fresh && stillPending.length > 0) {
+        toast({
+          title: "Partially stowed",
+          description: `Placed ${placedUnits} unit${placedUnits === 1 ? "" : "s"}. ${remainingUnits} remain — scan another bin (or the same one) for the rest.`,
+        });
+        reloadCartonAfterPartial(fresh);
+      } else {
+        toast({
+          title:
+            result.status === "stowed"
+              ? "Stowed"
+              : result.status === "split"
+                ? "Split into multiple bins"
+                : "Updated",
+          description: `Placed ${placedUnits || assignments.length} unit${
+            (placedUnits || assignments.length) === 1 ? "" : "s"
+          }.`,
+        });
+        resetCarton();
+      }
     } catch (e) {
       toast({
         title: "Putaway failed",
@@ -1442,6 +1501,11 @@ function PalletPutawayPanel({
                   onResolveBin={onResolveWholeBin}
                   onAreaChange={(areaCode) =>
                     onUpdateWholeSlot({ areaCode, resolved: null, error: null })
+                  }
+                  onPutawayQtyChange={
+                    manifest.length === 1
+                      ? (value) => onUpdateWholeSlot({ putawayQty: value })
+                      : undefined
                   }
                 />
               ) : null}
@@ -1931,8 +1995,9 @@ function CartonPutawayPanel({
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Destination</CardTitle>
             <CardDescription className="text-xs">
-              Scan the destination bin for this carton. Area is used only when that zone has no bins
-              set up yet (e.g. empty quarantine floor).
+              Scan the destination bin for this carton. Enter a qty less than the full line to
+              leave the rest for another putaway (same or different bin). Area is used only when
+              that zone has no bins set up yet (e.g. empty quarantine floor).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -1949,6 +2014,11 @@ function CartonPutawayPanel({
                 onResolveBin={onResolveWholeBin}
                 onAreaChange={(areaCode) =>
                   onUpdateWholeSlot({ areaCode, resolved: null, error: null })
+                }
+                onPutawayQtyChange={
+                  linesPending.length === 1
+                    ? (value) => onUpdateWholeSlot({ putawayQty: value })
+                    : undefined
                 }
               />
             ) : null}

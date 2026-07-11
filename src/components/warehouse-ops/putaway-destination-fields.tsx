@@ -46,6 +46,8 @@ export type PutawayLineSlot = {
   loading: boolean;
   error: string | null;
   areaCode: string;
+  /** Units to putaway now (may be less than line.quantity; remainder stays for later). */
+  putawayQty: string;
 };
 
 export function emptyPutawayLineSlot(
@@ -54,6 +56,7 @@ export function emptyPutawayLineSlot(
 ): PutawayLineSlot {
   const mode =
     line && ctx ? defaultPutawayPlacementMode(line, ctx.areas, ctx.bins) : "bin";
+  const qty = line && line.quantity > 0 ? String(line.quantity) : "1";
   return {
     mode,
     binPath: "",
@@ -61,7 +64,31 @@ export function emptyPutawayLineSlot(
     loading: false,
     error: null,
     areaCode: "",
+    putawayQty: qty,
   };
+}
+
+/** Parsed putaway qty for a slot — clamped to 1…line.quantity. */
+export function parsePutawayQty(
+  line: WarehouseCartonLine,
+  slot: PutawayLineSlot | undefined
+): number {
+  const max = Math.max(1, Math.floor(line.quantity));
+  const raw = parseInt(slot?.putawayQty ?? String(max), 10);
+  if (!Number.isFinite(raw) || raw < 1) return max;
+  return Math.min(max, Math.floor(raw));
+}
+
+export function putawayQtyError(
+  line: WarehouseCartonLine,
+  slot: PutawayLineSlot | undefined
+): string | null {
+  if (!slot) return null;
+  if (line.quantity <= 1) return null;
+  const raw = parseInt(slot.putawayQty, 10);
+  if (!Number.isFinite(raw) || raw < 1) return "Enter a putaway quantity of at least 1.";
+  if (raw > line.quantity) return `Only ${line.quantity} units available on this line.`;
+  return null;
 }
 
 export function BinSummary({
@@ -115,6 +142,7 @@ type Props = {
   onBinPathChange: (value: string) => void;
   onResolveBin: (pathOverride?: string) => void;
   onAreaChange: (areaCode: string) => void;
+  onPutawayQtyChange?: (value: string) => void;
   onClear?: () => void;
   showClear?: boolean;
 };
@@ -128,6 +156,7 @@ export function PutawayDestinationFields({
   onBinPathChange,
   onResolveBin,
   onAreaChange,
+  onPutawayQtyChange,
   onClear,
   showClear = false,
 }: Props) {
@@ -136,12 +165,18 @@ export function PutawayDestinationFields({
   const useBinScan = lineEligibleAreasHaveBins(warehouseAreas, warehouseBins, line);
   const placementMode: PutawayPlacementMode = useBinScan ? "bin" : "area";
 
+  const putQty = parsePutawayQty(line, slot);
+  const qtyErr = putawayQtyError(line, slot);
+  const remainingAfter = Math.max(0, line.quantity - putQty);
+  const canSplitQty = line.quantity > 1;
+  const probeLine = canSplitQty ? { ...line, quantity: putQty } : line;
+
   const validationError =
     placementMode === "bin"
       ? slot.resolved
         ? (() => {
             const r = validateLineToBin(
-              line,
+              probeLine,
               slot.resolved.bin,
               slot.resolved.contents,
               warehouseAreas
@@ -151,15 +186,16 @@ export function PutawayDestinationFields({
         : null
       : selectedArea
         ? (() => {
-            const r = validateLineToArea(line, selectedArea);
+            const r = validateLineToArea(probeLine, selectedArea);
             return r.ok ? null : r.reason;
           })()
         : null;
 
   const ready =
-    placementMode === "bin"
+    !qtyErr &&
+    (placementMode === "bin"
       ? Boolean(slot.resolved) && !validationError
-      : Boolean(selectedArea) && !validationError;
+      : Boolean(selectedArea) && !validationError);
 
   return (
     <div className="space-y-2">
@@ -168,6 +204,31 @@ export function PutawayDestinationFields({
           <Button type="button" variant="ghost" size="sm" onClick={onClear}>
             Clear
           </Button>
+        </div>
+      ) : null}
+
+      {canSplitQty && onPutawayQtyChange ? (
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">
+            {line.condition === "damaged" ? "Damaged qty to putaway" : "Good qty to putaway"}
+          </Label>
+          <div className="flex items-end gap-2 flex-wrap">
+            <Input
+              type="number"
+              min={1}
+              max={line.quantity}
+              value={slot.putawayQty}
+              onChange={(e) => onPutawayQtyChange(e.target.value)}
+              className="w-24"
+            />
+            <p className="text-xs text-muted-foreground pb-2">
+              of {line.quantity}
+              {remainingAfter > 0
+                ? ` · ${remainingAfter} remain for another bin (or same bin later)`
+                : " · all units this putaway"}
+            </p>
+          </div>
+          {qtyErr ? <p className="text-xs text-red-600">{qtyErr}</p> : null}
         </div>
       ) : null}
 
@@ -248,10 +309,12 @@ export function PutawayDestinationFields({
         <div className="flex items-start gap-1 rounded bg-green-50 text-green-800 border border-green-200 px-2 py-1 text-xs">
           <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
           <span>
-            OK — lands in{" "}
+            OK — putaway {putQty}
+            {line.quantity > 1 ? ` of ${line.quantity}` : ""} →{" "}
             {placementMode === "bin"
               ? slot.resolved!.bin.path
               : `area ${selectedArea!.code}`}
+            {remainingAfter > 0 ? ` · ${remainingAfter} stay pending` : ""}
           </span>
         </div>
       ) : null}
@@ -266,10 +329,12 @@ export function isPutawayLineSlotReady(
 ): boolean {
   if (!slot) return false;
   const useBinScan = lineEligibleAreasHaveBins(ctx.areas, ctx.bins, line);
+  const putQty = parsePutawayQty(line, slot);
+  const probeLine = line.quantity > 1 ? { ...line, quantity: putQty } : line;
   if (useBinScan) {
     if (!slot.resolved) return false;
     const r = validateLineToBin(
-      line,
+      probeLine,
       slot.resolved.bin,
       slot.resolved.contents,
       ctx.areas
@@ -278,7 +343,7 @@ export function isPutawayLineSlotReady(
   }
   const area = ctx.areas.find((a) => a.code === slot.areaCode);
   if (!area) return false;
-  return validateLineToArea(line, area).ok;
+  return validateLineToArea(probeLine, area).ok;
 }
 
 function PutawayLineSku({
@@ -320,6 +385,7 @@ export function PutawayLineDestinationCard({
 }) {
   const ctx = { areas: warehouseAreas, bins: warehouseBins };
   const ready = isPutawayLineSlotReady(line, slot, ctx);
+  const putQty = parsePutawayQty(line, slot);
 
   return (
     <Card className={cn(line.condition === "damaged" && "border-red-200 bg-red-50/30")}>
@@ -331,9 +397,18 @@ export function PutawayLineDestinationCard({
               <Badge variant="outline" className="ml-2 bg-red-100 border-red-300 text-red-800">
                 {damagedBadge}
               </Badge>
+            ) : line.condition === "good" ? (
+              <Badge variant="outline" className="ml-2 bg-emerald-50 border-emerald-300 text-emerald-800">
+                Good
+              </Badge>
             ) : null}
             {line.lot ? (
               <span className="text-xs text-muted-foreground ml-2">Lot {line.lot}</span>
+            ) : null}
+            {line.quantity > 1 && putQty < line.quantity ? (
+              <span className="text-xs text-blue-700 ml-2">
+                Putting {putQty} now
+              </span>
             ) : null}
           </div>
           {ready && onClear ? (
@@ -353,6 +428,7 @@ export function PutawayLineDestinationCard({
           }
           onResolveBin={onResolveBin}
           onAreaChange={(areaCode) => onUpdateSlot({ areaCode, resolved: null, error: null })}
+          onPutawayQtyChange={(value) => onUpdateSlot({ putawayQty: value })}
         />
       </CardContent>
     </Card>
