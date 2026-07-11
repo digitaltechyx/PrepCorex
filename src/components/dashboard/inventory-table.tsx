@@ -213,11 +213,28 @@ function toDateInputValue(date: unknown): string {
   return "";
 }
 
-function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefined): string[] {
+/** Dock receive uploads live under `warehouse-receive/` — not client product images. */
+function isWarehouseReceivePhotoUrl(url: string): boolean {
+  return /warehouse-receive\//i.test(url) || /warehouse-receive%2F/i.test(url);
+}
+
+function collectRawImageUrls(data: {
+  imageUrl?: string;
+  imageUrls?: string[];
+} | undefined): string[] {
   if (!data) return [];
-  if (Array.isArray(data.imageUrls) && data.imageUrls.length > 0) return data.imageUrls;
-  if (typeof data.imageUrl === "string" && data.imageUrl.length > 0) return [data.imageUrl];
+  if (Array.isArray(data.imageUrls) && data.imageUrls.length > 0) {
+    return data.imageUrls.map((u) => String(u || "").trim()).filter(Boolean);
+  }
+  if (typeof data.imageUrl === "string" && data.imageUrl.trim()) {
+    return [data.imageUrl.trim()];
+  }
   return [];
+}
+
+/** Product thumbnail — excludes dock receive photos that were previously stored on imageUrls. */
+function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefined): string[] {
+  return collectRawImageUrls(data).filter((u) => !isWarehouseReceivePhotoUrl(u));
 }
 
 function getRemarksImageUrls(
@@ -227,7 +244,8 @@ function getRemarksImageUrls(
   if (Array.isArray(data.remarksImageUrls) && data.remarksImageUrls.length > 0) {
     return data.remarksImageUrls.map((u) => String(u || "").trim()).filter(Boolean);
   }
-  return [];
+  // Legacy: receive photos were written onto product image fields before Remarks split.
+  return collectRawImageUrls(data).filter(isWarehouseReceivePhotoUrl);
 }
 
 const NO_IMAGE_PLACEHOLDER_SRC =
@@ -595,7 +613,7 @@ export function InventoryTable({
   useEffect(() => {
     if (!effectiveUserId || !user || data.length === 0) return;
     let cancelled = false;
-    const key = `inv-receive-meta-backfill-v5:${effectiveUserId}`;
+    const key = `inv-receive-meta-backfill-v6:${effectiveUserId}`;
     try {
       if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) === "1") return;
     } catch {
@@ -660,19 +678,33 @@ export function InventoryTable({
 
       for (const item of data) {
         if (cancelled) return;
-        const hasRemarksPhotos = getRemarksImageUrls(item as any).length > 0;
+        const explicitRemarks = Array.isArray((item as any).remarksImageUrls)
+          ? ((item as any).remarksImageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
+          : [];
+        const legacyReceiveOnProduct = collectRawImageUrls(item as any).filter(isWarehouseReceivePhotoUrl);
         const hasReceivingDate = Boolean(item.receivingDate);
-        if (hasRemarksPhotos && hasReceivingDate) continue;
+        const needsRemarksMigrate =
+          explicitRemarks.length === 0 || legacyReceiveOnProduct.length > 0;
+        if (!needsRemarksMigrate && hasReceivingDate) continue;
 
         const req = findRequestForItem(item);
-        const fromReq = hasRemarksPhotos
-          ? []
-          : getRemarksImageUrls(req as InventoryRequest & { remarksImageUrls?: string[] });
-        const fromLog = hasRemarksPhotos ? [] : logPhotosByInventoryId.get(item.id) ?? [];
-        const urls = [...new Set([...fromReq, ...fromLog])];
+        const fromReq =
+          explicitRemarks.length > 0
+            ? []
+            : getRemarksImageUrls(req as InventoryRequest & { remarksImageUrls?: string[] });
+        const fromLog =
+          explicitRemarks.length > 0 ? [] : logPhotosByInventoryId.get(item.id) ?? [];
+        const urls = [
+          ...new Set([...explicitRemarks, ...legacyReceiveOnProduct, ...fromReq, ...fromLog]),
+        ];
         const patch: Record<string, unknown> = {};
-        if (!hasRemarksPhotos && urls.length > 0) {
+        if (urls.length > 0 && (explicitRemarks.length === 0 || legacyReceiveOnProduct.length > 0)) {
           patch.remarksImageUrls = urls;
+        }
+        if (legacyReceiveOnProduct.length > 0) {
+          const productOnly = getImageUrls(item as any);
+          patch.imageUrls = productOnly;
+          patch.imageUrl = productOnly[0] ?? null;
         }
         if (!hasReceivingDate) {
           patch.receivingDate =

@@ -5,9 +5,27 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function isWarehouseReceivePhotoUrl(url: string): boolean {
+  return /warehouse-receive\//i.test(url) || /warehouse-receive%2F/i.test(url);
+}
+
+function collectRawImageUrls(data: {
+  imageUrl?: unknown;
+  imageUrls?: unknown;
+}): string[] {
+  if (Array.isArray(data.imageUrls) && data.imageUrls.length > 0) {
+    return data.imageUrls.map((u: unknown) => String(u || "").trim()).filter(Boolean);
+  }
+  if (typeof data.imageUrl === "string" && data.imageUrl.trim()) {
+    return [data.imageUrl.trim()];
+  }
+  return [];
+}
+
 /**
  * Copy dock-receive photos from warehouse cartons onto the client's inventory rows
  * (and inbound requests) when putaway already ran without images.
+ * Also migrates legacy receive photos that were stored on product imageUrls.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -92,6 +110,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Receive logs may already have carton photoUrls from putaway.
+    const logsSnap = await db.collection("users").doc(userId).collection("inboundReceiveLogs").get();
+    const photosByInventoryId = new Map<string, string[]>();
+    for (const d of logsSnap.docs) {
+      const row = d.data();
+      const invId = String(row.inventoryId ?? "").trim();
+      if (!invId) continue;
+      const urls = (Array.isArray(row.photoUrls) ? row.photoUrls : [])
+        .map((u: unknown) => String(u || "").trim())
+        .filter(Boolean);
+      if (urls.length === 0) continue;
+      const prev = photosByInventoryId.get(invId) ?? [];
+      photosByInventoryId.set(invId, [...new Set([...prev, ...urls])]);
+    }
+
     let patchedInventory = 0;
     let patchedRequests = 0;
 
@@ -100,13 +133,18 @@ export async function POST(request: NextRequest) {
       const existing = Array.isArray(data.remarksImageUrls)
         ? data.remarksImageUrls.map((u: unknown) => String(u || "").trim()).filter(Boolean)
         : [];
-      if (existing.length > 0) continue;
+      const rawProduct = collectRawImageUrls(data);
+      const legacyReceive = rawProduct.filter(isWarehouseReceivePhotoUrl);
+      const productOnly = rawProduct.filter((u) => !isWarehouseReceivePhotoUrl(u));
 
       const sourceId = String(data.sourceRequestId ?? "").trim();
       const sku = String(data.sku ?? "").trim().toLowerCase();
       const fromReqDoc = sourceId ? reqById.get(sourceId) : sku ? reqBySku.get(sku) : undefined;
       const fromReq = fromReqDoc
-        ? (Array.isArray(fromReqDoc.remarksImageUrls) ? fromReqDoc.remarksImageUrls : [])
+        ? [
+            ...(Array.isArray(fromReqDoc.remarksImageUrls) ? fromReqDoc.remarksImageUrls : []),
+            ...collectRawImageUrls(fromReqDoc).filter(isWarehouseReceivePhotoUrl),
+          ]
             .map((u: unknown) => String(u || "").trim())
             .filter(Boolean)
         : [];
@@ -114,11 +152,21 @@ export async function POST(request: NextRequest) {
         ...(sourceId ? photosByRequestId.get(sourceId) ?? [] : []),
         ...(sku ? photosBySku.get(sku) ?? [] : []),
       ];
-      const merged = [...new Set([...fromReq, ...fromCarton])];
-      if (merged.length === 0) continue;
+      const fromLog = photosByInventoryId.get(d.id) ?? [];
+      const merged = [...new Set([...existing, ...legacyReceive, ...fromReq, ...fromCarton, ...fromLog])];
+
+      const patch: Record<string, unknown> = {};
+      if (merged.length > 0 && (existing.length === 0 || legacyReceive.length > 0)) {
+        patch.remarksImageUrls = merged;
+      }
+      if (legacyReceive.length > 0) {
+        patch.imageUrls = productOnly;
+        patch.imageUrl = productOnly[0] ?? null;
+      }
+      if (Object.keys(patch).length === 0) continue;
 
       await d.ref.update({
-        remarksImageUrls: merged,
+        ...patch,
         updatedAt: FieldValue.serverTimestamp(),
       });
       patchedInventory += 1;
@@ -133,10 +181,39 @@ export async function POST(request: NextRequest) {
       const existing = Array.isArray(data.remarksImageUrls)
         ? data.remarksImageUrls.map((u: unknown) => String(u || "").trim()).filter(Boolean)
         : [];
-      const merged = [...new Set([...existing, ...urls])];
-      if (merged.length === existing.length) continue;
+      const legacyReceive = collectRawImageUrls(data).filter(isWarehouseReceivePhotoUrl);
+      const productOnly = collectRawImageUrls(data).filter((u) => !isWarehouseReceivePhotoUrl(u));
+      const merged = [...new Set([...existing, ...legacyReceive, ...urls])];
+      const patch: Record<string, unknown> = {};
+      if (merged.length > existing.length) {
+        patch.remarksImageUrls = merged;
+      }
+      if (legacyReceive.length > 0) {
+        patch.imageUrls = productOnly;
+        patch.imageUrl = productOnly[0] ?? null;
+      }
+      if (Object.keys(patch).length === 0) continue;
       await ref.update({
-        remarksImageUrls: merged,
+        ...patch,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      patchedRequests += 1;
+    }
+
+    // Migrate requests that only have legacy receive photos on imageUrls (no carton link).
+    for (const d of reqSnap.docs) {
+      if (photosByRequestId.has(d.id)) continue;
+      const data = d.data();
+      const existing = Array.isArray(data.remarksImageUrls)
+        ? data.remarksImageUrls.map((u: unknown) => String(u || "").trim()).filter(Boolean)
+        : [];
+      const legacyReceive = collectRawImageUrls(data).filter(isWarehouseReceivePhotoUrl);
+      if (legacyReceive.length === 0) continue;
+      const productOnly = collectRawImageUrls(data).filter((u) => !isWarehouseReceivePhotoUrl(u));
+      await d.ref.update({
+        remarksImageUrls: [...new Set([...existing, ...legacyReceive])],
+        imageUrls: productOnly,
+        imageUrl: productOnly[0] ?? null,
         updatedAt: FieldValue.serverTimestamp(),
       });
       patchedRequests += 1;

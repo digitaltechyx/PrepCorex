@@ -47,25 +47,42 @@ function cartonPhotoUrls(carton: WarehouseCartonDoc): string[] {
   return [];
 }
 
+function isWarehouseReceivePhotoUrl(url: string): boolean {
+  return /warehouse-receive\//i.test(url) || /warehouse-receive%2F/i.test(url);
+}
+
 function requestPhotoUrls(request: InventoryRequest | null): string[] {
   if (!request) return [];
   const data = request as InventoryRequest & { imageUrl?: string; imageUrls?: string[] };
+  const urls: string[] = [];
   if (Array.isArray(data.imageUrls) && data.imageUrls.length > 0) {
-    return [...new Set(data.imageUrls.map((u) => String(u || "").trim()).filter(Boolean))];
+    urls.push(...data.imageUrls.map((u) => String(u || "").trim()).filter(Boolean));
+  } else if (typeof data.imageUrl === "string" && data.imageUrl.trim()) {
+    urls.push(data.imageUrl.trim());
   }
-  if (typeof data.imageUrl === "string" && data.imageUrl.trim()) {
-    return [data.imageUrl.trim()];
-  }
-  return [];
+  // Product thumbnails only — dock receive paths belong under remarks.
+  return [...new Set(urls.filter((u) => !isWarehouseReceivePhotoUrl(u)))];
 }
 
 function requestRemarksPhotoUrls(request: InventoryRequest | null): string[] {
   if (!request) return [];
-  const data = request as InventoryRequest & { remarksImageUrls?: string[] };
-  if (Array.isArray(data.remarksImageUrls) && data.remarksImageUrls.length > 0) {
-    return [...new Set(data.remarksImageUrls.map((u) => String(u || "").trim()).filter(Boolean))];
+  const data = request as InventoryRequest & {
+    remarksImageUrls?: string[];
+    imageUrl?: string;
+    imageUrls?: string[];
+  };
+  const fromRemarks = Array.isArray(data.remarksImageUrls)
+    ? data.remarksImageUrls.map((u) => String(u || "").trim()).filter(Boolean)
+    : [];
+  const fromLegacyProduct: string[] = [];
+  if (Array.isArray(data.imageUrls)) {
+    fromLegacyProduct.push(
+      ...data.imageUrls.map((u) => String(u || "").trim()).filter(isWarehouseReceivePhotoUrl)
+    );
+  } else if (typeof data.imageUrl === "string" && isWarehouseReceivePhotoUrl(data.imageUrl.trim())) {
+    fromLegacyProduct.push(data.imageUrl.trim());
   }
-  return [];
+  return [...new Set([...fromRemarks, ...fromLegacyProduct])];
 }
 
 function mergePhotoUrls(...groups: string[][]): string[] {
@@ -161,22 +178,26 @@ async function syncPutawayLine(input: {
     const invSnap = await getDoc(invRef);
     if (!invSnap.exists()) return;
     const patch: Record<string, unknown> = {};
-    const prevProductUrls = Array.isArray(invSnap.data()?.imageUrls)
+    const rawProductUrls = Array.isArray(invSnap.data()?.imageUrls)
       ? (invSnap.data()?.imageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
-      : [];
-    const prevProductSingle =
-      typeof invSnap.data()?.imageUrl === "string" && String(invSnap.data()?.imageUrl).trim()
+      : typeof invSnap.data()?.imageUrl === "string" && String(invSnap.data()?.imageUrl).trim()
         ? [String(invSnap.data()?.imageUrl).trim()]
         : [];
-    if (productPhotoUrls.length > 0 && prevProductUrls.length === 0 && prevProductSingle.length === 0) {
+    const legacyReceiveOnProduct = rawProductUrls.filter(isWarehouseReceivePhotoUrl);
+    const prevProductUrls = rawProductUrls.filter((u) => !isWarehouseReceivePhotoUrl(u));
+    if (productPhotoUrls.length > 0 && prevProductUrls.length === 0) {
       patch.imageUrls = productPhotoUrls;
       patch.imageUrl = productPhotoUrls[0];
+    } else if (legacyReceiveOnProduct.length > 0) {
+      patch.imageUrls = prevProductUrls;
+      patch.imageUrl = prevProductUrls[0] ?? null;
     }
     const prevRemarksUrls = Array.isArray(invSnap.data()?.remarksImageUrls)
       ? (invSnap.data()?.remarksImageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
       : [];
-    if (photoUrls.length > 0 && prevRemarksUrls.length === 0) {
-      patch.remarksImageUrls = photoUrls;
+    const remarksMerged = mergePhotoUrls(prevRemarksUrls, photoUrls, legacyReceiveOnProduct);
+    if (remarksMerged.length > 0 && (prevRemarksUrls.length === 0 || legacyReceiveOnProduct.length > 0)) {
+      patch.remarksImageUrls = remarksMerged;
     }
     if (!invSnap.data()?.receivingDate) {
       patch.receivingDate = serverTimestamp();
