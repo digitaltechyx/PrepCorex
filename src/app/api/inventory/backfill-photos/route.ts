@@ -97,22 +97,17 @@ export async function POST(request: NextRequest) {
 
     for (const d of invSnap.docs) {
       const data = d.data();
-      const existing = Array.isArray(data.imageUrls)
-        ? data.imageUrls.map((u: unknown) => String(u || "").trim()).filter(Boolean)
-        : data.imageUrl
-          ? [String(data.imageUrl).trim()]
-          : [];
+      const existing = Array.isArray(data.remarksImageUrls)
+        ? data.remarksImageUrls.map((u: unknown) => String(u || "").trim()).filter(Boolean)
+        : [];
       if (existing.length > 0) continue;
 
       const sourceId = String(data.sourceRequestId ?? "").trim();
       const sku = String(data.sku ?? "").trim().toLowerCase();
       const fromReqDoc = sourceId ? reqById.get(sourceId) : sku ? reqBySku.get(sku) : undefined;
       const fromReq = fromReqDoc
-        ? [
-            ...(Array.isArray(fromReqDoc.imageUrls) ? fromReqDoc.imageUrls : []),
-            fromReqDoc.imageUrl ? String(fromReqDoc.imageUrl) : "",
-          ]
-            .map((u) => String(u || "").trim())
+        ? (Array.isArray(fromReqDoc.remarksImageUrls) ? fromReqDoc.remarksImageUrls : [])
+            .map((u: unknown) => String(u || "").trim())
             .filter(Boolean)
         : [];
       const fromCarton = [
@@ -123,29 +118,25 @@ export async function POST(request: NextRequest) {
       if (merged.length === 0) continue;
 
       await d.ref.update({
-        imageUrls: merged,
-        imageUrl: merged[0],
+        remarksImageUrls: merged,
         updatedAt: FieldValue.serverTimestamp(),
       });
       patchedInventory += 1;
     }
 
-    // Also ensure inbound requests carry carton photos for future matching.
+    // Also ensure inbound requests carry carton photos for Remarks matching.
     for (const [requestId, urls] of photosByRequestId) {
       const ref = db.collection("users").doc(userId).collection("inventoryRequests").doc(requestId);
       const snap = await ref.get();
       if (!snap.exists) continue;
       const data = snap.data() || {};
-      const existing = Array.isArray(data.imageUrls)
-        ? data.imageUrls.map((u: unknown) => String(u || "").trim()).filter(Boolean)
-        : data.imageUrl
-          ? [String(data.imageUrl).trim()]
-          : [];
+      const existing = Array.isArray(data.remarksImageUrls)
+        ? data.remarksImageUrls.map((u: unknown) => String(u || "").trim()).filter(Boolean)
+        : [];
       const merged = [...new Set([...existing, ...urls])];
       if (merged.length === existing.length) continue;
       await ref.update({
-        imageUrls: merged,
-        imageUrl: merged[0],
+        remarksImageUrls: merged,
         updatedAt: FieldValue.serverTimestamp(),
       });
       patchedRequests += 1;

@@ -220,6 +220,16 @@ function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefi
   return [];
 }
 
+function getRemarksImageUrls(
+  data: { remarksImageUrls?: string[]; imageUrl?: string; imageUrls?: string[] } | undefined
+): string[] {
+  if (!data) return [];
+  if (Array.isArray(data.remarksImageUrls) && data.remarksImageUrls.length > 0) {
+    return data.remarksImageUrls.map((u) => String(u || "").trim()).filter(Boolean);
+  }
+  return [];
+}
+
 const NO_IMAGE_PLACEHOLDER_SRC =
   "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 160'%3E%3Crect width='160' height='160' fill='%23e5e7eb'/%3E%3Crect x='44' y='34' width='72' height='52' rx='6' ry='6' fill='none' stroke='%239ca3af' stroke-width='4'/%3E%3Ccircle cx='62' cy='52' r='5' fill='%239ca3af'/%3E%3Cpath d='M52 78l16-16 13 13 9-9 18 18H52z' fill='%239ca3af'/%3E%3Ctext x='80' y='116' text-anchor='middle' font-size='12' font-family='Arial, sans-serif' fill='%236b7280'%3ENO IMAGE%3C/text%3E%3Ctext x='80' y='132' text-anchor='middle' font-size='12' font-family='Arial, sans-serif' fill='%236b7280'%3EAVAILABLE%3C/text%3E%3C/svg%3E";
 
@@ -585,7 +595,7 @@ export function InventoryTable({
   useEffect(() => {
     if (!effectiveUserId || !user || data.length === 0) return;
     let cancelled = false;
-    const key = `inv-receive-meta-backfill-v4:${effectiveUserId}`;
+    const key = `inv-receive-meta-backfill-v5:${effectiveUserId}`;
     try {
       if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) === "1") return;
     } catch {
@@ -650,20 +660,19 @@ export function InventoryTable({
 
       for (const item of data) {
         if (cancelled) return;
-        const hasImages = getImageUrls(item).length > 0;
+        const hasRemarksPhotos = getRemarksImageUrls(item as any).length > 0;
         const hasReceivingDate = Boolean(item.receivingDate);
-        if (hasImages && hasReceivingDate) continue;
+        if (hasRemarksPhotos && hasReceivingDate) continue;
 
         const req = findRequestForItem(item);
-        const fromReq = hasImages
+        const fromReq = hasRemarksPhotos
           ? []
-          : getImageUrls(req as InventoryRequest & { imageUrl?: string; imageUrls?: string[] });
-        const fromLog = hasImages ? [] : logPhotosByInventoryId.get(item.id) ?? [];
+          : getRemarksImageUrls(req as InventoryRequest & { remarksImageUrls?: string[] });
+        const fromLog = hasRemarksPhotos ? [] : logPhotosByInventoryId.get(item.id) ?? [];
         const urls = [...new Set([...fromReq, ...fromLog])];
         const patch: Record<string, unknown> = {};
-        if (!hasImages && urls.length > 0) {
-          patch.imageUrls = urls;
-          patch.imageUrl = urls[0];
+        if (!hasRemarksPhotos && urls.length > 0) {
+          patch.remarksImageUrls = urls;
         }
         if (!hasReceivingDate) {
           patch.receivingDate =
@@ -1025,6 +1034,7 @@ export function InventoryTable({
         requestedBy: req.requestedBy,
         remarks: req.remarks,
         imageUrls: getImageUrls(req as any),
+        remarksImageUrls: getRemarksImageUrls(req as any),
         isRequest: true,
         requestId: req.id,
         requestData: req,
@@ -1056,6 +1066,7 @@ export function InventoryTable({
         requestedBy: req.requestedBy,
         remarks: req.remarks,
         imageUrls: getImageUrls(req as any),
+        remarksImageUrls: getRemarksImageUrls(req as any),
         isRequest: true,
         requestId: req.id,
         requestData: req,
@@ -1087,6 +1098,10 @@ export function InventoryTable({
       const imageUrls = getImageUrls(item as any).length > 0
         ? getImageUrls(item as any)
         : getImageUrls(matchingRequest as any);
+      const remarksImageUrls =
+        getRemarksImageUrls(item as any).length > 0
+          ? getRemarksImageUrls(item as any)
+          : getRemarksImageUrls(matchingRequest as any);
 
       const receivingDate =
         item.receivingDate ||
@@ -1106,6 +1121,7 @@ export function InventoryTable({
           (item as any).receivedQuantity ?? (matchingRequest as any)?.receivedQuantity ?? item.quantity,
         remarks: remarks && remarks.trim() ? remarks.trim() : undefined,
         imageUrls: imageUrls,
+        remarksImageUrls,
         receivingDate,
         retailIdentifier: (item as any).retailIdentifier || (matchingRequest as any)?.retailIdentifier,
         expiryDate: (item as any).expiryDate || (matchingRequest as any)?.expiryDate,
@@ -1399,8 +1415,7 @@ export function InventoryTable({
                       <div className="text-xs text-muted-foreground mt-0.5">Receiving: {formatReceivingDate(item.receivingDate)}</div>
                     )}
                     {((item.remarks && item.remarks.trim()) ||
-                      ((item as any).imageUrls?.length ?? 0) > 0 ||
-                      (item as any).imageUrl) && (
+                      getRemarksImageUrls(item as any).length > 0) && (
                       <div className="mt-1">
                         <Button
                           variant="ghost"
@@ -1409,7 +1424,7 @@ export function InventoryTable({
                           onClick={() =>
                             handleRemarksClick(
                               item.remarks || "",
-                              (item as any).imageUrls || (item as any).imageUrl,
+                              getRemarksImageUrls(item as any),
                               (item as any).remarksPhotoAt
                             )
                           }
@@ -1673,8 +1688,7 @@ export function InventoryTable({
                     </TableCell>
                     <TableCell className="hidden lg:table-cell max-w-[180px]">
                       {(item.remarks && item.remarks.trim()) ||
-                      ((item as any).imageUrls?.length ?? 0) > 0 ||
-                      (item as any).imageUrl ? (
+                      getRemarksImageUrls(item as any).length > 0 ? (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1682,7 +1696,7 @@ export function InventoryTable({
                           onClick={() =>
                             handleRemarksClick(
                               item.remarks || "",
-                              (item as any).imageUrls || (item as any).imageUrl,
+                              getRemarksImageUrls(item as any),
                               (item as any).remarksPhotoAt
                             )
                           }
@@ -1856,14 +1870,16 @@ export function InventoryTable({
       <Dialog open={isRemarksDialogOpen} onOpenChange={setIsRemarksDialogOpen}>
         <DialogContent className="max-w-full sm:max-w-md md:max-w-lg lg:max-w-xl xl:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[80vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Admin Remarks</DialogTitle>
-            <DialogDescription>Remarks from admin for this inventory item</DialogDescription>
+            <DialogTitle>Remarks</DialogTitle>
+            <DialogDescription>
+              Warehouse receive remarks and photos for this inventory item
+            </DialogDescription>
           </DialogHeader>
           <div className="mt-4 overflow-y-auto max-h-[60vh] space-y-4">
             {selectedImageUrls.length > 0 && (
               <div className="bg-gray-50 p-4 rounded-lg">
                 <p className="text-sm font-semibold">
-                  Inventory Pictures ({selectedImageUrls.length})
+                  Receive photos ({selectedImageUrls.length})
                 </p>
                 {selectedPhotosAt && (
                   <p className="text-xs text-muted-foreground mt-0.5 mb-2">

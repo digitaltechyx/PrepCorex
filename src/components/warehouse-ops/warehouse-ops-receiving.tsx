@@ -1947,7 +1947,7 @@ function ReceiveForm({
               </div>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Notes</Label>
+              <Label className="text-xs">Remarks</Label>
               <Textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -1959,8 +1959,8 @@ function ReceiveForm({
               <Label className="text-xs">
                 Photos
                 {isCrossdockClosedUnit || isCrossdockPalletOnly
-                  ? " (recommended)"
-                  : " (optional, multiple)"}
+                  ? " (recommended — shown in inventory Remarks)"
+                  : " (optional — shown in inventory Remarks)"}
               </Label>
               <Input
                 type="file"
@@ -2798,11 +2798,11 @@ function ContainerReceiveForm({
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Notes</Label>
+            <Label className="text-xs">Remarks</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Photos (recommended)</Label>
+            <Label className="text-xs">Photos (recommended — shown in inventory Remarks)</Label>
             <Input
               type="file"
               accept="image/*"

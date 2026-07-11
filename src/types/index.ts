@@ -542,6 +542,8 @@ export interface InventoryItem {
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
   imageUrl?: string;
   imageUrls?: string[];
+  /** Warehouse receive / dock photos — shown under Remarks, not the product thumbnail. */
+  remarksImageUrls?: string[];
   /** When warehouse putaway first added this stock to the client inventory. */
   receivingDate?: { seconds: number; nanoseconds: number } | string | Date;
   /** Inbound inventory request that created/restocked this item. */
@@ -614,6 +616,8 @@ export interface InventoryRequest {
   remarks?: string;
   imageUrl?: string;
   imageUrls?: string[];
+  /** Dock receive photos linked at warehouse — shown in inventory Remarks. */
+  remarksImageUrls?: string[];
   /** Carrier tracking numbers client adds while inbound is pending or in transit to warehouse. */
   inboundTrackings?: InboundTrackingEntry[];
   /** Warehouse inbound v2: open until fully received or manually closed. */

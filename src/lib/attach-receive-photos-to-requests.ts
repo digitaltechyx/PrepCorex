@@ -1,7 +1,7 @@
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-/** Copy dock receive photos onto linked inbound inventory request(s) so client inventory can show them. */
+/** Copy dock receive photos onto linked inbound requests as remarks photos (not product images). */
 export async function attachReceivePhotosToInventoryRequests(input: {
   entries: Array<{ clientUserId: string; inventoryRequestId: string }>;
   photoUrls: string[];
@@ -21,16 +21,13 @@ export async function attachReceivePhotosToInventoryRequests(input: {
     const ref = doc(db, "users", clientUserId, "inventoryRequests", requestId);
     const snap = await getDoc(ref);
     if (!snap.exists()) continue;
-    const data = snap.data() as { imageUrls?: string[]; imageUrl?: string };
-    const prev = Array.isArray(data.imageUrls)
-      ? data.imageUrls.map((u) => String(u || "").trim()).filter(Boolean)
-      : data.imageUrl?.trim()
-        ? [data.imageUrl.trim()]
-        : [];
+    const data = snap.data() as { remarksImageUrls?: string[] };
+    const prev = Array.isArray(data.remarksImageUrls)
+      ? data.remarksImageUrls.map((u) => String(u || "").trim()).filter(Boolean)
+      : [];
     const merged = [...new Set([...prev, ...urls])];
     await updateDoc(ref, {
-      imageUrls: merged,
-      imageUrl: merged[0] ?? null,
+      remarksImageUrls: merged,
       updatedAt: serverTimestamp(),
     });
   }

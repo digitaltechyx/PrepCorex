@@ -59,6 +59,15 @@ function requestPhotoUrls(request: InventoryRequest | null): string[] {
   return [];
 }
 
+function requestRemarksPhotoUrls(request: InventoryRequest | null): string[] {
+  if (!request) return [];
+  const data = request as InventoryRequest & { remarksImageUrls?: string[] };
+  if (Array.isArray(data.remarksImageUrls) && data.remarksImageUrls.length > 0) {
+    return [...new Set(data.remarksImageUrls.map((u) => String(u || "").trim()).filter(Boolean))];
+  }
+  return [];
+}
+
 function mergePhotoUrls(...groups: string[][]): string[] {
   return [...new Set(groups.flat().map((u) => String(u || "").trim()).filter(Boolean))];
 }
@@ -141,9 +150,10 @@ async function syncPutawayLine(input: {
     }
   }
 
-  const photoUrls = mergePhotoUrls(cartonPhotoUrls(input.carton), requestPhotoUrls(requestData));
+  const photoUrls = mergePhotoUrls(cartonPhotoUrls(input.carton), requestRemarksPhotoUrls(requestData));
+  const productPhotoUrls = requestPhotoUrls(requestData);
 
-  // Already synced qty — still backfill missing product photos / receiving date when possible.
+  // Already synced qty — still backfill missing product photos / receiving date / remarks photos when possible.
   if (existingLog.exists()) {
     const inventoryId = String(existingLog.data()?.inventoryId ?? "").trim();
     if (!inventoryId) return;
@@ -151,16 +161,22 @@ async function syncPutawayLine(input: {
     const invSnap = await getDoc(invRef);
     if (!invSnap.exists()) return;
     const patch: Record<string, unknown> = {};
-    const prevUrls = Array.isArray(invSnap.data()?.imageUrls)
+    const prevProductUrls = Array.isArray(invSnap.data()?.imageUrls)
       ? (invSnap.data()?.imageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
       : [];
-    const prevSingle =
+    const prevProductSingle =
       typeof invSnap.data()?.imageUrl === "string" && String(invSnap.data()?.imageUrl).trim()
         ? [String(invSnap.data()?.imageUrl).trim()]
         : [];
-    if (photoUrls.length > 0 && prevUrls.length === 0 && prevSingle.length === 0) {
-      patch.imageUrls = photoUrls;
-      patch.imageUrl = photoUrls[0];
+    if (productPhotoUrls.length > 0 && prevProductUrls.length === 0 && prevProductSingle.length === 0) {
+      patch.imageUrls = productPhotoUrls;
+      patch.imageUrl = productPhotoUrls[0];
+    }
+    const prevRemarksUrls = Array.isArray(invSnap.data()?.remarksImageUrls)
+      ? (invSnap.data()?.remarksImageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
+      : [];
+    if (photoUrls.length > 0 && prevRemarksUrls.length === 0) {
+      patch.remarksImageUrls = photoUrls;
     }
     if (!invSnap.data()?.receivingDate) {
       patch.receivingDate = serverTimestamp();
@@ -232,13 +248,22 @@ async function syncPutawayLine(input: {
       }
       if (remarks) invPatch.remarks = remarks;
       if (photoUrls.length > 0) {
-        invPatch.imageUrls = photoUrls;
-        invPatch.imageUrl = photoUrls[0];
+        invPatch.remarksImageUrls = photoUrls;
+      }
+      if (productPhotoUrls.length > 0) {
+        invPatch.imageUrls = productPhotoUrls;
+        invPatch.imageUrl = productPhotoUrls[0];
       }
       tx.set(inventoryRef, invPatch);
     } else {
       if (remarks) invPatch.remarks = remarks;
       if (photoUrls.length > 0) {
+        const prevRemarks = Array.isArray(invSnap.data()?.remarksImageUrls)
+          ? (invSnap.data()?.remarksImageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
+          : [];
+        invPatch.remarksImageUrls = mergePhotoUrls(prevRemarks, photoUrls);
+      }
+      if (productPhotoUrls.length > 0) {
         const prevUrls = Array.isArray(invSnap.data()?.imageUrls)
           ? (invSnap.data()?.imageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
           : [];
@@ -246,9 +271,10 @@ async function syncPutawayLine(input: {
           typeof invSnap.data()?.imageUrl === "string" && String(invSnap.data()?.imageUrl).trim()
             ? [String(invSnap.data()?.imageUrl).trim()]
             : [];
-        const merged = mergePhotoUrls(prevUrls, prevSingle, photoUrls);
-        invPatch.imageUrls = merged;
-        invPatch.imageUrl = merged[0] ?? null;
+        if (prevUrls.length === 0 && prevSingle.length === 0) {
+          invPatch.imageUrls = productPhotoUrls;
+          invPatch.imageUrl = productPhotoUrls[0];
+        }
       }
       if (requestId && !invSnap.data()?.sourceRequestId) {
         invPatch.sourceRequestId = requestId;
