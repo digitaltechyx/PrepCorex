@@ -28,10 +28,29 @@ import {
 } from "@/lib/warehouse-inbound-receive";
 import type { UserProfile, WarehouseDoc } from "@/types";
 import { Check, Loader2, Package, RotateCcw, ScanLine, Search, Truck, X } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 function inboundKey(row: InboundRequestRow): string {
   return `${row.clientUserId}:${row.id}`;
 }
+
+function normInboundStatus(status: unknown): string {
+  return String(status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function isPendingInboundStatus(status: unknown): boolean {
+  const s = normInboundStatus(status);
+  return s === "pending" || s === "pending_approval";
+}
+
+function isApprovedInboundStatus(status: unknown): boolean {
+  return normInboundStatus(status) === "approved";
+}
+
+type RequestStatusTab = "pending" | "approved" | "all";
 
 function firstTrackingOnRow(row: InboundRequestRow): string {
   const list = resolveInboundTrackings(row);
@@ -75,6 +94,7 @@ export function WarehouseOpsDockIntake({
   const [scanning, setScanning] = useState(false);
   const [managingKey, setManagingKey] = useState<string | null>(null);
   const [listFilter, setListFilter] = useState("");
+  const [requestStatusTab, setRequestStatusTab] = useState<RequestStatusTab>("pending");
   const [lastScan, setLastScan] = useState<{
     tracking: string;
     inbound: InboundRequestRow[];
@@ -92,10 +112,21 @@ export function WarehouseOpsDockIntake({
   );
   const listsLoading = clientsLoading || liveLoading;
 
+  const pendingCount = useMemo(
+    () => inboundOpen.filter((r) => isPendingInboundStatus(r.status)).length,
+    [inboundOpen]
+  );
+  const approvedCount = useMemo(
+    () => inboundOpen.filter((r) => isApprovedInboundStatus(r.status)).length,
+    [inboundOpen]
+  );
+
   const filteredInboundOpen = useMemo(() => {
     const q = listFilter.trim().toLowerCase();
-    if (!q) return inboundOpen;
     return inboundOpen.filter((r) => {
+      if (requestStatusTab === "pending" && !isPendingInboundStatus(r.status)) return false;
+      if (requestStatusTab === "approved" && !isApprovedInboundStatus(r.status)) return false;
+      if (!q) return true;
       const trackings = resolveInboundTrackings(r)
         .map((t) => String(t.trackingNumber ?? ""))
         .join(" ");
@@ -103,7 +134,7 @@ export function WarehouseOpsDockIntake({
         `${r.clientDisplayName} ${r.productName} ${r.sku ?? ""} ${trackings}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [inboundOpen, listFilter]);
+  }, [inboundOpen, listFilter, requestStatusTab]);
 
   const scanInbound = lastScan?.inbound ?? [];
   const scanReturns = lastScan?.returns ?? [];
@@ -123,26 +154,8 @@ export function WarehouseOpsDockIntake({
     [selectedKeys, rowByKey]
   );
   const selectedPending = useMemo(
-    () =>
-      selectedRows.filter((r) => {
-        const s = String(r.status ?? "")
-          .trim()
-          .toLowerCase()
-          .replace(/[\s-]+/g, "_");
-        return s === "pending" || s === "pending_approval";
-      }),
+    () => selectedRows.filter((r) => isPendingInboundStatus(r.status)),
     [selectedRows]
-  );
-  const pendingCount = useMemo(
-    () =>
-      inboundOpen.filter((r) => {
-        const s = String(r.status ?? "")
-          .trim()
-          .toLowerCase()
-          .replace(/[\s-]+/g, "_");
-        return s === "pending" || s === "pending_approval";
-      }).length,
-    [inboundOpen]
   );
 
   useEffect(() => {
@@ -152,13 +165,7 @@ export function WarehouseOpsDockIntake({
   }, [clientsLoading]);
 
   async function approveRows(rows: InboundRequestRow[]) {
-    const pending = rows.filter((r) => {
-      const s = String(r.status ?? "")
-        .trim()
-        .toLowerCase()
-        .replace(/[\s-]+/g, "_");
-      return s === "pending" || s === "pending_approval";
-    });
+    const pending = rows.filter((r) => isPendingInboundStatus(r.status));
     if (pending.length === 0) return;
     if (!operatorId) throw new Error("Sign in required to approve requests.");
     for (const row of pending) {
@@ -191,7 +198,7 @@ export function WarehouseOpsDockIntake({
   }
 
   async function handleRejectRow(row: InboundRequestRow) {
-    if (row.status !== "pending") return;
+    if (!isPendingInboundStatus(row.status)) return;
     const reason = window.prompt("Reject reason (optional):", "");
     if (reason === null) return;
     const key = inboundKey(row);
@@ -468,9 +475,8 @@ export function WarehouseOpsDockIntake({
               Find requests (always available)
             </CardTitle>
             <CardDescription className="mt-1">
-              All clients&apos; pending and approved product inbound (same scope as Notifications),
-              with or without tracking. Search by client name, approve pending, then receive.
-              Pending are listed first.
+              Search by client name, product, or SKU. Use <strong>Pending</strong> to review and
+              approve, then <strong>Approved</strong> to start receive.
               {pendingCount > 0 ? (
                 <>
                   {" "}
@@ -479,6 +485,19 @@ export function WarehouseOpsDockIntake({
               ) : null}
             </CardDescription>
           </div>
+          <Tabs
+            value={requestStatusTab}
+            onValueChange={(v) => {
+              setRequestStatusTab(v as RequestStatusTab);
+              setSelectedKeys(new Set());
+            }}
+          >
+            <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-grid">
+              <TabsTrigger value="pending">Pending ({pendingCount})</TabsTrigger>
+              <TabsTrigger value="approved">Approved ({approvedCount})</TabsTrigger>
+              <TabsTrigger value="all">All ({inboundOpen.length})</TabsTrigger>
+            </TabsList>
+          </Tabs>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Input
               ref={searchRef}
@@ -494,20 +513,22 @@ export function WarehouseOpsDockIntake({
               <Button type="button" variant="ghost" size="sm" onClick={clearSelection}>
                 Clear
               </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={selectedPending.length === 0 || managingKey != null}
-                onClick={() => void handleApproveSelected()}
-              >
-                {managingKey === "__bulk__" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                ) : (
-                  <Check className="h-3.5 w-3.5 mr-1" />
-                )}
-                Approve selected ({selectedPending.length})
-              </Button>
+              {requestStatusTab !== "approved" ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={selectedPending.length === 0 || managingKey != null}
+                  onClick={() => void handleApproveSelected()}
+                >
+                  {managingKey === "__bulk__" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  Approve selected ({selectedPending.length})
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 size="sm"
@@ -522,8 +543,25 @@ export function WarehouseOpsDockIntake({
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Showing {filteredInboundOpen.length} of {inboundOpen.length} open request
-            {inboundOpen.length === 1 ? "" : "s"}
+            Showing {filteredInboundOpen.length} of{" "}
+            {requestStatusTab === "pending"
+              ? pendingCount
+              : requestStatusTab === "approved"
+                ? approvedCount
+                : inboundOpen.length}{" "}
+            {requestStatusTab === "pending"
+              ? "pending"
+              : requestStatusTab === "approved"
+                ? "approved"
+                : "open"}{" "}
+            request
+            {(requestStatusTab === "pending"
+              ? pendingCount
+              : requestStatusTab === "approved"
+                ? approvedCount
+                : inboundOpen.length) === 1
+              ? ""
+              : "s"}
             {selectedRows.length > 0 ? ` · ${selectedRows.length} selected` : ""}
           </p>
         </CardHeader>
@@ -537,7 +575,11 @@ export function WarehouseOpsDockIntake({
             <p className="text-sm text-muted-foreground py-4">
               {listFilter.trim()
                 ? "No requests match that search."
-                : "No approved inbound requests awaiting receive for this warehouse."}
+                : requestStatusTab === "pending"
+                  ? "No pending requests to review."
+                  : requestStatusTab === "approved"
+                    ? "No approved requests awaiting receive."
+                    : "No open inbound requests for this warehouse."}
             </p>
           ) : (
             <div className="max-h-[360px] overflow-y-scroll overscroll-contain space-y-2 pr-1">
@@ -618,11 +660,7 @@ function InboundSelectRow({
   onReject?: () => void;
 }) {
   const tracking = firstTrackingOnRow(row);
-  const statusNorm = String(row.status ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
-  const pending = statusNorm === "pending" || statusNorm === "pending_approval";
+  const pending = isPendingInboundStatus(row.status);
   return (
     <div className="flex w-full items-start gap-3 rounded-md border px-3 py-3 text-sm">
       <label className="flex items-start gap-3 min-w-0 flex-1 cursor-pointer">
