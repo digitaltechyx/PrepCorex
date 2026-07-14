@@ -348,6 +348,15 @@ export function buildWarehouseOpsFlowMetrics(
       tone: stats.dispatchReady > 0 ? "success" : "neutral",
     },
     {
+      key: "return_requests",
+      label: "Returns",
+      description: "Approve, receive, ship, close + invoice",
+      count: 0,
+      href: "/warehouse-ops/returns",
+      feature: "ops_returns",
+      tone: "neutral",
+    },
+    {
       key: "returns",
       label: "Return QC",
       description: "Quarantine cartons awaiting inspection",

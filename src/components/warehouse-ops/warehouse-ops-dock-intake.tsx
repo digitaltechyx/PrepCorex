@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -601,10 +602,15 @@ export function WarehouseOpsDockIntake({
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <RotateCcw className="h-4 w-4" />
-            Open returns
-          </CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <RotateCcw className="h-4 w-4" />
+              Open returns
+            </CardTitle>
+            <Button variant="link" size="sm" className="h-auto p-0 text-xs" asChild>
+              <Link href="/warehouse-ops/returns">Manage all returns</Link>
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-2">
           {listsLoading ? (

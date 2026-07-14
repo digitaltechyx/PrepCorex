@@ -179,6 +179,12 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       description: "Scan bin → verify cartons → count qty",
     },
     {
+      title: "Returns",
+      href: "/warehouse-ops/returns",
+      feature: "ops_returns",
+      description: "Approve, receive, ship, close + invoice (with / without request)",
+    },
+    {
       title: "Return QC",
       href: "/warehouse-ops/return-qc",
       feature: "ops_returns",

@@ -488,3 +488,73 @@ export async function loadRecentCycleCountTasks(
   const snap = await getDocs(query(ref, orderBy("createdAt", "desc"), limit(max)));
   return snap.docs.map((d) => docToTask(d.id, d.data() as Record<string, unknown>));
 }
+
+export function cycleCountTimestampToDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "object" && value !== null && "toDate" in value) {
+    try {
+      const d = (value as { toDate: () => Date }).toDate();
+      return Number.isNaN(d.getTime()) ? null : d;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === "object" && value !== null && "seconds" in value) {
+    const seconds = Number((value as { seconds: number }).seconds);
+    if (!Number.isFinite(seconds)) return null;
+    return new Date(seconds * 1000);
+  }
+  return null;
+}
+
+export function varianceReasonLabel(
+  reason: WarehouseCycleCountVarianceReason | null | undefined
+): string {
+  if (!reason) return "—";
+  return CYCLE_COUNT_VARIANCE_REASONS.find((r) => r.value === reason)?.label ?? reason;
+}
+
+export type CycleCountTaskReportRow = {
+  task: WarehouseCycleCountTaskDoc;
+  binsCounted: number;
+  binsTotal: number;
+  varianceBinCount: number;
+  varianceLineCount: number;
+  createdAt: Date | null;
+  completedAt: Date | null;
+};
+
+export function buildCycleCountTaskReportRow(
+  task: WarehouseCycleCountTaskDoc
+): CycleCountTaskReportRow {
+  const varianceBinCount = task.binResults.filter((r) => r.hasVariance).length;
+  const varianceLineCount = task.binResults.reduce(
+    (n, r) => n + r.countedLines.filter((l) => l.variance !== 0).length,
+    0
+  );
+  return {
+    task,
+    binsCounted: task.completedBinIds.length,
+    binsTotal: task.binIds.length,
+    varianceBinCount,
+    varianceLineCount,
+    createdAt: cycleCountTimestampToDate(task.createdAt),
+    completedAt: cycleCountTimestampToDate(task.completedAt),
+  };
+}
+
+/** Admin / supervisor report feed — completed first, then recent others. */
+export async function loadCycleCountTasksForReport(
+  warehouseId: string,
+  max = 100
+): Promise<CycleCountTaskReportRow[]> {
+  const tasks = await loadRecentCycleCountTasks(warehouseId, max);
+  return tasks
+    .map(buildCycleCountTaskReportRow)
+    .sort((a, b) => {
+      const ta = a.completedAt?.getTime() ?? a.createdAt?.getTime() ?? 0;
+      const tb = b.completedAt?.getTime() ?? b.createdAt?.getTime() ?? 0;
+      return tb - ta;
+    });
+}

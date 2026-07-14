@@ -1095,7 +1095,15 @@ export interface ProductReturn {
   newProductSku?: string;
   requestedQuantity: number;
   receivedQuantity: number;
+  /** Units already shipped back out from this return. */
+  shippedQuantity?: number;
+  /** Units already credited to client inventory (putaway / QC restock). */
+  inventoryCreditedQuantity?: number;
   status: "pending" | "approved" | "in_progress" | "closed" | "cancelled";
+  /** open | closed | ready_to_close — warehouse ops fulfillment. */
+  fulfillmentStatus?: string;
+  /** e.g. warehouse_ops_walk_in */
+  source?: string;
   createdAt?: { seconds: number; nanoseconds: number } | string;
   updatedAt?: { seconds: number; nanoseconds: number } | string;
   userRemarks?: string;
@@ -1113,9 +1121,15 @@ export interface ProductReturn {
   palletQuantity?: number;
   palletPricePerUnit?: number;
   shippingFee?: number;
+  pricing?: Record<string, unknown>;
+  invoiceId?: string;
+  invoiceNumber?: string;
   approvedBy?: string;
   approvedAt?: { seconds: number; nanoseconds: number } | string;
   closedAt?: { seconds: number; nanoseconds: number } | string;
+  closedBy?: string;
+  receivingLog?: Array<Record<string, unknown>>;
+  shippingLog?: Array<Record<string, unknown>>;
   shipments?: Array<Record<string, unknown>>;
   quantityUpdates?: Array<Record<string, unknown>>;
   /** Carrier tracking while return shipment is in transit to warehouse. */

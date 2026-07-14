@@ -81,7 +81,10 @@ export function WarehouseOpsReturnReceive({
       try {
         const carton = await getWarehouseCarton(warehouse.id, result.cartonId);
         if (carton) {
-          const pdf = await buildWarehouseCartonLabelsPdf([carton], warehouse);
+          const pdf = await buildWarehouseCartonLabelsPdf({
+            title: warehouse.code || warehouse.name || "Warehouse",
+            cartons: [carton],
+          });
           downloadUint8ArrayAsFile(pdf, `${result.cartonCode}-label.pdf`);
         }
       } catch {
@@ -149,7 +152,7 @@ export function WarehouseOpsReturnReceive({
               <ScanLookupPopover
                 onPick={(m) => {
                   setSku(m.sku);
-                  if (m.productTitle) setProductTitle(m.productTitle);
+                  if (m.productName) setProductTitle(m.productName);
                 }}
                 onAcceptRaw={(raw) => setSku(raw)}
               />

@@ -45,6 +45,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/warehouse-ops/pack": Box,
   "/warehouse-ops/dispatch": Truck,
   "/warehouse-ops/cycle-count": ClipboardList,
+  "/warehouse-ops/returns": RotateCcw,
   "/warehouse-ops/return-qc": RotateCcw,
 };
 

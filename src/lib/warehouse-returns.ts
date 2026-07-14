@@ -29,6 +29,7 @@ import {
   rollCartonBinStateFromLines,
   type PutawayAssignment,
 } from "@/lib/warehouse-carton-line-utils";
+import { creditReturnInventory } from "@/lib/product-return-ops";
 import type {
   ProductReturn,
   UserProfile,
@@ -446,6 +447,24 @@ export async function applyReturnQcRestock(input: {
   });
 
   await batch.commit();
+
+  const productReturnId =
+    carton.productReturnId != null ? String(carton.productReturnId).trim() : "";
+  const clientUserId = carton.clientId != null ? String(carton.clientId).trim() : "";
+  const restockQty = nextLines.reduce((s, l) => s + (l.quantity || 0), 0);
+  if (productReturnId && clientUserId && restockQty > 0) {
+    try {
+      await creditReturnInventory({
+        ownerUserId: clientUserId,
+        returnId: productReturnId,
+        quantity: restockQty,
+        operatorId: input.operatorId,
+        summaryNote: `Return QC restock → ${input.binPath}`,
+      });
+    } catch (err) {
+      console.error("[applyReturnQcRestock] inventory credit failed", err);
+    }
+  }
 }
 
 export async function applyReturnQcDamaged(input: {

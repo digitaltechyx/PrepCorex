@@ -48,6 +48,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/warehouse-ops/pack": Box,
   "/warehouse-ops/dispatch": Truck,
   "/warehouse-ops/cycle-count": ClipboardList,
+  "/warehouse-ops/returns": RotateCcw,
   "/warehouse-ops/return-qc": RotateCcw,
 };
 
@@ -65,6 +66,7 @@ const NAV_GROUP: Record<string, NavGroup> = {
   "/warehouse-ops/pack": "outbound",
   "/warehouse-ops/dispatch": "outbound",
   "/warehouse-ops/cycle-count": "quality",
+  "/warehouse-ops/returns": "quality",
   "/warehouse-ops/return-qc": "quality",
 };
 

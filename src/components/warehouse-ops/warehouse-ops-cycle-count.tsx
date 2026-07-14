@@ -21,10 +21,18 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { CycleCountTaskDetail } from "@/components/warehouse-ops/cycle-count-task-detail";
 import { resolveScan, findBinByPath } from "@/lib/warehouse-putaway";
 import {
   cancelCycleCountTask,
@@ -46,6 +54,8 @@ import type {
   WarehouseCycleCountTaskDoc,
   WarehouseDoc,
 } from "@/types";
+import Link from "next/link";
+import { hasRole } from "@/lib/permissions";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -69,11 +79,14 @@ export function WarehouseOpsCycleCount({ warehouse }: Props) {
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
   const canManageTasks = isOpsSupervisor(userProfile);
+  const canOpenAdminReports =
+    hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
 
   const [tasks, setTasks] = useState<WarehouseCycleCountTaskDoc[]>([]);
   const [recentTasks, setRecentTasks] = useState<WarehouseCycleCountTaskDoc[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [selectedTask, setSelectedTask] = useState<WarehouseCycleCountTaskDoc | null>(null);
+  const [viewingTask, setViewingTask] = useState<WarehouseCycleCountTaskDoc | null>(null);
   const [countMode, setCountMode] = useState<CountMode>("quick");
   const [phase, setPhase] = useState<CountPhase>("home");
 
@@ -941,15 +954,32 @@ export function WarehouseOpsCycleCount({ warehouse }: Props) {
             {mainContent}
             {recentTasks.length > 0 ? (
               <div className="space-y-2 pt-4 border-t">
-                <p className="text-sm font-medium text-muted-foreground">Recent</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-muted-foreground">Recent results</p>
+                  {canOpenAdminReports ? (
+                    <Button variant="link" size="sm" className="h-auto p-0 text-xs" asChild>
+                      <Link href="/admin/dashboard/cycle-count-reports">
+                        Open full report
+                      </Link>
+                    </Button>
+                  ) : null}
+                </div>
                 {recentTasks
                   .filter((t) => t.status === "completed" || t.status === "cancelled")
                   .slice(0, 5)
                   .map((t) => (
-                    <div key={t.id} className="text-sm flex justify-between gap-2">
+                    <button
+                      key={t.id}
+                      type="button"
+                      className="w-full text-sm flex justify-between gap-2 rounded-md border px-3 py-2 text-left hover:bg-muted/50"
+                      onClick={() => setViewingTask(t)}
+                    >
                       <span className="truncate">{t.title}</span>
-                      <Badge variant="outline">{t.status}</Badge>
-                    </div>
+                      <Badge variant="outline" className="shrink-0 capitalize">
+                        {t.status}
+                        {t.binResults.some((b) => b.hasVariance) ? " · variance" : ""}
+                      </Badge>
+                    </button>
                   ))}
               </div>
             ) : null}
@@ -1129,6 +1159,18 @@ export function WarehouseOpsCycleCount({ warehouse }: Props) {
           {mainContent}
         </>
       )}
+
+      <Dialog open={!!viewingTask} onOpenChange={(open) => !open && setViewingTask(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Cycle count result</DialogTitle>
+            <DialogDescription>
+              Expected vs counted quantities, variance reasons, and remarks.
+            </DialogDescription>
+          </DialogHeader>
+          {viewingTask ? <CycleCountTaskDetail task={viewingTask} /> : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
