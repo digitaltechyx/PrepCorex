@@ -309,7 +309,7 @@ export async function loadOutboundPickQueue(input: {
   orders.sort((a, b) => {
     const ta = a.confirmedAt?.getTime() ?? 0;
     const tb = b.confirmedAt?.getTime() ?? 0;
-    return ta - tb;
+    return tb - ta;
   });
   return orders;
 }
@@ -595,14 +595,15 @@ export async function skipPickOrder(input: {
   });
 }
 
-/** Scan bin + carton and commit one pick step. */
+/** Scan bin (+ optional carton) and commit one pick step. */
 export async function applyPickStep(input: {
   warehouseId: string;
   clientUserId: string;
   shipmentRequestId: string;
   step: PickTaskStep;
   scannedBinId: string;
-  scannedCartonId: string;
+  /** When omitted/empty, the planned carton for this step is used. */
+  scannedCartonId?: string | null;
   pickQty?: number;
   operatorId?: string | null;
 }): Promise<{ pickedQty: number; orderComplete: boolean }> {
@@ -614,7 +615,8 @@ export async function applyPickStep(input: {
   if (input.scannedBinId !== input.step.binId) {
     throw new Error("Wrong bin — scan the bin shown for this pick step.");
   }
-  if (input.scannedCartonId !== input.step.cartonId) {
+  const scannedCartonId = String(input.scannedCartonId ?? "").trim();
+  if (scannedCartonId && scannedCartonId !== input.step.cartonId) {
     throw new Error("Wrong carton — scan the carton shown for this pick step.");
   }
 

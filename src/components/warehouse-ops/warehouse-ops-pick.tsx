@@ -139,9 +139,10 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     selectedOrder &&
     currentStep &&
     resolvedBinId === currentStep.binId &&
-    resolvedCartonId === currentStep.cartonId &&
     qtyNum >= 1 &&
-    qtyNum <= currentStep.quantity;
+    qtyNum <= currentStep.quantity &&
+    // Carton scan is optional — if scanned, it must match the planned carton.
+    (resolvedCartonId == null || resolvedCartonId === currentStep.cartonId);
 
   async function loadPlanForOrder(order: OutboundPickOrder) {
     setLoadingPlan(true);
@@ -433,7 +434,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   }
 
   async function handleConfirmPick() {
-    if (!canConfirmPick || !selectedOrder || !currentStep || !resolvedBinId || !resolvedCartonId) {
+    if (!canConfirmPick || !selectedOrder || !currentStep || !resolvedBinId) {
       return;
     }
     setSaving(true);
@@ -969,14 +970,17 @@ export function WarehouseOpsPick({ warehouse }: Props) {
 
           <Card className={cn(resolvedBinId !== currentStep.binId && "opacity-60 pointer-events-none")}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Scan carton</CardTitle>
+              <CardTitle className="text-sm">Scan carton (optional)</CardTitle>
+              <CardDescription className="text-xs">
+                Skip if you already have the right carton from the pick step — scan only to double-check.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex gap-2">
                 <Input
                   value={cartonScan}
                   onChange={(e) => setCartonScan(e.target.value)}
-                  placeholder="Scan carton"
+                  placeholder="Scan carton (optional)"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void handleResolveCarton();
                   }}
@@ -994,13 +998,18 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                 <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300">
                   Carton verified
                 </Badge>
-              ) : null}
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Using planned carton <span className="font-mono">{currentStep.cartonCode}</span>{" "}
+                  unless you scan a different one.
+                </p>
+              )}
             </CardContent>
           </Card>
 
           <Card
             className={cn(
-              resolvedCartonId !== currentStep.cartonId && "opacity-60 pointer-events-none"
+              resolvedBinId !== currentStep.binId && "opacity-60 pointer-events-none"
             )}
           >
             <CardHeader className="pb-2">

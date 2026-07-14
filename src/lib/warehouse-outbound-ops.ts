@@ -144,7 +144,7 @@ export function buildPendingOutboundQueueLive(input: {
     });
   }
 
-  rows.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+  rows.sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
   return rows;
 }
 

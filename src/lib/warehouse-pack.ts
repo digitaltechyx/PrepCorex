@@ -655,7 +655,7 @@ export async function loadOutboundPackQueue(input: {
     if (aFailed !== bFailed) return bFailed - aFailed;
     const ta = a.confirmedAt?.getTime() ?? 0;
     const tb = b.confirmedAt?.getTime() ?? 0;
-    return ta - tb;
+    return tb - ta;
   });
   return orders;
 }

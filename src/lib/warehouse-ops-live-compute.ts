@@ -288,12 +288,12 @@ export function buildOutboundQueuesLive(input: {
     }
   }
 
-  pickQueue.sort((a, b) => (a.confirmedAt?.getTime() ?? 0) - (b.confirmedAt?.getTime() ?? 0));
+  pickQueue.sort((a, b) => (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0));
   packQueue.sort((a, b) => {
     const aFailed = a.qcFailedAt ? 1 : 0;
     const bFailed = b.qcFailedAt ? 1 : 0;
     if (aFailed !== bFailed) return bFailed - aFailed;
-    return (a.confirmedAt?.getTime() ?? 0) - (b.confirmedAt?.getTime() ?? 0);
+    return (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0);
   });
   dispatchQueue.sort((a, b) => {
     const ta = a.readyToDispatchAt?.getTime() ?? a.confirmedAt?.getTime() ?? 0;
