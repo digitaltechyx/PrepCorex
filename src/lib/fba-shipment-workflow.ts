@@ -274,13 +274,48 @@ export type FbaAwaitingLabelOrder = {
   clientDisplayName?: string;
   service?: string;
   fbaMasterCases?: FbaMasterCase[];
+  masterCaseCompletedAt: Date | null;
 };
+
+function dateFromUnknown(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "object" && value !== null && "toDate" in value) {
+    try {
+      const d = (value as { toDate: () => Date }).toDate();
+      return Number.isNaN(d.getTime()) ? null : d;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === "object" && value !== null && "seconds" in value) {
+    const seconds = Number((value as { seconds: number }).seconds);
+    if (!Number.isFinite(seconds)) return null;
+    return new Date(seconds * 1000);
+  }
+  return null;
+}
 
 /** Orders waiting for client label after master case details were posted. */
 export async function loadFbaAwaitingLabelOrders(
   eligibleClientIds: Set<string>
 ): Promise<FbaAwaitingLabelOrder[]> {
   const out: FbaAwaitingLabelOrder[] = [];
+  const pushRow = (d: { id: string; data: () => Record<string, unknown> }, clientUserId: string) => {
+    const data = d.data();
+    out.push({
+      id: d.id,
+      clientUserId,
+      service: String(data.service ?? ""),
+      fbaMasterCases: Array.isArray(data.fbaMasterCases)
+        ? (data.fbaMasterCases as FbaMasterCase[])
+        : [],
+      masterCaseCompletedAt:
+        dateFromUnknown(data.fbaMasterCaseCompletedAt) ??
+        dateFromUnknown(data.updatedAt) ??
+        dateFromUnknown(data.confirmedAt),
+    });
+  };
   try {
     const snap = await getDocs(
       query(
@@ -292,15 +327,7 @@ export async function loadFbaAwaitingLabelOrders(
     for (const d of snap.docs) {
       const clientUserId = d.ref.path.split("/")[1] ?? "";
       if (!eligibleClientIds.has(clientUserId)) continue;
-      const data = d.data() as Record<string, unknown>;
-      out.push({
-        id: d.id,
-        clientUserId,
-        service: String(data.service ?? ""),
-        fbaMasterCases: Array.isArray(data.fbaMasterCases)
-          ? (data.fbaMasterCases as FbaMasterCase[])
-          : [],
-      });
+      pushRow(d, clientUserId);
     }
   } catch {
     for (const clientUserId of eligibleClientIds) {
@@ -312,15 +339,7 @@ export async function loadFbaAwaitingLabelOrders(
         )
       );
       for (const d of snap.docs) {
-        const data = d.data() as Record<string, unknown>;
-        out.push({
-          id: d.id,
-          clientUserId,
-          service: String(data.service ?? ""),
-          fbaMasterCases: Array.isArray(data.fbaMasterCases)
-            ? (data.fbaMasterCases as FbaMasterCase[])
-            : [],
-        });
+        pushRow(d, clientUserId);
       }
     }
   }

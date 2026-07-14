@@ -65,12 +65,35 @@ type Props = {
 };
 
 type QueueTab = "pending" | "ready";
-type PendingFilter = "all" | "approvable" | "waiting_label";
+type PendingFilter = "all" | "approvable";
 type ReadyFilter = "all" | "ready" | "picking";
 
 function matchesQuery(haystack: string, q: string): boolean {
   if (!q) return true;
   return haystack.toLowerCase().includes(q);
+}
+
+function localDateKey(date: Date | null | undefined): string | null {
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function matchesDateFilter(date: Date | null | undefined, day: string): boolean {
+  if (!day) return true;
+  return localDateKey(date) === day;
+}
+
+function formatQueueDate(date: Date | null | undefined): string | null {
+  const key = localDateKey(date);
+  if (!key) return null;
+  return date!.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 export function WarehouseOpsPick({ warehouse }: Props) {
@@ -91,6 +114,8 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   const [readySearch, setReadySearch] = useState("");
   const [pendingFilter, setPendingFilter] = useState<PendingFilter>("all");
   const [readyFilter, setReadyFilter] = useState<ReadyFilter>("all");
+  const [pendingDate, setPendingDate] = useState("");
+  const [readyDate, setReadyDate] = useState("");
 
   const [selectedOrder, setSelectedOrder] = useState<OutboundPickOrder | null>(null);
   const [plan, setPlan] = useState<PickPlan | null>(null);
@@ -220,9 +245,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     const q = pendingSearch.trim().toLowerCase();
     return pendingOutboundQueue.filter((row) => {
       if (pendingFilter === "approvable" && !row.canApprove) return false;
-      if (pendingFilter === "waiting_label" && !(row.needsClientLabel && !row.canApprove)) {
-        return false;
-      }
+      if (!matchesDateFilter(row.createdAt, pendingDate)) return false;
       if (!q) return true;
       const haystack = [
         row.clientDisplayName,
@@ -231,17 +254,19 @@ export function WarehouseOpsPick({ warehouse }: Props) {
         row.lineSummary,
         row.status,
         row.id,
+        formatQueueDate(row.createdAt),
       ]
         .filter(Boolean)
         .join(" ");
       return matchesQuery(haystack, q);
     });
-  }, [pendingOutboundQueue, pendingSearch, pendingFilter]);
+  }, [pendingOutboundQueue, pendingSearch, pendingFilter, pendingDate]);
 
   const filteredReady = useMemo(() => {
     const q = readySearch.trim().toLowerCase();
     return orders.filter((order) => {
       if (readyFilter !== "all" && order.warehousePickStatus !== readyFilter) return false;
+      if (!matchesDateFilter(order.confirmedAt, readyDate)) return false;
       if (!q) return true;
       const lineText = order.lines
         .map((l) => formatOutboundLineLabel(l))
@@ -252,13 +277,14 @@ export function WarehouseOpsPick({ warehouse }: Props) {
         lineText,
         order.warehousePickStatus,
         order.id,
+        formatQueueDate(order.confirmedAt),
         ...order.lines.map((l) => `${l.productName} ${l.sku} ${l.productId}`),
       ]
         .filter(Boolean)
         .join(" ");
       return matchesQuery(haystack, q);
     });
-  }, [orders, readySearch, readyFilter]);
+  }, [orders, readySearch, readyFilter, readyDate]);
 
   function resetToQueue() {
     setSelectedOrder(null);
@@ -476,36 +502,53 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={pendingSearch}
+                        onChange={(e) => setPendingSearch(e.target.value)}
+                        placeholder="Search client, SKU, product, ship-to…"
+                        className="pl-8 h-9 text-sm"
+                      />
+                    </div>
                     <Input
-                      value={pendingSearch}
-                      onChange={(e) => setPendingSearch(e.target.value)}
-                      placeholder="Search client, SKU, product, ship-to…"
-                      className="pl-8 h-9 text-sm"
+                      type="date"
+                      value={pendingDate}
+                      onChange={(e) => setPendingDate(e.target.value)}
+                      className="h-9 text-sm sm:w-[11rem]"
+                      title="Filter by request date"
                     />
+                    <div className="flex flex-wrap gap-1">
+                      {(
+                        [
+                          ["all", "All"],
+                          ["approvable", "Ready to approve"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <Button
+                          key={value}
+                          type="button"
+                          size="sm"
+                          variant={pendingFilter === value ? "default" : "outline"}
+                          className="h-8 text-xs"
+                          onClick={() => setPendingFilter(value)}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1">
-                    {(
-                      [
-                        ["all", "All"],
-                        ["approvable", "Ready to approve"],
-                        ["waiting_label", "Waiting label"],
-                      ] as const
-                    ).map(([value, label]) => (
-                      <Button
-                        key={value}
-                        type="button"
-                        size="sm"
-                        variant={pendingFilter === value ? "default" : "outline"}
-                        className="h-8 text-xs"
-                        onClick={() => setPendingFilter(value)}
-                      >
-                        {label}
-                      </Button>
-                    ))}
-                  </div>
+                  {pendingDate ? (
+                    <button
+                      type="button"
+                      className="text-[11px] text-muted-foreground underline w-fit"
+                      onClick={() => setPendingDate("")}
+                    >
+                      Clear date
+                    </button>
+                  ) : null}
                 </div>
                 {queueLoading ? (
                   <p className="text-sm text-muted-foreground flex items-center gap-2">
@@ -533,6 +576,11 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                               <p className="text-xs text-muted-foreground mt-0.5">{row.shipTo}</p>
                             ) : null}
                             <p className="text-xs text-muted-foreground mt-1">{row.lineSummary}</p>
+                            {formatQueueDate(row.createdAt) ? (
+                              <p className="text-[10px] text-muted-foreground mt-1">
+                                Requested {formatQueueDate(row.createdAt)}
+                              </p>
+                            ) : null}
                           </div>
                           <Badge
                             variant="outline"
@@ -627,36 +675,54 @@ export function WarehouseOpsPick({ warehouse }: Props) {
             ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={readySearch}
+                    onChange={(e) => setReadySearch(e.target.value)}
+                    placeholder="Search client, SKU, product, ship-to…"
+                    className="pl-8 h-9 text-sm"
+                  />
+                </div>
                 <Input
-                  value={readySearch}
-                  onChange={(e) => setReadySearch(e.target.value)}
-                  placeholder="Search client, SKU, product, ship-to…"
-                  className="pl-8 h-9 text-sm"
+                  type="date"
+                  value={readyDate}
+                  onChange={(e) => setReadyDate(e.target.value)}
+                  className="h-9 text-sm sm:w-[11rem]"
+                  title="Filter by confirmed date"
                 />
+                <div className="flex flex-wrap gap-1">
+                  {(
+                    [
+                      ["all", "All"],
+                      ["ready", "Ready"],
+                      ["picking", "Picking"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <Button
+                      key={value}
+                      type="button"
+                      size="sm"
+                      variant={readyFilter === value ? "default" : "outline"}
+                      className="h-8 text-xs"
+                      onClick={() => setReadyFilter(value)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-1">
-                {(
-                  [
-                    ["all", "All"],
-                    ["ready", "Ready"],
-                    ["picking", "Picking"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <Button
-                    key={value}
-                    type="button"
-                    size="sm"
-                    variant={readyFilter === value ? "default" : "outline"}
-                    className="h-8 text-xs"
-                    onClick={() => setReadyFilter(value)}
-                  >
-                    {label}
-                  </Button>
-                ))}
-              </div>
+              {readyDate ? (
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground underline w-fit"
+                  onClick={() => setReadyDate("")}
+                >
+                  Clear date
+                </button>
+              ) : null}
             </div>
             {queueLoading ? (
               <p className="text-sm text-muted-foreground flex items-center gap-2">
@@ -692,6 +758,11 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                           <p className="text-xs text-muted-foreground mt-1">
                             {order.lines.map((l) => formatOutboundLineLabel(l)).join(" · ")}
                           </p>
+                          {formatQueueDate(order.confirmedAt) ? (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Confirmed {formatQueueDate(order.confirmedAt)}
+                            </p>
+                          ) : null}
                         </div>
                         <Badge variant="outline" className="shrink-0 capitalize">
                           {order.warehousePickStatus}

@@ -41,6 +41,7 @@ import {
   recordFbaLabelUpload,
   type FbaAwaitingLabelOrder,
 } from "@/lib/fba-shipment-workflow";
+import { formatOutboundLineLabel } from "@/lib/warehouse-outbound-lines";
 import { FbaMasterCaseForm } from "@/components/warehouse-ops/fba-master-case-form";
 import type { FbaMasterCase } from "@/types";
 import type { WarehouseDoc } from "@/types";
@@ -54,6 +55,7 @@ import {
   Package,
   Printer,
   ScanLine,
+  Search,
   Truck,
   AlertTriangle,
 } from "lucide-react";
@@ -62,6 +64,36 @@ import { cn } from "@/lib/utils";
 type Props = {
   warehouse: WarehouseDoc;
 };
+
+type PackQueueFilter = "all" | "waiting_label" | "ready_to_pack";
+
+function matchesQuery(haystack: string, q: string): boolean {
+  if (!q) return true;
+  return haystack.toLowerCase().includes(q);
+}
+
+function localDateKey(date: Date | null | undefined): string | null {
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function matchesDateFilter(date: Date | null | undefined, day: string): boolean {
+  if (!day) return true;
+  return localDateKey(date) === day;
+}
+
+function formatQueueDate(date: Date | null | undefined): string | null {
+  const key = localDateKey(date);
+  if (!key) return null;
+  return date!.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
 
 export function WarehouseOpsPack({ warehouse }: Props) {
   const { toast } = useToast();
@@ -79,6 +111,9 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const [returnPackSavingId, setReturnPackSavingId] = useState<string | null>(null);
   const [crossdockPackSavingId, setCrossdockPackSavingId] = useState<string | null>(null);
   const [fbaBuysLabelSavingId, setFbaBuysLabelSavingId] = useState<string | null>(null);
+  const [packSearch, setPackSearch] = useState("");
+  const [packDate, setPackDate] = useState("");
+  const [packFilter, setPackFilter] = useState<PackQueueFilter>("all");
 
   const [selectedOrder, setSelectedOrder] = useState<OutboundPackOrder | null>(null);
   const [plan, setPlan] = useState<PackPlan | null>(null);
@@ -102,6 +137,52 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     () => new Set(plan?.verifiedKeys ?? []),
     [plan?.verifiedKeys]
   );
+
+  const filteredFbaAwaiting = useMemo(() => {
+    const q = packSearch.trim().toLowerCase();
+    return fbaAwaitingLabel.filter((order) => {
+      if (!matchesDateFilter(order.masterCaseCompletedAt, packDate)) return false;
+      if (!q) return true;
+      const clientName =
+        clients.find((c) => c.uid === order.clientUserId)?.name ||
+        order.clientUserId;
+      const haystack = [
+        clientName,
+        order.service,
+        order.id,
+        formatQueueDate(order.masterCaseCompletedAt),
+        ...(order.fbaMasterCases ?? []).map((mc) => formatFbaMasterCaseSummary(mc)),
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return matchesQuery(haystack, q);
+    });
+  }, [fbaAwaitingLabel, packSearch, packDate, clients]);
+
+  const filteredPackOrders = useMemo(() => {
+    const q = packSearch.trim().toLowerCase();
+    return orders.filter((order) => {
+      if (!matchesDateFilter(order.confirmedAt, packDate)) return false;
+      if (!q) return true;
+      const lineText = order.lines.map((l) => formatOutboundLineLabel(l)).join(" ");
+      const haystack = [
+        order.clientDisplayName,
+        order.shipTo,
+        lineText,
+        order.id,
+        formatQueueDate(order.confirmedAt),
+        ...order.lines.map((l) => `${l.productName} ${l.sku}`),
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return matchesQuery(haystack, q);
+    });
+  }, [orders, packSearch, packDate]);
+
+  const showWaitingLabelSection =
+    packFilter === "all" || packFilter === "waiting_label";
+  const showReadyPackSection =
+    packFilter === "all" || packFilter === "ready_to_pack";
 
   const nextItem: PackPlanItem | null =
     selectedOrder?.fbaPackPhase === "awaiting_courier"
@@ -334,6 +415,60 @@ export function WarehouseOpsPack({ warehouse }: Props) {
         </Card>
 
         <Card>
+          <CardContent className="pt-4 space-y-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={packSearch}
+                  onChange={(e) => setPackSearch(e.target.value)}
+                  placeholder="Search client, SKU, product, ship-to…"
+                  className="pl-8 h-9 text-sm"
+                />
+              </div>
+              <Input
+                type="date"
+                value={packDate}
+                onChange={(e) => setPackDate(e.target.value)}
+                className="h-9 text-sm sm:w-[11rem]"
+                title="Filter by date"
+              />
+              <div className="flex flex-wrap gap-1">
+                {(
+                  [
+                    ["all", "All"],
+                    ["waiting_label", "Waiting label"],
+                    ["ready_to_pack", "Ready to pack"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    size="sm"
+                    variant={packFilter === value ? "default" : "outline"}
+                    className="h-8 text-xs"
+                    onClick={() => setPackFilter(value)}
+                  >
+                    {label}
+                    {value === "waiting_label" ? ` (${fbaAwaitingLabel.length})` : ""}
+                    {value === "ready_to_pack" ? ` (${orders.length})` : ""}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            {packDate ? (
+              <button
+                type="button"
+                className="text-[11px] text-muted-foreground underline w-fit"
+                onClick={() => setPackDate("")}
+              >
+                Clear date
+              </button>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">
               Cross-dock carton / pallet ({crossdockPackQueue.length})
@@ -519,10 +654,16 @@ export function WarehouseOpsPack({ warehouse }: Props) {
           </CardContent>
         </Card>
 
-        {(fbaAwaitingLoading || fbaAwaitingLabel.length > 0) && (
+        {showWaitingLabelSection &&
+          (packFilter === "waiting_label" ||
+            fbaAwaitingLoading ||
+            fbaAwaitingLabel.length > 0) && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">FBA — awaiting client label</CardTitle>
+              <CardTitle className="text-sm">
+                FBA — Waiting label ({filteredFbaAwaiting.length}
+                {packSearch || packDate ? ` of ${fbaAwaitingLabel.length}` : ""})
+              </CardTitle>
               <CardDescription className="text-xs">
                 Master case details sent. Upload a label, or complete without upload if the
                 warehouse will buy the courier label.
@@ -534,8 +675,12 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading…
                 </div>
+              ) : filteredFbaAwaiting.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No waiting-label requests match that search or date.
+                </p>
               ) : (
-                fbaAwaitingLabel.map((order) => {
+                filteredFbaAwaiting.map((order) => {
                   const clientName =
                     clients.find((c) => c.uid === order.clientUserId)?.name ||
                     order.clientUserId.slice(0, 8);
@@ -544,6 +689,11 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                       <div>
                         <p className="font-medium text-sm">{clientName}</p>
                         <p className="text-xs text-muted-foreground">{order.service}</p>
+                        {formatQueueDate(order.masterCaseCompletedAt) ? (
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Dims submitted {formatQueueDate(order.masterCaseCompletedAt)}
+                          </p>
+                        ) : null}
                         {order.fbaMasterCases?.map((mc) => (
                           <p key={mc.id} className="text-xs mt-1">
                             {formatFbaMasterCaseSummary(mc)}
@@ -690,9 +840,13 @@ export function WarehouseOpsPack({ warehouse }: Props) {
           </Card>
         )}
 
+        {showReadyPackSection ? (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Orders to pack</CardTitle>
+            <CardTitle className="text-sm">
+              Orders to pack ({filteredPackOrders.length}
+              {packSearch || packDate ? ` of ${orders.length}` : ""})
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {queueLoading ? (
@@ -704,9 +858,13 @@ export function WarehouseOpsPack({ warehouse }: Props) {
               <p className="text-sm text-muted-foreground py-6 text-center">
                 No picked orders waiting for pack.
               </p>
+            ) : filteredPackOrders.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                No orders match that search or date.
+              </p>
             ) : (
               <div className="space-y-2">
-                {orders.map((order) => (
+                {filteredPackOrders.map((order) => (
                   <button
                     key={`${order.clientUserId}:${order.id}`}
                     type="button"
@@ -725,10 +883,13 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                           <p className="text-xs text-muted-foreground mt-0.5">{order.shipTo}</p>
                         ) : null}
                         <p className="text-xs text-muted-foreground mt-1">
-                          {order.lines
-                            .map((l) => `${l.quantityUnits}× ${l.sku}`)
-                            .join(" · ")}
+                          {order.lines.map((l) => formatOutboundLineLabel(l)).join(" · ")}
                         </p>
+                        {formatQueueDate(order.confirmedAt) ? (
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                            Confirmed {formatQueueDate(order.confirmedAt)}
+                          </p>
+                        ) : null}
                         {(order.labelUrls?.length ?? 0) > 0 ? (
                           <p className="text-[10px] text-emerald-700 mt-1">
                             {order.labelUrls!.length} client label
@@ -754,6 +915,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
             )}
           </CardContent>
         </Card>
+        ) : null}
 
         <Button variant="outline" asChild>
           <Link href="/warehouse-ops/dispatch">View dispatch queue</Link>
@@ -774,7 +936,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">{selectedOrder.clientDisplayName}</CardTitle>
           <CardDescription className="text-xs">
-            {selectedOrder.lines.map((l) => `${l.quantityUnits}× ${l.sku}`).join(" · ")}
+            {selectedOrder.lines.map((l) => formatOutboundLineLabel(l)).join(" · ")}
           </CardDescription>
         </CardHeader>
         {selectedOrder.qcRemarks ? (
