@@ -353,7 +353,17 @@ export function clientIdsForProductMaps(input: {
 
   const pending: Array<{ clientUserId: string; data: Record<string, unknown> }> = [];
   for (const doc of input.shipmentDocs) {
-    if (doc.data.status !== "confirmed") continue;
+    const status = String(doc.data.status ?? "")
+      .trim()
+      .toLowerCase();
+    // Pending approve queue needs SKU resolution too — not only confirmed pick/pack.
+    if (
+      status !== "confirmed" &&
+      status !== "pending" &&
+      status !== "awaiting_label_upload"
+    ) {
+      continue;
+    }
     const clientUserId = userIdFromDocPath(doc.path);
     if (!eligible.has(clientUserId)) continue;
     pending.push({ clientUserId, data: doc.data });

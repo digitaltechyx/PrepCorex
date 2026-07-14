@@ -133,7 +133,13 @@ export function buildPendingOutboundQueueLive(input: {
       labelUrls,
       lineSummary:
         lines.length > 0
-          ? lines.map((l) => `${l.quantityUnits}× ${l.sku}`).join(" · ")
+          ? lines
+              .map((l) => {
+                const name = l.productName?.trim();
+                if (name && name !== l.sku) return `${l.quantityUnits}× ${name} (${l.sku})`;
+                return `${l.quantityUnits}× ${l.sku}`;
+              })
+              .join(" · ")
           : "No SKU lines resolved yet",
       needsClientLabel,
       canApprove,

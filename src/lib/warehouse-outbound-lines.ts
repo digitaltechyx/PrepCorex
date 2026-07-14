@@ -9,11 +9,12 @@ export async function loadClientProductMap(clientUserId: string): Promise<Client
   const map = new Map<string, { sku: string; productName: string }>();
   for (const d of snap.docs) {
     const data = d.data() as Record<string, unknown>;
-    const sku = String(data.sku ?? "").trim();
+    const productName = String(data.productName ?? data.sku ?? "").trim();
+    const sku = String(data.sku ?? "").trim() || productName || d.id;
     if (!sku) continue;
     map.set(d.id, {
       sku,
-      productName: String(data.productName ?? data.sku ?? "").trim() || sku,
+      productName: productName || sku,
     });
   }
   return map;
@@ -57,15 +58,17 @@ export function buildOrderLinesFromRequestData(
     const productId = String(shipment.productId ?? "").trim();
     if (!productId) continue;
     const product = products.get(productId);
-    const sku = String(shipment.sku ?? product?.sku ?? "").trim();
-    if (!sku) continue;
+    // Requests usually store productId only; resolve SKU from inventory when loaded.
+    // Fall back to productId so Pending review still shows qty while inventory loads.
+    const sku = String(shipment.sku ?? product?.sku ?? "").trim() || productId;
     const qty = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
     const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
     const quantityUnits = qty * packOf;
     if (quantityUnits < 1) continue;
     lines.push({
       sku,
-      productName: String(shipment.productName ?? product?.productName ?? sku).trim() || sku,
+      productName:
+        String(shipment.productName ?? product?.productName ?? sku).trim() || sku,
       quantityUnits,
       productId,
     });

@@ -72,11 +72,12 @@ function inventoryDocToProductMap(
 ): ClientProductMap {
   const map = new Map<string, { sku: string; productName: string }>();
   for (const d of docs) {
-    const sku = String(d.data.sku ?? "").trim();
+    const productName = String(d.data.productName ?? d.data.sku ?? "").trim();
+    const sku = String(d.data.sku ?? "").trim() || productName || d.id;
     if (!sku) continue;
     map.set(d.id, {
       sku,
-      productName: String(d.data.productName ?? d.data.sku ?? "").trim() || sku,
+      productName: productName || sku,
     });
   }
   return map;
