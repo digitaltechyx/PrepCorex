@@ -11,7 +11,11 @@ import {
   getCommittedOutboundUnits,
   shipmentUnits,
 } from "@/lib/client-inventory-outbound-sync";
-import { buildOrderLinesFromRequestData, type ClientProductMap } from "@/lib/warehouse-outbound-lines";
+import {
+  buildOrderLinesFromRequestData,
+  formatOutboundLineLabel,
+  type ClientProductMap,
+} from "@/lib/warehouse-outbound-lines";
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
 import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
 import type { LiveFirestoreDoc } from "@/lib/warehouse-ops-live-compute";
@@ -133,13 +137,7 @@ export function buildPendingOutboundQueueLive(input: {
       labelUrls,
       lineSummary:
         lines.length > 0
-          ? lines
-              .map((l) => {
-                const name = l.productName?.trim();
-                if (name && name !== l.sku) return `${l.quantityUnits}× ${name} (${l.sku})`;
-                return `${l.quantityUnits}× ${l.sku}`;
-              })
-              .join(" · ")
+          ? lines.map((l) => formatOutboundLineLabel(l)).join(" · ")
           : "No SKU lines resolved yet",
       needsClientLabel,
       canApprove,

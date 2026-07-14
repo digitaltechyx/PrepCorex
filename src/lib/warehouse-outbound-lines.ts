@@ -46,6 +46,33 @@ function requestNeedsProductLookup(data: Record<string, unknown>): boolean {
   return false;
 }
 
+export function formatOutboundLineLabel(line: {
+  sku: string;
+  productName: string;
+  quantityUnits: number;
+  productId?: string;
+}): string {
+  const sku = String(line.sku ?? "").trim();
+  const name = String(line.productName ?? "").trim();
+  const productId = String(line.productId ?? "").trim();
+  const looksLikeDocId = (value: string) =>
+    Boolean(value) &&
+    value.length >= 16 &&
+    /^[A-Za-z0-9]+$/.test(value) &&
+    (value === productId || !/[\s_\-]/.test(value));
+
+  const niceName = name && !looksLikeDocId(name) ? name : "";
+  const niceSku = sku && !looksLikeDocId(sku) ? sku : "";
+
+  if (niceName && niceSku && niceName !== niceSku) {
+    return `${line.quantityUnits}× ${niceName} (${niceSku})`;
+  }
+  if (niceName) return `${line.quantityUnits}× ${niceName}`;
+  if (niceSku) return `${line.quantityUnits}× ${niceSku}`;
+  // Last resort — avoid dumping raw Firestore IDs in the queue list.
+  return `${line.quantityUnits}× product`;
+}
+
 export function buildOrderLinesFromRequestData(
   data: Record<string, unknown>,
   products: ClientProductMap

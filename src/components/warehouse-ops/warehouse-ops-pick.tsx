@@ -45,6 +45,7 @@ import {
   rejectOutboundRequestAtPick,
   type PendingOutboundRequest,
 } from "@/lib/warehouse-outbound-ops";
+import { formatOutboundLineLabel } from "@/lib/warehouse-outbound-lines";
 import { isOpsSupervisor } from "@/lib/warehouse-ops-permissions";
 import type { WarehouseDoc } from "@/types";
 import {
@@ -54,6 +55,7 @@ import {
   ClipboardList,
   Loader2,
   Package,
+  Search,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -63,6 +65,13 @@ type Props = {
 };
 
 type QueueTab = "pending" | "ready";
+type PendingFilter = "all" | "approvable" | "waiting_label";
+type ReadyFilter = "all" | "ready" | "picking";
+
+function matchesQuery(haystack: string, q: string): boolean {
+  if (!q) return true;
+  return haystack.toLowerCase().includes(q);
+}
 
 export function WarehouseOpsPick({ warehouse }: Props) {
   const { toast } = useToast();
@@ -78,6 +87,10 @@ export function WarehouseOpsPick({ warehouse }: Props) {
 
   const [queueTab, setQueueTab] = useState<QueueTab>("pending");
   const [managingKey, setManagingKey] = useState<string | null>(null);
+  const [pendingSearch, setPendingSearch] = useState("");
+  const [readySearch, setReadySearch] = useState("");
+  const [pendingFilter, setPendingFilter] = useState<PendingFilter>("all");
+  const [readyFilter, setReadyFilter] = useState<ReadyFilter>("all");
 
   const [selectedOrder, setSelectedOrder] = useState<OutboundPickOrder | null>(null);
   const [plan, setPlan] = useState<PickPlan | null>(null);
@@ -202,6 +215,50 @@ export function WarehouseOpsPick({ warehouse }: Props) {
 
   const pendingCount = pendingOutboundQueue.length;
   const readyCount = orders.length;
+
+  const filteredPending = useMemo(() => {
+    const q = pendingSearch.trim().toLowerCase();
+    return pendingOutboundQueue.filter((row) => {
+      if (pendingFilter === "approvable" && !row.canApprove) return false;
+      if (pendingFilter === "waiting_label" && !(row.needsClientLabel && !row.canApprove)) {
+        return false;
+      }
+      if (!q) return true;
+      const haystack = [
+        row.clientDisplayName,
+        row.shipTo,
+        row.service,
+        row.lineSummary,
+        row.status,
+        row.id,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return matchesQuery(haystack, q);
+    });
+  }, [pendingOutboundQueue, pendingSearch, pendingFilter]);
+
+  const filteredReady = useMemo(() => {
+    const q = readySearch.trim().toLowerCase();
+    return orders.filter((order) => {
+      if (readyFilter !== "all" && order.warehousePickStatus !== readyFilter) return false;
+      if (!q) return true;
+      const lineText = order.lines
+        .map((l) => formatOutboundLineLabel(l))
+        .join(" ");
+      const haystack = [
+        order.clientDisplayName,
+        order.shipTo,
+        lineText,
+        order.warehousePickStatus,
+        order.id,
+        ...order.lines.map((l) => `${l.productName} ${l.sku} ${l.productId}`),
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return matchesQuery(haystack, q);
+    });
+  }, [orders, readySearch, readyFilter]);
 
   function resetToQueue() {
     setSelectedOrder(null);
@@ -418,7 +475,38 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                   Approve to confirm for warehouse. Inventory still deducts at dispatch.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={pendingSearch}
+                      onChange={(e) => setPendingSearch(e.target.value)}
+                      placeholder="Search client, SKU, product, ship-to…"
+                      className="pl-8 h-9 text-sm"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {(
+                      [
+                        ["all", "All"],
+                        ["approvable", "Ready to approve"],
+                        ["waiting_label", "Waiting label"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        size="sm"
+                        variant={pendingFilter === value ? "default" : "outline"}
+                        className="h-8 text-xs"
+                        onClick={() => setPendingFilter(value)}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
                 {queueLoading ? (
                   <p className="text-sm text-muted-foreground flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -428,8 +516,12 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                   <p className="text-sm text-muted-foreground py-4 text-center">
                     No pending outbound requests.
                   </p>
+                ) : filteredPending.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    No requests match that search or filter.
+                  </p>
                 ) : (
-                  pendingOutboundQueue.map((row) => {
+                  filteredPending.map((row) => {
                     const key = `${row.clientUserId}:${row.id}`;
                     const busy = managingKey === key;
                     return (
@@ -535,6 +627,37 @@ export function WarehouseOpsPick({ warehouse }: Props) {
             ) : null}
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={readySearch}
+                  onChange={(e) => setReadySearch(e.target.value)}
+                  placeholder="Search client, SKU, product, ship-to…"
+                  className="pl-8 h-9 text-sm"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {(
+                  [
+                    ["all", "All"],
+                    ["ready", "Ready"],
+                    ["picking", "Picking"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    size="sm"
+                    variant={readyFilter === value ? "default" : "outline"}
+                    className="h-8 text-xs"
+                    onClick={() => setReadyFilter(value)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
             {queueLoading ? (
               <p className="text-sm text-muted-foreground flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -544,9 +667,13 @@ export function WarehouseOpsPick({ warehouse }: Props) {
               <p className="text-sm text-muted-foreground">
                 No confirmed outbound orders waiting for floor pick. Approve pending first.
               </p>
+            ) : filteredReady.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                No orders match that search or filter.
+              </p>
             ) : (
               <div className="space-y-2">
-                {orders.map((order) => (
+                {filteredReady.map((order) => (
                   <div
                     key={`${order.clientUserId}:${order.id}`}
                     className="flex gap-1 rounded-lg border overflow-hidden"
@@ -563,9 +690,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                             <p className="text-xs text-muted-foreground mt-0.5">{order.shipTo}</p>
                           ) : null}
                           <p className="text-xs text-muted-foreground mt-1">
-                            {order.lines
-                              .map((l) => `${l.quantityUnits}× ${l.sku}`)
-                              .join(" · ")}
+                            {order.lines.map((l) => formatOutboundLineLabel(l)).join(" · ")}
                           </p>
                         </div>
                         <Badge variant="outline" className="shrink-0 capitalize">
@@ -616,7 +741,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">{selectedOrder.clientDisplayName}</CardTitle>
           <CardDescription className="text-xs">
-            {selectedOrder.lines.map((l) => `${l.quantityUnits}× ${l.sku}`).join(" · ")}
+            {selectedOrder.lines.map((l) => formatOutboundLineLabel(l)).join(" · ")}
           </CardDescription>
         </CardHeader>
         <CardContent>

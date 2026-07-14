@@ -714,11 +714,14 @@ export function CreateShipmentWithLabelsForm({
 
         const mapShipmentsForFirestore = (rows: typeof group.shipments) =>
           rows.map((shipment: any) => {
+            const inv = inventory.find((item) => item.id === shipment.productId);
             const cleaned: any = {
               productId: shipment.productId,
               quantity: shipment.quantity,
               packOf: shipment.packOf || 1,
               unitPrice: shipment.unitPrice || 0,
+              sku: String(inv?.sku ?? "").trim() || undefined,
+              productName: String(inv?.productName ?? "").trim() || undefined,
             };
             if (shipment.selectedAdditionalServices && shipment.selectedAdditionalServices.length > 0) {
               cleaned.selectedAdditionalServices = shipment.selectedAdditionalServices;
