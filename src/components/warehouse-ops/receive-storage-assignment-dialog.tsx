@@ -13,23 +13,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2 } from "lucide-react";
+import { Loader2, Layers, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
-  addToExistingPalletPosition,
-  assignNewPalletStoragePositions,
+  CARTONS_PER_STORAGE_PALLET,
+  estimateNewPalletsNeeded,
   listActivePalletStoragePositions,
+  placeReceiveCartonsOnClientPallets,
+  positionCartonCapacity,
+  positionCartonCount,
+  positionRemainingCartonSlots,
 } from "@/lib/pallet-storage-positions";
 import type { PalletStoragePosition } from "@/types";
+import { cn } from "@/lib/utils";
 
 export type ReceiveStorageAssignContext = {
   clientUserId: string;
@@ -39,6 +36,8 @@ export type ReceiveStorageAssignContext = {
   receiveReference?: string;
   assignedBy?: string | null;
   contents?: Array<{ sku?: string; productName?: string; quantity?: number }>;
+  /** Physical CTN/PKG labels created in this receive. */
+  receivedCartonCount?: number;
 };
 
 type Props = {
@@ -58,24 +57,23 @@ export function ReceiveStorageAssignmentDialog({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [positions, setPositions] = useState<PalletStoragePosition[]>([]);
-  const [mode, setMode] = useState<"new" | "existing" | "skip">("new");
-  const [newCount, setNewCount] = useState("1");
-  const [existingId, setExistingId] = useState("");
-  const [markHasSpace, setMarkHasSpace] = useState(true);
+  const [cartonCount, setCartonCount] = useState("1");
+  const [preferredId, setPreferredId] = useState<string>("");
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
     if (!open || !context?.clientUserId) return;
     let cancelled = false;
     setLoading(true);
+    const defaultCartons = Math.max(1, Math.floor(context.receivedCartonCount ?? 1));
+    setCartonCount(String(defaultCartons));
+    setNotes("");
     listActivePalletStoragePositions(context.clientUserId)
       .then((rows) => {
-        if (!cancelled) {
-          setPositions(rows);
-          const withSpace = rows.filter((p) => p.hasSpace !== false);
-          setExistingId(withSpace[0]?.id || rows[0]?.id || "");
-          setMode(withSpace.length > 0 ? "existing" : "new");
-        }
+        if (cancelled) return;
+        setPositions(rows);
+        const openSlot = rows.find((p) => positionRemainingCartonSlots(p) > 0);
+        setPreferredId(openSlot?.id || "");
       })
       .catch(() => {
         if (!cancelled) setPositions([]);
@@ -86,59 +84,60 @@ export function ReceiveStorageAssignmentDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, context?.clientUserId]);
+  }, [open, context?.clientUserId, context?.receivedCartonCount]);
 
-  const positionsWithSpace = useMemo(
-    () => positions.filter((p) => p.hasSpace !== false),
-    [positions]
+  const cartonsNum = Math.max(0, parseInt(cartonCount, 10) || 0);
+  const estimate = useMemo(
+    () => estimateNewPalletsNeeded(positions, cartonsNum),
+    [positions, cartonsNum]
   );
 
-  async function handleSave() {
+  const preferred = positions.find((p) => p.id === preferredId) ?? null;
+  const preferredRemaining = preferred ? positionRemainingCartonSlots(preferred) : 0;
+
+  async function handlePlace() {
     if (!context) return;
-    if (mode === "skip") {
-      onComplete?.();
-      onClose();
+    if (cartonsNum < 1) {
+      toast({
+        variant: "destructive",
+        title: "Carton count required",
+        description: "Enter how many cartons from this receive go on storage pallets.",
+      });
       return;
     }
 
     setSaving(true);
     try {
-      const base = {
+      const result = await placeReceiveCartonsOnClientPallets({
         userId: context.clientUserId,
+        cartonCount: cartonsNum,
+        preferredPositionId: preferredId || null,
         warehouseId: context.warehouseId,
         receiveBatchId: context.receiveBatchId ?? null,
         receiveReference: context.receiveReference ?? null,
         assignedBy: context.assignedBy ?? null,
         notes: notes.trim() || null,
         contents: context.contents,
-      };
+      });
 
-      if (mode === "existing") {
-        if (!existingId) {
-          toast({
-            variant: "destructive",
-            title: "Select a pallet",
-            description: "Choose an existing pallet position or create new ones.",
-          });
-          return;
-        }
-        await addToExistingPalletPosition({
-          ...base,
-          positionId: existingId,
-          markHasSpace,
-        });
-        toast({
-          title: "Storage updated",
-          description: "Added to existing pallet position (billing unchanged).",
-        });
-      } else {
-        const count = Math.max(1, parseInt(newCount, 10) || 1);
-        const created = await assignNewPalletStoragePositions({ ...base, count });
-        toast({
-          title: "Storage assigned",
-          description: `Created ${created.length} billable pallet position${created.length === 1 ? "" : "s"} (7 days free).`,
-        });
-      }
+      const fullHits = result.placed.filter((p) => p.cartonCount >= p.capacity);
+      const createdLabels = result.placed.filter((p) => p.created).map((p) => p.label);
+      const summary = result.placed
+        .map((p) => `${p.label}: +${p.added} → ${p.cartonCount}/${p.capacity}`)
+        .join(" · ");
+
+      toast({
+        title:
+          result.palletsCreated > 0
+            ? `Placed on pallets — created ${createdLabels.join(", ")}`
+            : "Cartons placed on existing pallets",
+        description:
+          summary +
+          (fullHits.length
+            ? ` · ${fullHits.map((p) => p.label).join(", ")} full (${CARTONS_PER_STORAGE_PALLET} cartons) — use a new pallet next time.`
+            : ""),
+      });
+
       onComplete?.();
       onClose();
     } catch (e) {
@@ -152,15 +151,25 @@ export function ReceiveStorageAssignmentDialog({
     }
   }
 
+  function handleSkip() {
+    onComplete?.();
+    onClose();
+  }
+
   const clientLabel = context?.clientDisplayName || context?.clientUserId || "Client";
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Assign pallet storage (optional)</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <Layers className="h-4 w-4 text-orange-600" />
+            Client pallet storage
+          </DialogTitle>
           <DialogDescription>
-            Billing only — does not affect putaway. First 7 days free for new pallet positions.
+            After receive — assign cartons to this client&apos;s storage pallets.{" "}
+            <strong>1 pallet = {CARTONS_PER_STORAGE_PALLET} cartons max</strong>. When a pallet
+            hits the limit, create a new one for the rest.
           </DialogDescription>
         </DialogHeader>
 
@@ -174,110 +183,133 @@ export function ReceiveStorageAssignmentDialog({
               Client: <span className="font-medium">{clientLabel}</span>
             </p>
 
-            {positions.length > 0 && (
-              <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase">
-                  Active pallet positions
+                  Pallets assigned ({positions.length})
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  {positions.map((p) => (
-                    <Badge
-                      key={p.id}
-                      variant={p.hasSpace === false ? "secondary" : "outline"}
-                      className="text-xs"
-                    >
-                      {p.label}
-                      {p.hasSpace === false ? " · full" : " · space"}
-                    </Badge>
-                  ))}
-                </div>
+                <Badge variant="outline" className="text-[10px]">
+                  Limit {CARTONS_PER_STORAGE_PALLET} CTN / pallet
+                </Badge>
               </div>
-            )}
-
-            <RadioGroup value={mode} onValueChange={(v) => setMode(v as typeof mode)} className="space-y-3">
-              {positionsWithSpace.length > 0 && (
-                <div className="flex items-start gap-2 rounded-md border p-3">
-                  <RadioGroupItem value="existing" id="mode-existing" className="mt-1" />
-                  <div className="flex-1 space-y-2">
-                    <Label htmlFor="mode-existing" className="font-medium cursor-pointer">
-                      Add to existing pallet (no new billing position)
-                    </Label>
-                    {mode === "existing" && (
-                      <>
-                        <Select value={existingId} onValueChange={setExistingId}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select pallet" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {positionsWithSpace.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.label} — has space
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={markHasSpace}
-                            onChange={(e) => setMarkHasSpace(e.target.checked)}
-                          />
-                          Pallet still has space after this receive
-                        </label>
-                      </>
-                    )}
-                  </div>
+              {positions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No pallets yet — placing cartons will create the first one (P1).
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {positions.map((p) => {
+                    const count = positionCartonCount(p);
+                    const capacity = positionCartonCapacity(p);
+                    const remaining = positionRemainingCartonSlots(p);
+                    const full = remaining <= 0;
+                    const selected = preferredId === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={full}
+                        onClick={() => setPreferredId(p.id)}
+                        className={cn(
+                          "w-full flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-left text-sm transition-colors",
+                          full
+                            ? "opacity-60 cursor-not-allowed bg-muted"
+                            : selected
+                              ? "border-orange-400 bg-orange-50"
+                              : "hover:bg-muted/50"
+                        )}
+                      >
+                        <span className="font-mono font-semibold">{p.label}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="text-xs tabular-nums">
+                            {count}/{capacity} cartons
+                          </span>
+                          {full ? (
+                            <Badge variant="secondary" className="text-[10px]">
+                              Full — create new
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] text-emerald-800 border-emerald-300">
+                              {remaining} free
+                            </Badge>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
+            </div>
 
-              <div className="flex items-start gap-2 rounded-md border p-3">
-                <RadioGroupItem value="new" id="mode-new" className="mt-1" />
-                <div className="flex-1 space-y-2">
-                  <Label htmlFor="mode-new" className="font-medium cursor-pointer">
-                    Create new pallet position(s)
-                  </Label>
-                  {mode === "new" && (
-                    <Input
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={newCount}
-                      onChange={(e) => setNewCount(e.target.value)}
-                      className="w-24"
-                    />
-                  )}
-                </div>
-              </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Cartons from this receive to place</Label>
+              <Input
+                type="number"
+                min={1}
+                max={500}
+                value={cartonCount}
+                onChange={(e) => setCartonCount(e.target.value)}
+                className="w-28"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Defaults to labels printed on this receive. Adjust if only some cartons need
+                storage billing.
+              </p>
+            </div>
 
-              <div className="flex items-start gap-2 rounded-md border p-3">
-                <RadioGroupItem value="skip" id="mode-skip" className="mt-1" />
-                <Label htmlFor="mode-skip" className="font-medium cursor-pointer">
-                  Skip — assign storage later
-                </Label>
-              </div>
-            </RadioGroup>
-
-            {mode !== "skip" && (
-              <div className="space-y-1">
-                <Label className="text-xs">Notes (optional)</Label>
-                <Textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={2}
-                  placeholder="e.g. mixed SKUs on P2"
-                />
+            {cartonsNum > 0 && (
+              <div
+                className={cn(
+                  "rounded-md border px-3 py-2 text-xs space-y-1",
+                  estimate.newPalletsNeeded > 0
+                    ? "border-amber-300 bg-amber-50 text-amber-950"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-950"
+                )}
+              >
+                {estimate.newPalletsNeeded > 0 ? (
+                  <p className="flex items-start gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      Open slots: {estimate.freeSlots}. After filling them,{" "}
+                      <strong>
+                        {estimate.newPalletsNeeded} new pallet
+                        {estimate.newPalletsNeeded === 1 ? "" : "s"}
+                      </strong>{" "}
+                      will be created (because each holds max {CARTONS_PER_STORAGE_PALLET}{" "}
+                      cartons).
+                    </span>
+                  </p>
+                ) : (
+                  <p>
+                    Fits on existing pallets ({estimate.freeSlots} free slot
+                    {estimate.freeSlots === 1 ? "" : "s"}).
+                    {preferred && preferredRemaining > 0
+                      ? ` Prefer starting with ${preferred.label} (${preferredRemaining} free).`
+                      : ""}
+                  </p>
+                )}
               </div>
             )}
+
+            <div className="space-y-1">
+              <Label className="text-xs">Notes (optional)</Label>
+              <Textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                placeholder="e.g. mixed SKUs / overflow from P2"
+              />
+            </div>
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
-            Close
+        <DialogFooter className="gap-2 sm:gap-0 flex-col sm:flex-row">
+          <Button type="button" variant="outline" onClick={handleSkip} disabled={saving}>
+            Skip for now
           </Button>
-          <Button type="button" onClick={handleSave} disabled={saving || loading}>
+          <Button type="button" onClick={() => void handlePlace()} disabled={saving || loading}>
             {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {mode === "skip" ? "Continue without storage" : "Save storage"}
+            Place on pallets
           </Button>
         </DialogFooter>
       </DialogContent>

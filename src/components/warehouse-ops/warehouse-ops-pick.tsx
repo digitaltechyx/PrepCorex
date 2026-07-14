@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +40,11 @@ import {
   type PickPlan,
   type PickTaskStep,
 } from "@/lib/warehouse-pick";
+import {
+  confirmOutboundRequestAtPick,
+  rejectOutboundRequestAtPick,
+  type PendingOutboundRequest,
+} from "@/lib/warehouse-outbound-ops";
 import { isOpsSupervisor } from "@/lib/warehouse-ops-permissions";
 import type { WarehouseDoc } from "@/types";
 import {
@@ -56,13 +62,22 @@ type Props = {
   warehouse: WarehouseDoc;
 };
 
+type QueueTab = "pending" | "ready";
+
 export function WarehouseOpsPick({ warehouse }: Props) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
   const canDismissFromQueue = isOpsSupervisor(userProfile);
 
-  const { pickQueue: orders, outboundLoading: queueLoading } = useWarehouseOpsLive();
+  const {
+    pickQueue: orders,
+    pendingOutboundQueue,
+    outboundLoading: queueLoading,
+  } = useWarehouseOpsLive();
+
+  const [queueTab, setQueueTab] = useState<QueueTab>("pending");
+  const [managingKey, setManagingKey] = useState<string | null>(null);
 
   const [selectedOrder, setSelectedOrder] = useState<OutboundPickOrder | null>(null);
   const [plan, setPlan] = useState<PickPlan | null>(null);
@@ -130,6 +145,63 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     await loadPlanForOrder(order);
     setTimeout(() => binInputRef.current?.focus(), 50);
   }
+
+  async function approvePending(row: PendingOutboundRequest) {
+    if (!operatorId) {
+      toast({ title: "Sign in required", variant: "destructive" });
+      return;
+    }
+    const key = `${row.clientUserId}:${row.id}`;
+    setManagingKey(key);
+    try {
+      await confirmOutboundRequestAtPick({
+        clientUserId: row.clientUserId,
+        shipmentRequestId: row.id,
+        confirmedBy: String(operatorId),
+      });
+      toast({
+        title: "Outbound approved",
+        description: `${row.clientDisplayName} — ready to pick.`,
+      });
+      setQueueTab("ready");
+    } catch (e) {
+      toast({
+        title: "Approve failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setManagingKey(null);
+    }
+  }
+
+  async function rejectPending(row: PendingOutboundRequest) {
+    if (!operatorId) {
+      toast({ title: "Sign in required", variant: "destructive" });
+      return;
+    }
+    const key = `${row.clientUserId}:${row.id}`;
+    setManagingKey(key);
+    try {
+      await rejectOutboundRequestAtPick({
+        clientUserId: row.clientUserId,
+        shipmentRequestId: row.id,
+        rejectedBy: String(operatorId),
+      });
+      toast({ title: "Request rejected" });
+    } catch (e) {
+      toast({
+        title: "Reject failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setManagingKey(null);
+    }
+  }
+
+  const pendingCount = pendingOutboundQueue.length;
+  const readyCount = orders.length;
 
   function resetToQueue() {
     setSelectedOrder(null);
@@ -323,15 +395,103 @@ export function WarehouseOpsPick({ warehouse }: Props) {
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <ClipboardList className="h-4 w-4 text-emerald-600" />
-              Outbound pick queue
+              Outbound pick
             </CardTitle>
             <CardDescription className="text-xs">
-              Confirmed client shipment requests. Select an order, then scan bin → carton for each
-              step (FEFO if expiry on line, else FIFO by receive date; walk order by bin).
+              Approve pending shipment requests (same idea as inbound dock), then select a ready
+              order and start picking (FEFO / FIFO by bin walk).
             </CardDescription>
           </CardHeader>
         </Card>
 
+        <Tabs value={queueTab} onValueChange={(v) => setQueueTab(v as QueueTab)}>
+          <TabsList>
+            <TabsTrigger value="pending">Pending ({pendingCount})</TabsTrigger>
+            <TabsTrigger value="ready">Ready to pick ({readyCount})</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="pending" className="mt-3">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Pending shipment requests</CardTitle>
+                <CardDescription className="text-xs">
+                  Approve to confirm for warehouse. Inventory still deducts at dispatch.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {queueLoading ? (
+                  <p className="text-sm text-muted-foreground flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading requests…
+                  </p>
+                ) : pendingOutboundQueue.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    No pending outbound requests.
+                  </p>
+                ) : (
+                  pendingOutboundQueue.map((row) => {
+                    const key = `${row.clientUserId}:${row.id}`;
+                    const busy = managingKey === key;
+                    return (
+                      <div key={key} className="rounded-lg border px-3 py-3 space-y-2">
+                        <div className="flex justify-between gap-2 items-start">
+                          <div>
+                            <p className="font-semibold text-sm">{row.clientDisplayName}</p>
+                            {row.shipTo ? (
+                              <p className="text-xs text-muted-foreground mt-0.5">{row.shipTo}</p>
+                            ) : null}
+                            <p className="text-xs text-muted-foreground mt-1">{row.lineSummary}</p>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "shrink-0 capitalize",
+                              row.needsClientLabel && "border-amber-300 text-amber-800"
+                            )}
+                          >
+                            {row.status.replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                        {row.needsClientLabel && !row.canApprove ? (
+                          <p className="text-xs text-amber-700">
+                            Waiting for client shipping label before approve.
+                          </p>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            className="bg-emerald-600 hover:bg-emerald-700"
+                            disabled={!row.canApprove || busy}
+                            onClick={() => void approvePending(row)}
+                          >
+                            {busy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <>
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                                Approve → pick
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-destructive"
+                            disabled={busy}
+                            onClick={() => void rejectPending(row)}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="ready" className="mt-3">
         <Card>
           <CardHeader className="pb-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -382,7 +542,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
               </p>
             ) : orders.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No confirmed outbound orders waiting for floor pick.
+                No confirmed outbound orders waiting for floor pick. Approve pending first.
               </p>
             ) : (
               <div className="space-y-2">
@@ -432,6 +592,12 @@ export function WarehouseOpsPick({ warehouse }: Props) {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
+        </Tabs>
+
+        <Button variant="outline" asChild>
+          <Link href="/warehouse-ops/pack">Go to pack</Link>
+        </Button>
       </div>
     );
   }

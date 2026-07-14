@@ -81,7 +81,10 @@ export function describeProductLineLocation(input: {
     };
   }
 
-  if (carton.status === "ready_to_dispatch" || carton.status === "packed") {
+  if (
+    (carton.status as string) === "ready_to_dispatch" ||
+    (carton.status as string) === "packed"
+  ) {
     return {
       kind: "pack",
       stagingArea,

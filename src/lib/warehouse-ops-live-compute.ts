@@ -9,7 +9,10 @@ import {
   filterQuarantineReturnCartons,
   type ReturnRequestRow,
 } from "@/lib/warehouse-returns";
-import { cartonDerivedDashboardStats } from "@/lib/warehouse-ops-dashboard-stats";
+import {
+  cartonDerivedDashboardStats,
+  type WarehouseOpsDashboardStats,
+} from "@/lib/warehouse-ops-dashboard-stats";
 import {
   buildOrderLinesFromRequestData,
   clientIdsNeedingProductLookup,
@@ -23,13 +26,14 @@ import {
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
 import { resolveInboundTrackings } from "@/lib/inbound-tracking";
 import { fbaPackPhaseFromRequest, isFbaLabelWorkflowRequest } from "@/lib/fba-shipment-workflow";
+import { parseShipmentLabelUrls } from "@/lib/warehouse-outbound-ops";
 import {
   shipFromForRequest,
   shipToForRequest,
 } from "@/lib/warehouse-courier-label";
+import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
 import type { OutboundPickOrder } from "@/lib/warehouse-pick";
 import type { OutboundPackOrder } from "@/lib/warehouse-pack";
-import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
 import type {
   InventoryRequest,
   ProductReturn,
@@ -37,7 +41,6 @@ import type {
   WarehouseCartonDoc,
   WarehouseDoc,
 } from "@/types";
-import type { WarehouseOpsDashboardStats } from "@/lib/warehouse-ops-dashboard-stats";
 
 export type LiveFirestoreDoc = {
   id: string;
@@ -206,6 +209,7 @@ function buildPackOrder(
     service: data.service != null ? String(data.service) : undefined,
     fbaLabelWorkflow: isFbaLabelWorkflowRequest(data),
     fbaPackPhase: fbaPackPhaseFromRequest(data),
+    labelUrls: parseShipmentLabelUrls(data.labelUrl),
   };
 }
 

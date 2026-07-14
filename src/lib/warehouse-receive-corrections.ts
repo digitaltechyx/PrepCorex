@@ -60,6 +60,9 @@ export function cartonPutawayComplete(carton: WarehouseCartonDoc): boolean {
   if (carton.putawayDisposition === "forward" || carton.putawayDisposition === "keep_closed") {
     return true;
   }
+  if (carton.putawayDisposition === "return") {
+    return true;
+  }
   if (
     carton.status === "stowed" ||
     carton.status === "split" ||
@@ -429,7 +432,8 @@ export async function getWarehousePallet(
     putawayDisposition:
       data.putawayDisposition === "forward" ||
       data.putawayDisposition === "keep_closed" ||
-      data.putawayDisposition === "open_for_storage"
+      data.putawayDisposition === "open_for_storage" ||
+      data.putawayDisposition === "return"
         ? data.putawayDisposition
         : null,
     isClosedCrossdock: data.isClosedCrossdock === true,

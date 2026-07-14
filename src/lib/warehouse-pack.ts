@@ -41,6 +41,7 @@ import type {
 } from "@/lib/warehouse-pick";
 import { orderLinesForRequests } from "@/lib/warehouse-outbound-lines";
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
+import { parseShipmentLabelUrls } from "@/lib/warehouse-outbound-ops";
 import type {
   UserProfile,
   WarehouseCartonDoc,
@@ -101,6 +102,8 @@ export type OutboundPackOrder = OutboundPickOrder & {
   service?: string;
   fbaLabelWorkflow?: boolean;
   fbaPackPhase?: "awaiting_label" | "awaiting_courier" | null;
+  /** Client / admin uploaded shipping labels (URLs). */
+  labelUrls?: string[];
 };
 
 type PickMovementEvent = {
@@ -615,6 +618,7 @@ function toOutboundPackOrder(
     service: data.service != null ? String(data.service) : undefined,
     fbaLabelWorkflow: isFbaLabelWorkflowRequest(data),
     fbaPackPhase: fbaPackPhaseFromRequest(data),
+    labelUrls: parseShipmentLabelUrls(data.labelUrl),
   };
 }
 

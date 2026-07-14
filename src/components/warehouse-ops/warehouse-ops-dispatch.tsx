@@ -907,7 +907,11 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                           <p className="text-xs text-muted-foreground">{unit.productLabel}</p>
                         </div>
                         <Badge variant="outline">
-                          {unit.disposition === "forward" ? "Forward" : "Linked hold"}
+                          {unit.disposition === "forward"
+                            ? "Forward"
+                            : unit.disposition === "return"
+                              ? "Return"
+                              : "Linked hold"}
                         </Badge>
                       </div>
                     </button>

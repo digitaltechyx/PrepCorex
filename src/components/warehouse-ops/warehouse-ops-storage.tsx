@@ -19,8 +19,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import {
   consolidatePalletStoragePositions,
+  CARTONS_PER_STORAGE_PALLET,
   listActivePalletStoragePositions,
   listPositionContents,
+  positionCartonCapacity,
+  positionCartonCount,
   updatePalletPositionHasSpace,
 } from "@/lib/pallet-storage-positions";
 import { CrossdockClientCombobox } from "@/components/warehouse-ops/crossdock-client-combobox";
@@ -152,7 +155,8 @@ export function WarehouseOpsStorage({ warehouse, clients }: Props) {
             Pallet storage — {warehouse.code}
           </CardTitle>
           <CardDescription>
-            Billable pallet positions per client. Consolidate to reduce pallet count and stop billing on closed positions.
+            Billable pallet positions per client. Each pallet holds max {CARTONS_PER_STORAGE_PALLET}{" "}
+            cartons. Consolidate to reduce count and stop billing on closed positions.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -175,15 +179,22 @@ export function WarehouseOpsStorage({ warehouse, clients }: Props) {
           ) : clientId ? (
             <>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {positions.map((p) => (
+                {positions.map((p) => {
+                  const count = positionCartonCount(p);
+                  const capacity = positionCartonCapacity(p);
+                  const full = count >= capacity || p.hasSpace === false;
+                  return (
                   <Card key={p.id} className="border shadow-sm">
                     <CardHeader className="pb-2 pt-4 px-4">
                       <div className="flex items-center justify-between gap-2">
-                        <CardTitle className="text-base">{p.label}</CardTitle>
-                        <Badge variant={p.hasSpace === false ? "secondary" : "default"}>
-                          {p.hasSpace === false ? "Full" : "Has space"}
+                        <CardTitle className="text-base font-mono">{p.label}</CardTitle>
+                        <Badge variant={full ? "secondary" : "default"}>
+                          {full ? "Full" : "Has space"}
                         </Badge>
                       </div>
+                      <p className="text-xs text-muted-foreground tabular-nums">
+                        Cartons: {count}/{capacity} (limit {CARTONS_PER_STORAGE_PALLET})
+                      </p>
                     </CardHeader>
                     <CardContent className="px-4 pb-4 space-y-2 text-sm">
                       {p.notes && (
@@ -208,11 +219,12 @@ export function WarehouseOpsStorage({ warehouse, clients }: Props) {
                         className="w-full mt-2"
                         onClick={() => toggleHasSpace(p)}
                       >
-                        Mark as {p.hasSpace === false ? "has space" : "full"}
+                        Mark as {full ? "has space" : "full"}
                       </Button>
                     </CardContent>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
 
               {positions.length >= 2 && (

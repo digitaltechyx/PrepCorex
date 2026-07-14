@@ -30,6 +30,7 @@ import {
   type PackPlan,
   type PackPlanItem,
 } from "@/lib/warehouse-pack";
+import { completeReturnPack } from "@/lib/warehouse-unallocated-return";
 import {
   cancelFbaAwaitingLabelRequest,
   completeFbaPackWithMasterCases,
@@ -45,8 +46,11 @@ import {
   ArrowLeft,
   CheckCircle2,
   ClipboardCheck,
+  Download,
+  ExternalLink,
   Loader2,
   Package,
+  Printer,
   ScanLine,
   Truck,
   AlertTriangle,
@@ -62,13 +66,14 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
 
-  const { packQueue: orders, outboundLoading: queueLoading } = useWarehouseOpsLive();
+  const { packQueue: orders, returnPackQueue, outboundLoading: queueLoading } = useWarehouseOpsLive();
   const { clients } = useWarehouseOpsClients();
 
   const [fbaAwaitingLabel, setFbaAwaitingLabel] = useState<FbaAwaitingLabelOrder[]>([]);
   const [fbaAwaitingLoading, setFbaAwaitingLoading] = useState(false);
   const [warehouseLabelFiles, setWarehouseLabelFiles] = useState<Record<string, File[]>>({});
   const [warehouseCancelReason, setWarehouseCancelReason] = useState<Record<string, string>>({});
+  const [returnPackSavingId, setReturnPackSavingId] = useState<string | null>(null);
 
   const [selectedOrder, setSelectedOrder] = useState<OutboundPackOrder | null>(null);
   const [plan, setPlan] = useState<PackPlan | null>(null);
@@ -317,10 +322,81 @@ export function WarehouseOpsPack({ warehouse }: Props) {
               Pack bench
             </CardTitle>
             <CardDescription className="text-xs">
-              Picked orders only. Scan PKG/CTN or confirm loose units, attach courier label,
-              scan courier barcode, then mark ready to dispatch.
+              Picked orders and unallocated returns. After pack, units move to dispatch.
             </CardDescription>
           </CardHeader>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Unallocated returns ({returnPackQueue.length})</CardTitle>
+            <CardDescription className="text-xs">
+              Stock returned from Allocate → packing area. Confirm pack to send to dispatch.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {returnPackQueue.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                No returns awaiting pack.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {returnPackQueue.map((unit) => (
+                  <div
+                    key={unit.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-mono text-sm font-semibold">{unit.cartonCode}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {unit.clientDisplayName}
+                        {unit.stagingArea ? ` · ${unit.stagingArea}` : ""}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{unit.skuSummary}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="bg-orange-600 hover:bg-orange-700"
+                      disabled={returnPackSavingId === unit.id}
+                      onClick={() => {
+                        void (async () => {
+                          setReturnPackSavingId(unit.id);
+                          try {
+                            await completeReturnPack({
+                              warehouseId: warehouse.id,
+                              cartonId: unit.id,
+                              operatorId,
+                            });
+                            toast({
+                              title: "Packed — ready to dispatch",
+                              description: `${unit.cartonCode} moved to dispatch queue.`,
+                            });
+                          } catch (e) {
+                            toast({
+                              title: "Pack failed",
+                              description: e instanceof Error ? e.message : "Unknown error",
+                              variant: "destructive",
+                            });
+                          } finally {
+                            setReturnPackSavingId(null);
+                          }
+                        })();
+                      }}
+                    >
+                      {returnPackSavingId === unit.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                          Pack complete → dispatch
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
         </Card>
 
         {(fbaAwaitingLoading || fbaAwaitingLabel.length > 0) && (
@@ -495,6 +571,12 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                             .map((l) => `${l.quantityUnits}× ${l.sku}`)
                             .join(" · ")}
                         </p>
+                        {(order.labelUrls?.length ?? 0) > 0 ? (
+                          <p className="text-[10px] text-emerald-700 mt-1">
+                            {order.labelUrls!.length} client label
+                            {order.labelUrls!.length === 1 ? "" : "s"} attached
+                          </p>
+                        ) : null}
                       </div>
                       <Badge variant="outline" className="shrink-0 capitalize">
                         {order.fbaPackPhase === "awaiting_courier"
@@ -548,6 +630,42 @@ export function WarehouseOpsPack({ warehouse }: Props) {
             </div>
           </CardContent>
         ) : null}
+        {(selectedOrder.labelUrls?.length ?? 0) > 0 ? (
+          <CardContent className="pt-0 space-y-2">
+            <p className="text-xs font-medium flex items-center gap-1">
+              <Printer className="h-3.5 w-3.5" />
+              Client shipping labels
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {selectedOrder.labelUrls!.map((url, i) => (
+                <div key={`${url}-${i}`} className="flex gap-1">
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                      Open label {selectedOrder.labelUrls!.length > 1 ? i + 1 : ""}
+                    </a>
+                  </Button>
+                  <Button size="sm" variant="secondary" asChild>
+                    <a href={url} download target="_blank" rel="noopener noreferrer">
+                      <Download className="h-3.5 w-3.5 mr-1" />
+                      Download
+                    </a>
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Print or open the label, pack the order, then scan the courier barcode to finish.
+            </p>
+          </CardContent>
+        ) : (
+          <CardContent className="pt-0">
+            <p className="text-xs text-amber-700">
+              No client label on this request yet — attach/scan courier label at pack if provided
+              separately.
+            </p>
+          </CardContent>
+        )}
       </Card>
 
       {loadingPlan ? (

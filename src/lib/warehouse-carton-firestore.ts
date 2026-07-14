@@ -143,6 +143,11 @@ function parseLines(raw: unknown): WarehouseCartonLine[] | undefined {
       inventoryRequestId: obj.inventoryRequestId != null ? String(obj.inventoryRequestId) : null,
       productReturnId: obj.productReturnId != null ? String(obj.productReturnId) : null,
       stagingArea: obj.stagingArea != null ? String(obj.stagingArea) : null,
+      quarantineAt: (obj.quarantineAt as WarehouseCartonLine["quarantineAt"]) ?? null,
+      quarantineDisposedAt:
+        (obj.quarantineDisposedAt as WarehouseCartonLine["quarantineDisposedAt"]) ?? null,
+      quarantineReleasedAt:
+        (obj.quarantineReleasedAt as WarehouseCartonLine["quarantineReleasedAt"]) ?? null,
     });
   }
   return out.length > 0 ? out : undefined;
@@ -163,6 +168,9 @@ function lineToFirestore(line: WarehouseCartonLine): Record<string, unknown> {
     clientId: line.clientId ?? null,
     inventoryRequestId: line.inventoryRequestId ?? null,
     productReturnId: line.productReturnId ?? null,
+    quarantineAt: line.quarantineAt ?? null,
+    quarantineDisposedAt: line.quarantineDisposedAt ?? null,
+    quarantineReleasedAt: line.quarantineReleasedAt ?? null,
   };
 }
 
@@ -202,12 +210,15 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     putawayDisposition:
       data.putawayDisposition === "forward" ||
       data.putawayDisposition === "keep_closed" ||
-      data.putawayDisposition === "open_for_storage"
+      data.putawayDisposition === "open_for_storage" ||
+      data.putawayDisposition === "return"
         ? data.putawayDisposition
         : null,
     isClosedCrossdock: data.isClosedCrossdock === true,
     crossdockDispatchStatus:
-      data.crossdockDispatchStatus === "ready" || data.crossdockDispatchStatus === "dispatched"
+      data.crossdockDispatchStatus === "awaiting_pack" ||
+      data.crossdockDispatchStatus === "ready" ||
+      data.crossdockDispatchStatus === "dispatched"
         ? data.crossdockDispatchStatus
         : null,
     crossdockReadyToDispatchAt: data.crossdockReadyToDispatchAt as WarehouseCartonDoc["crossdockReadyToDispatchAt"],
@@ -262,12 +273,15 @@ function docToPallet(id: string, data: Record<string, unknown>): WarehousePallet
     putawayDisposition:
       data.putawayDisposition === "forward" ||
       data.putawayDisposition === "keep_closed" ||
-      data.putawayDisposition === "open_for_storage"
+      data.putawayDisposition === "open_for_storage" ||
+      data.putawayDisposition === "return"
         ? data.putawayDisposition
         : null,
     isClosedCrossdock: data.isClosedCrossdock === true,
     crossdockDispatchStatus:
-      data.crossdockDispatchStatus === "ready" || data.crossdockDispatchStatus === "dispatched"
+      data.crossdockDispatchStatus === "awaiting_pack" ||
+      data.crossdockDispatchStatus === "ready" ||
+      data.crossdockDispatchStatus === "dispatched"
         ? data.crossdockDispatchStatus
         : null,
     crossdockReadyToDispatchAt: data.crossdockReadyToDispatchAt as WarehousePalletDoc["crossdockReadyToDispatchAt"],

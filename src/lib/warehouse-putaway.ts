@@ -469,6 +469,16 @@ export async function applyPutawayAssignments(
     appliedAreas.push(...areaResult.applied);
   }
 
+  // Damaged lines enter the 10-day quarantine hold clock on first putaway.
+  const quarantineStamp = new Date();
+  nextLines = nextLines.map((l) => {
+    if (l.condition !== "damaged") return l;
+    if (l.quarantineDisposedAt) return l;
+    if (!isLinePutawayPlaced(l)) return l;
+    if (l.quarantineAt) return l;
+    return { ...l, quarantineAt: quarantineStamp };
+  });
+
   const placedLines = nextLines.filter(isLinePutawayPlaced);
   const allStowed = placedLines.length === nextLines.length;
   const distinctBins = new Set(nextLines.filter((l) => l.binId).map((l) => l.binId));
@@ -640,7 +650,8 @@ function docToCartonShallow(id: string, data: Record<string, unknown>): Warehous
     putawayDisposition:
       data.putawayDisposition === "forward" ||
       data.putawayDisposition === "keep_closed" ||
-      data.putawayDisposition === "open_for_storage"
+      data.putawayDisposition === "open_for_storage" ||
+      data.putawayDisposition === "return"
         ? data.putawayDisposition
         : null,
     receivedAt: data.receivedAt as WarehouseCartonDoc["receivedAt"],

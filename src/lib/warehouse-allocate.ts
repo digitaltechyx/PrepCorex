@@ -146,6 +146,14 @@ export async function loadAllocateData(
 
   for (const c of cartons) {
     if (!isActiveWarehouseCarton(c)) continue;
+    if (c.putawayDisposition === "return" || c.putawayDisposition === "forward") continue;
+    if (
+      c.crossdockDispatchStatus === "awaiting_pack" ||
+      c.crossdockDispatchStatus === "ready" ||
+      c.crossdockDispatchStatus === "dispatched"
+    ) {
+      continue;
+    }
     const lines = c.lines && c.lines.length > 0
       ? c.lines
       : [

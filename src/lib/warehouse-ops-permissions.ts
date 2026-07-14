@@ -167,6 +167,12 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       description: "Orders ready for carrier pickup",
     },
     {
+      title: "Quarantine",
+      href: "/warehouse-ops/quarantine",
+      feature: "ops_putaway",
+      description: "Damaged hold — release to storage or auto-dispose after 10 days",
+    },
+    {
       title: "Cycle count",
       href: "/warehouse-ops/cycle-count",
       feature: "ops_count",

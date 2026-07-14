@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Archive,
+  AlertTriangle,
   Box,
   ClipboardList,
   Home,
@@ -40,6 +41,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/warehouse-ops/locate": Search,
   "/warehouse-ops/receiving": PackagePlus,
   "/warehouse-ops/putaway": Archive,
+  "/warehouse-ops/quarantine": AlertTriangle,
   "/warehouse-ops/storage": Package,
   "/warehouse-ops/move": Move,
   "/warehouse-ops/pick": ShoppingCart,
@@ -56,6 +58,7 @@ const NAV_GROUP: Record<string, NavGroup> = {
   "/warehouse-ops/locate": "overview",
   "/warehouse-ops/receiving": "inbound",
   "/warehouse-ops/putaway": "inbound",
+  "/warehouse-ops/quarantine": "quality",
   "/warehouse-ops/storage": "inbound",
   "/warehouse-ops/move": "floor",
   "/warehouse-ops/pick": "outbound",

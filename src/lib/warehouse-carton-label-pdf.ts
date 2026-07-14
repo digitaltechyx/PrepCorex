@@ -3,6 +3,11 @@ import type { WarehouseCartonDoc } from "@/types";
 import { cartonBarcodeFromDoc } from "@/lib/warehouse-carton-barcode";
 import { isCrossdockClosedCarton } from "@/lib/warehouse-crossdock";
 import {
+  manifestConditionQtys,
+  resolveManifestLotLabel,
+  manifestSkuCount,
+} from "@/lib/warehouse-label-manifest";
+import {
   cartonAccent,
   cartonAccentLight,
   drawFieldRow,
@@ -15,29 +20,45 @@ import {
   thermal4x6PageSize,
 } from "@/lib/warehouse-handling-label-pdf-shared";
 
-function mixedCartonSkuCount(carton: WarehouseCartonDoc): number {
-  const lines = carton.lines ?? [];
-  return new Set(lines.map((l) => l.sku.trim()).filter(Boolean)).size;
-}
+function drawGoodDamagedQtyLines(
+  page: PDFPage,
+  textX: number,
+  textW: number,
+  ty: number,
+  carton: WarehouseCartonDoc,
+  font: PDFFont,
+  fontBold: PDFFont
+): number {
+  const { goodQty, damagedQty, showSplit } = manifestConditionQtys(carton);
+  if (!showSplit) return ty;
 
-function mixedCartonDamagedQty(carton: WarehouseCartonDoc): number {
-  return (carton.lines ?? [])
-    .filter((l) => l.condition === "damaged")
-    .reduce((sum, l) => sum + Math.max(0, l.quantity), 0);
-}
-
-function resolveCartonLotLabel(carton: WarehouseCartonDoc): string | null {
-  if (carton.lot?.trim()) return carton.lot.trim();
-  const lots = [
-    ...new Set(
-      (carton.lines ?? [])
-        .map((l) => l.lot?.trim())
-        .filter((lot): lot is string => !!lot)
-    ),
-  ];
-  if (lots.length === 0) return null;
-  if (lots.length === 1) return lots[0];
-  return `MULTI (${lots.length} lots)`;
+  page.drawText(pdfText(`GOOD QTY: ${goodQty}`), {
+    x: textX,
+    y: ty,
+    size: 6.5,
+    font: fontBold,
+    color: rgb(0.05, 0.45, 0.28),
+    maxWidth: textW,
+  });
+  ty -= 10;
+  page.drawText(pdfText(`DAMAGED QTY: ${damagedQty}`), {
+    x: textX,
+    y: ty,
+    size: 6.5,
+    font: fontBold,
+    color: rgb(0.7, 0.15, 0.15),
+    maxWidth: textW,
+  });
+  ty -= 9;
+  page.drawText(pdfText("Damaged → quarantine at putaway"), {
+    x: textX,
+    y: ty,
+    size: 5,
+    font,
+    color: rgb(0.7, 0.15, 0.15),
+    maxWidth: textW,
+  });
+  return ty - 10;
 }
 
 function drawCartonLabel(
@@ -55,7 +76,8 @@ function drawCartonLabel(
   const isMixed = !!carton.isMixed || (carton.lines && carton.lines.length > 1) || false;
   const isLoose = !!carton.isLoose;
   const isClosed = isCrossdockClosedCarton(carton);
-  const hasDamaged = !!carton.lines?.some((l) => l.condition === "damaged");
+  const { damagedQty, showSplit } = manifestConditionQtys(carton);
+  const hasDamaged = damagedQty > 0;
 
   const { bottom, innerX, innerW, innerH } = drawFramedLabel(
     page,
@@ -169,9 +191,8 @@ function drawCartonLabel(
       maxWidth: textW,
     });
   } else if (isMixed && carton.lines && carton.lines.length > 0) {
-    const skuCount = mixedCartonSkuCount(carton);
-    const damagedQty = mixedCartonDamagedQty(carton);
-    const lotLabel = resolveCartonLotLabel(carton);
+    const skuCount = manifestSkuCount(carton);
+    const lotLabel = resolveManifestLotLabel(carton);
     const totalUnits = carton.lines.reduce((sum, l) => sum + Math.max(0, l.quantity), 0);
 
     drawFieldRow(
@@ -205,26 +226,7 @@ function drawCartonLabel(
       ty -= 20;
     }
 
-    if (damagedQty > 0) {
-      page.drawText(pdfText(`DAMAGED QTY: ${damagedQty}`), {
-        x: textX,
-        y: ty,
-        size: 6.5,
-        font: fontBold,
-        color: rgb(0.7, 0.15, 0.15),
-        maxWidth: textW,
-      });
-      ty -= 9;
-      page.drawText(pdfText("Contains damaged units"), {
-        x: textX,
-        y: ty,
-        size: 5,
-        font,
-        color: rgb(0.7, 0.15, 0.15),
-        maxWidth: textW,
-      });
-      ty -= 10;
-    }
+    ty = drawGoodDamagedQtyLines(page, textX, textW, ty, carton, font, fontBold);
 
     page.drawText(pdfText("SKU list on putaway / system"), {
       x: textX,
@@ -252,7 +254,7 @@ function drawCartonLabel(
       drawFieldRow(page, textX, ty - 10, "LOT", carton.lot, font, fontBold, textW, 7);
       ty -= 22;
     } else {
-      const lotLabel = resolveCartonLotLabel(carton);
+      const lotLabel = resolveManifestLotLabel(carton);
       if (lotLabel) {
         drawFieldRow(page, textX, ty - 10, "LOT", lotLabel, font, fontBold, textW, 7);
         ty -= 22;
@@ -262,29 +264,12 @@ function drawCartonLabel(
       drawFieldRow(page, textX, ty - 10, "EXP", carton.expiry.slice(0, 10), font, fontBold, textW, 7);
       ty -= 22;
     }
-    const damagedQty = mixedCartonDamagedQty(carton);
-    if (damagedQty > 0) {
-      page.drawText(pdfText(`DAMAGED QTY: ${damagedQty}`), {
-        x: textX,
-        y: ty,
-        size: 6.5,
-        font: fontBold,
-        color: rgb(0.7, 0.15, 0.15),
-        maxWidth: textW,
-      });
-      ty -= 9;
-      page.drawText(pdfText("Contains damaged units"), {
-        x: textX,
-        y: ty,
-        size: 5,
-        font,
-        color: rgb(0.7, 0.15, 0.15),
-        maxWidth: textW,
-      });
+    if (showSplit) {
+      drawGoodDamagedQtyLines(page, textX, textW, ty, carton, font, fontBold);
     }
   }
 
-  // Footer: qty + damaged badge + brand
+  // Footer: total qty + damaged badge + brand
   page.drawRectangle({
     x: innerX,
     y: bottom,

@@ -113,6 +113,8 @@ export type OpenCrossdockLineInput = {
   lot?: string | null;
   expiry?: string | null;
   productTitle?: string | null;
+  /** When true, line is damaged and routes to quarantine at putaway. */
+  damaged?: boolean;
 };
 
 /** Replace CLOSED placeholder lines with real SKU manifest before bin putaway. */
@@ -152,6 +154,7 @@ export async function openCrossdockCartonForStorage(input: {
       lot: l.lot?.trim() || null,
       expiry: l.expiry?.trim().slice(0, 10) || null,
       productTitle: l.productTitle?.trim() || null,
+      damaged: l.damaged === true,
     }))
     .filter((l) => l.sku && l.quantity >= 1);
 
@@ -177,7 +180,7 @@ export async function openCrossdockCartonForStorage(input: {
       quantity: l.quantity,
       lot,
       expiry: l.expiry,
-      condition: "good" as const,
+      condition: (l.damaged ? "damaged" : "good") as "good" | "damaged",
       binId: null,
       stagingArea,
       allocationStatus: (ownerId ? "allocated" : "unallocated") as
@@ -185,6 +188,7 @@ export async function openCrossdockCartonForStorage(input: {
         | "unallocated",
       clientId: ownerId,
       inventoryRequestId: input.carton.inventoryRequestId ?? null,
+      ...(l.damaged ? { quarantineAt: new Date() } : {}),
     };
   });
 
@@ -212,6 +216,9 @@ export async function openCrossdockCartonForStorage(input: {
       allocationStatus: l.allocationStatus ?? "unallocated",
       clientId: l.clientId ?? null,
       inventoryRequestId: l.inventoryRequestId ?? null,
+      ...(l.condition === "damaged" && l.quarantineAt
+        ? { quarantineAt: l.quarantineAt }
+        : {}),
     })),
     sku: rootSku,
     lot: rootLot,
@@ -275,4 +282,14 @@ export const DISPOSITION_LABELS: Record<WarehousePutawayDisposition, string> = {
   forward: "Forward — ship now (direct dispatch)",
   keep_closed: "Keep closed — hold for client outbound",
   open_for_storage: "Open for storage (bins)",
+  return: "Return — pack area, then dispatch",
 };
+
+/** Areas tagged for packing (used by unallocated Return). */
+export function areasForPacking(areas: WarehouseAreaDoc[]): WarehouseAreaDoc[] {
+  return areas.filter((a) => {
+    if (a.active === false) return false;
+    const keys = getAreaPurposes(a).map(purposeKey);
+    return keys.some((k) => k === "packing");
+  });
+}

@@ -118,10 +118,12 @@ export type WarehouseReceiveMode = "crossdock" | "unpackaged";
 export type WarehousePutawayDisposition =
   | "forward"
   | "keep_closed"
-  | "open_for_storage";
+  | "open_for_storage"
+  /** Unallocated return — stage in pack area, then pack → dispatch. */
+  | "return";
 
-/** Cross-dock units routed to direct dispatch (skip pick/pack). */
-export type CrossdockDispatchStatus = "ready" | "dispatched";
+/** Cross-dock / return units on the outbound path. */
+export type CrossdockDispatchStatus = "awaiting_pack" | "ready" | "dispatched";
 
 /**
  * One SKU line inside a received carton. Single-SKU cartons have exactly one line.
@@ -149,6 +151,12 @@ export interface WarehouseCartonLine {
   inventoryRequestId?: string | null;
   /** Linked client product return (RMA) when received as a return. */
   productReturnId?: string | null;
+  /** When this damaged line entered quarantine (putaway). Auto-dispose after 10 days. */
+  quarantineAt?: { seconds: number; nanoseconds: number } | Date | string | null;
+  /** Set when quarantine stock was disposed (manual or auto after 10 days). */
+  quarantineDisposedAt?: { seconds: number; nanoseconds: number } | Date | string | null;
+  /** Set when operator released quarantine stock back to good storage. */
+  quarantineReleasedAt?: { seconds: number; nanoseconds: number } | Date | string | null;
 }
 
 /** Physical carton (WHAT) — `warehouses/{id}/cartons/{cartonId}`. */
@@ -1560,6 +1568,10 @@ export interface PalletStoragePosition {
   status: "active" | "closed";
   cycleId?: string;
   hasSpace?: boolean;
+  /** Physical cartons currently on this billable pallet (max cartonCapacity). */
+  cartonCount?: number;
+  /** Capacity in cartons — default 10. */
+  cartonCapacity?: number;
   warehouseId?: string | null;
   receiveBatchId?: string | null;
   notes?: string | null;

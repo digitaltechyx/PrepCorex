@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFPage, type PDFFont, type PDFIm
 import type { WarehouseCartonDoc } from "@/types";
 import { encodePackageBarcode } from "@/lib/warehouse-carton-barcode";
 import {
+  manifestConditionQtys,
   manifestDamagedQty,
   manifestSkuCount,
   resolveManifestLotLabel,
@@ -230,7 +231,7 @@ function drawManifestPackageLabel(
   let ty = bodyBottom + bodyH - 10;
   const skuCount = manifestSkuCount(pkg);
   const lotLabel = resolveManifestLotLabel(pkg);
-  const damagedQty = manifestDamagedQty(pkg);
+  const { goodQty, damagedQty, showSplit } = manifestConditionQtys(pkg);
   const lines = pkg.lines ?? [];
 
   drawFieldRow(page, textX, ty - 10, "SKUS", String(skuCount), font, fontBold, textW, 8);
@@ -242,8 +243,17 @@ function drawManifestPackageLabel(
     drawFieldRow(page, textX, ty - 10, "LOT", lotLabel, font, fontBold, textW, 6.5);
     ty -= 20;
   }
-  if (damagedQty > 0) {
-    page.drawText(pdfText(`DMG QTY: ${damagedQty}`), {
+  if (showSplit) {
+    page.drawText(pdfText(`GOOD QTY: ${goodQty}`), {
+      x: textX,
+      y: ty,
+      size: 6,
+      font: fontBold,
+      color: rgb(0.05, 0.45, 0.28),
+      maxWidth: textW,
+    });
+    ty -= 10;
+    page.drawText(pdfText(`DAMAGED QTY: ${damagedQty}`), {
       x: textX,
       y: ty,
       size: 6,

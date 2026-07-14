@@ -12,6 +12,28 @@ export function manifestDamagedQty(carton: WarehouseCartonDoc): number {
     .reduce((sum, l) => sum + Math.max(0, l.quantity), 0);
 }
 
+export function manifestGoodQty(carton: WarehouseCartonDoc): number {
+  return (carton.lines ?? [])
+    .filter((l) => l.condition !== "damaged")
+    .reduce((sum, l) => sum + Math.max(0, l.quantity), 0);
+}
+
+/** When damaged units exist, label body should show Good + Damaged (footer already has total QTY). */
+export function manifestConditionQtys(carton: WarehouseCartonDoc): {
+  goodQty: number;
+  damagedQty: number;
+  showSplit: boolean;
+} {
+  const damagedQty = manifestDamagedQty(carton);
+  const goodQty = manifestGoodQty(carton);
+  return {
+    goodQty,
+    damagedQty,
+    /** Show Good + Damaged lines whenever any damaged units exist (footer already has total). */
+    showSplit: damagedQty > 0,
+  };
+}
+
 export function resolveManifestLotLabel(carton: WarehouseCartonDoc): string | null {
   if (carton.lot?.trim()) return carton.lot.trim();
   const lots = [

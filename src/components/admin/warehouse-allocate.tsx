@@ -31,7 +31,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
-import type { UserProfile, WarehouseDoc } from "@/types";
+import { CrossdockClientCombobox } from "@/components/warehouse-ops/crossdock-client-combobox";
+import { ScanLookupPopover } from "@/components/warehouse-ops/scan-lookup-popover";
+import {
+  describeReceiveLotHint,
+  describeReceiveLotPattern,
+} from "@/lib/warehouse-receive-lot";
+import type { UserProfile, WarehouseAreaDoc, WarehouseDoc } from "@/types";
 import {
   agingBucket,
   allocateLine,
@@ -45,6 +51,11 @@ import {
 } from "@/lib/warehouse-allocate";
 import { isCrossdockClosedSku } from "@/lib/warehouse-crossdock";
 import {
+  areasForPacking,
+  listWarehouseAreas,
+} from "@/lib/warehouse-putaway-disposition";
+import { returnUnallocatedLineToPack } from "@/lib/warehouse-unallocated-return";
+import {
   Loader2,
   CheckCircle2,
   RotateCcw,
@@ -55,8 +66,31 @@ import {
   Sparkles,
   PackageOpen,
   Plus,
+  Undo2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+type OpenReceiveLineDraft = {
+  id: string;
+  sku: string;
+  productTitle: string;
+  goodQty: string;
+  damagedQty: string;
+  lot: string;
+  expiry: string;
+};
+
+function newOpenReceiveLine(lot = ""): OpenReceiveLineDraft {
+  return {
+    id: `ln${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    sku: "",
+    productTitle: "",
+    goodQty: "1",
+    damagedQty: "0",
+    lot,
+    expiry: "",
+  };
+}
 
 type Props = {
   warehouse: WarehouseDoc;
@@ -98,11 +132,18 @@ export function WarehouseAllocate({ warehouse }: Props) {
   const [restockClient, setRestockClient] = useState<string>("");
   const [restockSaving, setRestockSaving] = useState(false);
 
+  const [returnTarget, setReturnTarget] = useState<UnallocatedLine | null>(null);
+  const [returnClient, setReturnClient] = useState<string>("");
+  const [returnPackAreaId, setReturnPackAreaId] = useState<string>("");
+  const [packingAreas, setPackingAreas] = useState<WarehouseAreaDoc[]>([]);
+  const [returnSaving, setReturnSaving] = useState(false);
+
   const [openReceiveTarget, setOpenReceiveTarget] = useState<UnallocatedLine | null>(null);
   const [openReceiveClient, setOpenReceiveClient] = useState<string>("");
-  const [openReceiveLines, setOpenReceiveLines] = useState<
-    Array<{ id: string; sku: string; qty: string; lot: string; expiry: string }>
-  >([{ id: "ln1", sku: "", qty: "1", lot: "", expiry: "" }]);
+  const [openReceiveClientLabel, setOpenReceiveClientLabel] = useState("");
+  const [openReceiveLines, setOpenReceiveLines] = useState<OpenReceiveLineDraft[]>([
+    newOpenReceiveLine(),
+  ]);
   const [openReceiveSaving, setOpenReceiveSaving] = useState(false);
 
   const [overrideTarget, setOverrideTarget] = useState<{
@@ -285,42 +326,143 @@ export function WarehouseAllocate({ warehouse }: Props) {
     }
   }
 
+  async function openReturnDialog(u: UnallocatedLine) {
+    setReturnTarget(u);
+    setReturnClient(u.line.clientId?.trim() || u.cartonClientId?.trim() || "");
+    setReturnPackAreaId("");
+    try {
+      const areas = await listWarehouseAreas(warehouse.id);
+      const packing = areasForPacking(areas);
+      setPackingAreas(packing);
+      if (packing.length === 1) setReturnPackAreaId(packing[0].id);
+    } catch {
+      setPackingAreas([]);
+    }
+  }
+
+  async function handleReturnToPack() {
+    if (!returnTarget) return;
+    if (!returnClient) {
+      toast({ title: "Pick a client", variant: "destructive" });
+      return;
+    }
+    if (!returnPackAreaId) {
+      toast({ title: "Pick a packing area", variant: "destructive" });
+      return;
+    }
+    setReturnSaving(true);
+    try {
+      const result = await returnUnallocatedLineToPack({
+        warehouseId: warehouse.id,
+        cartonId: returnTarget.cartonId,
+        lineId: returnTarget.line.lineId,
+        packAreaId: returnPackAreaId,
+        clientUserId: returnClient,
+        operatorId,
+      });
+      toast({
+        title: "Sent to pack",
+        description: `${result.cartonCode} → ${result.packAreaCode}. After pack it goes to dispatch.`,
+      });
+      setReturnTarget(null);
+      setReturnClient("");
+      setReturnPackAreaId("");
+      await refresh();
+    } catch (e) {
+      toast({
+        title: "Return failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setReturnSaving(false);
+    }
+  }
+
   function openClosedReceiveDialog(u: UnallocatedLine) {
     const prefillClient =
       u.line.clientId?.trim() || u.cartonClientId?.trim() || "";
+    const client = prefillClient ? clientById.get(prefillClient) : undefined;
     setOpenReceiveTarget(u);
     setOpenReceiveClient(prefillClient);
-    setOpenReceiveLines([
-      {
-        id: "ln1",
-        sku: "",
-        qty: "1",
-        lot: u.receiveLot ?? u.line.lot ?? "",
-        expiry: "",
-      },
-    ]);
+    setOpenReceiveClientLabel(
+      client
+        ? client.name || client.email || client.clientId || ""
+        : u.cartonClientLabel ?? ""
+    );
+    setOpenReceiveLines([newOpenReceiveLine(u.receiveLot ?? u.line.lot ?? "")]);
+  }
+
+  function updateOpenReceiveLine(id: string, patch: Partial<OpenReceiveLineDraft>) {
+    setOpenReceiveLines((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, ...patch } : l))
+    );
   }
 
   async function handleOpenReceiveConfirm() {
     if (!openReceiveTarget) return;
     if (!openReceiveClient) {
-      toast({ title: "Pick a registered client", variant: "destructive" });
-      return;
-    }
-    const payload = openReceiveLines.map((l) => ({
-      sku: l.sku,
-      quantity: parseInt(l.qty, 10) || 0,
-      lot: l.lot || null,
-      expiry: l.expiry || null,
-    }));
-    if (!payload.some((l) => l.sku.trim() && l.quantity >= 1)) {
       toast({
-        title: "Add SKUs",
-        description: "Enter at least one SKU with quantity ≥ 1.",
+        title: "Pick a registered client",
+        description: "Select a client from the list so inventory updates on their account.",
         variant: "destructive",
       });
       return;
     }
+
+    const payload: Array<{
+      sku: string;
+      quantity: number;
+      lot: string | null;
+      expiry: string | null;
+      productTitle: string | null;
+      damaged: boolean;
+    }> = [];
+
+    for (const l of openReceiveLines) {
+      const sku = l.sku.trim();
+      if (!sku) continue;
+      const good = Math.max(0, parseInt(l.goodQty, 10) || 0);
+      const dmg = Math.max(0, parseInt(l.damagedQty, 10) || 0);
+      if (good + dmg < 1) {
+        toast({
+          title: "Quantity required",
+          description: `SKU ${sku} needs at least 1 good or damaged unit.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      if (good > 0) {
+        payload.push({
+          sku,
+          quantity: good,
+          lot: l.lot.trim() || null,
+          expiry: l.expiry.trim() || null,
+          productTitle: l.productTitle.trim() || null,
+          damaged: false,
+        });
+      }
+      if (dmg > 0) {
+        payload.push({
+          sku,
+          quantity: dmg,
+          lot: l.lot.trim() || null,
+          expiry: l.expiry.trim() || null,
+          productTitle: l.productTitle.trim() || null,
+          damaged: true,
+        });
+      }
+    }
+
+    if (payload.length === 0) {
+      toast({
+        title: "Add SKUs",
+        description: "Enter at least one SKU with good or damaged quantity ≥ 1.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setOpenReceiveSaving(true);
     try {
       const client = clientById.get(openReceiveClient);
@@ -328,7 +470,7 @@ export function WarehouseAllocate({ warehouse }: Props) {
         warehouseId: warehouse.id,
         cartonId: openReceiveTarget.cartonId,
         clientId: openReceiveClient,
-        clientDisplayName: client?.name || client?.email || null,
+        clientDisplayName: client?.name || client?.email || openReceiveClientLabel || null,
         lines: payload,
         operatorId,
       });
@@ -340,6 +482,7 @@ export function WarehouseAllocate({ warehouse }: Props) {
       });
       setOpenReceiveTarget(null);
       setOpenReceiveClient("");
+      setOpenReceiveClientLabel("");
       await refresh();
     } catch (e) {
       toast({
@@ -654,6 +797,15 @@ export function WarehouseAllocate({ warehouse }: Props) {
                           Restock to client…
                         </Button>
                       ) : null}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-orange-300 text-orange-800 hover:bg-orange-50"
+                        onClick={() => void openReturnDialog(u)}
+                      >
+                        <Undo2 className="h-3 w-3 mr-1" />
+                        Return…
+                      </Button>
                     </div>
                   </div>
                 );
@@ -746,43 +898,49 @@ export function WarehouseAllocate({ warehouse }: Props) {
       </Dialog>
 
       <Dialog
-        open={!!openReceiveTarget}
+        open={!!returnTarget}
         onOpenChange={(o) => {
           if (!o) {
-            setOpenReceiveTarget(null);
-            setOpenReceiveClient("");
+            setReturnTarget(null);
+            setReturnClient("");
+            setReturnPackAreaId("");
           }
         }}
       >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <PackageOpen className="h-4 w-4 text-indigo-600" />
-              Open receive for client
+              <Undo2 className="h-4 w-4 text-orange-700" />
+              Return to pack
             </DialogTitle>
             <DialogDescription>
-              Closed walk-in / unknown-owner stock. Pick the registered client, enter SKUs, and
-              their inventory table updates (if already put away). Otherwise putaway next.
+              Putaway this unallocated stock into a packing area. After warehouse pack confirms,
+              it moves to the dispatch queue.
             </DialogDescription>
           </DialogHeader>
-          {openReceiveTarget ? (
+          {returnTarget ? (
             <div className="space-y-3">
               <div className="rounded border bg-muted/40 px-3 py-2 text-sm">
-                <p className="font-mono font-semibold">{openReceiveTarget.cartonCode}</p>
+                <span className="font-mono">
+                  {isCrossdockClosedSku(returnTarget.line.sku)
+                    ? returnTarget.cartonCode
+                    : returnTarget.line.sku}
+                </span>
+                {!isCrossdockClosedSku(returnTarget.line.sku) ? (
+                  <> × {returnTarget.line.quantity}</>
+                ) : null}
                 <p className="text-xs text-muted-foreground">
-                  {openReceiveTarget.receiveLot || openReceiveTarget.line.lot
-                    ? `Lot ${openReceiveTarget.receiveLot || openReceiveTarget.line.lot}`
-                    : "No lot on file"}
-                  {openReceiveTarget.stagingArea
-                    ? ` · Area ${openReceiveTarget.stagingArea}`
-                    : openReceiveTarget.binPath
-                      ? ` · ${openReceiveTarget.binPath}`
-                      : " · not put away yet"}
+                  Carton {returnTarget.cartonCode}
+                  {returnTarget.binPath
+                    ? ` · Bin ${returnTarget.binPath}`
+                    : returnTarget.stagingArea
+                      ? ` · Area ${returnTarget.stagingArea}`
+                      : " · in staging"}
                 </p>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Registered client</Label>
-                <Select value={openReceiveClient || ""} onValueChange={setOpenReceiveClient}>
+                <Label className="text-xs">Client (for dispatch / shipped record)</Label>
+                <Select value={returnClient || ""} onValueChange={setReturnClient}>
                   <SelectTrigger>
                     <SelectValue placeholder="Pick a client" />
                   </SelectTrigger>
@@ -796,49 +954,225 @@ export function WarehouseAllocate({ warehouse }: Props) {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label className="text-xs">SKU lines</Label>
-                {openReceiveLines.map((line, idx) => (
-                  <div key={line.id} className="grid gap-2 sm:grid-cols-4 border rounded-md p-2">
-                    <div className="space-y-1 sm:col-span-2">
-                      <Label className="text-[10px] text-muted-foreground">SKU</Label>
-                      <Input
-                        value={line.sku}
-                        onChange={(e) => {
-                          const next = [...openReceiveLines];
-                          next[idx] = { ...line, sku: e.target.value };
-                          setOpenReceiveLines(next);
-                        }}
-                        placeholder="SKU"
-                      />
+              <div className="space-y-1">
+                <Label className="text-xs">Packing area</Label>
+                {packingAreas.length === 0 ? (
+                  <p className="text-xs text-amber-700">
+                    No packing area found. Add an area with Packing purpose in warehouse
+                    management.
+                  </p>
+                ) : (
+                  <Select value={returnPackAreaId || ""} onValueChange={setReturnPackAreaId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Pick packing area" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {packingAreas.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.code}
+                          {a.name ? ` — ${a.name}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReturnTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleReturnToPack()}
+              disabled={returnSaving || !returnClient || !returnPackAreaId}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {returnSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Putaway to pack"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!openReceiveTarget}
+        onOpenChange={(o) => {
+          if (!o) {
+            setOpenReceiveTarget(null);
+            setOpenReceiveClient("");
+            setOpenReceiveClientLabel("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackageOpen className="h-4 w-4 text-indigo-600" />
+              Open receive for client
+            </DialogTitle>
+            <DialogDescription>
+              Same as open receiving at the dock: pick the registered client, count SKUs (good +
+              damaged), then inventory updates if already put away — otherwise putaway next.
+            </DialogDescription>
+          </DialogHeader>
+          {openReceiveTarget ? (
+            <div className="space-y-4">
+              <div className="rounded border bg-muted/40 px-3 py-2 text-sm">
+                <p className="font-mono font-semibold">{openReceiveTarget.cartonCode}</p>
+                <p className="text-xs text-muted-foreground">
+                  {openReceiveTarget.receiveLot || openReceiveTarget.line.lot
+                    ? `Lot ${openReceiveTarget.receiveLot || openReceiveTarget.line.lot}`
+                    : "No lot on file"}
+                  {openReceiveTarget.stagingArea
+                    ? ` · Area ${openReceiveTarget.stagingArea}`
+                    : openReceiveTarget.binPath
+                      ? ` · ${openReceiveTarget.binPath}`
+                      : " · not put away yet"}
+                </p>
+              </div>
+
+              <div className="space-y-1 rounded-md border border-emerald-200/80 bg-emerald-50/30 p-3">
+                <Label className="text-xs">Client (required)</Label>
+                <CrossdockClientCombobox
+                  clients={clients}
+                  clientId={openReceiveClient}
+                  clientLabel={openReceiveClientLabel}
+                  onChange={({ clientId, clientLabel }) => {
+                    setOpenReceiveClient(clientId);
+                    setOpenReceiveClientLabel(clientLabel);
+                  }}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Select a registered client from the list so counted SKUs land in their inventory.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <Label className="text-xs font-semibold">SKU lines</Label>
+                {openReceiveLines.map((line) => {
+                  const good = Math.max(0, parseInt(line.goodQty, 10) || 0);
+                  const dmg = Math.max(0, parseInt(line.damagedQty, 10) || 0);
+                  return (
+                    <div
+                      key={line.id}
+                      className="space-y-3 rounded-md border border-emerald-200/60 bg-card p-3"
+                    >
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">SKU</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              value={line.sku}
+                              onChange={(e) =>
+                                updateOpenReceiveLine(line.id, { sku: e.target.value })
+                              }
+                              placeholder="Required"
+                            />
+                            <ScanLookupPopover
+                              onPick={(m) =>
+                                updateOpenReceiveLine(line.id, {
+                                  sku: m.sku,
+                                  productTitle: m.productName,
+                                })
+                              }
+                              onAcceptRaw={(raw) =>
+                                updateOpenReceiveLine(line.id, { sku: raw })
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Product name (optional)</Label>
+                          <Input
+                            value={line.productTitle}
+                            onChange={(e) =>
+                              updateOpenReceiveLine(line.id, {
+                                productTitle: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="grid gap-2 grid-cols-2 sm:grid-cols-4">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Good qty</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={line.goodQty}
+                            onChange={(e) =>
+                              updateOpenReceiveLine(line.id, { goodQty: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-red-700">Damaged qty</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={line.damagedQty}
+                            onChange={(e) =>
+                              updateOpenReceiveLine(line.id, {
+                                damagedQty: e.target.value,
+                              })
+                            }
+                            className={dmg > 0 ? "border-red-300" : ""}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Lot (required)</Label>
+                          <Input
+                            value={line.lot}
+                            onChange={(e) =>
+                              updateOpenReceiveLine(line.id, { lot: e.target.value })
+                            }
+                            placeholder="Or leave blank to auto-generate"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Expiry (optional)</Label>
+                          <Input
+                            type="date"
+                            value={line.expiry}
+                            onChange={(e) =>
+                              updateOpenReceiveLine(line.id, { expiry: e.target.value })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Lot: enter your own, or leave blank —{" "}
+                        <span className="font-mono">{describeReceiveLotPattern()}</span>.{" "}
+                        {describeReceiveLotHint()}
+                      </p>
+                      {good + dmg > 0 ? (
+                        <p className="text-[10px] text-muted-foreground tabular-nums">
+                          Line total: {good + dmg} ({good} good
+                          {dmg > 0 ? `, ${dmg} damaged → quarantine` : ""})
+                        </p>
+                      ) : null}
+                      {openReceiveLines.length > 1 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-muted-foreground"
+                          onClick={() =>
+                            setOpenReceiveLines((prev) =>
+                              prev.filter((l) => l.id !== line.id)
+                            )
+                          }
+                        >
+                          Remove line
+                        </Button>
+                      ) : null}
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-[10px] text-muted-foreground">Qty</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={line.qty}
-                        onChange={(e) => {
-                          const next = [...openReceiveLines];
-                          next[idx] = { ...line, qty: e.target.value };
-                          setOpenReceiveLines(next);
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[10px] text-muted-foreground">Lot</Label>
-                      <Input
-                        value={line.lot}
-                        onChange={(e) => {
-                          const next = [...openReceiveLines];
-                          next[idx] = { ...line, lot: e.target.value };
-                          setOpenReceiveLines(next);
-                        }}
-                        placeholder="Optional"
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <Button
                   type="button"
                   variant="outline"
@@ -846,13 +1180,7 @@ export function WarehouseAllocate({ warehouse }: Props) {
                   onClick={() =>
                     setOpenReceiveLines((prev) => [
                       ...prev,
-                      {
-                        id: `ln${Date.now()}`,
-                        sku: "",
-                        qty: "1",
-                        lot: openReceiveTarget.receiveLot ?? "",
-                        expiry: "",
-                      },
+                      newOpenReceiveLine(openReceiveTarget.receiveLot ?? ""),
                     ])
                   }
                 >
@@ -868,6 +1196,7 @@ export function WarehouseAllocate({ warehouse }: Props) {
               onClick={() => {
                 setOpenReceiveTarget(null);
                 setOpenReceiveClient("");
+                setOpenReceiveClientLabel("");
               }}
             >
               Cancel

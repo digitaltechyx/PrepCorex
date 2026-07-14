@@ -42,6 +42,10 @@ export function linesToFirestorePayload(lines: WarehouseCartonLine[]) {
     allocationStatus: l.allocationStatus ?? "unallocated",
     clientId: l.clientId ?? null,
     inventoryRequestId: l.inventoryRequestId ?? null,
+    productReturnId: l.productReturnId ?? null,
+    quarantineAt: l.quarantineAt ?? null,
+    quarantineDisposedAt: l.quarantineDisposedAt ?? null,
+    quarantineReleasedAt: l.quarantineReleasedAt ?? null,
   }));
 }
 

@@ -26,6 +26,11 @@ import {
   warehousePalletsCollectionRef,
 } from "@/lib/warehouse-carton-firestore";
 import { buildCrossdockDispatchQueue, buildCrossdockHoldQueue, type CrossdockDispatchUnit } from "@/lib/warehouse-crossdock-dispatch";
+import { buildReturnPackQueue, type ReturnPackUnit } from "@/lib/warehouse-unallocated-return";
+import {
+  buildPendingOutboundQueueLive,
+  type PendingOutboundRequest,
+} from "@/lib/warehouse-outbound-ops";
 import { warehouseCycleCountTasksCollectionRef, isAssignedCycleCountTask } from "@/lib/warehouse-cycle-count";
 import { mirrorUnlinkedPendingBatchLines } from "@/lib/inbound-batch";
 import {
@@ -177,8 +182,10 @@ type WarehouseOpsLiveContextValue = {
   pickQueue: OutboundPickOrder[];
   packQueue: OutboundPackOrder[];
   dispatchQueue: OutboundPackOrder[];
+  pendingOutboundQueue: PendingOutboundRequest[];
   crossdockDispatchQueue: CrossdockDispatchUnit[];
   crossdockHoldQueue: CrossdockDispatchUnit[];
+  returnPackQueue: ReturnPackUnit[];
   inboundDockQueue: InboundRequestRow[];
   returnDockQueue: ReturnRequestRow[];
   quarantineReturnCartons: WarehouseCartonDoc[];
@@ -396,7 +403,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
   const syncError =
     cartonsSyncError ?? shipmentsSyncError ?? inventorySyncError ?? returnsSyncError ?? null;
 
-  const { stats, pickQueue, packQueue, dispatchQueue, crossdockDispatchQueue, crossdockHoldQueue, inboundDockQueue, returnDockQueue, quarantineReturnCartons } =
+  const { stats, pickQueue, packQueue, dispatchQueue, pendingOutboundQueue, crossdockDispatchQueue, crossdockHoldQueue, returnPackQueue, inboundDockQueue, returnDockQueue, quarantineReturnCartons } =
     useMemo(() => {
     if (!selectedWarehouse) {
       const empty: WarehouseOpsDashboardStats = {
@@ -415,8 +422,10 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
         pickQueue: [] as OutboundPickOrder[],
         packQueue: [] as OutboundPackOrder[],
         dispatchQueue: [] as OutboundPackOrder[],
+        pendingOutboundQueue: [] as PendingOutboundRequest[],
         crossdockDispatchQueue: [] as CrossdockDispatchUnit[],
         crossdockHoldQueue: [] as CrossdockDispatchUnit[],
+        returnPackQueue: [] as ReturnPackUnit[],
         inboundDockQueue: [] as InboundRequestRow[],
         returnDockQueue: [] as ReturnRequestRow[],
         quarantineReturnCartons: [] as WarehouseCartonDoc[],
@@ -440,6 +449,13 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       pallets,
       clients,
     });
+    const returnPack = buildReturnPackQueue({ cartons, clients });
+    const pendingOutbound = buildPendingOutboundQueueLive({
+      warehouse: selectedWarehouse,
+      clients,
+      shipmentDocs,
+      productMaps,
+    });
 
     const nextStats = computeWarehouseOpsLiveStats({
       warehouse: selectedWarehouse,
@@ -458,8 +474,10 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       pickQueue: queues.pickQueue,
       packQueue: queues.packQueue,
       dispatchQueue: queues.dispatchQueue,
+      pendingOutboundQueue: pendingOutbound,
       crossdockDispatchQueue: crossdockQueue,
       crossdockHoldQueue: crossdockHold,
+      returnPackQueue: returnPack,
       inboundDockQueue: buildInboundDockQueueLive({
         warehouse: selectedWarehouse,
         clients: inboundUsers,
@@ -542,8 +560,10 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       pickQueue,
       packQueue,
       dispatchQueue,
+      pendingOutboundQueue,
       crossdockDispatchQueue,
       crossdockHoldQueue,
+      returnPackQueue,
       inboundDockQueue,
       returnDockQueue,
       quarantineReturnCartons,
@@ -558,8 +578,10 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       pickQueue,
       packQueue,
       dispatchQueue,
+      pendingOutboundQueue,
       crossdockDispatchQueue,
       crossdockHoldQueue,
+      returnPackQueue,
       inboundDockQueue,
       returnDockQueue,
       quarantineReturnCartons,

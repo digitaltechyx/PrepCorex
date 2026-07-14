@@ -1179,6 +1179,7 @@ function ReceiveForm({
     receiveEntries?: Array<{ clientUserId: string; sku: string; productName?: string | null; quantity: number }>;
     palletId?: string | null;
     cartonIds?: string[];
+    receivedCartonCount?: number;
   }) {
     const client = resolveClientAfterReceive(input);
     if (!client) {
@@ -1189,6 +1190,9 @@ function ReceiveForm({
       input.palletId ||
       (input.cartonIds?.length === 1 ? input.cartonIds[0] : undefined) ||
       undefined;
+    const cartonCount =
+      input.receivedCartonCount ??
+      (input.cartonIds?.length ? input.cartonIds.length : input.palletId ? 1 : 1);
     setStorageAssignContext({
       clientUserId: client.clientUserId,
       clientDisplayName: client.clientDisplayName,
@@ -1196,6 +1200,7 @@ function ReceiveForm({
       receiveBatchId: batchRef,
       receiveReference: batchRef,
       assignedBy: operatorId ?? null,
+      receivedCartonCount: Math.max(1, cartonCount),
       contents: input.receiveEntries?.map((e) => ({
         sku: e.sku,
         productName: e.productName ?? undefined,
@@ -1341,7 +1346,7 @@ function ReceiveForm({
           title: "Pallet received",
           description: "PLT label printed. Contents stay closed until putaway.",
         });
-        promptStorageAssignmentAfterReceive({ palletId });
+        promptStorageAssignmentAfterReceive({ palletId, receivedCartonCount: 1 });
       } catch (e) {
         toast({
           title: "Receive failed",
@@ -1690,6 +1695,7 @@ function ReceiveForm({
         receiveEntries,
         palletId: palletId ?? null,
         cartonIds,
+        receivedCartonCount: Math.max(1, cartonIds.length || created.length || 1),
       });
     } catch (e) {
       toast({

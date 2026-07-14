@@ -72,7 +72,11 @@ function effectivePackOfForShipment(
   return Math.max(1, Math.floor(Number(shipment.packOf) || 1));
 }
 
-function shipmentUnits(data: Record<string, unknown>, shipment: Record<string, unknown>, index: number): number {
+export function shipmentUnits(
+  data: Record<string, unknown>,
+  shipment: Record<string, unknown>,
+  index: number
+): number {
   const qty = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
   return qty * effectivePackOfForShipment(data, shipment, index);
 }

@@ -71,10 +71,15 @@ function dateFromFirestore(value: unknown): Date | null {
 }
 
 export function isCrossdockDispatchReadyCarton(carton: WarehouseCartonDoc): boolean {
-  if (carton.receiveMode !== "crossdock") return false;
   if (carton.crossdockDispatchStatus === "dispatched") return false;
   if (carton.status === "closed" || carton.status === "voided") return false;
   if (!clientIdFromCarton(carton)) return false;
+
+  if (carton.putawayDisposition === "return") {
+    return carton.crossdockDispatchStatus === "ready";
+  }
+
+  if (carton.receiveMode !== "crossdock") return false;
 
   if (carton.putawayDisposition === "forward") {
     return carton.crossdockDispatchStatus === "ready" || carton.status === "on_hold";
@@ -572,13 +577,18 @@ export async function completeCrossdockDispatch(input: {
   await createCrossdockShippedRecord({
     clientUserId: input.unit.clientUserId,
     productName: input.unit.productLabel,
-    service: "Cross-dock Forwarding",
-    shipTo: "Cross-dock forward",
+    service:
+      input.unit.disposition === "return" ? "Unallocated Return" : "Cross-dock Forwarding",
+    shipTo:
+      input.unit.disposition === "return" ? "Return outbound" : "Cross-dock forward",
     courierTracking: tracking,
     boxesShipped: 1,
     shippedQty: input.unit.isClosed ? 1 : 1,
     unitCode: input.unit.code,
     unitKind: input.unit.kind,
-    remarks: `Cross-dock ${input.unit.code} dispatched`,
+    remarks:
+      input.unit.disposition === "return"
+        ? `Return ${input.unit.code} dispatched`
+        : `Cross-dock ${input.unit.code} dispatched`,
   });
 }

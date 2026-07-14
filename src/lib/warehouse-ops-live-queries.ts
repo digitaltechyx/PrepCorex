@@ -171,7 +171,9 @@ export function useWarehouseClientDocsLive(input: UseWarehouseClientDocsLiveInpu
   return { docs, loading: loading || clientsLoading, syncError };
 }
 
-export const SHIPMENT_LIVE_CONSTRAINTS = [where("status", "==", "confirmed")] as QueryConstraint[];
+export const SHIPMENT_LIVE_CONSTRAINTS = [
+  where("status", "in", ["pending", "confirmed", "awaiting_label_upload"]),
+] as QueryConstraint[];
 /** No status filter — Notifications loads all requests; we normalize status client-side so casing / odd values are not dropped. */
 export const INVENTORY_LIVE_CONSTRAINTS = [] as QueryConstraint[];
 export const RETURN_LIVE_CONSTRAINTS = [

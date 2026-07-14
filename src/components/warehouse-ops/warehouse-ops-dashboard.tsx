@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
+  AlertTriangle,
   Box,
   ClipboardList,
   Loader2,
@@ -38,6 +39,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/warehouse-ops/locate": Search,
   "/warehouse-ops/receiving": PackagePlus,
   "/warehouse-ops/putaway": Archive,
+  "/warehouse-ops/quarantine": AlertTriangle,
   "/warehouse-ops/move": Move,
   "/warehouse-ops/pick": ShoppingCart,
   "/warehouse-ops/pack": Box,
