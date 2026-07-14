@@ -889,6 +889,10 @@ export interface ShipmentRequest {
   fbaClientLabelUploadedAt?: { seconds: number; nanoseconds: number } | string;
   fbaWarehouseLabelUploadedAt?: { seconds: number; nanoseconds: number } | string;
   fbaWarehouseLabelUploadedBy?: string | null;
+  /** Ops will purchase/apply courier label — pack may finish without client upload. */
+  fbaWarehouseBuysLabel?: boolean;
+  fbaWarehouseBuysLabelAt?: { seconds: number; nanoseconds: number } | string;
+  fbaWarehouseBuysLabelBy?: string | null;
 }
 
 export type FbaWeightUnit = "lb" | "kg";

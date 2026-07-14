@@ -178,7 +178,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
       });
       toast({
         title: "Linked to outbound",
-        description: `${matchedHoldUnit.code} is ready for cross-dock dispatch.`,
+        description: `${matchedHoldUnit.code} moved to Pack — complete pack, then dispatch.`,
       });
       setLinkShipmentId("");
       setMatchedHoldUnit(null);
@@ -862,7 +862,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                 disabled={!matchedHoldUnit || !linkShipmentId.trim() || linkingHold}
                 onClick={() => void handleLinkHoldToOutbound()}
               >
-                {linkingHold ? "Linking…" : "Link and mark ready to dispatch"}
+                {linkingHold ? "Linking…" : "Link → Pack"}
               </Button>
             </CardContent>
           </Card>

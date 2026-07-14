@@ -48,11 +48,11 @@ export async function applyPalletCrossdockAreaPutaway(input: {
   const nextStatus: WarehousePalletStatus =
     input.disposition === "forward" ? "on_hold" : "receiving";
 
+  // Forward: Pack first, then Dispatch (not ready until pack complete).
   const crossdockPatch =
     input.disposition === "forward"
       ? {
-          crossdockDispatchStatus: "ready" as const,
-          crossdockReadyToDispatchAt: serverTimestamp(),
+          crossdockDispatchStatus: "awaiting_pack" as const,
         }
       : {};
 

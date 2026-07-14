@@ -82,7 +82,8 @@ export function isCrossdockDispatchReadyCarton(carton: WarehouseCartonDoc): bool
   if (carton.receiveMode !== "crossdock") return false;
 
   if (carton.putawayDisposition === "forward") {
-    return carton.crossdockDispatchStatus === "ready" || carton.status === "on_hold";
+    // Must pack first — on_hold alone is not enough.
+    return carton.crossdockDispatchStatus === "ready";
   }
   if (carton.putawayDisposition === "keep_closed") {
     return (
@@ -100,7 +101,7 @@ export function isCrossdockDispatchReadyPallet(pallet: WarehousePalletDoc): bool
   if (!pallet.clientId?.trim()) return false;
 
   if (pallet.putawayDisposition === "forward") {
-    return pallet.crossdockDispatchStatus === "ready" || pallet.status === "on_hold";
+    return pallet.crossdockDispatchStatus === "ready";
   }
   if (pallet.putawayDisposition === "keep_closed") {
     return (
@@ -413,7 +414,7 @@ async function createShippedFromCrossdockFulfillmentRequest(input: {
   return shippedRef.id;
 }
 
-/** Path B — link a held cross-dock unit to a confirmed client outbound (skip pick/pack). */
+/** Path B — link a held cross-dock unit to a confirmed client outbound (then Pack → Dispatch). */
 export async function linkCrossdockHoldToShipment(input: {
   warehouseId: string;
   kind: CrossdockDispatchUnitKind;
@@ -470,8 +471,7 @@ export async function linkCrossdockHoldToShipment(input: {
 
   batch.update(unitRef, {
     crossdockLinkedShipmentRequestId: input.shipmentRequestId,
-    crossdockDispatchStatus: "ready",
-    crossdockReadyToDispatchAt: serverTimestamp(),
+    crossdockDispatchStatus: "awaiting_pack",
     updatedAt: serverTimestamp(),
   });
 
@@ -483,9 +483,7 @@ export async function linkCrossdockHoldToShipment(input: {
     warehousePickStatus: "picked",
     warehousePickedAt: serverTimestamp(),
     warehousePickedBy: input.operatorId ?? null,
-    warehousePackStatus: "ready_to_dispatch",
-    warehouseReadyToDispatchAt: serverTimestamp(),
-    warehousePackStockSnapshot: [],
+    warehousePackStatus: "packing",
     updatedAt: serverTimestamp(),
   });
 

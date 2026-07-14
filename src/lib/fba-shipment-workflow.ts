@@ -200,6 +200,37 @@ export async function recordFbaLabelUpload(input: {
   }
 }
 
+/**
+ * Warehouse will buy/apply the courier label on client's behalf —
+ * skip waiting for client label upload and allow finishing pack.
+ */
+export async function markFbaWarehouseBuysLabel(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+  operatorId?: string | null;
+}): Promise<void> {
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Order not found.");
+
+  const data = snap.data() as Record<string, unknown>;
+  if (!isFbaLabelWorkflowRequest(data)) {
+    throw new Error("This order is not on the FBA label workflow.");
+  }
+  if (data.status !== "awaiting_label_upload" && fbaPackPhaseFromRequest(data) !== "awaiting_label") {
+    throw new Error("This request is not waiting for a shipping label.");
+  }
+
+  await updateDoc(ref, {
+    status: "confirmed",
+    fbaPackPhase: "awaiting_courier",
+    fbaWarehouseBuysLabel: true,
+    fbaWarehouseBuysLabelAt: serverTimestamp(),
+    fbaWarehouseBuysLabelBy: input.operatorId ?? null,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 /** Warehouse cancels an FBA request waiting for client label. */
 export async function cancelFbaAwaitingLabelRequest(input: {
   clientUserId: string;

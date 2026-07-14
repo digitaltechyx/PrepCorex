@@ -243,6 +243,8 @@ export function buildOutboundQueuesLive(input: {
   for (const doc of input.shipmentDocs) {
     const data = doc.data;
     if (data.status !== "confirmed") continue;
+    // Fulfilled via cross-dock unit — pack/dispatch on Cross-dock queues, not outbound SKU pick/pack.
+    if (data.crossdockFulfillment === true) continue;
 
     const clientUserId = userIdFromDocPath(doc.path);
     if (!eligible.has(clientUserId)) continue;

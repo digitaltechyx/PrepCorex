@@ -31,11 +31,13 @@ import {
   type PackPlanItem,
 } from "@/lib/warehouse-pack";
 import { completeReturnPack } from "@/lib/warehouse-unallocated-return";
+import { completeCrossdockPack } from "@/lib/warehouse-crossdock-pack";
 import {
   cancelFbaAwaitingLabelRequest,
   completeFbaPackWithMasterCases,
   formatFbaMasterCaseSummary,
   loadFbaAwaitingLabelOrders,
+  markFbaWarehouseBuysLabel,
   recordFbaLabelUpload,
   type FbaAwaitingLabelOrder,
 } from "@/lib/fba-shipment-workflow";
@@ -66,7 +68,8 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
 
-  const { packQueue: orders, returnPackQueue, outboundLoading: queueLoading } = useWarehouseOpsLive();
+  const { packQueue: orders, returnPackQueue, crossdockPackQueue, outboundLoading: queueLoading } =
+    useWarehouseOpsLive();
   const { clients } = useWarehouseOpsClients();
 
   const [fbaAwaitingLabel, setFbaAwaitingLabel] = useState<FbaAwaitingLabelOrder[]>([]);
@@ -74,6 +77,8 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const [warehouseLabelFiles, setWarehouseLabelFiles] = useState<Record<string, File[]>>({});
   const [warehouseCancelReason, setWarehouseCancelReason] = useState<Record<string, string>>({});
   const [returnPackSavingId, setReturnPackSavingId] = useState<string | null>(null);
+  const [crossdockPackSavingId, setCrossdockPackSavingId] = useState<string | null>(null);
+  const [fbaBuysLabelSavingId, setFbaBuysLabelSavingId] = useState<string | null>(null);
 
   const [selectedOrder, setSelectedOrder] = useState<OutboundPackOrder | null>(null);
   const [plan, setPlan] = useState<PackPlan | null>(null);
@@ -322,9 +327,124 @@ export function WarehouseOpsPack({ warehouse }: Props) {
               Pack bench
             </CardTitle>
             <CardDescription className="text-xs">
-              Picked orders and unallocated returns. After pack, units move to dispatch.
+              Picked orders, cross-dock carton/pallet forwarding, and returns. After pack, units
+              move to dispatch.
             </CardDescription>
           </CardHeader>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">
+              Cross-dock carton / pallet ({crossdockPackQueue.length})
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Forward after receive, or after linking a held unit. Download labels if attached,
+              then pack complete → dispatch.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {crossdockPackQueue.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                No cross-dock units awaiting pack.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {crossdockPackQueue.map((unit) => {
+                  const saveKey = `${unit.kind}:${unit.id}`;
+                  return (
+                    <div
+                      key={saveKey}
+                      className="rounded-lg border px-3 py-2 space-y-2"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-mono text-sm font-semibold">{unit.code}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {unit.clientDisplayName}
+                            {unit.stagingArea ? ` · ${unit.stagingArea}` : ""}
+                            {` · ${unit.kind}`}
+                            {unit.disposition === "keep_closed" ? " · held link" : " · forward"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{unit.productLabel}</p>
+                          {(unit.labelUrls?.length ?? 0) > 0 ? (
+                            <p className="text-[10px] text-emerald-700 mt-1">
+                              {unit.labelUrls.length} client label
+                              {unit.labelUrls.length === 1 ? "" : "s"} attached
+                            </p>
+                          ) : (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              No client label on linked request — pack and dispatch with courier
+                              label when ready.
+                            </p>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                          disabled={crossdockPackSavingId === saveKey}
+                          onClick={() => {
+                            void (async () => {
+                              setCrossdockPackSavingId(saveKey);
+                              try {
+                                await completeCrossdockPack({
+                                  warehouseId: warehouse.id,
+                                  kind: unit.kind,
+                                  unitId: unit.id,
+                                  operatorId,
+                                });
+                                toast({
+                                  title: "Packed — ready to dispatch",
+                                  description: `${unit.code} moved to cross-dock dispatch.`,
+                                });
+                              } catch (e) {
+                                toast({
+                                  title: "Pack failed",
+                                  description: e instanceof Error ? e.message : "Unknown error",
+                                  variant: "destructive",
+                                });
+                              } finally {
+                                setCrossdockPackSavingId(null);
+                              }
+                            })();
+                          }}
+                        >
+                          {crossdockPackSavingId === saveKey ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                              Pack complete → dispatch
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                      {unit.labelUrls.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {unit.labelUrls.map((url, i) => (
+                            <div key={`${url}-${i}`} className="flex gap-1">
+                              <Button size="sm" variant="outline" asChild>
+                                <a href={url} target="_blank" rel="noopener noreferrer">
+                                  <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                                  Open {unit.labelUrls.length > 1 ? i + 1 : "label"}
+                                </a>
+                              </Button>
+                              <Button size="sm" variant="secondary" asChild>
+                                <a href={url} download target="_blank" rel="noopener noreferrer">
+                                  <Download className="h-3.5 w-3.5 mr-1" />
+                                  Download
+                                </a>
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
         </Card>
 
         <Card>
@@ -404,7 +524,8 @@ export function WarehouseOpsPack({ warehouse }: Props) {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">FBA — awaiting client label</CardTitle>
               <CardDescription className="text-xs">
-                Master case details sent. Upload a label here or cancel if the client will not ship.
+                Master case details sent. Upload a label, or complete without upload if the
+                warehouse will buy the courier label.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -493,6 +614,43 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                           }}
                         >
                           Upload label
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={fbaBuysLabelSavingId === order.id}
+                          onClick={() => {
+                            void (async () => {
+                              setFbaBuysLabelSavingId(order.id);
+                              try {
+                                await markFbaWarehouseBuysLabel({
+                                  clientUserId: order.clientUserId,
+                                  shipmentRequestId: order.id,
+                                  operatorId,
+                                });
+                                toast({
+                                  title: "Warehouse will buy label",
+                                  description:
+                                    "Open the order in Pack queue, then scan the courier label to finish.",
+                                });
+                                void refreshFbaAwaitingLabel();
+                              } catch (e) {
+                                toast({
+                                  title: "Could not continue",
+                                  description: e instanceof Error ? e.message : "Unknown error",
+                                  variant: "destructive",
+                                });
+                              } finally {
+                                setFbaBuysLabelSavingId(null);
+                              }
+                            })();
+                          }}
+                        >
+                          {fbaBuysLabelSavingId === order.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            "Complete without client label"
+                          )}
                         </Button>
                         <Button
                           size="sm"

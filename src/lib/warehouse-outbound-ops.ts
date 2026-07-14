@@ -88,6 +88,28 @@ export function buildPendingOutboundQueueLive(input: {
     const clientUserId = userIdFromDocPath(docRow.path);
     if (!clientUserId || !eligible.has(clientUserId)) continue;
 
+    // Already on the floor / mid FBA pack — not a new pending approve row.
+    const pickStatus = String(data.warehousePickStatus ?? "")
+      .trim()
+      .toLowerCase();
+    const packStatus = String(data.warehousePackStatus ?? "")
+      .trim()
+      .toLowerCase();
+    const fbaPhase = String(data.fbaPackPhase ?? "")
+      .trim()
+      .toLowerCase();
+    if (
+      pickStatus === "picking" ||
+      pickStatus === "picked" ||
+      pickStatus === "skipped" ||
+      packStatus === "packing" ||
+      packStatus === "ready_to_dispatch" ||
+      fbaPhase === "awaiting_label" ||
+      fbaPhase === "awaiting_courier"
+    ) {
+      continue;
+    }
+
     const products = input.productMaps.get(clientUserId) ?? new Map();
     const lines = buildOrderLinesFromRequestData(data, products);
     const labelUrls = parseShipmentLabelUrls(data.labelUrl);

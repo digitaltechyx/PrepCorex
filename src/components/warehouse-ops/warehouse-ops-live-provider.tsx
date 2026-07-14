@@ -26,6 +26,10 @@ import {
   warehousePalletsCollectionRef,
 } from "@/lib/warehouse-carton-firestore";
 import { buildCrossdockDispatchQueue, buildCrossdockHoldQueue, type CrossdockDispatchUnit } from "@/lib/warehouse-crossdock-dispatch";
+import {
+  buildCrossdockPackQueue,
+  type CrossdockPackUnit,
+} from "@/lib/warehouse-crossdock-pack";
 import { buildReturnPackQueue, type ReturnPackUnit } from "@/lib/warehouse-unallocated-return";
 import {
   buildPendingOutboundQueueLive,
@@ -185,6 +189,7 @@ type WarehouseOpsLiveContextValue = {
   pendingOutboundQueue: PendingOutboundRequest[];
   crossdockDispatchQueue: CrossdockDispatchUnit[];
   crossdockHoldQueue: CrossdockDispatchUnit[];
+  crossdockPackQueue: CrossdockPackUnit[];
   returnPackQueue: ReturnPackUnit[];
   inboundDockQueue: InboundRequestRow[];
   returnDockQueue: ReturnRequestRow[];
@@ -403,7 +408,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
   const syncError =
     cartonsSyncError ?? shipmentsSyncError ?? inventorySyncError ?? returnsSyncError ?? null;
 
-  const { stats, pickQueue, packQueue, dispatchQueue, pendingOutboundQueue, crossdockDispatchQueue, crossdockHoldQueue, returnPackQueue, inboundDockQueue, returnDockQueue, quarantineReturnCartons } =
+  const { stats, pickQueue, packQueue, dispatchQueue, pendingOutboundQueue, crossdockDispatchQueue, crossdockHoldQueue, crossdockPackQueue, returnPackQueue, inboundDockQueue, returnDockQueue, quarantineReturnCartons } =
     useMemo(() => {
     if (!selectedWarehouse) {
       const empty: WarehouseOpsDashboardStats = {
@@ -425,6 +430,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
         pendingOutboundQueue: [] as PendingOutboundRequest[],
         crossdockDispatchQueue: [] as CrossdockDispatchUnit[],
         crossdockHoldQueue: [] as CrossdockDispatchUnit[],
+        crossdockPackQueue: [] as CrossdockPackUnit[],
         returnPackQueue: [] as ReturnPackUnit[],
         inboundDockQueue: [] as InboundRequestRow[],
         returnDockQueue: [] as ReturnRequestRow[],
@@ -448,6 +454,12 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       cartons,
       pallets,
       clients,
+    });
+    const crossdockPack = buildCrossdockPackQueue({
+      cartons,
+      pallets,
+      clients,
+      shipmentDocs,
     });
     const returnPack = buildReturnPackQueue({ cartons, clients });
     const pendingOutbound = buildPendingOutboundQueueLive({
@@ -477,6 +489,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       pendingOutboundQueue: pendingOutbound,
       crossdockDispatchQueue: crossdockQueue,
       crossdockHoldQueue: crossdockHold,
+      crossdockPackQueue: crossdockPack,
       returnPackQueue: returnPack,
       inboundDockQueue: buildInboundDockQueueLive({
         warehouse: selectedWarehouse,
@@ -563,6 +576,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       pendingOutboundQueue,
       crossdockDispatchQueue,
       crossdockHoldQueue,
+      crossdockPackQueue,
       returnPackQueue,
       inboundDockQueue,
       returnDockQueue,
@@ -581,6 +595,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       pendingOutboundQueue,
       crossdockDispatchQueue,
       crossdockHoldQueue,
+      crossdockPackQueue,
       returnPackQueue,
       inboundDockQueue,
       returnDockQueue,
