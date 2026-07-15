@@ -74,9 +74,15 @@ import {
 import { getWarehouseCarton } from "@/lib/warehouse-receive-corrections";
 import type { UserProfile, WarehouseDoc } from "@/types";
 import {
+  Archive,
   CheckCircle2,
+  ClipboardList,
+  FileText,
+  Inbox,
   Loader2,
+  MapPin,
   Package,
+  PackagePlus,
   Search,
   Ship,
   UserPlus,
@@ -102,15 +108,95 @@ function displayName(client: UserProfile | undefined, uid: string): string {
 function StatusBadge({ status }: { status?: string }) {
   const s = String(status || "");
   if (s === "pending")
-    return <Badge className="bg-amber-500 hover:bg-amber-600">Pending</Badge>;
+    return (
+      <Badge className="bg-amber-500/15 text-amber-800 border-amber-300/60 hover:bg-amber-500/20 border">
+        Pending
+      </Badge>
+    );
   if (s === "approved")
-    return <Badge className="bg-blue-500 hover:bg-blue-600">Approved</Badge>;
+    return (
+      <Badge className="bg-sky-500/15 text-sky-800 border-sky-300/60 hover:bg-sky-500/20 border">
+        Open
+      </Badge>
+    );
   if (s === "in_progress")
-    return <Badge className="bg-violet-500 hover:bg-violet-600">In progress</Badge>;
-  if (s === "closed") return <Badge variant="secondary">Closed</Badge>;
+    return (
+      <Badge className="bg-orange-500/15 text-orange-900 border-orange-300/70 hover:bg-orange-500/20 border">
+        In progress
+      </Badge>
+    );
+  if (s === "closed")
+    return (
+      <Badge variant="secondary" className="border border-border/60">
+        Closed
+      </Badge>
+    );
   if (s === "cancelled") return <Badge variant="destructive">Cancelled</Badge>;
   return <Badge variant="outline">{s || "—"}</Badge>;
 }
+
+function ReceiveProgress({ received, requested }: { received: number; requested: number }) {
+  const req = Math.max(0, requested);
+  const rec = Math.max(0, received);
+  const pct = req > 0 ? Math.min(100, Math.round((rec / req) * 100)) : 0;
+  return (
+    <div className="space-y-1.5 min-w-[7.5rem]">
+      <div className="flex items-baseline justify-between gap-2 text-[11px]">
+        <span className="text-muted-foreground">Received</span>
+        <span className="font-semibold tabular-nums text-foreground">
+          {rec}/{req || "—"}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all",
+            pct >= 100 ? "bg-emerald-500" : pct > 0 ? "bg-orange-500" : "bg-transparent"
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+const TAB_META: Array<{
+  id: StatusTab;
+  label: string;
+  hint: string;
+  tone: string;
+}> = [
+  {
+    id: "pending",
+    label: "Pending",
+    hint: "Approve or reject",
+    tone: "data-[state=active]:bg-amber-500 data-[state=active]:text-white",
+  },
+  {
+    id: "open",
+    label: "Open",
+    hint: "Ready to receive",
+    tone: "data-[state=active]:bg-sky-600 data-[state=active]:text-white",
+  },
+  {
+    id: "in_progress",
+    label: "In progress",
+    hint: "Partial receive",
+    tone: "data-[state=active]:bg-orange-600 data-[state=active]:text-white",
+  },
+  {
+    id: "closed",
+    label: "Closed",
+    hint: "History",
+    tone: "data-[state=active]:bg-slate-700 data-[state=active]:text-white",
+  },
+  {
+    id: "all",
+    label: "All",
+    hint: "Everything",
+    tone: "data-[state=active]:bg-foreground data-[state=active]:text-background",
+  },
+];
 
 export function WarehouseOpsReturns({ warehouse }: Props) {
   const { toast } = useToast();
@@ -631,204 +717,385 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   }
 
   const loading = returnsLoading || liveLoading || clientsLoading;
+  const activeWork = counts.pending + counts.open + counts.in_progress;
 
   return (
-    <div className="space-y-4">
-      <WarehouseOpsHeader title="Returns" />
-      <p className="text-sm text-muted-foreground -mt-2">
-        Pending → approve → receive (carton/pallet/package + lot) →{" "}
-        <Link href="/warehouse-ops/putaway" className="underline text-foreground">
-          Putaway
-        </Link>{" "}
-        → ship / close + invoice. Partial receives stay open; prior putaway locations show on receive.
-      </p>
+    <div className="space-y-5">
+      <WarehouseOpsHeader
+        title="Returns"
+        description="Inbound-style receive · open/partial RMA · ship during receive · invoice on close"
+      />
 
-      <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" onClick={() => setWalkInOpen(true)}>
-          <UserPlus className="h-4 w-4 mr-1" />
-          Walk-in return
-        </Button>
-        {unallocatedReturnCartons.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setLinkCartonId(unallocatedReturnCartons[0]?.id || "");
-              setLinkOpen(true);
-            }}
-          >
-            <Package className="h-4 w-4 mr-1" />
-            Link unallocated ({unallocatedReturnCartons.length})
-          </Button>
-        )}
-        <Button variant="outline" size="sm" asChild>
-          <Link href="/warehouse-ops/putaway">
-            Putaway returns
-          </Link>
-        </Button>
-      </div>
-
-      <div className="relative max-w-md">
-        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Search client, product, SKU…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
-
-      <Tabs value={tab} onValueChange={(v) => setTab(v as StatusTab)}>
-        <TabsList className="flex flex-wrap h-auto gap-1">
-          {(
-            [
-              ["pending", "Pending", counts.pending],
-              ["open", "Open", counts.open],
-              ["in_progress", "In progress", counts.in_progress],
-              ["closed", "Closed", counts.closed],
-              ["all", "All", counts.all],
-            ] as const
-          ).map(([id, label, count]) => (
-            <TabsTrigger key={id} value={id} className="gap-1.5">
-              {label}
-              <Badge variant="secondary" className="text-[10px] px-1.5">
-                {count}
-              </Badge>
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
-        <TabsContent value={tab} className="mt-3 space-y-2">
-          {loading ? (
-            <p className="text-sm text-muted-foreground flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading returns…
-            </p>
-          ) : filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No returns in this queue.
-            </p>
-          ) : (
-            filtered.map((row) => {
-              const owner = getReturnOwnerId(row);
-              const client = clientById.get(owner);
-              const rem = Math.max(
-                0,
-                (row.requestedQuantity || 0) - (row.receivedQuantity || 0)
-              );
-              const shipAvail = Math.max(
-                0,
-                (row.receivedQuantity || 0) - (row.shippedQuantity || 0)
-              );
-              const canManage =
-                row.status === "approved" || row.status === "in_progress";
-              return (
-                <Card
-                  key={`${owner}-${row.id}`}
-                  className={cn(
-                    "border",
-                    row.status === "pending" && "border-amber-200",
-                    row.status === "in_progress" && "border-violet-200"
-                  )}
+      <Card className="overflow-hidden border-orange-200/70 bg-gradient-to-br from-orange-50/90 via-background to-slate-50/80 shadow-sm">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-2 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-orange-600 text-white shadow-sm">
+                  <ClipboardList className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold tracking-tight">Return floor queue</p>
+                  <p className="text-xs text-muted-foreground">
+                    {activeWork} active · {counts.closed} closed · warehouse {warehouse.code}
+                  </p>
+                </div>
+              </div>
+              <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+                {[
+                  "Approve",
+                  "Receive + lot",
+                  "Putaway",
+                  "Ship (optional)",
+                  "Close + invoice",
+                ].map((step, i) => (
+                  <li key={step} className="inline-flex items-center gap-1.5">
+                    {i > 0 && <span className="text-orange-300">→</span>}
+                    <span className="rounded-md bg-background/80 border border-border/60 px-2 py-0.5 text-foreground/80">
+                      {step}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              <Button
+                size="sm"
+                className="bg-orange-600 hover:bg-orange-700"
+                onClick={() => setWalkInOpen(true)}
+              >
+                <UserPlus className="h-4 w-4 mr-1.5" />
+                Walk-in return
+              </Button>
+              {unallocatedReturnCartons.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setLinkCartonId(unallocatedReturnCartons[0]?.id || "");
+                    setLinkOpen(true);
+                  }}
                 >
-                  <CardHeader className="py-3 pb-2">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <CardTitle className="text-sm font-medium">
-                          {displayName(client, owner)}
-                        </CardTitle>
-                        <CardDescription className="text-xs mt-0.5">
-                          {resolveReturnProductName(row)}
-                          {resolveReturnSku(row) ? ` · ${resolveReturnSku(row)}` : ""}
-                        </CardDescription>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        <StatusBadge status={row.status} />
-                        {row.type === "existing" ? (
-                          <Badge variant="outline">Existing</Badge>
-                        ) : (
-                          <Badge variant="outline">New</Badge>
-                        )}
-                        {row.returnType && (
-                          <Badge variant="secondary" className="capitalize">
-                            {row.returnType}
-                          </Badge>
-                        )}
-                        {row.source === "warehouse_ops_walk_in" && (
-                          <Badge variant="outline">Walk-in</Badge>
-                        )}
+                  <Package className="h-4 w-4 mr-1.5" />
+                  Link unallocated
+                  <Badge className="ml-1.5 bg-orange-600 hover:bg-orange-600 text-[10px] px-1.5">
+                    {unallocatedReturnCartons.length}
+                  </Badge>
+                </Button>
+              )}
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/warehouse-ops/putaway">
+                  <MapPin className="h-4 w-4 mr-1.5" />
+                  Putaway
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        {(
+          [
+            {
+              id: "pending" as StatusTab,
+              label: "Pending",
+              count: counts.pending,
+              icon: Inbox,
+              accent: "border-amber-200 bg-amber-50/60",
+              iconClass: "text-amber-700",
+            },
+            {
+              id: "open" as StatusTab,
+              label: "Open",
+              count: counts.open,
+              icon: PackagePlus,
+              accent: "border-sky-200 bg-sky-50/60",
+              iconClass: "text-sky-700",
+            },
+            {
+              id: "in_progress" as StatusTab,
+              label: "In progress",
+              count: counts.in_progress,
+              icon: Package,
+              accent: "border-orange-200 bg-orange-50/70",
+              iconClass: "text-orange-700",
+            },
+            {
+              id: "closed" as StatusTab,
+              label: "Closed",
+              count: counts.closed,
+              icon: Archive,
+              accent: "border-slate-200 bg-slate-50/80",
+              iconClass: "text-slate-600",
+            },
+          ] as const
+        ).map((stat) => {
+          const Icon = stat.icon;
+          const active = tab === stat.id;
+          return (
+            <button
+              key={stat.id}
+              type="button"
+              onClick={() => setTab(stat.id)}
+              className={cn(
+                "rounded-xl border px-3 py-3 text-left transition-all hover:shadow-sm",
+                stat.accent,
+                active && "ring-2 ring-orange-500/40 shadow-sm"
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <Icon className={cn("h-4 w-4", stat.iconClass)} />
+                <span className="text-xl font-bold tabular-nums tracking-tight">{stat.count}</span>
+              </div>
+              <p className="mt-1 text-xs font-medium text-foreground/80">{stat.label}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3 space-y-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">Queue</CardTitle>
+              <CardDescription className="text-xs">
+                Search and work returns by status — partial receives stay open until complete.
+              </CardDescription>
+            </div>
+            <div className="relative w-full sm:max-w-xs">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-8 h-9 text-sm"
+                placeholder="Search client, product, SKU…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <Tabs value={tab} onValueChange={(v) => setTab(v as StatusTab)}>
+            <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-muted/50 p-1">
+              {TAB_META.map((t) => {
+                const count =
+                  t.id === "pending"
+                    ? counts.pending
+                    : t.id === "open"
+                      ? counts.open
+                      : t.id === "in_progress"
+                        ? counts.in_progress
+                        : t.id === "closed"
+                          ? counts.closed
+                          : counts.all;
+                return (
+                  <TabsTrigger
+                    key={t.id}
+                    value={t.id}
+                    className={cn(
+                      "flex-1 min-w-[5.5rem] gap-1.5 rounded-md px-2.5 py-2 data-[state=active]:shadow-sm",
+                      t.tone
+                    )}
+                  >
+                    <span className="text-xs font-semibold">{t.label}</span>
+                    <span className="rounded-full bg-black/10 px-1.5 py-0 text-[10px] font-bold tabular-nums">
+                      {count}
+                    </span>
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+
+            <TabsContent value={tab} className="mt-4 space-y-3 focus-visible:outline-none">
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading returns…
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="rounded-xl border border-dashed bg-muted/20 px-6 py-14 text-center">
+                  <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                    <Inbox className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-medium">No returns in this queue</p>
+                  <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto">
+                    {tab === "pending"
+                      ? "Nothing waiting for approval. Check Open or start a walk-in."
+                      : tab === "open" || tab === "in_progress"
+                        ? "No receive work here — try another tab or Walk-in return."
+                        : "Try another status tab or clear search."}
+                  </p>
+                  {(tab === "pending" || tab === "open") && (
+                    <Button
+                      size="sm"
+                      className="mt-4 bg-orange-600 hover:bg-orange-700"
+                      onClick={() => setWalkInOpen(true)}
+                    >
+                      <UserPlus className="h-3.5 w-3.5 mr-1.5" />
+                      Walk-in return
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                filtered.map((row) => {
+                  const owner = getReturnOwnerId(row);
+                  const client = clientById.get(owner);
+                  const rem = Math.max(
+                    0,
+                    (row.requestedQuantity || 0) - (row.receivedQuantity || 0)
+                  );
+                  const shipAvail = Math.max(
+                    0,
+                    (row.receivedQuantity || 0) - (row.shippedQuantity || 0)
+                  );
+                  const canManage =
+                    row.status === "approved" || row.status === "in_progress";
+                  const credited = row.inventoryCreditedQuantity || 0;
+                  return (
+                    <div
+                      key={`${owner}-${row.id}`}
+                      className={cn(
+                        "rounded-xl border bg-card p-3.5 sm:p-4 shadow-sm transition-colors",
+                        "hover:border-orange-300/70 hover:bg-orange-50/20",
+                        row.status === "pending" && "border-l-4 border-l-amber-400",
+                        row.status === "approved" && "border-l-4 border-l-sky-400",
+                        row.status === "in_progress" && "border-l-4 border-l-orange-500"
+                      )}
+                    >
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0 space-y-2 flex-1">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-sm tracking-tight truncate">
+                                {displayName(client, owner)}
+                              </p>
+                              <p className="text-sm text-foreground/90 mt-0.5">
+                                {resolveReturnProductName(row)}
+                              </p>
+                              {resolveReturnSku(row) ? (
+                                <p className="text-xs font-mono text-muted-foreground mt-0.5">
+                                  {resolveReturnSku(row)}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap gap-1 justify-end">
+                              <StatusBadge status={row.status} />
+                              <Badge variant="outline" className="text-[10px] font-normal">
+                                {row.type === "existing" ? "Existing" : "New"}
+                              </Badge>
+                              {row.returnType ? (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px] font-normal capitalize"
+                                >
+                                  {row.returnType}
+                                </Badge>
+                              ) : null}
+                              {row.source === "warehouse_ops_walk_in" ? (
+                                <Badge variant="outline" className="text-[10px] font-normal">
+                                  Walk-in
+                                </Badge>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-end gap-4 sm:gap-6">
+                            <ReceiveProgress
+                              received={row.receivedQuantity || 0}
+                              requested={row.requestedQuantity || 0}
+                            />
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                              {rem > 0 ? (
+                                <span>
+                                  <span className="font-semibold text-orange-700">{rem}</span> left
+                                  to receive
+                                </span>
+                              ) : (
+                                <span className="text-emerald-700 font-medium">Fully received</span>
+                              )}
+                              {shipAvail > 0 ? (
+                                <span>
+                                  <span className="font-semibold text-foreground">{shipAvail}</span>{" "}
+                                  shippable
+                                </span>
+                              ) : null}
+                              {credited > 0 ? (
+                                <span>
+                                  <span className="font-semibold text-foreground">{credited}</span>{" "}
+                                  in inventory
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 lg:justify-end lg:max-w-[16rem] shrink-0">
+                          {row.status === "pending" && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="bg-emerald-600 hover:bg-emerald-700"
+                                disabled={busy}
+                                onClick={() => void handleApprove(row)}
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() => {
+                                  setSelected(row);
+                                  setRejectOpen(true);
+                                }}
+                              >
+                                <XCircle className="h-3.5 w-3.5 mr-1" />
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                          {canManage && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="bg-orange-600 hover:bg-orange-700"
+                                disabled={busy || rem < 1}
+                                onClick={() => openReceive(row)}
+                              >
+                                <PackagePlus className="h-3.5 w-3.5 mr-1" />
+                                Receive{rem > 0 ? ` (${rem})` : ""}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                disabled={busy || shipAvail < 1}
+                                onClick={() => openShip(row)}
+                              >
+                                <Ship className="h-3.5 w-3.5 mr-1" />
+                                Ship
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy || (row.receivedQuantity || 0) < 1}
+                                onClick={() => openClose(row)}
+                              >
+                                <FileText className="h-3.5 w-3.5 mr-1" />
+                                Close + invoice
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </CardHeader>
-                  <CardContent className="pt-0 pb-3 space-y-2">
-                    <p className="text-xs text-muted-foreground">
-                      Qty {row.receivedQuantity || 0}/{row.requestedQuantity || 0}
-                      {rem > 0 ? ` · ${rem} left to receive` : ""}
-                      {shipAvail > 0 ? ` · ${shipAvail} shippable` : ""}
-                      {(row.inventoryCreditedQuantity || 0) > 0
-                        ? ` · ${row.inventoryCreditedQuantity} in inventory`
-                        : ""}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {row.status === "pending" && (
-                        <>
-                          <Button
-                            size="sm"
-                            disabled={busy}
-                            onClick={() => void handleApprove(row)}
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => {
-                              setSelected(row);
-                              setRejectOpen(true);
-                            }}
-                          >
-                            <XCircle className="h-3.5 w-3.5 mr-1" />
-                            Reject
-                          </Button>
-                        </>
-                      )}
-                      {canManage && (
-                        <>
-                          <Button
-                            size="sm"
-                            disabled={busy || rem < 1}
-                            onClick={() => openReceive(row)}
-                          >
-                            Receive{rem > 0 ? ` (${rem})` : ""}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={busy || shipAvail < 1}
-                            onClick={() => openShip(row)}
-                          >
-                            <Ship className="h-3.5 w-3.5 mr-1" />
-                            Ship
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy || (row.receivedQuantity || 0) < 1}
-                            onClick={() => openClose(row)}
-                          >
-                            Close + invoice
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })
-          )}
-        </TabsContent>
-      </Tabs>
+                  );
+                })
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
 
       {/* Reject */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
