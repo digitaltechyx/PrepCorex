@@ -25,7 +25,9 @@ import {
 } from "@/lib/warehouse-crossdock";
 import {
   createWarehouseCarton,
+  createWarehousePallet,
   warehouseCartonDocRef,
+  warehousePalletDocRef,
 } from "@/lib/warehouse-carton-firestore";
 import { receiveReturnAtDock } from "@/lib/warehouse-returns";
 import type { ProductReturn, UserProfile, WarehouseCartonDoc } from "@/types";
@@ -286,39 +288,86 @@ export async function createWalkInReturnWithUser(input: {
   return { returnId: ref.id };
 }
 
-/** Closed carton, no client — shows in Allocate. Marker in notes for return walk-in. */
+/** Closed unit, no client uid — shows in Allocate. Marker in notes for return walk-in. */
 export async function receiveReturnWalkInUnknownUser(input: {
   warehouseId: string;
+  /** Label / shipper name (same role as inbound closed “client name”). */
+  displayName: string;
   quantity?: number;
+  unitType?: "carton" | "pallet" | "package";
+  receiveLot?: string | null;
   notes?: string | null;
   photoUrls?: string[];
   receivedBy?: string | null;
   operatorId?: string | null;
   stagingArea?: string | null;
-}): Promise<{ cartonId: string; cartonCode: string; receiveLot: string }> {
+}): Promise<{
+  cartonId: string;
+  cartonCode: string;
+  receiveLot: string;
+  palletId: string | null;
+  palletCode: string | null;
+}> {
+  const name = input.displayName.trim();
+  if (!name) throw new Error("Enter a name for this return (shipper / label name).");
+
   const qty = Math.max(1, Math.floor(input.quantity ?? 1));
-  const receiveLot = generateCrossdockReceiveLot();
-  const noteParts = [RETURN_WALK_IN_MARKER, input.notes?.trim()].filter(Boolean);
-  const line = buildClosedCrossdockLine({ lot: receiveLot });
+  const unitType = input.unitType ?? "carton";
+  const receiveLot = input.receiveLot?.trim() || generateCrossdockReceiveLot();
+  const staging = input.stagingArea?.trim() || "RETURNS-STAGE";
+  const noteParts = [RETURN_WALK_IN_MARKER, `Name: ${name}`, input.notes?.trim()].filter(
+    Boolean
+  );
+  const title = `Closed return — ${name}`;
+
+  let palletId: string | null = null;
+  let palletCode: string | null = null;
+  if (unitType === "pallet") {
+    palletId = await createWarehousePallet({
+      warehouseId: input.warehouseId,
+      status: "receiving",
+      receiveMode: "crossdock",
+      isClosedCrossdock: true,
+      clientId: null,
+      receivedForClient: name,
+      receiveLot,
+      notes: noteParts.join(" "),
+      receivedBy: input.receivedBy ?? null,
+      stagingArea: staging,
+      photoUrl: input.photoUrls?.[0] ?? null,
+    });
+    const palletSnap = await getDoc(warehousePalletDocRef(input.warehouseId, palletId));
+    palletCode = palletSnap.exists()
+      ? String((palletSnap.data() as { palletCode?: string }).palletCode ?? palletId)
+      : palletId;
+  }
+
+  const line = buildClosedCrossdockLine({
+    lot: receiveLot,
+    clientDisplayName: name,
+  });
   line.quantity = qty;
-  line.productTitle = "Closed return — assign client in Allocate";
-  line.stagingArea = input.stagingArea?.trim() || "RETURNS-STAGE";
+  line.productTitle = title;
+  line.stagingArea = staging;
 
   const cartonId = await createWarehouseCarton({
     warehouseId: input.warehouseId,
     sku: CROSSDOCK_CLOSED_SKU,
     quantity: qty,
-    productTitle: line.productTitle,
+    productTitle: title,
     status: "stowed",
     clientId: null,
+    receivedForClient: name,
+    palletId,
     lines: [line],
     isLoose: false,
+    isPackage: unitType === "package",
     receiveMode: "crossdock",
     isClosedCrossdock: true,
     notes: noteParts.join(" "),
     photoUrls: input.photoUrls,
     receivedBy: input.receivedBy ?? null,
-    stagingArea: input.stagingArea?.trim() || "RETURNS-STAGE",
+    stagingArea: staging,
     receiveLot,
   });
 
@@ -332,12 +381,16 @@ export async function receiveReturnWalkInUnknownUser(input: {
     type: "return_walk_in_unknown",
     cartonId,
     cartonCode,
+    palletId,
+    palletCode,
     receiveLot,
+    displayName: name,
+    unitType,
     operatorId: input.operatorId ?? null,
     at: serverTimestamp(),
   });
 
-  return { cartonId, cartonCode, receiveLot };
+  return { cartonId, cartonCode, receiveLot, palletId, palletCode };
 }
 
 export function isReturnWalkInCarton(carton: WarehouseCartonDoc): boolean {

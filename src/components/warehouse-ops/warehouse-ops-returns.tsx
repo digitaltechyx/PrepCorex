@@ -64,6 +64,7 @@ import {
   type ReturnReceiveUnitType,
 } from "@/lib/warehouse-returns";
 import { describeReceiveLotHint } from "@/lib/warehouse-receive-lot";
+import { generateCrossdockReceiveLot } from "@/lib/warehouse-crossdock";
 import { buildWarehousePalletLabelsPdf } from "@/lib/warehouse-pallet-label-pdf";
 import { getWarehousePallet } from "@/lib/warehouse-receive-corrections";
 import { allocateLine } from "@/lib/warehouse-allocate";
@@ -225,6 +226,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const [recvCloseReady, setRecvCloseReady] = useState(false);
   const [recvUnitType, setRecvUnitType] = useState<ReturnReceiveUnitType>("carton");
   const [recvLot, setRecvLot] = useState("");
+  const [recvExpiry, setRecvExpiry] = useState("");
   const [recvCondition, setRecvCondition] = useState<"good" | "damaged">("good");
   const [binPathById, setBinPathById] = useState<Map<string, string>>(new Map());
 
@@ -255,6 +257,9 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const [walkSku, setWalkSku] = useState("");
   const [walkQty, setWalkQty] = useState("1");
   const [walkNotes, setWalkNotes] = useState("");
+  const [walkUnknownName, setWalkUnknownName] = useState("");
+  const [walkUnitType, setWalkUnitType] = useState<"carton" | "pallet" | "package">("carton");
+  const [walkLot, setWalkLot] = useState(() => generateCrossdockReceiveLot());
 
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkCartonId, setLinkCartonId] = useState("");
@@ -385,6 +390,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     setRecvCloseReady(false);
     setRecvUnitType("carton");
     setRecvLot("");
+    setRecvExpiry("");
     setRecvCondition("good");
     setReceiveOpen(true);
   }
@@ -484,6 +490,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
         condition: recvCondition,
         unitType: recvUnitType,
         lot: recvLot.trim() || null,
+        expiry: recvExpiry.trim() || null,
         notes: recvNotes.trim() || null,
         receivedBy: operatorName,
         operatorId,
@@ -612,16 +619,22 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     setBusy(true);
     try {
       if (walkInMode === "no_user") {
+        if (!walkUnknownName.trim()) {
+          throw new Error("Enter a name for the label (shipper / sender).");
+        }
         const result = await receiveReturnWalkInUnknownUser({
           warehouseId: warehouse.id,
+          displayName: walkUnknownName.trim(),
           quantity: parseInt(walkQty, 10) || 1,
+          unitType: walkUnitType,
+          receiveLot: walkLot.trim() || null,
           notes: walkNotes.trim() || null,
           receivedBy: operatorName,
           operatorId,
         });
         toast({
           title: "Closed return received",
-          description: `${result.cartonCode} · Assign client in Allocate, then link here`,
+          description: `${result.palletCode || result.cartonCode} · ${result.receiveLot} · ${walkUnknownName.trim()}`,
         });
         try {
           const carton = await getWarehouseCarton(warehouse.id, result.cartonId);
@@ -632,11 +645,25 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
             });
             downloadUint8ArrayAsFile(pdf, `${result.cartonCode}-label.pdf`);
           }
+          if (result.palletId) {
+            const pallet = await getWarehousePallet(warehouse.id, result.palletId);
+            if (pallet) {
+              const palletPdf = await buildWarehousePalletLabelsPdf({
+                title: warehouse.code || warehouse.name || "Warehouse",
+                pallets: [pallet],
+              });
+              downloadUint8ArrayAsFile(
+                palletPdf,
+                `${result.palletCode || result.palletId}-label.pdf`
+              );
+            }
+          }
         } catch {
           /* optional */
         }
       } else {
         if (!walkClientId) throw new Error("Select a client.");
+        if (!walkName.trim()) throw new Error("Enter a product name.");
         const { returnId } = await createWalkInReturnWithUser({
           ownerUserId: walkClientId,
           type: walkType,
@@ -660,6 +687,10 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
       setWalkNotes("");
       setWalkClientId("");
       setWalkClientLabel("");
+      setWalkUnknownName("");
+      setWalkUnitType("carton");
+      setWalkLot(generateCrossdockReceiveLot());
+      setWalkQty("1");
     } catch (e) {
       toast({
         title: "Walk-in failed",
@@ -1197,6 +1228,17 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
               <p className="text-[11px] text-muted-foreground mt-1">{describeReceiveLotHint()}</p>
             </div>
             <div>
+              <Label>Expiry date (optional)</Label>
+              <Input
+                type="date"
+                value={recvExpiry}
+                onChange={(e) => setRecvExpiry(e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Leave blank if no expiry (auto parts, etc.). Used in lot code and putaway FEFO.
+              </p>
+            </div>
+            <div>
               <Label>Condition</Label>
               <Select
                 value={recvCondition}
@@ -1401,13 +1443,19 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
       </Dialog>
 
       {/* Walk-in */}
-      <Dialog open={walkInOpen} onOpenChange={setWalkInOpen}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog
+        open={walkInOpen}
+        onOpenChange={(open) => {
+          setWalkInOpen(open);
+          if (open) setWalkLot(generateCrossdockReceiveLot());
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Walk-in return</DialogTitle>
             <DialogDescription>
-              With client: creates an approved RMA (existing or new). Without client:
-              closed carton → Allocate, then link.
+              Same idea as inbound walk-in: name + unit + lot + label. Unknown client goes to
+              Allocate, then Link unallocated.
             </DialogDescription>
           </DialogHeader>
           <RadioGroup
@@ -1489,7 +1537,58 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
           ) : (
             <div className="space-y-3">
               <div>
-                <Label>Closed unit qty (1 carton)</Label>
+                <Label>Name on label *</Label>
+                <Input
+                  value={walkUnknownName}
+                  onChange={(e) => setWalkUnknownName(e.target.value)}
+                  placeholder="Shipper / sender / temp name"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Like inbound closed receive — search later in Allocate by this name.
+                </p>
+              </div>
+              <div>
+                <Label>Unit type</Label>
+                <Select
+                  value={walkUnitType}
+                  onValueChange={(v) =>
+                    setWalkUnitType(v as "carton" | "pallet" | "package")
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="carton">Carton (CTN)</SelectItem>
+                    <SelectItem value="pallet">Pallet (PLT + CTN)</SelectItem>
+                    <SelectItem value="package">Package (PKG)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Receive lot (auto)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    readOnly
+                    value={walkLot}
+                    className="font-mono text-sm bg-muted/50 flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => setWalkLot(generateCrossdockReceiveLot())}
+                  >
+                    New lot
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  LOT-XDOCK + date + random — prints on the label.
+                </p>
+              </div>
+              <div>
+                <Label>Quantity</Label>
                 <Input
                   type="number"
                   min={1}
@@ -1497,9 +1596,9 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
                   onChange={(e) => setWalkQty(e.target.value)}
                 />
               </div>
-              <p className="text-xs text-muted-foreground">
-                Goes to Allocate like inbound walk-in. After client is assigned, use{" "}
-                <strong>Link unallocated</strong> to start return receiving.
+              <p className="text-xs text-muted-foreground rounded-md border bg-muted/30 px-3 py-2">
+                No SKUs yet. After client is found in Allocate, use{" "}
+                <strong>Link unallocated</strong> to start return receive / putaway.
               </p>
             </div>
           )}
@@ -1524,7 +1623,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
           <DialogHeader>
             <DialogTitle>Link unallocated return</DialogTitle>
             <DialogDescription>
-              Assign client and create RMA → carton moves to quarantine for Return QC.
+              Assign client and create RMA → unit moves to putaway (received).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -1537,7 +1636,9 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
                 <SelectContent>
                   {unallocatedReturnCartons.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.cartonCode} · qty {c.quantity}
+                      {c.cartonCode}
+                      {c.receivedForClient ? ` · ${c.receivedForClient}` : ""}
+                      {c.receiveLot ? ` · ${c.receiveLot}` : ""} · qty {c.quantity}
                     </SelectItem>
                   ))}
                 </SelectContent>

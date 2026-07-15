@@ -69,6 +69,7 @@ export function WarehouseOpsReturnReceive({
   const [stagingArea, setStagingArea] = useState("RETURNS-STAGE");
   const [unitType, setUnitType] = useState<ReturnReceiveUnitType>("carton");
   const [lot, setLot] = useState("");
+  const [expiry, setExpiry] = useState("");
   const [saving, setSaving] = useState(false);
 
   const qtyNum = parseInt(qty, 10) || 0;
@@ -87,6 +88,7 @@ export function WarehouseOpsReturnReceive({
         quantity: qtyNum,
         unitType,
         lot: lot.trim() || null,
+        expiry: expiry.trim() || null,
         trackingNumber: tracking.trim() || null,
         notes: notes.trim() || null,
         stagingArea: stagingArea.trim() || "RETURNS-STAGE",
@@ -218,6 +220,17 @@ export function WarehouseOpsReturnReceive({
               placeholder="Auto if blank"
             />
             <p className="text-[11px] text-muted-foreground">{describeReceiveLotHint()}</p>
+          </div>
+          <div className="space-y-2">
+            <Label>Expiry date (optional)</Label>
+            <Input
+              type="date"
+              value={expiry}
+              onChange={(e) => setExpiry(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Leave blank if no expiry. Used in lot code and putaway FEFO.
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Staging area</Label>
