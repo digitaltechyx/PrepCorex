@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +59,13 @@ import {
   resolveReturnProductName,
   resolveReturnSku,
 } from "@/lib/product-return-ops";
+import {
+  buildReturnStockLocations,
+  type ReturnReceiveUnitType,
+} from "@/lib/warehouse-returns";
+import { describeReceiveLotHint } from "@/lib/warehouse-receive-lot";
+import { buildWarehousePalletLabelsPdf } from "@/lib/warehouse-pallet-label-pdf";
+import { getWarehousePallet } from "@/lib/warehouse-receive-corrections";
 import { allocateLine } from "@/lib/warehouse-allocate";
 import {
   buildWarehouseCartonLabelsPdf,
@@ -70,7 +77,6 @@ import {
   CheckCircle2,
   Loader2,
   Package,
-  RotateCcw,
   Search,
   Ship,
   UserPlus,
@@ -131,6 +137,10 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const [recvTitle, setRecvTitle] = useState("");
   const [recvNotes, setRecvNotes] = useState("");
   const [recvCloseReady, setRecvCloseReady] = useState(false);
+  const [recvUnitType, setRecvUnitType] = useState<ReturnReceiveUnitType>("carton");
+  const [recvLot, setRecvLot] = useState("");
+  const [recvCondition, setRecvCondition] = useState<"good" | "damaged">("good");
+  const [binPathById, setBinPathById] = useState<Map<string, string>>(new Map());
 
   const [shipOpen, setShipOpen] = useState(false);
   const [shipQty, setShipQty] = useState("");
@@ -247,6 +257,35 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     );
   }, [cartons]);
 
+  const priorLocations = useMemo(() => {
+    if (!selected?.id) return [];
+    return buildReturnStockLocations({
+      cartons,
+      productReturnId: selected.id,
+      binPathById,
+    });
+  }, [selected?.id, cartons, binPathById]);
+
+  useEffect(() => {
+    if (!receiveOpen) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { listActiveWarehouseBins } = await import("@/lib/warehouse-cycle-count");
+        const bins = await listActiveWarehouseBins(warehouse.id);
+        if (cancelled) return;
+        const map = new Map<string, string>();
+        for (const b of bins) map.set(b.id, b.path);
+        setBinPathById(map);
+      } catch {
+        /* paths optional */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [receiveOpen, warehouse.id]);
+
   function openReceive(row: AdminProductReturn) {
     setSelected(row);
     setRecvQty(
@@ -258,6 +297,9 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     setRecvTitle(resolveReturnProductName(row));
     setRecvNotes("");
     setRecvCloseReady(false);
+    setRecvUnitType("carton");
+    setRecvLot("");
+    setRecvCondition("good");
     setReceiveOpen(true);
   }
 
@@ -353,14 +395,21 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
         sku: recvSku.trim(),
         productTitle: recvTitle.trim() || resolveReturnProductName(selected),
         quantity: qty,
+        condition: recvCondition,
+        unitType: recvUnitType,
+        lot: recvLot.trim() || null,
         notes: recvNotes.trim() || null,
         receivedBy: operatorName,
         operatorId,
         closeAfter: recvCloseReady,
       });
+      const unitLabel =
+        recvUnitType === "pallet"
+          ? result.palletCode || "PLT"
+          : result.cartonCode;
       toast({
         title: "Return received",
-        description: `${result.cartonCode} → quarantine (Return QC)`,
+        description: `${unitLabel} · lot ${result.receiveLot} → Putaway`,
       });
       try {
         const carton = await getWarehouseCarton(warehouse.id, result.cartonId);
@@ -370,6 +419,19 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
             cartons: [carton],
           });
           downloadUint8ArrayAsFile(pdf, `${result.cartonCode}-label.pdf`);
+        }
+        if (result.palletId) {
+          const pallet = await getWarehousePallet(warehouse.id, result.palletId);
+          if (pallet) {
+            const palletPdf = await buildWarehousePalletLabelsPdf({
+              title: warehouse.code || warehouse.name || "Warehouse",
+              pallets: [pallet],
+            });
+            downloadUint8ArrayAsFile(
+              palletPdf,
+              `${result.palletCode || result.palletId}-label.pdf`
+            );
+          }
         }
       } catch {
         /* label optional */
@@ -574,11 +636,11 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     <div className="space-y-4">
       <WarehouseOpsHeader title="Returns" />
       <p className="text-sm text-muted-foreground -mt-2">
-        Pending → approve → receive (quarantine) →{" "}
-        <Link href="/warehouse-ops/return-qc" className="underline text-foreground">
-          Return QC
+        Pending → approve → receive (carton/pallet/package + lot) →{" "}
+        <Link href="/warehouse-ops/putaway" className="underline text-foreground">
+          Putaway
         </Link>{" "}
-        → ship / close + invoice. Walk-in with or without client.
+        → ship / close + invoice. Partial receives stay open; prior putaway locations show on receive.
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -600,9 +662,8 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
           </Button>
         )}
         <Button variant="outline" size="sm" asChild>
-          <Link href="/warehouse-ops/return-qc">
-            <RotateCcw className="h-4 w-4 mr-1" />
-            Return QC
+          <Link href="/warehouse-ops/putaway">
+            Putaway returns
           </Link>
         </Button>
       </div>
@@ -798,15 +859,50 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
 
       {/* Receive */}
       <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Receive return</DialogTitle>
             <DialogDescription>
-              Creates a quarantine carton → continue on Return QC. Keep open for
-              partials, or mark ready to close.
+              Same pattern as inbound: choose unit, auto lot, print label, then putaway.
+              Partial OK — remain open until all qty is in.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {priorLocations.length > 0 && (
+              <div className="rounded-md border border-blue-200 bg-blue-50/60 p-3 text-xs space-y-1.5">
+                <p className="font-medium text-blue-950">Previous qty for this return</p>
+                {priorLocations.map((loc) => (
+                  <div key={`${loc.cartonId}-${loc.binId || loc.stagingArea || loc.status}`}>
+                    {loc.cartonCode}: {loc.quantity} × {loc.sku}
+                    {loc.lot ? ` · ${loc.lot}` : ""}
+                    {" — "}
+                    {loc.binPath ||
+                      (loc.binId
+                        ? `Bin ${loc.binId.slice(0, 8)}…`
+                        : loc.status === "received"
+                          ? `Awaiting putaway (${loc.stagingArea || "RETURNS-STAGE"})`
+                          : loc.status)}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div>
+              <Label>Unit type</Label>
+              <Select
+                value={recvUnitType}
+                onValueChange={(v) => setRecvUnitType(v as ReturnReceiveUnitType)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="carton">Carton (CTN)</SelectItem>
+                  <SelectItem value="pallet">Pallet (PLT + CTN)</SelectItem>
+                  <SelectItem value="package">Package (PKG)</SelectItem>
+                  <SelectItem value="loose">Loose / unpackaged</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div>
               <Label>SKU</Label>
               <Input value={recvSku} onChange={(e) => setRecvSku(e.target.value)} />
@@ -825,6 +921,30 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
               />
             </div>
             <div>
+              <Label>Receive lot (optional)</Label>
+              <Input
+                value={recvLot}
+                onChange={(e) => setRecvLot(e.target.value)}
+                placeholder="Auto-generate if blank"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">{describeReceiveLotHint()}</p>
+            </div>
+            <div>
+              <Label>Condition</Label>
+              <Select
+                value={recvCondition}
+                onValueChange={(v) => setRecvCondition(v as "good" | "damaged")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="good">Good → putaway</SelectItem>
+                  <SelectItem value="damaged">Damaged → quarantine</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <Label>Notes</Label>
               <Textarea value={recvNotes} onChange={(e) => setRecvNotes(e.target.value)} />
             </div>
@@ -841,7 +961,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
               Cancel
             </Button>
             <Button disabled={busy} onClick={() => void handleReceive()}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Receive to quarantine"}
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Receive → Putaway"}
             </Button>
           </DialogFooter>
         </DialogContent>

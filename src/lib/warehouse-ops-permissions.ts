@@ -182,13 +182,13 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       title: "Returns",
       href: "/warehouse-ops/returns",
       feature: "ops_returns",
-      description: "Approve, receive, ship, close + invoice (with / without request)",
+      description: "Approve, receive (lot/carton/pallet), putaway, ship, close + invoice",
     },
     {
       title: "Return QC",
       href: "/warehouse-ops/return-qc",
       feature: "ops_returns",
-      description: "Quarantine returns — restock, damaged, or dispose",
+      description: "Legacy quarantine returns — new flow uses Putaway",
     },
   ];
   return items.filter((item) => hasFeature(userProfile, item.feature));

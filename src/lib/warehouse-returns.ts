@@ -14,9 +14,12 @@ import {
 import { db } from "@/lib/firebase";
 import {
   createWarehouseCarton,
+  createWarehousePallet,
   listWarehouseCartons,
   warehouseCartonDocRef,
+  warehousePalletDocRef,
 } from "@/lib/warehouse-carton-firestore";
+import { resolveReceiveLot } from "@/lib/warehouse-receive-lot";
 import { normalizeReturnTracking, parseReturnTrackings } from "@/lib/return-tracking-client";
 import {
   loadInboundRequestQueue,
@@ -37,6 +40,21 @@ import type {
   WarehouseCartonLine,
   WarehouseDoc,
 } from "@/types";
+
+export type ReturnReceiveUnitType = "carton" | "pallet" | "package" | "loose";
+
+export type ReturnStockLocation = {
+  cartonId: string;
+  cartonCode: string;
+  sku: string;
+  quantity: number;
+  lot: string | null;
+  status: string;
+  binId: string | null;
+  binPath: string | null;
+  stagingArea: string | null;
+  palletId: string | null;
+};
 
 const WAREHOUSES = "warehouses";
 
@@ -286,33 +304,78 @@ export async function receiveReturnAtDock(input: {
   productTitle?: string | null;
   quantity: number;
   condition?: "good" | "damaged";
+  /** How freight arrived — same options as inbound open receive. */
+  unitType?: ReturnReceiveUnitType;
+  /** Optional operator lot; blank → auto `{SKU}-receiving-NOEXP-###`. */
+  lot?: string | null;
+  expiry?: string | null;
   trackingNumber?: string | null;
   carrier?: string | null;
   notes?: string | null;
   stagingArea?: string | null;
   receivedBy?: string | null;
   operatorId?: string | null;
-}): Promise<{ cartonId: string; cartonCode: string }> {
+}): Promise<{
+  cartonId: string;
+  cartonCode: string;
+  receiveLot: string;
+  palletId: string | null;
+  palletCode: string | null;
+}> {
   const qty = Math.floor(input.quantity);
   if (qty < 1) throw new Error("Quantity must be at least 1.");
   const sku = input.sku.trim();
   if (!sku) throw new Error("SKU is required.");
 
+  const unitType: ReturnReceiveUnitType = input.unitType ?? "carton";
   const returnRef = doc(db, "users", input.clientUserId, "productReturns", input.productReturnId);
   const returnSnap = await getDoc(returnRef);
   if (!returnSnap.exists()) throw new Error("Return request not found.");
   const returnData = returnSnap.data() as ProductReturn;
 
+  const receiveLot = resolveReceiveLot({
+    sku,
+    expiry: input.expiry,
+    lot: input.lot,
+  });
+  const title =
+    input.productTitle?.trim() || returnProductName({ ...returnData, id: input.productReturnId });
+  const staging = input.stagingArea?.trim() || "RETURNS-STAGE";
+  const condition = input.condition === "damaged" ? "damaged" : "good";
+  // Damaged still goes quarantine; good returns await putaway like inbound.
+  const cartonStatus = condition === "damaged" ? "quarantine" : "received";
+
+  let palletId: string | null = null;
+  let palletCode: string | null = null;
+  if (unitType === "pallet") {
+    palletId = await createWarehousePallet({
+      warehouseId: input.warehouseId,
+      status: "receiving",
+      receiveMode: "unpackaged",
+      clientId: input.clientUserId,
+      receiveLot,
+      trackingNumber: input.trackingNumber ?? null,
+      carrier: input.carrier ?? null,
+      notes: input.notes ?? `Return ${input.productReturnId}`,
+      receivedBy: input.receivedBy ?? null,
+      stagingArea: staging,
+    });
+    const palletSnap = await getDoc(warehousePalletDocRef(input.warehouseId, palletId));
+    palletCode = palletSnap.exists()
+      ? String((palletSnap.data() as { palletCode?: string }).palletCode ?? palletId)
+      : palletId;
+  }
+
   const line: WarehouseCartonLine = {
     lineId: "L1",
     sku,
-    productTitle: input.productTitle?.trim() || returnProductName({ ...returnData, id: input.productReturnId }),
+    productTitle: title,
     quantity: qty,
-    lot: null,
-    expiry: null,
-    condition: input.condition === "damaged" ? "damaged" : "good",
+    lot: receiveLot,
+    expiry: input.expiry?.trim().slice(0, 10) || null,
+    condition,
     binId: null,
-    stagingArea: input.stagingArea?.trim() || "RETURNS-STAGE",
+    stagingArea: staging,
     allocationStatus: "allocated",
     clientId: input.clientUserId,
     inventoryRequestId: null,
@@ -323,18 +386,23 @@ export async function receiveReturnAtDock(input: {
     warehouseId: input.warehouseId,
     sku,
     quantity: qty,
-    productTitle: line.productTitle,
-    status: "quarantine",
+    lot: receiveLot,
+    expiry: input.expiry?.trim().slice(0, 10) || null,
+    productTitle: title,
+    status: cartonStatus,
     clientId: input.clientUserId,
     productReturnId: input.productReturnId,
+    palletId,
     lines: [line],
-    isLoose: true,
+    isLoose: unitType === "loose",
+    isPackage: unitType === "package",
     receiveMode: "unpackaged",
+    receiveLot,
     trackingNumber: input.trackingNumber ?? null,
     carrier: input.carrier ?? null,
     notes: input.notes ?? null,
     receivedBy: input.receivedBy ?? null,
-    stagingArea: input.stagingArea?.trim() || "RETURNS-STAGE",
+    stagingArea: staging,
   });
 
   const cartonSnap = await getDoc(warehouseCartonDocRef(input.warehouseId, cartonId));
@@ -362,16 +430,68 @@ export async function receiveReturnAtDock(input: {
     clientUserId: input.clientUserId,
     cartonId,
     cartonCode,
+    palletId,
+    palletCode,
+    unitType,
+    receiveLot,
     sku,
     quantity: qty,
     condition: line.condition,
-    stagingArea: line.stagingArea,
+    stagingArea: staging,
     trackingNumber: input.trackingNumber ?? null,
     operatorId: input.operatorId ?? null,
     at: serverTimestamp(),
   });
 
-  return { cartonId, cartonCode };
+  return { cartonId, cartonCode, receiveLot, palletId, palletCode };
+}
+
+/** Where previous partial return qty lives (stowed / awaiting putaway). */
+export function buildReturnStockLocations(input: {
+  cartons: WarehouseCartonDoc[];
+  productReturnId: string;
+  binPathById?: Map<string, string>;
+}): ReturnStockLocation[] {
+  const pid = input.productReturnId.trim();
+  if (!pid) return [];
+  const out: ReturnStockLocation[] = [];
+  for (const c of input.cartons) {
+    if (c.status === "voided" || c.status === "closed") continue;
+    const linked =
+      c.productReturnId?.trim() === pid ||
+      (c.lines ?? []).some((l) => l.productReturnId?.trim() === pid);
+    if (!linked) continue;
+    const lines =
+      c.lines && c.lines.length > 0
+        ? c.lines
+        : [
+            {
+              lineId: "L1",
+              sku: c.sku,
+              quantity: c.quantity,
+              lot: c.lot,
+              binId: c.binId,
+              stagingArea: c.stagingArea,
+            },
+          ];
+    for (const l of lines) {
+      if (l.productReturnId?.trim() && l.productReturnId.trim() !== pid) continue;
+      const binId = l.binId?.trim() || c.binId?.trim() || null;
+      out.push({
+        cartonId: c.id,
+        cartonCode: c.cartonCode,
+        sku: l.sku || c.sku,
+        quantity: l.quantity || 0,
+        lot: l.lot?.trim() || c.lot?.trim() || c.receiveLot?.trim() || null,
+        status: c.status,
+        binId,
+        binPath: binId ? input.binPathById?.get(binId) ?? null : null,
+        stagingArea: l.stagingArea?.trim() || c.stagingArea?.trim() || null,
+        palletId: c.palletId ?? null,
+      });
+    }
+  }
+  return out;
 }
 
 export async function listQuarantineReturnCartons(

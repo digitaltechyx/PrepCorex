@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { isCrossdockClosedCarton } from "@/lib/warehouse-crossdock";
+import { creditReturnInventory } from "@/lib/product-return-ops";
 import type { InventoryRequest, WarehouseCartonDoc, WarehouseCartonLine } from "@/types";
 
 export type PutawaySyncAssignment = {
@@ -119,7 +120,28 @@ export async function syncClientInventoryFromPutaway(input: {
   for (const assignment of input.applied) {
     const line = input.carton.lines?.find((l) => l.lineId === assignment.lineId);
     if (!line?.clientId?.trim()) continue;
-    if (line.productReturnId?.trim()) continue;
+
+    const productReturnId =
+      line.productReturnId?.trim() || input.carton.productReturnId?.trim() || "";
+    if (productReturnId) {
+      // Returns: credit client inventory on putaway (no Return QC step).
+      if (line.condition !== "damaged") {
+        try {
+          await creditReturnInventory({
+            ownerUserId: line.clientId.trim(),
+            returnId: productReturnId,
+            quantity: assignment.quantity,
+            operatorId: input.operatorId,
+            summaryNote: `Return putaway ${input.carton.cartonCode} → ${
+              assignment.binPath || assignment.stagingArea || "storage"
+            }`,
+          });
+        } catch (err) {
+          console.error("[syncClientInventoryFromPutaway] return credit failed", err);
+        }
+      }
+      continue;
+    }
 
     await syncPutawayLine({
       warehouseId: input.warehouseId,

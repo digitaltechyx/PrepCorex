@@ -13,17 +13,34 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { ScanLookupPopover } from "@/components/warehouse-ops/scan-lookup-popover";
-import { receiveReturnAtDock, type ReturnRequestRow } from "@/lib/warehouse-returns";
+import {
+  receiveReturnAtDock,
+  type ReturnReceiveUnitType,
+  type ReturnRequestRow,
+} from "@/lib/warehouse-returns";
+import { describeReceiveLotHint } from "@/lib/warehouse-receive-lot";
 import {
   buildWarehouseCartonLabelsPdf,
   downloadUint8ArrayAsFile,
 } from "@/lib/warehouse-carton-label-pdf";
-import { getWarehouseCarton } from "@/lib/warehouse-receive-corrections";
+import { buildWarehousePalletLabelsPdf } from "@/lib/warehouse-pallet-label-pdf";
+import {
+  getWarehouseCarton,
+  getWarehousePallet,
+} from "@/lib/warehouse-receive-corrections";
 import type { WarehouseDoc } from "@/types";
 import { ArrowLeft, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
+import Link from "next/link";
 
 type Props = {
   warehouse: WarehouseDoc;
@@ -50,6 +67,8 @@ export function WarehouseOpsReturnReceive({
   const [qty, setQty] = useState(String(Math.max(1, returnRow.remainingQty || 1)));
   const [notes, setNotes] = useState("");
   const [stagingArea, setStagingArea] = useState("RETURNS-STAGE");
+  const [unitType, setUnitType] = useState<ReturnReceiveUnitType>("carton");
+  const [lot, setLot] = useState("");
   const [saving, setSaving] = useState(false);
 
   const qtyNum = parseInt(qty, 10) || 0;
@@ -66,6 +85,8 @@ export function WarehouseOpsReturnReceive({
         sku: sku.trim(),
         productTitle: productTitle.trim() || returnRow.productLabel,
         quantity: qtyNum,
+        unitType,
+        lot: lot.trim() || null,
         trackingNumber: tracking.trim() || null,
         notes: notes.trim() || null,
         stagingArea: stagingArea.trim() || "RETURNS-STAGE",
@@ -75,7 +96,7 @@ export function WarehouseOpsReturnReceive({
 
       toast({
         title: "Return received",
-        description: `${result.cartonCode} → quarantine`,
+        description: `${result.palletCode || result.cartonCode} · ${result.receiveLot} → Putaway`,
       });
 
       try {
@@ -86,6 +107,19 @@ export function WarehouseOpsReturnReceive({
             cartons: [carton],
           });
           downloadUint8ArrayAsFile(pdf, `${result.cartonCode}-label.pdf`);
+        }
+        if (result.palletId) {
+          const pallet = await getWarehousePallet(warehouse.id, result.palletId);
+          if (pallet) {
+            const palletPdf = await buildWarehousePalletLabelsPdf({
+              title: warehouse.code || warehouse.name || "Warehouse",
+              pallets: [pallet],
+            });
+            downloadUint8ArrayAsFile(
+              palletPdf,
+              `${result.palletCode || result.palletId}-label.pdf`
+            );
+          }
         }
       } catch {
         // label optional
@@ -117,29 +151,31 @@ export function WarehouseOpsReturnReceive({
             Receive return (RMA)
           </CardTitle>
           <CardDescription>
-            Carton goes to <Badge variant="secondary">quarantine</Badge> until QC restocks or
-            disposes. Not pickable.
+            Good stock → <Badge variant="secondary">received</Badge> awaiting{" "}
+            <Link href="/warehouse-ops/putaway" className="underline">
+              Putaway
+            </Link>
+            . Partial OK.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-1 text-sm">
-          <p>
-            <span className="text-muted-foreground">Client:</span> {returnRow.clientDisplayName}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Product:</span> {returnRow.productLabel}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Expected remaining:</span>{" "}
-            {returnRow.remainingQty}
-          </p>
-          {tracking ? (
-            <p className="font-mono text-xs text-muted-foreground">Tracking: {tracking}</p>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="pt-6 space-y-4">
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Unit type</Label>
+            <Select
+              value={unitType}
+              onValueChange={(v) => setUnitType(v as ReturnReceiveUnitType)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="carton">Carton (CTN)</SelectItem>
+                <SelectItem value="pallet">Pallet (PLT + CTN)</SelectItem>
+                <SelectItem value="package">Package (PKG)</SelectItem>
+                <SelectItem value="loose">Loose</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-2">
             <Label>SKU</Label>
             <div className="flex gap-2">
@@ -163,33 +199,41 @@ export function WarehouseOpsReturnReceive({
             <Input value={productTitle} onChange={(e) => setProductTitle(e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label>Quantity received</Label>
+            <Label>Quantity</Label>
             <Input
               type="number"
               min={1}
               value={qty}
               onChange={(e) => setQty(e.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              Remaining on RMA: {returnRow.remainingQty} / {returnRow.expectedQty}
+            </p>
           </div>
           <div className="space-y-2">
-            <Label>Returns staging area</Label>
+            <Label>Receive lot (optional)</Label>
             <Input
-              value={stagingArea}
-              onChange={(e) => setStagingArea(e.target.value)}
-              className="font-mono"
+              value={lot}
+              onChange={(e) => setLot(e.target.value)}
+              placeholder="Auto if blank"
             />
+            <p className="text-[11px] text-muted-foreground">{describeReceiveLotHint()}</p>
+          </div>
+          <div className="space-y-2">
+            <Label>Staging area</Label>
+            <Input value={stagingArea} onChange={(e) => setStagingArea(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Notes</Label>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
-          <Button className="w-full" size="lg" disabled={!canSubmit || saving} onClick={() => void handleSubmit()}>
+          <Button className="w-full" disabled={!canSubmit || saving} onClick={() => void handleSubmit()}>
             {saving ? (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
             ) : (
               <CheckCircle2 className="h-4 w-4 mr-2" />
             )}
-            Receive to quarantine & print label
+            Receive → Putaway
           </Button>
         </CardContent>
       </Card>

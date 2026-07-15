@@ -184,13 +184,22 @@ export async function receiveReturnWithCarton(input: {
   productTitle?: string | null;
   quantity: number;
   condition?: "good" | "damaged";
+  unitType?: import("@/lib/warehouse-returns").ReturnReceiveUnitType;
+  lot?: string | null;
+  expiry?: string | null;
   trackingNumber?: string | null;
   notes?: string | null;
   stagingArea?: string | null;
   receivedBy?: string | null;
   operatorId?: string | null;
   closeAfter?: boolean;
-}): Promise<{ cartonId: string; cartonCode: string }> {
+}): Promise<{
+  cartonId: string;
+  cartonCode: string;
+  receiveLot: string;
+  palletId: string | null;
+  palletCode: string | null;
+}> {
   const result = await receiveReturnAtDock({
     warehouseId: input.warehouseId,
     clientUserId: input.ownerUserId,
@@ -199,6 +208,9 @@ export async function receiveReturnWithCarton(input: {
     productTitle: input.productTitle,
     quantity: input.quantity,
     condition: input.condition,
+    unitType: input.unitType,
+    lot: input.lot,
+    expiry: input.expiry,
     trackingNumber: input.trackingNumber,
     notes: input.notes,
     stagingArea: input.stagingArea,
@@ -207,7 +219,6 @@ export async function receiveReturnWithCarton(input: {
   });
 
   if (input.closeAfter) {
-    // Soft mark — full close+invoice is a separate operator step; early-close flag only when qty done.
     const returnRef = doc(
       db,
       `users/${input.ownerUserId}/productReturns`,
@@ -395,7 +406,7 @@ export async function startReturnFromAllocatedWalkIn(input: {
   batch.update(cartonRef, {
     clientId: input.clientUserId,
     productReturnId: returnId,
-    status: "quarantine",
+    status: "received",
     updatedAt: serverTimestamp(),
   });
   batch.set(doc(collection(db, "warehouses", input.warehouseId, "movementEvents")), {
