@@ -186,7 +186,6 @@ export function WarehouseOpsDashboard() {
       stats.pickQueue +
       stats.packQueue +
       stats.dispatchReady +
-      stats.returnQc +
       stats.cycleCountOpen,
     [stats]
   );

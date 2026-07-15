@@ -14,11 +14,19 @@ export function userRequiresEmailVerification(profile: UserProfile | null | unde
   return profile?.emailVerificationRequired === true;
 }
 
+/** Admin allowed this user past the verify-email gate (they may verify later). */
+export function isEmailVerificationDeferredByAdmin(
+  profile: UserProfile | null | undefined
+): boolean {
+  return profile?.emailVerificationDeferredByAdmin === true;
+}
+
 export function isEmailVerificationSatisfied(
   profile: UserProfile | null | undefined,
   firebaseUser: User | null | undefined
 ): boolean {
   if (!userRequiresEmailVerification(profile)) return true;
+  if (isEmailVerificationDeferredByAdmin(profile)) return true;
   return Boolean(firebaseUser?.emailVerified);
 }
 

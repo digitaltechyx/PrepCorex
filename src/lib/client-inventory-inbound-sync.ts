@@ -127,14 +127,21 @@ export async function syncClientInventoryFromPutaway(input: {
       // Returns: credit client inventory on putaway (no Return QC step).
       if (line.condition !== "damaged") {
         try {
+          const photos = cartonPhotoUrls(input.carton);
+          const dest = assignment.binPath || assignment.stagingArea || "storage";
+          const note = input.carton.notes?.trim();
           await creditReturnInventory({
             ownerUserId: line.clientId.trim(),
             returnId: productReturnId,
             quantity: assignment.quantity,
             operatorId: input.operatorId,
-            summaryNote: `Return putaway ${input.carton.cartonCode} → ${
-              assignment.binPath || assignment.stagingArea || "storage"
-            }`,
+            summaryNote: [
+              `Return putaway ${input.carton.cartonCode} → ${dest}`,
+              note ? `Receive remarks: ${note}` : null,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            photoUrls: photos,
           });
         } catch (err) {
           console.error("[syncClientInventoryFromPutaway] return credit failed", err);

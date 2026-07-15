@@ -43,6 +43,7 @@ import { orderLinesForRequests } from "@/lib/warehouse-outbound-lines";
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
 import { parseShipmentLabelUrls } from "@/lib/warehouse-outbound-ops";
 import type {
+  FbaMasterCase,
   UserProfile,
   WarehouseCartonDoc,
   WarehouseCartonLine,
@@ -50,6 +51,10 @@ import type {
 } from "@/types";
 
 const WAREHOUSES = "warehouses";
+
+function fbaMasterCasesFromRequest(data: Record<string, unknown>): FbaMasterCase[] {
+  return Array.isArray(data.fbaMasterCases) ? (data.fbaMasterCases as FbaMasterCase[]) : [];
+}
 
 export type WarehousePackStatus = "pending" | "packing" | "ready_to_dispatch";
 
@@ -102,6 +107,8 @@ export type OutboundPackOrder = OutboundPickOrder & {
   service?: string;
   fbaLabelWorkflow?: boolean;
   fbaPackPhase?: "awaiting_label" | "awaiting_courier" | null;
+  /** Already posted master case weight/dims (skip re-entry after QC return). */
+  fbaMasterCases?: FbaMasterCase[];
   /** Client / admin uploaded shipping labels (URLs). */
   labelUrls?: string[];
 };
@@ -618,6 +625,7 @@ function toOutboundPackOrder(
     service: data.service != null ? String(data.service) : undefined,
     fbaLabelWorkflow: isFbaLabelWorkflowRequest(data),
     fbaPackPhase: fbaPackPhaseFromRequest(data),
+    fbaMasterCases: fbaMasterCasesFromRequest(data),
     labelUrls: parseShipmentLabelUrls(data.labelUrl),
   };
 }

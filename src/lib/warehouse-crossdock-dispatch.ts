@@ -523,9 +523,25 @@ export async function completeCrossdockDispatch(input: {
 
   const batch = writeBatch(db);
 
+  let shippedQty = 1;
+  let productName = input.unit.productLabel;
+
   if (input.unit.kind === "carton") {
     const carton = { id: unitSnap.id, ...(unitSnap.data() as Omit<WarehouseCartonDoc, "id">) };
     assertCartonStatusTransition(carton.status, "closed");
+    const lines = Array.isArray(carton.lines) ? carton.lines : [];
+    if (lines.length > 0) {
+      shippedQty = Math.max(
+        1,
+        lines.reduce((sum, l) => sum + Math.max(0, Number(l.quantity) || 0), 0)
+      );
+      productName =
+        lines.find((l) => l.productTitle?.trim())?.productTitle?.trim() ||
+        lines[0]?.sku ||
+        productName;
+    } else {
+      shippedQty = Math.max(1, Number(carton.quantity) || 1);
+    }
     batch.update(unitRef, {
       status: "closed",
       crossdockDispatchStatus: "dispatched",
@@ -534,6 +550,8 @@ export async function completeCrossdockDispatch(input: {
       updatedAt: serverTimestamp(),
     });
   } else {
+    const pallet = unitSnap.data() as Record<string, unknown>;
+    shippedQty = Math.max(1, Number(pallet.quantity) || 1);
     batch.update(unitRef, {
       status: "dispatched",
       crossdockDispatchStatus: "dispatched",
@@ -554,6 +572,7 @@ export async function completeCrossdockDispatch(input: {
     courierTracking: tracking,
     qcUnitType: input.qcUnitType,
     qcCondition: "good",
+    shippedQty,
     operatorId: input.operatorId ?? null,
     at: serverTimestamp(),
   });
@@ -572,21 +591,19 @@ export async function completeCrossdockDispatch(input: {
     return;
   }
 
+  const isReturn = input.unit.disposition === "return";
   await createCrossdockShippedRecord({
     clientUserId: input.unit.clientUserId,
-    productName: input.unit.productLabel,
-    service:
-      input.unit.disposition === "return" ? "Unallocated Return" : "Cross-dock Forwarding",
-    shipTo:
-      input.unit.disposition === "return" ? "Return outbound" : "Cross-dock forward",
+    productName,
+    service: isReturn ? "Quarantine / Return outbound" : "Cross-dock Forwarding",
+    shipTo: isReturn ? "Return outbound" : "Cross-dock forward",
     courierTracking: tracking,
     boxesShipped: 1,
-    shippedQty: input.unit.isClosed ? 1 : 1,
+    shippedQty: input.unit.isClosed ? 1 : shippedQty,
     unitCode: input.unit.code,
     unitKind: input.unit.kind,
-    remarks:
-      input.unit.disposition === "return"
-        ? `Return ${input.unit.code} dispatched`
-        : `Cross-dock ${input.unit.code} dispatched`,
+    remarks: isReturn
+      ? `Return/quarantine ${input.unit.code} dispatched · qty ${input.unit.isClosed ? 1 : shippedQty}`
+      : `Cross-dock ${input.unit.code} dispatched`,
   });
 }

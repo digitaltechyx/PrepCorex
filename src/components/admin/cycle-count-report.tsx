@@ -127,7 +127,7 @@ export function CycleCountReport() {
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (statusFilter === "variance") {
-        if (row.varianceLineCount < 1) return false;
+        if (row.unresolvedVarianceLineCount < 1) return false;
       } else if (statusFilter !== "all" && row.task.status !== statusFilter) {
         return false;
       }
@@ -156,7 +156,7 @@ export function CycleCountReport() {
   }, [rows, search, statusFilter, dateFilter]);
 
   const summary = useMemo(() => {
-    const withVariance = filtered.filter((r) => r.varianceLineCount > 0).length;
+    const withVariance = filtered.filter((r) => r.unresolvedVarianceLineCount > 0).length;
     const completed = filtered.filter((r) => r.task.status === "completed").length;
     return { total: filtered.length, completed, withVariance };
   }, [filtered]);
@@ -171,7 +171,8 @@ export function CycleCountReport() {
           Cycle count reports
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Review completed warehouse cycle counts, variances, and operator remarks.
+          Review completed warehouse cycle counts, variances, and resolve missing/found stock
+          from the report.
         </p>
       </div>
 
@@ -215,7 +216,7 @@ export function CycleCountReport() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="variance">Has variance</SelectItem>
+                  <SelectItem value="variance">Unresolved variance</SelectItem>
                   <SelectItem value="in_progress">In progress</SelectItem>
                   <SelectItem value="open">Open</SelectItem>
                   <SelectItem value="cancelled">Cancelled</SelectItem>
@@ -263,7 +264,7 @@ export function CycleCountReport() {
                 ? `${selectedWarehouse.code || selectedWarehouse.name}: `
                 : ""}
               {summary.total} shown · {summary.completed} completed · {summary.withVariance} with
-              variance
+              unresolved variance
             </p>
           </div>
         </CardContent>
@@ -319,11 +320,16 @@ export function CycleCountReport() {
                         {row.binsCounted}/{row.binsTotal}
                       </TableCell>
                       <TableCell>
-                        {row.varianceLineCount > 0 ? (
+                        {row.unresolvedVarianceLineCount > 0 ? (
                           <Badge className="bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-100">
-                            {row.varianceLineCount} line
-                            {row.varianceLineCount === 1 ? "" : "s"} · {row.varianceBinCount} bin
-                            {row.varianceBinCount === 1 ? "" : "s"}
+                            {row.unresolvedVarianceLineCount} open
+                            {row.varianceLineCount !== row.unresolvedVarianceLineCount
+                              ? ` / ${row.varianceLineCount} total`
+                              : ""}
+                          </Badge>
+                        ) : row.varianceLineCount > 0 ? (
+                          <Badge variant="outline" className="text-emerald-800 border-emerald-200">
+                            All resolved ({row.varianceLineCount})
                           </Badge>
                         ) : (
                           <span className="text-xs text-muted-foreground">None</span>
@@ -357,13 +363,19 @@ export function CycleCountReport() {
           <DialogHeader>
             <DialogTitle>Cycle count detail</DialogTitle>
             <DialogDescription>
-              Expected vs counted quantities, variance reasons, and remarks.
+              Expected vs counted quantities. Use Resolve on a variance line to apply stock,
+              acknowledge, or close as miscount.
             </DialogDescription>
           </DialogHeader>
           {selectedTask ? (
             <CycleCountTaskDetail
               task={selectedTask}
               operatorNameById={operatorNameById}
+              allowResolve
+              onTaskUpdated={(next) => {
+                setSelectedTask(next);
+                void refresh();
+              }}
             />
           ) : null}
         </DialogContent>

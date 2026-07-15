@@ -350,20 +350,11 @@ export function buildWarehouseOpsFlowMetrics(
     {
       key: "return_requests",
       label: "Returns",
-      description: "Approve, receive, ship, close + invoice",
+      description: "Approve, receive, putaway, ship, close",
       count: 0,
       href: "/warehouse-ops/returns",
       feature: "ops_returns",
       tone: "neutral",
-    },
-    {
-      key: "returns",
-      label: "Return QC",
-      description: "Quarantine cartons awaiting inspection",
-      count: stats.returnQc,
-      href: "/warehouse-ops/return-qc",
-      feature: "ops_returns",
-      tone: stats.returnQc > 0 ? "danger" : "neutral",
     },
     {
       key: "cycle",

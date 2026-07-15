@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Clock, Mail, Phone, User, LogOut } from "lucide-react";
 import { Loader2 } from "lucide-react";
-import { userRequiresEmailVerification } from "@/lib/email-verification";
+import { isEmailVerificationSatisfied } from "@/lib/email-verification";
 
 export default function PendingApprovalPage() {
   const { user, userProfile, loading, signOut } = useAuth();
@@ -17,10 +17,7 @@ export default function PendingApprovalPage() {
     if (!loading) {
       if (!user) {
         router.replace("/login");
-      } else if (
-        userRequiresEmailVerification(userProfile) &&
-        !user.emailVerified
-      ) {
+      } else if (!isEmailVerificationSatisfied(userProfile, user)) {
         router.replace("/verify-email");
       } else if (userProfile?.role === "admin") {
         router.replace("/admin/dashboard");

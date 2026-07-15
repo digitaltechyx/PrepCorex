@@ -13,7 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useCollection } from "@/hooks/use-collection";
 import { db, auth } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, User, Calendar, Phone, Mail, Eye, Trash2, UserCheck, RotateCcw, Search, X, ArrowUpDown, Edit, Shield, ScrollText, Lock, ShieldBan, ShieldCheck } from "lucide-react";
+import { CheckCircle, XCircle, User, Calendar, Phone, Mail, Eye, Trash2, UserCheck, RotateCcw, Search, X, ArrowUpDown, Edit, Shield, ScrollText, Lock, ShieldBan, ShieldCheck, MailCheck } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
 import type { UserProfile } from "@/types";
@@ -22,9 +22,41 @@ import { RoleFeatureManagement } from "./role-feature-management";
 import { UserAuditTrailPanel } from "./user-audit-trail-panel";
 import { getUserRoles } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
-import { isClientPortalAccount } from "@/lib/client-account-status";
+import {
+  asDateValue,
+  getDaysSinceDate,
+  isClientPortalAccount,
+} from "@/lib/client-account-status";
 
 type MemberTab = "pending" | "approved" | "locked" | "disabled" | "deleted";
+
+function toLocalDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getUserApprovedDateKey(user: UserProfile): string | null {
+  const d = asDateValue(user.approvedAt);
+  return d ? toLocalDateKey(d) : null;
+}
+
+function getUserAccountAgeLabel(user: UserProfile): string | null {
+  const anchor = asDateValue(user.createdAt) || asDateValue(user.approvedAt);
+  if (!anchor) return null;
+  const days = getDaysSinceDate(anchor);
+  if (days <= 0) return "New today";
+  if (days === 1) return "1 day old";
+  if (days < 30) return `${days} days old`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return months === 1 ? "1 mo old" : `${months} mo old`;
+  const years = Math.floor(days / 365);
+  const remMonths = Math.floor((days % 365) / 30);
+  if (years === 1 && remMonths === 0) return "1 yr old";
+  if (remMonths === 0) return `${years} yr old`;
+  return `${years}y ${remMonths}m old`;
+}
 
 interface MemberManagementProps {
   adminUser: UserProfile | null;
@@ -54,16 +86,21 @@ export function MemberManagement({
   const [localSearchQuery, setLocalSearchQuery] = useState("");
   const searchQuery = controlledSearchQuery ?? localSearchQuery;
   const setSearchQuery = onSearchQueryChange ?? setLocalSearchQuery;
+  const [approvedOnDate, setApprovedOnDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [sortOrder, setSortOrder] = useState<"a-z" | "z-a">("a-z");
   const [accountActionUid, setAccountActionUid] = useState<string | null>(null);
   const itemsPerPage = 12;
 
-  // Filter users and apply search
+  // Filter users and apply search + optional approved-on date
   // Requirement: show all users in User Management, regardless of role.
   const filteredUsers = useMemo(() => {
     const term = searchQuery.trim().toLowerCase();
     return users.filter((user) => {
+      if (approvedOnDate) {
+        const key = getUserApprovedDateKey(user);
+        if (key !== approvedOnDate) return false;
+      }
       if (!term) return true;
       const fields = [
         user.name,
@@ -75,12 +112,17 @@ export function MemberManagement({
       ];
       return fields.some((value) => String(value ?? "").toLowerCase().includes(term));
     });
-  }, [users, searchQuery]);
+  }, [users, searchQuery, approvedOnDate]);
 
-  // Reset to page 1 when search query or sort order changes
+  const approvedOnDateCount = useMemo(() => {
+    if (!approvedOnDate) return 0;
+    return users.filter((user) => getUserApprovedDateKey(user) === approvedOnDate).length;
+  }, [users, approvedOnDate]);
+
+  // Reset to page 1 when search query, sort order, or date filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, sortOrder]);
+  }, [searchQuery, sortOrder, approvedOnDate]);
 
   // Sort function for users - pin admin first, then sort others
   const sortUsers = (users: UserProfile[]) => {
@@ -131,6 +173,11 @@ export function MemberManagement({
       setActiveTab(initialStatus);
     }
   }, [initialStatus]);
+
+  // Approval-date filter is most useful on the Approved tab
+  useEffect(() => {
+    if (approvedOnDate) setActiveTab("approved");
+  }, [approvedOnDate]);
 
   const getCurrentTabUsers = () => {
     switch (activeTab) {
@@ -264,6 +311,54 @@ export function MemberManagement({
     await handleAccountStatusChange(user, "restore", "User restored");
   };
 
+  const handleEmailVerificationAction = async (
+    user: UserProfile,
+    action: "defer" | "revoke_defer" | "mark_verified"
+  ) => {
+    setAccountActionUid(user.uid);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        toast({
+          variant: "destructive",
+          title: "Not signed in",
+          description: "Please sign in again and retry.",
+        });
+        return;
+      }
+      const res = await fetch(`/api/admin/users/${user.uid}/email-verification`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update email verification.");
+      }
+      toast({
+        title: "Email verification updated",
+        description:
+          action === "defer"
+            ? `${user.name || user.email} can continue without verifying. They may verify later.`
+            : action === "revoke_defer"
+              ? `${user.name || user.email} must verify email before signing in.`
+              : `${user.name || user.email} email was marked verified.`,
+      });
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description:
+          error instanceof Error ? error.message : "Failed to update email verification.",
+      });
+    } finally {
+      setAccountActionUid(null);
+    }
+  };
+
   const getInitials = (name: string | null) => {
     if (!name) return "U";
     return name
@@ -353,6 +448,43 @@ export function MemberManagement({
                 >
                   {statusBadge.label}
                 </Badge>
+                {(() => {
+                  const ageLabel = getUserAccountAgeLabel(user);
+                  if (!ageLabel) return null;
+                  return (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] sm:text-xs bg-sky-50 text-sky-800 border-sky-200"
+                      title={
+                        asDateValue(user.createdAt)
+                          ? `Created ${formatDate(user.createdAt)}`
+                          : user.approvedAt
+                            ? `Approved ${formatDate(user.approvedAt)}`
+                            : undefined
+                      }
+                    >
+                      {ageLabel}
+                    </Badge>
+                  );
+                })()}
+                {user.emailVerificationRequired === true &&
+                  (user.emailVerificationDeferredByAdmin ? (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] sm:text-xs bg-amber-50 text-amber-900 border-amber-200"
+                      title="Admin allowed login without email verification"
+                    >
+                      Email verify deferred
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] sm:text-xs bg-orange-50 text-orange-900 border-orange-200"
+                      title="Blocked until email is verified"
+                    >
+                      Email unverified
+                    </Badge>
+                  ))}
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-muted-foreground">
                 <span className="truncate">{user.email}</span>
@@ -484,6 +616,12 @@ export function MemberManagement({
                             <span className="font-medium">Created:</span>
                             <p className="text-muted-foreground">{formatDate(user.createdAt)}</p>
                           </div>
+                          {getUserAccountAgeLabel(user) && (
+                            <div>
+                              <span className="font-medium">Account age:</span>
+                              <p className="text-muted-foreground">{getUserAccountAgeLabel(user)}</p>
+                            </div>
+                          )}
                           {user.approvedAt && (
                             <div>
                               <span className="font-medium">Approved:</span>
@@ -623,6 +761,39 @@ export function MemberManagement({
                   </TooltipContent>
                 </Tooltip>
               )}
+              {isAdmin &&
+                user.emailVerificationRequired === true &&
+                (tabKind === "pending" || tabKind === "approved") && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        disabled={isActionLoading}
+                        onClick={() =>
+                          void handleEmailVerificationAction(
+                            user,
+                            user.emailVerificationDeferredByAdmin ? "revoke_defer" : "defer"
+                          )
+                        }
+                        className={
+                          user.emailVerificationDeferredByAdmin
+                            ? "text-amber-800 border-amber-200 hover:bg-amber-50"
+                            : "text-sky-800 border-sky-200 hover:bg-sky-50"
+                        }
+                      >
+                        <MailCheck className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>
+                        {user.emailVerificationDeferredByAdmin
+                          ? "Require email verification again"
+                          : "Allow continue without email verification"}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               {tabKind === "approved" && isClient && (
                 <>
                   <Tooltip>
@@ -771,37 +942,91 @@ export function MemberManagement({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {/* Search Bar and Sort */}
-        <div className="mb-6 flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by name, email, phone, or client ID..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-            {searchQuery && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                onClick={() => setSearchQuery("")}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            )}
+        {/* Search Bar, approval date filter, and Sort */}
+        <div className="mb-6 flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, email, phone, or client ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+              {searchQuery && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                  onClick={() => setSearchQuery("")}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  type="date"
+                  value={approvedOnDate}
+                  onChange={(e) => setApprovedOnDate(e.target.value)}
+                  className="pl-10 w-full sm:w-[180px]"
+                  aria-label="Filter by approval date"
+                  title="Filter by approval date"
+                />
+              </div>
+              {approvedOnDate ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 px-2"
+                  onClick={() => setApprovedOnDate("")}
+                >
+                  <X className="h-3.5 w-3.5 mr-1" />
+                  Clear date
+                </Button>
+              ) : null}
+              <Select value={sortOrder} onValueChange={(value) => setSortOrder(value as "a-z" | "z-a")}>
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <ArrowUpDown className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="a-z">Sort A-Z</SelectItem>
+                  <SelectItem value="z-a">Sort Z-A</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <Select value={sortOrder} onValueChange={(value) => setSortOrder(value as "a-z" | "z-a")}>
-            <SelectTrigger className="w-full sm:w-[180px]">
-              <ArrowUpDown className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="a-z">Sort A-Z</SelectItem>
-              <SelectItem value="z-a">Sort Z-A</SelectItem>
-            </SelectContent>
-          </Select>
+          {approvedOnDate ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-sm text-emerald-950 flex flex-wrap items-center gap-2">
+              <UserCheck className="h-4 w-4 shrink-0" />
+              <span>
+                <strong>{approvedOnDateCount}</strong> user
+                {approvedOnDateCount === 1 ? "" : "s"} approved on{" "}
+                <strong>
+                  {(() => {
+                    try {
+                      return format(new Date(`${approvedOnDate}T12:00:00`), "MMM dd, yyyy");
+                    } catch {
+                      return approvedOnDate;
+                    }
+                  })()}
+                </strong>
+              </span>
+              {filteredUsers.length !== approvedOnDateCount ? (
+                <span className="text-emerald-800/80 text-xs">
+                  · {filteredUsers.length} match current search
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Pick a date to see how many users were approved that day.
+            </p>
+          )}
         </div>
         
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">

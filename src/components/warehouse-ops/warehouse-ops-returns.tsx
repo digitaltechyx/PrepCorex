@@ -68,7 +68,13 @@ import {
   downloadUint8ArrayAsFile,
 } from "@/lib/warehouse-carton-label-pdf";
 import { getWarehouseCarton } from "@/lib/warehouse-receive-corrections";
-import type { UserProfile, WarehouseCartonDoc, WarehouseDoc } from "@/types";
+import { uploadReceivePhotos } from "@/lib/inbound-receive-photos";
+import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
+import {
+  normalizeReturnTracking,
+  parseReturnTrackings,
+} from "@/lib/return-tracking-client";
+import type { InventoryItem, UserProfile, WarehouseCartonDoc, WarehouseDoc } from "@/types";
 import {
   Archive,
   CheckCircle2,
@@ -79,15 +85,46 @@ import {
   MapPin,
   Package,
   PackagePlus,
+  ScanLine,
   Search,
   Ship,
   UserPlus,
   XCircle,
 } from "lucide-react";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 
 type Props = { warehouse: WarehouseDoc };
 type StatusTab = "pending" | "open" | "in_progress" | "closed" | "all";
+
+function returnMatchesTrackingScan(row: AdminProductReturn, trackingRaw: string): boolean {
+  const needle = normalizeReturnTracking(trackingRaw);
+  if (!needle) return false;
+  const trackings = parseReturnTrackings(row.returnTrackings);
+  if (trackings.some((t) => normalizeReturnTracking(t.trackingNumber) === needle)) {
+    return true;
+  }
+  for (const ship of row.shipments ?? []) {
+    const tn = (ship as { trackingNumber?: string; tracking?: string }).trackingNumber
+      ?? (ship as { tracking?: string }).tracking;
+    if (typeof tn === "string" && normalizeReturnTracking(tn) === needle) return true;
+  }
+  return false;
+}
+
+function trackingHaystack(row: AdminProductReturn): string {
+  const parts: string[] = [];
+  for (const t of parseReturnTrackings(row.returnTrackings)) {
+    parts.push(t.trackingNumber);
+  }
+  for (const ship of row.shipments ?? []) {
+    const tn = (ship as { trackingNumber?: string; tracking?: string }).trackingNumber
+      ?? (ship as { tracking?: string }).tracking;
+    if (typeof tn === "string") parts.push(tn);
+  }
+  return parts.join(" ");
+}
 function clientMatchesWarehouse(client: UserProfile, warehouse: WarehouseDoc): boolean {
   const linked = String(warehouse.linkedLocationId ?? "").trim();
   if (!linked) return true;
@@ -249,6 +286,14 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const [recvExpiry, setRecvExpiry] = useState("");
   const [recvCondition, setRecvCondition] = useState<"good" | "damaged">("good");
   const [binPathById, setBinPathById] = useState<Map<string, string>>(new Map());
+  const [trackingScan, setTrackingScan] = useState("");
+  const [recvTracking, setRecvTracking] = useState("");
+  const [recvPhotoFiles, setRecvPhotoFiles] = useState<File[]>([]);
+  const [recvPhotoPreviews, setRecvPhotoPreviews] = useState<string[]>([]);
+  const [walkProductId, setWalkProductId] = useState("");
+  const [walkExpiry, setWalkExpiry] = useState("");
+  const [walkInventory, setWalkInventory] = useState<InventoryItem[]>([]);
+  const [walkInventoryLoading, setWalkInventoryLoading] = useState(false);
 
   const [shipOpen, setShipOpen] = useState(false);
   const [shipQty, setShipQty] = useState("");
@@ -343,6 +388,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
           r.id,
           r.userRemarks,
           r.status,
+          trackingHaystack(r),
         ]
           .join(" ")
           .toLowerCase();
@@ -356,6 +402,16 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
         return resolveReturnProductName(a).localeCompare(resolveReturnProductName(b));
       });
   }, [warehouseReturns, tab, query, clientById]);
+
+  const trackingMatches = useMemo(() => {
+    const needle = trackingScan.trim();
+    if (!needle) return [] as AdminProductReturn[];
+    return warehouseReturns.filter(
+      (r) =>
+        (r.status === "approved" || r.status === "in_progress" || r.status === "pending") &&
+        returnMatchesTrackingScan(r, needle)
+    );
+  }, [warehouseReturns, trackingScan]);
 
   const unallocatedReturnCartons = useMemo(() => {
     return cartons.filter(
@@ -415,7 +471,48 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     };
   }, [floorFlow, warehouse.id]);
 
-  function openReceive(row: AdminProductReturn) {
+  useEffect(() => {
+    if (!walkClientId || floorFlow !== "walk-in") {
+      setWalkInventory([]);
+      return;
+    }
+    let cancelled = false;
+    setWalkInventoryLoading(true);
+    void (async () => {
+      try {
+        const snap = await getDocs(collection(db, "users", walkClientId, "inventory"));
+        if (cancelled) return;
+        const items: InventoryItem[] = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<InventoryItem, "id">),
+        }));
+        setWalkInventory(
+          items
+            .filter((item) => {
+              const inventoryType = (item as InventoryItem & { inventoryType?: string })
+                .inventoryType;
+              const isPackaging =
+                inventoryType === "box" ||
+                inventoryType === "container" ||
+                inventoryType === "pallet";
+              return !isPackaging;
+            })
+            .sort((a, b) =>
+              String(a.productName || "").localeCompare(String(b.productName || ""))
+            )
+        );
+      } catch {
+        if (!cancelled) setWalkInventory([]);
+      } finally {
+        if (!cancelled) setWalkInventoryLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [walkClientId, floorFlow]);
+
+  function openReceive(row: AdminProductReturn, options?: { tracking?: string }) {
     setSelected(row);
     setRecvQty(
       String(
@@ -427,11 +524,68 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     setRecvNotes("");
     setRecvCloseReady(false);
     setRecvUnitType("carton");
-    setRecvLot("");
-    setRecvExpiry("");
     setRecvCondition("good");
-    setRecvPhase("pick-unit");
+
+    const prior = buildReturnStockLocations({
+      cartons,
+      productReturnId: row.id || "",
+      binPathById,
+    });
+    const priorLot = prior.find((p) => p.lot?.trim())?.lot?.trim() || "";
+    setRecvLot(priorLot);
+    const expiryFromReturn =
+      typeof row.expiryDate === "string" ? row.expiryDate.trim().slice(0, 10) : "";
+    setRecvExpiry(expiryFromReturn);
+    setRecvTracking(options?.tracking?.trim() || trackingScan.trim() || "");
+    setRecvPhotoFiles([]);
+    setRecvPhotoPreviews((prev) => {
+      prev.forEach((u) => URL.revokeObjectURL(u));
+      return [];
+    });
+    setRecvPhase(prior.length > 0 ? "form" : "pick-unit");
+    if (prior.length > 0) setRecvUnitType("carton");
     setFloorFlow("receive");
+  }
+
+  function onRecvPhotosChange(files: File[]) {
+    setRecvPhotoPreviews((prev) => {
+      prev.forEach((u) => URL.revokeObjectURL(u));
+      return files.map((f) => URL.createObjectURL(f));
+    });
+    setRecvPhotoFiles(files);
+  }
+
+  function applyTrackingScan(value: string) {
+    setTrackingScan(value);
+    const needle = value.trim();
+    if (!needle) return;
+    const matches = warehouseReturns.filter(
+      (r) =>
+        (r.status === "approved" || r.status === "in_progress") &&
+        returnMatchesTrackingScan(r, needle)
+    );
+    if (matches.length === 1) {
+      openReceive(matches[0], { tracking: needle });
+    } else if (matches.length > 1) {
+      setQuery(needle);
+      setTab("all");
+      toast({
+        title: `${matches.length} returns match this tracking`,
+        description: "Select a row below to receive (partial multi-SKU supported).",
+      });
+    } else {
+      const pending = warehouseReturns.filter(
+        (r) => r.status === "pending" && returnMatchesTrackingScan(r, needle)
+      );
+      if (pending.length > 0) {
+        setQuery(needle);
+        setTab("pending");
+        toast({
+          title: "Tracking matched pending return(s)",
+          description: "Approve first, then receive.",
+        });
+      }
+    }
   }
 
   function openWalkIn() {
@@ -443,6 +597,8 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     setWalkReturnType("partial");
     setWalkName("");
     setWalkSku("");
+    setWalkProductId("");
+    setWalkExpiry("");
     setWalkQty("1");
     setWalkNotes("");
     setWalkUnknownName("");
@@ -556,6 +712,14 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     }
     setBusy(true);
     try {
+      let photoUrls: string[] = [];
+      if (recvPhotoFiles.length > 0) {
+        photoUrls = await uploadReceivePhotos({
+          warehouseId: warehouse.id,
+          files: recvPhotoFiles,
+          uploadedBy: operatorId,
+        });
+      }
       const result = await receiveReturnWithCarton({
         warehouseId: warehouse.id,
         ownerUserId: owner,
@@ -567,7 +731,9 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
         unitType: recvUnitType,
         lot: recvLot.trim() || null,
         expiry: recvExpiry.trim() || null,
+        trackingNumber: recvTracking.trim() || null,
         notes: recvNotes.trim() || null,
+        photoUrls: photoUrls.length > 0 ? photoUrls : null,
         receivedBy: operatorName,
         operatorId,
         closeAfter: recvCloseReady,
@@ -607,6 +773,11 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
       }
       setFloorFlow("queue");
       setRecvPhase("pick-unit");
+      setRecvPhotoFiles([]);
+      setRecvPhotoPreviews((prev) => {
+        prev.forEach((u) => URL.revokeObjectURL(u));
+        return [];
+      });
       setSelected(null);
     } catch (e) {
       toast({
@@ -740,17 +911,22 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
         }
       } else {
         if (!walkClientId) throw new Error("Select a client.");
-        if (!walkName.trim()) throw new Error("Enter a product name.");
+        if (walkType === "existing" && !walkProductId && !walkName.trim()) {
+          throw new Error("Select an existing product or enter a name.");
+        }
+        if (walkType === "new" && !walkName.trim()) throw new Error("Enter a product name.");
         const { returnId } = await createWalkInReturnWithUser({
           ownerUserId: walkClientId,
           type: walkType,
           returnType: walkReturnType,
+          productId: walkType === "existing" ? walkProductId || null : null,
           productName: walkType === "existing" ? walkName : null,
           sku: walkType === "existing" ? walkSku : null,
           newProductName: walkType === "new" ? walkName : null,
           newProductSku: walkType === "new" ? walkSku : null,
           requestedQuantity: parseInt(walkQty, 10) || 1,
           userRemarks: walkNotes.trim() || null,
+          expiryDate: walkExpiry.trim() || null,
           operatorId,
         });
         toast({
@@ -862,6 +1038,12 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
           setWalkName={setWalkName}
           walkSku={walkSku}
           setWalkSku={setWalkSku}
+          walkProductId={walkProductId}
+          setWalkProductId={setWalkProductId}
+          walkInventory={walkInventory}
+          walkInventoryLoading={walkInventoryLoading}
+          walkExpiry={walkExpiry}
+          setWalkExpiry={setWalkExpiry}
           walkQty={walkQty}
           setWalkQty={setWalkQty}
           walkNotes={walkNotes}
@@ -894,6 +1076,11 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
           setRecvNotes={setRecvNotes}
           recvCloseReady={recvCloseReady}
           setRecvCloseReady={setRecvCloseReady}
+          recvTracking={recvTracking}
+          setRecvTracking={setRecvTracking}
+          recvPhotoFiles={recvPhotoFiles}
+          recvPhotoPreviews={recvPhotoPreviews}
+          onRecvPhotosChange={onRecvPhotosChange}
           unallocatedReturnCartons={unallocatedReturnCartons}
           filteredLinkUnits={filteredLinkUnits}
           selectedLinkUnit={selectedLinkUnit}
@@ -917,7 +1104,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
       ) : (
       <>
       <Card className="overflow-hidden border-orange-200/70 bg-gradient-to-br from-orange-50/90 via-background to-slate-50/80 shadow-sm">
-        <CardContent className="p-4 sm:p-5">
+        <CardContent className="p-4 sm:p-5 space-y-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-2 min-w-0">
               <div className="flex items-center gap-2">
@@ -933,8 +1120,9 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
               </div>
               <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
                 {[
+                  "Scan tracking",
                   "Approve",
-                  "Receive + lot",
+                  "Receive + lot/label",
                   "Putaway",
                   "Ship (optional)",
                   "Close + invoice",
@@ -973,6 +1161,53 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
                 </Link>
               </Button>
             </div>
+          </div>
+
+          <div className="rounded-lg border border-orange-200/80 bg-background/80 p-3 space-y-2">
+            <Label className="text-xs flex items-center gap-1.5">
+              <ScanLine className="h-3.5 w-3.5" />
+              Scan return tracking (like inbound docking)
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                value={trackingScan}
+                onChange={(e) => setTrackingScan(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") applyTrackingScan(trackingScan);
+                }}
+                placeholder="Camera or type tracking #"
+                className="flex-1 h-9"
+                autoComplete="off"
+              />
+              <ScanCameraButton
+                onScan={(text) => applyTrackingScan(text)}
+                scannerTitle="Scan return tracking"
+                scannerDescription="Match product return requests that share this tracking."
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => applyTrackingScan(trackingScan)}
+              >
+                Find
+              </Button>
+            </div>
+            {trackingScan.trim() && trackingMatches.length > 0 ? (
+              <p className="text-[11px] text-muted-foreground">
+                {trackingMatches.length} match
+                {trackingMatches.length === 1 ? "" : "es"} —{" "}
+                {trackingMatches
+                  .slice(0, 3)
+                  .map((r) => resolveReturnProductName(r))
+                  .join(", ")}
+                {trackingMatches.length > 3 ? "…" : ""}
+              </p>
+            ) : trackingScan.trim() ? (
+              <p className="text-[11px] text-muted-foreground">
+                No open return with this tracking. Walk-in if it arrived without a request.
+              </p>
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -1050,7 +1285,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="pl-8 h-9 text-sm"
-                placeholder="Search client, product, SKU…"
+                placeholder="Search client, product, SKU, tracking…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />

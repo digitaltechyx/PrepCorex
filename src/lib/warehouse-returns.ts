@@ -312,6 +312,8 @@ export async function receiveReturnAtDock(input: {
   trackingNumber?: string | null;
   carrier?: string | null;
   notes?: string | null;
+  /** Dock photos for this partial receive — accumulate on inventory remarks after putaway. */
+  photoUrls?: string[] | null;
   stagingArea?: string | null;
   receivedBy?: string | null;
   operatorId?: string | null;
@@ -344,6 +346,10 @@ export async function receiveReturnAtDock(input: {
   const condition = input.condition === "damaged" ? "damaged" : "good";
   // Damaged still goes quarantine; good returns await putaway like inbound.
   const cartonStatus = condition === "damaged" ? "quarantine" : "received";
+  const photoUrls = [
+    ...new Set((input.photoUrls ?? []).map((u) => String(u || "").trim()).filter(Boolean)),
+  ];
+  const notes = input.notes?.trim() || null;
 
   let palletId: string | null = null;
   let palletCode: string | null = null;
@@ -356,7 +362,8 @@ export async function receiveReturnAtDock(input: {
       receiveLot,
       trackingNumber: input.trackingNumber ?? null,
       carrier: input.carrier ?? null,
-      notes: input.notes ?? `Return ${input.productReturnId}`,
+      notes: notes ?? `Return ${input.productReturnId}`,
+      photoUrl: photoUrls[0] ?? null,
       receivedBy: input.receivedBy ?? null,
       stagingArea: staging,
     });
@@ -400,7 +407,9 @@ export async function receiveReturnAtDock(input: {
     receiveLot,
     trackingNumber: input.trackingNumber ?? null,
     carrier: input.carrier ?? null,
-    notes: input.notes ?? null,
+    notes,
+    photoUrls: photoUrls.length > 0 ? photoUrls : undefined,
+    photoUrl: photoUrls[0] ?? null,
     receivedBy: input.receivedBy ?? null,
     stagingArea: staging,
   });
@@ -417,9 +426,33 @@ export async function receiveReturnAtDock(input: {
       ? "in_progress"
       : returnData.status;
 
+  const prevReceivePhotos = Array.isArray((returnData as { receivePhotoUrls?: unknown }).receivePhotoUrls)
+    ? ((returnData as { receivePhotoUrls: unknown[] }).receivePhotoUrls as unknown[])
+        .map((u) => String(u || "").trim())
+        .filter(Boolean)
+    : [];
+  const receivePhotoUrls = [...new Set([...prevReceivePhotos, ...photoUrls])];
+
+  const log = Array.isArray(returnData.receivingLog) ? [...returnData.receivingLog] : [];
+  log.push({
+    at: new Date().toISOString(),
+    quantity: qty,
+    sku,
+    cartonId,
+    cartonCode,
+    receiveLot,
+    unitType,
+    condition,
+    notes,
+    photoUrls: photoUrls.length > 0 ? photoUrls : null,
+    operatorId: input.operatorId ?? null,
+  });
+
   await updateDoc(returnRef, {
     receivedQuantity: nextReceived,
     status: nextStatus,
+    receivingLog: log,
+    ...(receivePhotoUrls.length > 0 ? { receivePhotoUrls } : {}),
     updatedAt: serverTimestamp(),
   });
 
@@ -439,6 +472,8 @@ export async function receiveReturnAtDock(input: {
     condition: line.condition,
     stagingArea: staging,
     trackingNumber: input.trackingNumber ?? null,
+    notes,
+    photoCount: photoUrls.length,
     operatorId: input.operatorId ?? null,
     at: serverTimestamp(),
   });

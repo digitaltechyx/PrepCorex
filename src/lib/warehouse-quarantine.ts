@@ -17,10 +17,23 @@ import {
   parseWarehouseCartonDoc,
   warehouseCartonDocRef,
 } from "@/lib/warehouse-carton-firestore";
-import { linesToFirestorePayload, rollCartonBinStateFromLines } from "@/lib/warehouse-carton-line-utils";
+import {
+  isLinePutawayPlaced,
+  linesToFirestorePayload,
+  nextCartonLineId,
+  rollCartonBinStateFromLines,
+  rollupCartonStagingArea,
+} from "@/lib/warehouse-carton-line-utils";
 import { findBinByPath, validateLineToBin, inspectBinContents } from "@/lib/warehouse-putaway";
-import { listWarehouseAreas } from "@/lib/warehouse-putaway-disposition";
-import type { WarehouseCartonDoc, WarehouseCartonLine, WarehouseDoc } from "@/types";
+import { listWarehouseAreas, areasForPacking } from "@/lib/warehouse-putaway-disposition";
+import { getAreaPurposes, purposeKey } from "@/lib/warehouse-area-purposes";
+import { assertCartonStatusTransition } from "@/lib/warehouse-carton-states";
+import type {
+  WarehouseCartonDoc,
+  WarehouseCartonLine,
+  WarehouseCartonStatus,
+  WarehouseDoc,
+} from "@/types";
 
 export const QUARANTINE_HOLD_DAYS = 10;
 
@@ -281,6 +294,253 @@ export async function releaseQuarantineLineToStorage(input: {
   }
 
   return { releasedQty: qty };
+}
+
+async function decreaseClientDamagedQty(input: {
+  clientId: string;
+  sku: string;
+  productTitle?: string | null;
+  inventoryRequestId?: string | null;
+  quantity: number;
+}): Promise<void> {
+  if (!input.clientId || input.quantity <= 0) return;
+  const invRef = await findClientInventoryRef({
+    clientUserId: input.clientId,
+    sku: input.sku,
+    productTitle: input.productTitle,
+    inventoryRequestId: input.inventoryRequestId,
+  });
+  if (!invRef) return;
+  const invSnap = await getDoc(invRef);
+  if (!invSnap.exists()) return;
+  const data = invSnap.data() as { quantity?: number; damagedQuantity?: number };
+  const prevGood = Math.max(0, Number(data.quantity ?? 0));
+  const prevDmg = Math.max(0, Number(data.damagedQuantity ?? 0));
+  const nextDmg = Math.max(0, prevDmg - input.quantity);
+  await updateDoc(invRef, {
+    damagedQuantity: nextDmg,
+    status: prevGood > 0 ? "In Stock" : "Out of Stock",
+    updatedAt: serverTimestamp(),
+  });
+}
+
+function resolveStatusAfterQuarantineReturn(
+  carton: WarehouseCartonDoc,
+  nextLines: WarehouseCartonLine[]
+): WarehouseCartonStatus {
+  const active = nextLines.filter((l) => l.quantity > 0);
+  const placed = active.filter(isLinePutawayPlaced);
+  const awaiting = active.filter((l) => !isLinePutawayPlaced(l));
+  if (awaiting.length > 0 && placed.length === 0) return "received";
+  if (awaiting.length > 0 && placed.length > 0) return "stowed_partial";
+  const rolled = rollCartonBinStateFromLines(carton, nextLines);
+  return rolled.status as WarehouseCartonStatus;
+}
+
+/**
+ * Return quarantine stock to the Putaway queue (bin or area as usual).
+ * Damaged client qty is reduced now; putaway will credit good stock when stowed.
+ */
+export async function returnQuarantineLineToPutaway(input: {
+  warehouseId: string;
+  cartonId: string;
+  lineId: string;
+  quantity?: number;
+  operatorId?: string | null;
+}): Promise<{ returnedQty: number; cartonCode: string }> {
+  const cartonRef = warehouseCartonDocRef(input.warehouseId, input.cartonId);
+  const snap = await getDoc(cartonRef);
+  if (!snap.exists()) throw new Error("Carton not found.");
+  const carton = parseWarehouseCartonDoc(snap.id, snap.data() as Record<string, unknown>);
+  const lines = [...(carton.lines ?? [])];
+  const idx = lines.findIndex((l) => l.lineId === input.lineId);
+  if (idx < 0) throw new Error("Line not found.");
+  const line = lines[idx];
+  if (!isActiveQuarantineLine(line)) throw new Error("Line is not active quarantine stock.");
+
+  const qty = Math.min(line.quantity, Math.max(1, Math.floor(input.quantity ?? line.quantity)));
+  const now = new Date();
+  let nextLines = [...lines];
+
+  if (qty === line.quantity) {
+    nextLines[idx] = {
+      ...line,
+      condition: "good",
+      binId: null,
+      stagingArea: null,
+      quarantineAt: null,
+      quarantineReleasedAt: now,
+    };
+  } else {
+    nextLines[idx] = { ...line, quantity: line.quantity - qty };
+    nextLines.push({
+      ...line,
+      lineId: nextCartonLineId(nextLines),
+      quantity: qty,
+      condition: "good",
+      binId: null,
+      stagingArea: null,
+      quarantineAt: null,
+      quarantineReleasedAt: now,
+    });
+  }
+
+  const nextStatus = resolveStatusAfterQuarantineReturn(carton, nextLines);
+  assertCartonStatusTransition(carton.status, nextStatus);
+  const rolled = rollCartonBinStateFromLines(carton, nextLines);
+
+  const batch = writeBatch(db);
+  batch.update(cartonRef, {
+    lines: linesToFirestorePayload(nextLines),
+    status: nextStatus,
+    binId: rolled.binId,
+    stagingArea: rollupCartonStagingArea(nextLines, carton),
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(doc(collection(db, WAREHOUSES, input.warehouseId, "movementEvents")), {
+    type: "quarantine_return_putaway",
+    cartonId: input.cartonId,
+    cartonCode: carton.cartonCode,
+    lineId: input.lineId,
+    sku: line.sku,
+    quantity: qty,
+    operatorId: input.operatorId ?? null,
+    at: serverTimestamp(),
+  });
+  await batch.commit();
+
+  const clientId = line.clientId?.trim() || carton.clientId?.trim() || "";
+  await decreaseClientDamagedQty({
+    clientId,
+    sku: line.sku,
+    productTitle: line.productTitle,
+    inventoryRequestId: line.inventoryRequestId,
+    quantity: qty,
+  });
+
+  return { returnedQty: qty, cartonCode: carton.cartonCode };
+}
+
+/**
+ * Send quarantine stock to Pack → Dispatch (creates shipped entry on dispatch).
+ * Damaged client qty is reduced now; good sellable stock is not increased.
+ */
+export async function returnQuarantineLineToPack(input: {
+  warehouseId: string;
+  cartonId: string;
+  lineId: string;
+  packAreaId: string;
+  quantity?: number;
+  operatorId?: string | null;
+}): Promise<{ returnedQty: number; cartonCode: string; packAreaCode: string }> {
+  const areas = await listWarehouseAreas(input.warehouseId);
+  const packing = areasForPacking(areas);
+  const packArea = packing.find((a) => a.id === input.packAreaId);
+  if (!packArea) {
+    throw new Error(
+      packing.length === 0
+        ? "No packing area configured. Add an area with Packing purpose in warehouse setup."
+        : "Select a packing area."
+    );
+  }
+  if (!getAreaPurposes(packArea).map(purposeKey).some((k) => k === "packing")) {
+    throw new Error("Destination must be a packing area.");
+  }
+
+  const cartonRef = warehouseCartonDocRef(input.warehouseId, input.cartonId);
+  const snap = await getDoc(cartonRef);
+  if (!snap.exists()) throw new Error("Carton not found.");
+  const carton = parseWarehouseCartonDoc(snap.id, snap.data() as Record<string, unknown>);
+  if (carton.status === "voided" || carton.status === "closed") {
+    throw new Error("This carton cannot be returned.");
+  }
+  if (
+    carton.crossdockDispatchStatus === "awaiting_pack" ||
+    carton.crossdockDispatchStatus === "ready" ||
+    carton.crossdockDispatchStatus === "dispatched"
+  ) {
+    throw new Error("This carton is already queued for pack or dispatch.");
+  }
+
+  const lines = [...(carton.lines ?? [])];
+  const idx = lines.findIndex((l) => l.lineId === input.lineId);
+  if (idx < 0) throw new Error("Line not found.");
+  const line = lines[idx];
+  if (!isActiveQuarantineLine(line)) throw new Error("Line is not active quarantine stock.");
+
+  const clientId = line.clientId?.trim() || carton.clientId?.trim() || "";
+  if (!clientId) {
+    throw new Error("This quarantine line has no client — assign a client before pack/dispatch.");
+  }
+
+  const qty = Math.min(line.quantity, Math.max(1, Math.floor(input.quantity ?? line.quantity)));
+  if (qty < line.quantity) {
+    throw new Error(
+      "Send to Pack needs the full line quantity. Return leftover qty to Putaway first, then Send remaining to Pack (that creates a partial ship later)."
+    );
+  }
+  const otherQuarantine = lines.some(
+    (l) => l.lineId !== line.lineId && isActiveQuarantineLine(l)
+  );
+  if (otherQuarantine) {
+    throw new Error(
+      "This carton still has other quarantine lines. Return or dispose those first, then Send to Pack."
+    );
+  }
+
+  const now = new Date();
+  let nextLines = [...lines];
+
+  nextLines[idx] = {
+    ...line,
+    condition: "good",
+    binId: null,
+    stagingArea: packArea.code,
+    allocationStatus: "allocated",
+    clientId,
+    quarantineAt: null,
+    quarantineReleasedAt: now,
+  };
+
+  const nextStatus: WarehouseCartonStatus = "on_hold";
+  assertCartonStatusTransition(carton.status, nextStatus);
+  const rolled = rollCartonBinStateFromLines(carton, nextLines);
+  const stagingArea = rollupCartonStagingArea(nextLines, carton) ?? packArea.code;
+
+  const batch = writeBatch(db);
+  batch.update(cartonRef, {
+    lines: linesToFirestorePayload(nextLines),
+    status: nextStatus,
+    binId: rolled.binId,
+    stagingArea,
+    clientId,
+    putawayDisposition: "return",
+    crossdockDispatchStatus: "awaiting_pack",
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(doc(collection(db, WAREHOUSES, input.warehouseId, "movementEvents")), {
+    type: "quarantine_return_pack",
+    cartonId: input.cartonId,
+    cartonCode: carton.cartonCode,
+    lineId: input.lineId,
+    sku: line.sku,
+    quantity: qty,
+    packAreaId: packArea.id,
+    packAreaCode: packArea.code,
+    operatorId: input.operatorId ?? null,
+    at: serverTimestamp(),
+  });
+  await batch.commit();
+
+  await decreaseClientDamagedQty({
+    clientId,
+    sku: line.sku,
+    productTitle: line.productTitle,
+    inventoryRequestId: line.inventoryRequestId,
+    quantity: qty,
+  });
+
+  return { returnedQty: qty, cartonCode: carton.cartonCode, packAreaCode: packArea.code };
 }
 
 /**

@@ -297,12 +297,28 @@ export type WarehouseCycleCountTaskStatus =
   | "cancelled";
 
 export type WarehouseCycleCountVarianceReason =
-  | "miscount"
+  | "miscount" // legacy
   | "damaged_not_recorded"
   | "found_stock"
   | "missing_stock"
+  | "found_missing_stock"
+  | "found_additional_stock"
   | "mislabeled"
   | "other";
+
+export type WarehouseCycleCountResolveStatus =
+  | "applied"
+  | "acknowledged"
+  | "miscount" // legacy
+  | "found_missing_stock"
+  | "found_additional_stock";
+
+export type WarehouseCycleCountResolveAction =
+  | "apply_stock"
+  | "acknowledge"
+  | "miscount" // legacy
+  | "found_missing_stock"
+  | "found_additional_stock";
 
 export interface WarehouseCycleCountExpectedLine {
   key: string;
@@ -326,6 +342,13 @@ export interface WarehouseCycleCountCountedLine {
   variance: number;
   varianceReason?: WarehouseCycleCountVarianceReason | null;
   varianceNotes?: string | null;
+  /** Admin resolution from cycle count report. */
+  resolveStatus?: WarehouseCycleCountResolveStatus | null;
+  resolveAction?: WarehouseCycleCountResolveAction | null;
+  resolveNotes?: string | null;
+  resolvedAt?: { seconds: number; nanoseconds: number } | Date | null;
+  resolvedBy?: string | null;
+  resolveDetail?: string | null;
 }
 
 export interface WarehouseCycleCountBinResult {
@@ -434,6 +457,11 @@ export interface UserProfile {
   accountStatusReason?: "inactivity" | "manual" | null;
   /** When true, user must verify email via Firebase before login (new registrations only). */
   emailVerificationRequired?: boolean;
+  /**
+   * Admin override: allow this user to use the app without verifying email yet.
+   * They can still verify later via the normal email link.
+   */
+  emailVerificationDeferredByAdmin?: boolean;
   createdAt?: Date;
   approvedAt?: Date;
   deletedAt?: Date;
@@ -1134,6 +1162,10 @@ export interface ProductReturn {
   quantityUpdates?: Array<Record<string, unknown>>;
   /** Carrier tracking while return shipment is in transit to warehouse. */
   returnTrackings?: InboundTrackingEntry[];
+  /** Calendar expiry YYYY-MM-DD when submitted with the return. */
+  expiryDate?: string | null;
+  /** All dock photos from partial receives — also copied to inventory remarks on putaway. */
+  receivePhotoUrls?: string[];
 }
 
 /** User-initiated dispose request (user selects product, quantity, reason; admin approves or rejects). */

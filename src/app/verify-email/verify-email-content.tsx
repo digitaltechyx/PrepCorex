@@ -12,7 +12,6 @@ import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  isEmailVerificationSatisfied,
   reloadAuthUser,
   sendUserVerificationEmail,
   userRequiresEmailVerification,
@@ -40,7 +39,8 @@ export default function VerifyEmailPage() {
       router.replace("/login");
       return;
     }
-    if (isEmailVerificationSatisfied(userProfile, user)) {
+    // Deferred users may still open this page later to complete verification.
+    if (user.emailVerified) {
       if (userProfile?.status === "pending") {
         router.replace("/pending-approval");
       } else {

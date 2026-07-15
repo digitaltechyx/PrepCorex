@@ -226,6 +226,19 @@ function ReturnDraftEditor({
         </div>
 
         <div className="space-y-2">
+          <Label>Expiry date (optional)</Label>
+          <Input
+            type="date"
+            value={draft.expiryDate}
+            onChange={(e) => patch({ expiryDate: e.target.value })}
+            className="rounded-lg h-11"
+          />
+          <p className="text-xs text-muted-foreground">
+            For dated products. Warehouse uses this on receive lot / FEFO putaway.
+          </p>
+        </div>
+
+        <div className="space-y-2">
           <Label>Remarks (optional)</Label>
           <Textarea
             value={draft.userRemarks}

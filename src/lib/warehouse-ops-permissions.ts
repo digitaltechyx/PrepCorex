@@ -12,8 +12,8 @@ export const OPS_FEATURES_CONFIG: { value: UserFeature; label: string; descripti
   { value: "ops_count", label: "Cycle count", description: "Spot / ABC inventory counts" },
   {
     value: "ops_returns",
-    label: "Return QC",
-    description: "Inspect quarantine returns — restock, damaged, or dispose",
+    label: "Returns",
+    description: "Approve, receive (lot/carton/pallet), putaway, ship, close + invoice",
   },
   {
     value: "ops_supervisor",
@@ -183,12 +183,6 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       href: "/warehouse-ops/returns",
       feature: "ops_returns",
       description: "Approve, receive (lot/carton/pallet), putaway, ship, close + invoice",
-    },
-    {
-      title: "Return QC",
-      href: "/warehouse-ops/return-qc",
-      feature: "ops_returns",
-      description: "Legacy quarantine returns — new flow uses Putaway",
     },
   ];
   return items.filter((item) => hasFeature(userProfile, item.feature));

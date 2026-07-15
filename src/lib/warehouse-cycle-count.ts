@@ -10,6 +10,8 @@ import {
   where,
   orderBy,
   limit,
+  writeBatch,
+  Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { warehouseBinsCollectionRef } from "@/lib/warehouse-firestore";
@@ -17,12 +19,21 @@ import { findBinByPath } from "@/lib/warehouse-putaway";
 import {
   aggregateBinSkuStock,
   listCartonsInBin,
+  sortSourcesFefo,
 } from "@/lib/warehouse-internal-move";
+import {
+  binStockKey,
+  linesToFirestorePayload,
+  rollCartonBinStateFromLines,
+} from "@/lib/warehouse-carton-line-utils";
+import { warehouseCartonDocRef } from "@/lib/warehouse-carton-firestore";
 import type {
   WarehouseBinDoc,
+  WarehouseCartonDoc,
   WarehouseCycleCountBinResult,
   WarehouseCycleCountCountedLine,
   WarehouseCycleCountExpectedLine,
+  WarehouseCycleCountResolveAction,
   WarehouseCycleCountTaskDoc,
   WarehouseCycleCountTaskStatus,
   WarehouseCycleCountType,
@@ -35,10 +46,9 @@ export const CYCLE_COUNT_VARIANCE_REASONS: {
   value: WarehouseCycleCountVarianceReason;
   label: string;
 }[] = [
-  { value: "miscount", label: "Miscount" },
+  { value: "found_missing_stock", label: "Found missing stock" },
+  { value: "found_additional_stock", label: "Found additional stock" },
   { value: "damaged_not_recorded", label: "Damaged not recorded" },
-  { value: "found_stock", label: "Found stock" },
-  { value: "missing_stock", label: "Missing stock" },
   { value: "mislabeled", label: "Mislabeled carton/bin" },
   { value: "other", label: "Other" },
 ];
@@ -512,6 +522,9 @@ export function varianceReasonLabel(
   reason: WarehouseCycleCountVarianceReason | null | undefined
 ): string {
   if (!reason) return "—";
+  if (reason === "miscount") return "Found missing / additional (legacy)";
+  if (reason === "missing_stock") return "Found missing stock";
+  if (reason === "found_stock") return "Found additional stock";
   return CYCLE_COUNT_VARIANCE_REASONS.find((r) => r.value === reason)?.label ?? reason;
 }
 
@@ -521,9 +534,16 @@ export type CycleCountTaskReportRow = {
   binsTotal: number;
   varianceBinCount: number;
   varianceLineCount: number;
+  unresolvedVarianceLineCount: number;
   createdAt: Date | null;
   completedAt: Date | null;
 };
+
+export function isCycleCountLineUnresolved(
+  line: WarehouseCycleCountCountedLine
+): boolean {
+  return line.variance !== 0 && !line.resolveStatus;
+}
 
 export function buildCycleCountTaskReportRow(
   task: WarehouseCycleCountTaskDoc
@@ -533,12 +553,17 @@ export function buildCycleCountTaskReportRow(
     (n, r) => n + r.countedLines.filter((l) => l.variance !== 0).length,
     0
   );
+  const unresolvedVarianceLineCount = task.binResults.reduce(
+    (n, r) => n + r.countedLines.filter((l) => isCycleCountLineUnresolved(l)).length,
+    0
+  );
   return {
     task,
     binsCounted: task.completedBinIds.length,
     binsTotal: task.binIds.length,
     varianceBinCount,
     varianceLineCount,
+    unresolvedVarianceLineCount,
     createdAt: cycleCountTimestampToDate(task.createdAt),
     completedAt: cycleCountTimestampToDate(task.completedAt),
   };
@@ -557,4 +582,260 @@ export async function loadCycleCountTasksForReport(
       const tb = b.completedAt?.getTime() ?? b.createdAt?.getTime() ?? 0;
       return tb - ta;
     });
+}
+
+async function syncClientInventoryForSku(input: {
+  clientUserId: string;
+  sku: string;
+  delta: number;
+  adminId: string;
+  note: string;
+}): Promise<string | null> {
+  if (!input.clientUserId || input.delta === 0) return null;
+  const invCol = collection(db, `users/${input.clientUserId}/inventory`);
+  const snap = await getDocs(query(invCol, where("sku", "==", input.sku), limit(5)));
+  if (snap.empty) {
+    // Try productName matching sku when sku field missing
+    return `Client inventory row not found for SKU ${input.sku} — warehouse updated only.`;
+  }
+  const docSnap = snap.docs[0]!;
+  const data = docSnap.data() as { quantity?: number; status?: string };
+  const current = Math.max(0, Number(data.quantity) || 0);
+  const next = Math.max(0, current + input.delta);
+  await updateDoc(docSnap.ref, {
+    quantity: next,
+    status: next > 0 ? "In Stock" : "Out of Stock",
+    updatedAt: Timestamp.now(),
+    lastCycleCountAdjustBy: input.adminId,
+    lastCycleCountAdjustNote: input.note,
+  });
+  return `Client inventory ${input.sku}: ${current} → ${next}`;
+}
+
+/**
+ * Adjust warehouse carton lines in a bin so physical count can be applied.
+ * Negative delta removes qty; positive adds onto an existing matching line.
+ */
+async function applyWarehouseQtyDelta(input: {
+  warehouseId: string;
+  binId: string;
+  sku: string;
+  lot: string | null;
+  condition: "good" | "damaged";
+  delta: number;
+  operatorId: string;
+  taskId: string;
+}): Promise<{ detail: string; clientId: string | null }> {
+  const abs = Math.abs(Math.floor(input.delta));
+  if (abs < 1) throw new Error("Nothing to adjust.");
+
+  const occupants = await listCartonsInBin(input.warehouseId, input.binId);
+  const rows = aggregateBinSkuStock(occupants);
+  const key = binStockKey({
+    sku: input.sku,
+    lot: input.lot,
+    condition: input.condition,
+  });
+  const row = rows.find((r) => r.key === key);
+
+  const batch = writeBatch(db);
+  const cartonsToUpdate = new Map<string, WarehouseCartonDoc>();
+  for (const { carton } of occupants) {
+    cartonsToUpdate.set(carton.id, carton);
+  }
+
+  let clientId: string | null = null;
+  const touchedIds = new Set<string>();
+
+  if (input.delta < 0) {
+    if (!row || row.quantity < abs) {
+      throw new Error(
+        row
+          ? `Only ${row.quantity} of ${input.sku} in bin now — cannot remove ${abs}.`
+          : `No ${input.sku} currently in this bin to reduce.`
+      );
+    }
+    let remaining = abs;
+    for (const { carton, line } of sortSourcesFefo(row.sources)) {
+      if (remaining <= 0) break;
+      const current = cartonsToUpdate.get(carton.id);
+      if (!current?.lines?.length) continue;
+      const live = current.lines.find((l) => l.lineId === line.lineId);
+      if (!live || live.allocationStatus === "picked") continue;
+      const take = Math.min(remaining, live.quantity);
+      const nextLines = current.lines
+        .map((l) => {
+          if (l.lineId !== live.lineId) return l;
+          const q = l.quantity - take;
+          return q > 0 ? { ...l, quantity: q } : null;
+        })
+        .filter(Boolean) as NonNullable<(typeof current.lines)[number]>[];
+
+      if (!clientId) {
+        clientId =
+          (live.clientId && String(live.clientId)) ||
+          (current.clientId && String(current.clientId)) ||
+          null;
+      }
+
+      cartonsToUpdate.set(carton.id, { ...current, lines: nextLines });
+      touchedIds.add(carton.id);
+      remaining -= take;
+    }
+    if (remaining > 0) {
+      throw new Error("Could not remove the full missing quantity from warehouse cartons.");
+    }
+  } else {
+    if (!row || row.sources.length === 0) {
+      throw new Error(
+        `No existing ${input.sku} carton in this bin to add found stock onto. Receive or move the unit into the bin first, then apply.`
+      );
+    }
+    const { carton, line } = sortSourcesFefo(row.sources)[0]!;
+    const current = cartonsToUpdate.get(carton.id);
+    if (!current?.lines?.length) {
+      throw new Error("Carton for found stock could not be loaded.");
+    }
+    const nextLines = current.lines.map((l) =>
+      l.lineId === line.lineId ? { ...l, quantity: l.quantity + abs } : l
+    );
+    clientId =
+      (line.clientId && String(line.clientId)) ||
+      (current.clientId && String(current.clientId)) ||
+      null;
+    cartonsToUpdate.set(carton.id, { ...current, lines: nextLines });
+    touchedIds.add(carton.id);
+  }
+
+  const touchedCodes: string[] = [];
+  for (const id of touchedIds) {
+    const updated = cartonsToUpdate.get(id);
+    if (!updated) continue;
+    touchedCodes.push(updated.cartonCode);
+    const { status, binId } = rollCartonBinStateFromLines(updated, updated.lines ?? []);
+    batch.update(warehouseCartonDocRef(input.warehouseId, updated.id), {
+      lines: linesToFirestorePayload(updated.lines ?? []),
+      status,
+      binId,
+      quantity:
+        updated.lines?.reduce((n, l) => n + (Number(l.quantity) || 0), 0) ?? updated.quantity,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  const eventsRef = collection(db, WAREHOUSES, input.warehouseId, "movementEvents");
+  batch.set(doc(eventsRef), {
+    type: "cycle_count_resolve",
+    taskId: input.taskId,
+    binId: input.binId,
+    sku: input.sku,
+    lot: input.lot,
+    condition: input.condition,
+    quantityDelta: input.delta,
+    cartonCodes: touchedCodes,
+    operatorId: input.operatorId,
+    at: serverTimestamp(),
+  });
+
+  await batch.commit();
+
+  return {
+    detail: `${input.delta > 0 ? "Added" : "Removed"} ${abs} × ${input.sku} on ${touchedCodes.join(", ")}`,
+    clientId,
+  };
+}
+
+/** Admin resolves a variance line from the cycle count report. */
+export async function resolveCycleCountVariance(input: {
+  warehouseId: string;
+  taskId: string;
+  binId: string;
+  lineKey: string;
+  action: WarehouseCycleCountResolveAction;
+  adminId: string;
+  notes?: string | null;
+  syncClientInventory?: boolean;
+}): Promise<{ task: WarehouseCycleCountTaskDoc; detail: string }> {
+  const task = await loadCycleCountTask(input.warehouseId, input.taskId);
+  if (!task) throw new Error("Count task not found.");
+
+  const binIdx = task.binResults.findIndex((b) => b.binId === input.binId);
+  if (binIdx < 0) throw new Error("Bin result not found on this task.");
+  const bin = task.binResults[binIdx]!;
+  const lineIdx = bin.countedLines.findIndex((l) => l.key === input.lineKey);
+  if (lineIdx < 0) throw new Error("Variance line not found.");
+  const line = bin.countedLines[lineIdx]!;
+  if (line.variance === 0) throw new Error("This line has no variance.");
+  if (line.resolveStatus) throw new Error("This variance was already resolved.");
+
+  const notes = input.notes?.trim() || null;
+  let detail = "";
+  let resolveStatus:
+    | "applied"
+    | "acknowledged"
+    | "miscount"
+    | "found_missing_stock"
+    | "found_additional_stock";
+
+  if (input.action === "acknowledge") {
+    resolveStatus = "acknowledged";
+    detail = "Marked acknowledged — no warehouse qty change.";
+  } else if (input.action === "found_missing_stock" || input.action === "miscount") {
+    resolveStatus = "found_missing_stock";
+    detail = "Closed as found missing stock — no warehouse qty change.";
+  } else if (input.action === "found_additional_stock") {
+    resolveStatus = "found_additional_stock";
+    detail = "Closed as found additional stock — no warehouse qty change.";
+  } else {
+    resolveStatus = "applied";
+    const applied = await applyWarehouseQtyDelta({
+      warehouseId: input.warehouseId,
+      binId: input.binId,
+      sku: line.sku,
+      lot: line.lot,
+      condition: line.condition,
+      delta: line.variance,
+      operatorId: input.adminId,
+      taskId: input.taskId,
+    });
+    detail = applied.detail;
+    if (input.syncClientInventory !== false && applied.clientId) {
+      const invNote = await syncClientInventoryForSku({
+        clientUserId: applied.clientId,
+        sku: line.sku,
+        delta: line.variance,
+        adminId: input.adminId,
+        note: `Cycle count ${input.taskId} · ${bin.binPath}`,
+      });
+      if (invNote) detail = `${detail}. ${invNote}`;
+    } else if (input.syncClientInventory !== false && !applied.clientId) {
+      detail = `${detail}. No client on carton — client inventory not changed.`;
+    }
+  }
+
+  const nextLine: WarehouseCycleCountCountedLine = {
+    ...line,
+    resolveStatus,
+    resolveAction: input.action,
+    resolveNotes: notes,
+    resolvedAt: Timestamp.now(),
+    resolvedBy: input.adminId,
+    resolveDetail: detail,
+  };
+
+  const nextCounted = [...bin.countedLines];
+  nextCounted[lineIdx] = nextLine;
+  const nextBin: WarehouseCycleCountBinResult = { ...bin, countedLines: nextCounted };
+  const nextResults = [...task.binResults];
+  nextResults[binIdx] = nextBin;
+
+  const taskRef = doc(warehouseCycleCountTasksCollectionRef(input.warehouseId), input.taskId);
+  await updateDoc(taskRef, {
+    binResults: nextResults,
+    updatedAt: serverTimestamp(),
+  });
+
+  const refreshed = await loadCycleCountTask(input.warehouseId, input.taskId);
+  if (!refreshed) throw new Error("Task updated but could not reload.");
+  return { task: refreshed, detail };
 }

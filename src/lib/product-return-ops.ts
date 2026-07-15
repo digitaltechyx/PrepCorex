@@ -77,6 +77,7 @@ function buildInventoryCreatePayload(input: {
   now: Timestamp;
   returnSummary: string;
   sku: string;
+  remarksImageUrls?: string[];
 }): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     productName: input.productName,
@@ -90,7 +91,17 @@ function buildInventoryCreatePayload(input: {
     updatedAt: input.now,
   };
   if (input.sku) payload.sku = input.sku;
+  if (input.remarksImageUrls && input.remarksImageUrls.length > 0) {
+    payload.remarksImageUrls = input.remarksImageUrls;
+  }
   return payload;
+}
+
+function mergeRemarksImageUrls(existing: unknown, incoming: string[]): string[] {
+  const prev = Array.isArray(existing)
+    ? existing.map((u) => String(u || "").trim()).filter(Boolean)
+    : [];
+  return [...new Set([...prev, ...incoming.map((u) => u.trim()).filter(Boolean)])];
 }
 
 export async function approveProductReturn(input: {
@@ -191,6 +202,7 @@ export async function receiveReturnWithCarton(input: {
   expiry?: string | null;
   trackingNumber?: string | null;
   notes?: string | null;
+  photoUrls?: string[] | null;
   stagingArea?: string | null;
   receivedBy?: string | null;
   operatorId?: string | null;
@@ -215,6 +227,7 @@ export async function receiveReturnWithCarton(input: {
     expiry: input.expiry,
     trackingNumber: input.trackingNumber,
     notes: input.notes,
+    photoUrls: input.photoUrls,
     stagingArea: input.stagingArea,
     receivedBy: input.receivedBy,
     operatorId: input.operatorId,
@@ -246,6 +259,7 @@ export async function createWalkInReturnWithUser(input: {
   newProductSku?: string | null;
   requestedQuantity: number;
   userRemarks?: string | null;
+  expiryDate?: string | null;
   operatorId: string;
 }): Promise<{ returnId: string }> {
   const qty = Math.floor(input.requestedQuantity);
@@ -282,6 +296,10 @@ export async function createWalkInReturnWithUser(input: {
   } else {
     payload.newProductName = input.newProductName!.trim();
     if (input.newProductSku?.trim()) payload.newProductSku = input.newProductSku.trim();
+  }
+  const expiry = input.expiryDate?.trim().slice(0, 10);
+  if (expiry && /^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+    payload.expiryDate = expiry;
   }
 
   const ref = await addDoc(collection(db, `users/${input.ownerUserId}/productReturns`), payload);
@@ -661,6 +679,8 @@ export async function creditReturnInventory(input: {
   quantity: number;
   operatorId?: string | null;
   summaryNote?: string | null;
+  /** Photos from this putaway's receive carton — merge into inventory remarks images. */
+  photoUrls?: string[] | null;
 }): Promise<void> {
   const qty = Math.floor(input.quantity);
   if (qty < 1) return;
@@ -685,6 +705,17 @@ export async function creditReturnInventory(input: {
       input.summaryNote?.trim() ||
       `[Return putaway] ID: ${input.returnId} | +${toCredit} | By: ${input.operatorId || "ops"}`;
 
+    const incomingPhotos = [
+      ...new Set((input.photoUrls ?? []).map((u) => String(u || "").trim()).filter(Boolean)),
+    ];
+    // Also include all photos stored on the return across partial receives (in case carton missed some).
+    const returnStoredPhotos = Array.isArray((data as { receivePhotoUrls?: unknown }).receivePhotoUrls)
+      ? ((data as { receivePhotoUrls: unknown[] }).receivePhotoUrls as unknown[])
+          .map((u) => String(u || "").trim())
+          .filter(Boolean)
+      : [];
+    const allPhotos = [...new Set([...incomingPhotos, ...returnStoredPhotos])];
+
     const returnPatch: Record<string, unknown> = {
       inventoryCreditedQuantity: credited + toCredit,
       updatedAt: now,
@@ -696,12 +727,19 @@ export async function creditReturnInventory(input: {
       if (invSnap.exists()) {
         const current = invSnap.data();
         const existingRemarks = String(current.remarks || "").trim();
-        transaction.update(invRef, {
+        const invPatch: Record<string, unknown> = {
           quantity: (current.quantity || 0) + toCredit,
           status: "In Stock",
           remarks: existingRemarks ? `${existingRemarks}\n\n${summary}` : summary,
           updatedAt: now,
-        });
+        };
+        if (allPhotos.length > 0) {
+          invPatch.remarksImageUrls = mergeRemarksImageUrls(
+            current.remarksImageUrls,
+            allPhotos
+          );
+        }
+        transaction.update(invRef, invPatch);
       } else {
         transaction.set(
           invRef,
@@ -711,6 +749,7 @@ export async function creditReturnInventory(input: {
             now,
             returnSummary: summary,
             sku,
+            remarksImageUrls: allPhotos,
           })
         );
       }
@@ -724,6 +763,7 @@ export async function creditReturnInventory(input: {
           now,
           returnSummary: summary,
           sku,
+          remarksImageUrls: allPhotos,
         })
       );
       returnPatch.productId = newInv.id;

@@ -35,6 +35,7 @@ import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
 import type { OutboundPickOrder } from "@/lib/warehouse-pick";
 import type { OutboundPackOrder } from "@/lib/warehouse-pack";
 import type {
+  FbaMasterCase,
   InventoryRequest,
   ProductReturn,
   UserProfile,
@@ -209,6 +210,9 @@ function buildPackOrder(
     service: data.service != null ? String(data.service) : undefined,
     fbaLabelWorkflow: isFbaLabelWorkflowRequest(data),
     fbaPackPhase: fbaPackPhaseFromRequest(data),
+    fbaMasterCases: Array.isArray(data.fbaMasterCases)
+      ? (data.fbaMasterCases as FbaMasterCase[])
+      : [],
     labelUrls: parseShipmentLabelUrls(data.labelUrl),
   };
 }

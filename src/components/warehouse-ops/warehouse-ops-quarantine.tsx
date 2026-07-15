@@ -1,8 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { format } from "date-fns";
-import { AlertTriangle, ArchiveRestore, Loader2, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArchiveRestore,
+  ArrowRight,
+  Loader2,
+  Package,
+  RotateCcw,
+  Trash2,
+  Truck,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +24,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
@@ -23,9 +40,12 @@ import {
   disposeQuarantineLine,
   listQuarantineHolds,
   releaseQuarantineLineToStorage,
+  returnQuarantineLineToPack,
+  returnQuarantineLineToPutaway,
   type QuarantineHoldRow,
 } from "@/lib/warehouse-quarantine";
-import type { WarehouseDoc } from "@/types";
+import { areasForPacking, listWarehouseAreas } from "@/lib/warehouse-putaway-disposition";
+import type { WarehouseAreaDoc, WarehouseDoc } from "@/types";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -44,6 +64,8 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
   const [binPath, setBinPath] = useState("");
   const [qty, setQty] = useState("");
   const [saving, setSaving] = useState(false);
+  const [packAreas, setPackAreas] = useState<WarehouseAreaDoc[]>([]);
+  const [packAreaId, setPackAreaId] = useState("");
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -65,10 +87,94 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
     void reload();
   }, [reload]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const areas = await listWarehouseAreas(warehouse.id);
+        if (cancelled) return;
+        const packing = areasForPacking(areas);
+        setPackAreas(packing);
+        setPackAreaId((prev) => prev || packing[0]?.id || "");
+      } catch {
+        if (!cancelled) setPackAreas([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouse.id]);
+
   function selectRow(row: QuarantineHoldRow) {
     setSelected(row);
     setQty(String(row.line.quantity));
     setBinPath("");
+  }
+
+  async function handleReturnToPutaway() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const result = await returnQuarantineLineToPutaway({
+        warehouseId: warehouse.id,
+        cartonId: selected.cartonId,
+        lineId: selected.line.lineId,
+        quantity: parseInt(qty, 10) || selected.line.quantity,
+        operatorId,
+      });
+      toast({
+        title: "Returned to Putaway",
+        description: `${result.returnedQty}u of ${selected.line.sku} (${result.cartonCode}) is ready on Putaway — stow to a bin or area to update stock.`,
+      });
+      setSelected(null);
+      setBinPath("");
+      await reload();
+    } catch (e) {
+      toast({
+        title: "Return failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSendToPack() {
+    if (!selected) return;
+    if (!packAreaId) {
+      toast({
+        title: "Select a packing area",
+        description: "Configure a packing-purpose area in warehouse setup, then select it here.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await returnQuarantineLineToPack({
+        warehouseId: warehouse.id,
+        cartonId: selected.cartonId,
+        lineId: selected.line.lineId,
+        packAreaId,
+        quantity: parseInt(qty, 10) || selected.line.quantity,
+        operatorId,
+      });
+      toast({
+        title: "Sent to Pack",
+        description: `${result.returnedQty}u → pack area ${result.packAreaCode}. Complete Pack, then Dispatch to create the shipped entry.`,
+      });
+      setSelected(null);
+      await reload();
+    } catch (e) {
+      toast({
+        title: "Send to pack failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleRelease() {
@@ -89,7 +195,7 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
         operatorId,
       });
       toast({
-        title: "Released to storage",
+        title: "Stowed as good",
         description: `${result.releasedQty}u of ${selected.line.sku} are now good stock in client inventory.`,
       });
       setSelected(null);
@@ -97,7 +203,7 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
       await reload();
     } catch (e) {
       toast({
-        title: "Release failed",
+        title: "Stow failed",
         description: e instanceof Error ? e.message : "Unknown error",
         variant: "destructive",
       });
@@ -148,11 +254,19 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
             <AlertTriangle className="h-4 w-4 text-red-600" />
             Damaged hold · {QUARANTINE_HOLD_DAYS} days
           </CardTitle>
-          <CardDescription className="text-xs">
-            Putaway damaged units land here. Operators can <strong>putaway as good</strong> into
-            storage (shows in client inventory) before the deadline. If nothing is done after{" "}
-            {QUARANTINE_HOLD_DAYS} days, stock is <strong>auto-disposed</strong> into the client&apos;s
-            disposed inventory with remarks.
+          <CardDescription className="text-xs space-y-1">
+            <p>
+              Use <strong>Return</strong> to send units to{" "}
+              <Link href="/warehouse-ops/putaway" className="underline font-medium">
+                Putaway
+              </Link>{" "}
+              (stow in a bin or area and update stock), or <strong>Send to Pack</strong> for pack →
+              dispatch (creates an Orders / Shipped entry for that qty — partial or full).
+            </p>
+            <p>
+              You can also stow directly here into a storage bin. If nothing is done after{" "}
+              {QUARANTINE_HOLD_DAYS} days, stock is auto-disposed into the client disposed list.
+            </p>
           </CardDescription>
         </CardHeader>
       </Card>
@@ -172,7 +286,8 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
         <div className="space-y-2">
           {rows.map((row) => {
             const key = `${row.cartonId}:${row.line.lineId}`;
-            const active = selected?.cartonId === row.cartonId && selected.line.lineId === row.line.lineId;
+            const active =
+              selected?.cartonId === row.cartonId && selected.line.lineId === row.line.lineId;
             return (
               <button
                 key={key}
@@ -192,17 +307,25 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
                     <p className="text-xs text-muted-foreground">
                       Qty {row.line.quantity}
                       {row.line.lot ? ` · Lot ${row.line.lot}` : ""}
-                      {row.clientId ? ` · client ${row.clientId.slice(0, 8)}…` : row.clientLabel ? ` · ${row.clientLabel}` : " · no client"}
+                      {row.clientId
+                        ? ` · client ${row.clientId.slice(0, 8)}…`
+                        : row.clientLabel
+                          ? ` · ${row.clientLabel}`
+                          : " · no client"}
                     </p>
                     <p className="text-[11px] text-muted-foreground">
-                      In quarantine since {format(row.quarantineAt, "MMM d, yyyy")} · {row.daysInQuarantine}d
+                      In quarantine since {format(row.quarantineAt, "MMM d, yyyy")} ·{" "}
+                      {row.daysInQuarantine}d
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     {row.isExpired ? (
                       <Badge variant="destructive">Due for auto-dispose</Badge>
                     ) : (
-                      <Badge variant="outline" className="bg-amber-50 border-amber-300 text-amber-900">
+                      <Badge
+                        variant="outline"
+                        className="bg-amber-50 border-amber-300 text-amber-900"
+                      >
                         {row.daysRemaining}d left
                       </Badge>
                     )}
@@ -221,10 +344,10 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
               {selected.cartonCode} · {selected.line.sku}
             </CardTitle>
             <CardDescription className="text-xs">
-              Release to storage as good stock, or dispose now into the client disposed list.
+              Return to Putaway, send to Pack → Dispatch, stow now, or dispose.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
             <div className="w-28">
               <Label className="text-xs">Qty</Label>
               <Input
@@ -235,8 +358,65 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
                 onChange={(e) => setQty(e.target.value)}
               />
             </div>
+
+            <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs font-medium">Primary actions</p>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => void handleReturnToPutaway()} disabled={saving}>
+                  {saving ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4 mr-1" />
+                  )}
+                  Return
+                  <ArrowRight className="h-3.5 w-3.5 ml-1 opacity-70" />
+                  Putaway
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => void handleSendToPack()}
+                  disabled={saving || packAreas.length === 0}
+                >
+                  <Truck className="h-4 w-4 mr-1" />
+                  Send to Pack
+                </Button>
+              </div>
+              {packAreas.length > 0 ? (
+                <div className="max-w-xs space-y-1">
+                  <Label className="text-xs">Packing area</Label>
+                  <Select value={packAreaId} onValueChange={setPackAreaId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select packing area" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {packAreas.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.code}
+                          {a.name ? ` — ${a.name}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    After pack, Dispatch creates the client <strong>Shipped</strong> entry for this
+                    quarantine qty (use a partial qty above if only some units ship).
+                  </p>
+                </div>
+              ) : (
+                <p className="text-[11px] text-amber-800">
+                  No packing area found — add an area with Packing purpose to enable Send to Pack.
+                </p>
+              )}
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/warehouse-ops/putaway">
+                  <Package className="h-3.5 w-3.5 mr-1" />
+                  Open Putaway
+                </Link>
+              </Button>
+            </div>
+
             <div className="space-y-1">
-              <Label className="text-xs">Storage bin (for release / putaway as good)</Label>
+              <Label className="text-xs">Optional: stow now into storage bin</Label>
               <div className="flex gap-2">
                 <Input
                   value={binPath}
@@ -251,20 +431,30 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
                 />
               </div>
             </div>
+
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => void handleRelease()} disabled={saving}>
+              <Button
+                variant="outline"
+                onClick={() => void handleRelease()}
+                disabled={saving || !binPath.trim()}
+              >
                 {saving ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : (
                   <ArchiveRestore className="h-4 w-4 mr-1" />
                 )}
-                Putaway as good
+                Stow now (update stock)
               </Button>
               <Button variant="destructive" onClick={() => void handleDisposeNow()} disabled={saving}>
                 <Trash2 className="h-4 w-4 mr-1" />
                 Dispose now
               </Button>
-              <Button type="button" variant="ghost" onClick={() => setSelected(null)} disabled={saving}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setSelected(null)}
+                disabled={saving}
+              >
                 Cancel
               </Button>
             </div>

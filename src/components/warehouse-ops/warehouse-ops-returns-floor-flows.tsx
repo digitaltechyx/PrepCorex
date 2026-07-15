@@ -30,7 +30,7 @@ import {
 import type { ReturnReceiveUnitType, ReturnStockLocation } from "@/lib/warehouse-returns";
 import { describeReceiveLotHint } from "@/lib/warehouse-receive-lot";
 import { generateCrossdockReceiveLot } from "@/lib/warehouse-crossdock";
-import type { UserProfile, WarehouseCartonDoc } from "@/types";
+import type { InventoryItem, UserProfile, WarehouseCartonDoc } from "@/types";
 import {
   ArrowLeft,
   Boxes,
@@ -41,12 +41,14 @@ import {
   Package,
   PackageOpen,
   PackagePlus,
+  ScanLine,
   Search,
   UserPlus,
   UserRoundSearch,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 
 export type FloorFlow = "queue" | "walk-in" | "receive" | "link";
 export type WalkPhase = "pick-mode" | "pick-unit" | "form";
@@ -129,6 +131,12 @@ export type ReturnsFloorFlowsProps = {
   setWalkName: (v: string) => void;
   walkSku: string;
   setWalkSku: (v: string) => void;
+  walkProductId: string;
+  setWalkProductId: (v: string) => void;
+  walkInventory: InventoryItem[];
+  walkInventoryLoading: boolean;
+  walkExpiry: string;
+  setWalkExpiry: (v: string) => void;
   walkQty: string;
   setWalkQty: (v: string) => void;
   walkNotes: string;
@@ -161,6 +169,11 @@ export type ReturnsFloorFlowsProps = {
   setRecvNotes: (v: string) => void;
   recvCloseReady: boolean;
   setRecvCloseReady: (v: boolean) => void;
+  recvTracking: string;
+  setRecvTracking: (v: string) => void;
+  recvPhotoFiles: File[];
+  recvPhotoPreviews: string[];
+  onRecvPhotosChange: (files: File[]) => void;
   unallocatedReturnCartons: WarehouseCartonDoc[];
   filteredLinkUnits: WarehouseCartonDoc[];
   selectedLinkUnit: WarehouseCartonDoc | null;
@@ -344,16 +357,24 @@ function WalkInFlow({
                   <TypePickerCard
                     color={props.walkType === "existing" ? "sky" : "indigo"}
                     icon={<Search className="h-6 w-6" />}
-                    title="Existing product"
-                    description="Return of a known SKU / title."
-                    onClick={() => props.setWalkType("existing")}
+                    title="Existing product (restock)"
+                    description="Pick from client inventory — like inbound restock."
+                    onClick={() => {
+                      props.setWalkType("existing");
+                      props.setWalkProductId("");
+                      props.setWalkName("");
+                      props.setWalkSku("");
+                    }}
                   />
                   <TypePickerCard
                     color={props.walkType === "new" ? "emerald" : "indigo"}
                     icon={<PackagePlus className="h-6 w-6" />}
                     title="New product"
-                    description="Create product details with this return."
-                    onClick={() => props.setWalkType("new")}
+                    description="First time this SKU for the client (creates inventory on putaway)."
+                    onClick={() => {
+                      props.setWalkType("new");
+                      props.setWalkProductId("");
+                    }}
                   />
                 </div>
                 <div>
@@ -371,16 +392,71 @@ function WalkInFlow({
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label>
-                    {props.walkType === "new" ? "New product name *" : "Product name *"}
-                  </Label>
-                  <Input value={props.walkName} onChange={(e) => props.setWalkName(e.target.value)} />
-                </div>
-                <div>
-                  <Label>SKU (optional)</Label>
-                  <Input value={props.walkSku} onChange={(e) => props.setWalkSku(e.target.value)} />
-                </div>
+                {props.walkType === "existing" ? (
+                  <div>
+                    <Label>Select existing product *</Label>
+                    <Select
+                      value={props.walkProductId || undefined}
+                      onValueChange={(id) => {
+                        const item = props.walkInventory.find((i) => i.id === id);
+                        props.setWalkProductId(id);
+                        props.setWalkName(item?.productName?.trim() || "");
+                        props.setWalkSku(item?.sku?.trim() || "");
+                        const exp = item?.expiryDate;
+                        if (typeof exp === "string" && /^\d{4}-\d{2}-\d{2}/.test(exp)) {
+                          props.setWalkExpiry(exp.slice(0, 10));
+                        }
+                      }}
+                      disabled={!props.walkClientId || props.walkInventoryLoading}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            !props.walkClientId
+                              ? "Select a client first"
+                              : props.walkInventoryLoading
+                                ? "Loading products…"
+                                : props.walkInventory.length === 0
+                                  ? "No products in inventory"
+                                  : "Select product"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {props.walkInventory.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.productName}
+                            {item.sku ? ` — ${item.sku}` : ""}
+                            {` (on hand ${item.quantity || 0})`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {props.walkProductId ? (
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2 text-xs text-muted-foreground">
+                        <p>Name: {props.walkName || "—"}</p>
+                        <p>SKU: {props.walkSku || "—"}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <Label>New product name *</Label>
+                      <Input
+                        value={props.walkName}
+                        onChange={(e) => props.setWalkName(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label>SKU (optional)</Label>
+                      <Input
+                        value={props.walkSku}
+                        onChange={(e) => props.setWalkSku(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
                 <div>
                   <Label>Requested qty</Label>
                   <Input
@@ -388,6 +464,14 @@ function WalkInFlow({
                     min={1}
                     value={props.walkQty}
                     onChange={(e) => props.setWalkQty(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label>Expiry date (optional)</Label>
+                  <Input
+                    type="date"
+                    value={props.walkExpiry}
+                    onChange={(e) => props.setWalkExpiry(e.target.value)}
                   />
                 </div>
               </>
@@ -497,20 +581,25 @@ function ReceiveFlow({
       {props.priorLocations.length > 0 ? (
         <Card className="border-blue-200/80 bg-blue-50/40 shadow-none">
           <CardContent className="py-3 text-xs space-y-1.5 text-blue-950">
-            <p className="font-medium">Previous qty for this return</p>
+            <p className="font-medium">Previous qty already received for this return</p>
             {props.priorLocations.map((loc) => (
               <div key={`${loc.cartonId}-${loc.binId || loc.stagingArea || loc.status}`}>
                 {loc.cartonCode}: {loc.quantity} × {loc.sku}
-                {loc.lot ? ` · ${loc.lot}` : ""}
+                {loc.lot ? ` · lot ${loc.lot}` : ""}
                 {" — "}
                 {loc.binPath ||
                   (loc.binId
                     ? `Bin ${loc.binId.slice(0, 8)}…`
                     : loc.status === "received"
-                      ? `Awaiting putaway (${loc.stagingArea || "RETURNS-STAGE"})`
+                      ? `Awaiting putaway (${loc.stagingArea || "stage"})`
                       : loc.status)}
               </div>
             ))}
+            <p className="text-[11px] text-blue-900/80 pt-1">
+              Reuse the same lot when this is more of the same return batch. Putaway remaining by
+              scanning the CTN/PLT then the bin (Putaway page). New receive still prints a new
+              CTN/PLT label for this parcel.
+            </p>
           </CardContent>
         </Card>
       ) : null}
@@ -602,6 +691,25 @@ function ReceiveFlow({
                 onChange={(e) => props.setRecvTitle(e.target.value)}
               />
             </div>
+            <div>
+              <Label className="flex items-center gap-1.5">
+                <ScanLine className="h-3.5 w-3.5" />
+                Tracking # (optional)
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  value={props.recvTracking}
+                  onChange={(e) => props.setRecvTracking(e.target.value)}
+                  placeholder="Carrier tracking for this parcel"
+                  className="flex-1"
+                />
+                <ScanCameraButton
+                  onScan={(text) => props.setRecvTracking(text)}
+                  scannerTitle="Scan return tracking"
+                  scannerDescription="Attach tracking to this receive."
+                />
+              </div>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label>Receive lot (optional)</Label>
@@ -611,7 +719,11 @@ function ReceiveFlow({
                   placeholder="Auto-generate if blank"
                   className="font-mono text-sm"
                 />
-                <p className="text-[11px] text-muted-foreground mt-1">{describeReceiveLotHint()}</p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {props.recvLot.trim()
+                    ? "Prior lot prefilled when available — keep it for the same return batch."
+                    : describeReceiveLotHint()}
+                </p>
               </div>
               <div>
                 <Label>Expiry date (optional)</Label>
@@ -645,11 +757,42 @@ function ReceiveFlow({
               </div>
             </div>
             <div>
-              <Label>Notes</Label>
+              <Label>Remarks (optional)</Label>
               <Textarea
                 value={props.recvNotes}
                 onChange={(e) => props.setRecvNotes(e.target.value)}
+                placeholder="Shown in inventory Remarks after putaway"
+                rows={2}
               />
+            </div>
+            <div className="space-y-1">
+              <Label>Photos (optional — shown in inventory Remarks)</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                multiple
+                className="text-xs"
+                onChange={(e) => {
+                  props.onRecvPhotosChange(Array.from(e.target.files ?? []));
+                  e.target.value = "";
+                }}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Single or multiple. Every partial receive keeps its photos — all of them appear on
+                the product&apos;s inventory remarks after putaway.
+              </p>
+              {props.recvPhotoPreviews.length > 0 ? (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {props.recvPhotoPreviews.map((src, i) => (
+                    <img
+                      key={src}
+                      src={src}
+                      alt={`Return receive photo ${i + 1}`}
+                      className="h-16 w-16 rounded border object-cover"
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
             <label className="flex items-center gap-2 text-sm">
               <Checkbox

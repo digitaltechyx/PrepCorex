@@ -29,6 +29,8 @@ export type ReturnDraft = {
   shippingZipCode: string;
   shippingCountry: string;
   tracking: InboundTrackingInput;
+  /** Optional product expiry YYYY-MM-DD for dated returns. */
+  expiryDate: string;
 };
 
 export function createEmptyReturnDraft(): ReturnDraft {
@@ -57,6 +59,7 @@ export function createEmptyReturnDraft(): ReturnDraft {
     shippingZipCode: "",
     shippingCountry: "",
     tracking: { ...EMPTY_INBOUND_TRACKING },
+    expiryDate: "",
   };
 }
 
@@ -153,6 +156,11 @@ export function returnDraftToFirestore(
     returnData.productName = draft.newProductName.trim();
     const newSku = draft.newProductSku.trim();
     if (newSku) returnData.newProductSku = newSku;
+  }
+
+  const expiry = draft.expiryDate.trim().slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+    returnData.expiryDate = expiry;
   }
 
   const trackings =

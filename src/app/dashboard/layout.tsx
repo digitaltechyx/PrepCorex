@@ -12,7 +12,7 @@ import { ClientAccountRestrictedOverlay } from "@/components/dashboard/client-ac
 import { UserAuditActivityTracker } from "@/components/audit/user-audit-activity-tracker";
 import { DashboardNavProvider } from "@/contexts/dashboard-nav-context";
 import { hasRole, getUserRoles, isAccountActivated, hasFeature } from "@/lib/permissions";
-import { userRequiresEmailVerification } from "@/lib/email-verification";
+import { isEmailVerificationSatisfied } from "@/lib/email-verification";
 import {
   SidebarProvider,
   SidebarInset,
@@ -102,11 +102,7 @@ export default function DashboardLayout({
       } else if (userRoles.length === 0) {
         // Unknown role, redirect to login
         router.replace("/login");
-      } else if (
-        userRequiresEmailVerification(userProfile) &&
-        user &&
-        !user.emailVerified
-      ) {
+      } else if (user && !isEmailVerificationSatisfied(userProfile, user)) {
         router.replace("/verify-email");
       } else if (userProfile.status === "pending") {
         // Redirect pending users to a waiting page

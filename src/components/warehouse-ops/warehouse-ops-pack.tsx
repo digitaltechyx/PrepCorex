@@ -192,6 +192,12 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const isFbaLabelFlow =
     Boolean(selectedOrder?.fbaLabelWorkflow) && selectedOrder?.fbaPackPhase !== "awaiting_courier";
   const isFbaAwaitingCourier = selectedOrder?.fbaPackPhase === "awaiting_courier";
+  const hasExistingFbaMasterCases = (selectedOrder?.fbaMasterCases?.length ?? 0) > 0;
+  /** Dims already done (incl. QC return to pack) — skip master-case form. */
+  const needsFbaMasterCaseEntry = isFbaLabelFlow && !hasExistingFbaMasterCases;
+  const showPackCompleteCourierStep =
+    Boolean(plan?.readyToComplete) &&
+    (isFbaAwaitingCourier || !selectedOrder?.fbaLabelWorkflow || hasExistingFbaMasterCases);
 
   const refreshFbaAwaitingLabel = useCallback(async () => {
     const eligible = new Set(clients.map((c) => c.uid));
@@ -1104,7 +1110,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
             </Card>
           ) : null}
 
-          {plan.readyToComplete && isFbaLabelFlow ? (
+          {plan.readyToComplete && needsFbaMasterCaseEntry ? (
             <Card className="border-violet-300/60">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">FBA master case details</CardTitle>
@@ -1138,7 +1144,26 @@ export function WarehouseOpsPack({ warehouse }: Props) {
             </Card>
           ) : null}
 
-          {plan.readyToComplete && (isFbaAwaitingCourier || !selectedOrder?.fbaLabelWorkflow) ? (
+          {plan.readyToComplete && hasExistingFbaMasterCases && !needsFbaMasterCaseEntry ? (
+            <Card className="border-violet-200/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">FBA master cases on file</CardTitle>
+                <CardDescription className="text-xs">
+                  Weight and dimensions were already submitted — no need to enter them again.
+                  Fix the QC remark, then scan the courier label to finish pack.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                {(selectedOrder?.fbaMasterCases ?? []).map((mc) => (
+                  <p key={mc.id || mc.caseNumber} className="text-xs font-mono text-muted-foreground">
+                    {formatFbaMasterCaseSummary(mc)}
+                  </p>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {showPackCompleteCourierStep ? (
             <>
               {isFbaAwaitingCourier ? (
                 <Card className="border-violet-200/60">

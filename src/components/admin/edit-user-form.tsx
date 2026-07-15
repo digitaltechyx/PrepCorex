@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Loader2 } from "lucide-react";
 import type { UserProfile, UserRole } from "@/types";
 import { getUserRoles } from "@/lib/permissions";
@@ -28,21 +29,43 @@ import {
   pricingProfileSelectValue,
 } from "@/lib/pricing-profiles";
 
-const editUserSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  email: z.string().email("Invalid email address"),
-  phone: z.string().optional(),
-  companyName: z.string().optional(),
-  ein: z.string().optional(),
-  address: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  country: z.string().optional(),
-  zipCode: z.string().optional(),
-  role: z.enum(["admin", "sub_admin", "user", "commission_agent", "warehouse_operator"]),
-  status: z.enum(["pending", "approved", "deleted"]).optional(),
-  pricingProfile: z.string().optional(),
-});
+const editUserSchema = z
+  .object({
+    name: z.string().min(1, "Name is required"),
+    email: z.string().email("Invalid email address"),
+    phone: z.string().optional(),
+    companyName: z.string().optional(),
+    ein: z.string().optional(),
+    address: z.string().optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    country: z.string().optional(),
+    zipCode: z.string().optional(),
+    role: z.enum(["admin", "sub_admin", "user", "commission_agent", "warehouse_operator"]),
+    status: z.enum(["pending", "approved", "deleted"]).optional(),
+    pricingProfile: z.string().optional(),
+    newPassword: z.string().optional(),
+    confirmPassword: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    const pwd = values.newPassword?.trim() || "";
+    const confirm = values.confirmPassword?.trim() || "";
+    if (!pwd && !confirm) return;
+    if (pwd.length < 6) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password must be at least 6 characters",
+        path: ["newPassword"],
+      });
+    }
+    if (pwd !== confirm) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Passwords do not match",
+        path: ["confirmPassword"],
+      });
+    }
+  });
 
 type EditUserFormValues = z.infer<typeof editUserSchema>;
 
@@ -55,6 +78,10 @@ interface EditUserFormProps {
 export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [deferEmailVerification, setDeferEmailVerification] = useState(
+    user.emailVerificationDeferredByAdmin === true
+  );
+  const [emailVerificationBusy, setEmailVerificationBusy] = useState(false);
 
   const form = useForm<EditUserFormValues>({
     resolver: zodResolver(editUserSchema),
@@ -72,8 +99,57 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
       role: user.role || "user",
       status: user.status || "approved",
       pricingProfile: pricingProfileSelectValue(user),
+      newPassword: "",
+      confirmPassword: "",
     },
   });
+
+  async function applyEmailVerificationAction(
+    action: "defer" | "revoke_defer" | "mark_verified"
+  ) {
+    setEmailVerificationBusy(true);
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw new Error("Not authenticated.");
+
+      const res = await fetch(`/api/admin/users/${user.uid}/email-verification`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update email verification.");
+      }
+
+      if (action === "defer") setDeferEmailVerification(true);
+      if (action === "revoke_defer") setDeferEmailVerification(false);
+      if (action === "mark_verified") setDeferEmailVerification(false);
+
+      toast({
+        title: "Updated",
+        description:
+          action === "defer"
+            ? "User can continue without verifying email. They may verify later."
+            : action === "revoke_defer"
+              ? "User must verify email before signing in again."
+              : "Email marked as verified in Firebase Auth.",
+      });
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description:
+          error instanceof Error ? error.message : "Failed to update email verification.",
+      });
+    } finally {
+      setEmailVerificationBusy(false);
+    }
+  }
 
   async function onSubmit(values: EditUserFormValues) {
     setIsLoading(true);
@@ -98,6 +174,30 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
       const { auth } = await import("@/lib/firebase");
       const token = await auth.currentUser?.getIdToken();
       if (!token) throw new Error("Not authenticated.");
+
+      const nextEmail = values.email.trim().toLowerCase();
+      const prevEmail = (user.email || "").trim().toLowerCase();
+      const newPassword = values.newPassword?.trim() || "";
+      const credentialsChanged = nextEmail !== prevEmail || newPassword.length > 0;
+
+      if (credentialsChanged) {
+        const res = await fetch(`/api/admin/users/${user.uid}/credentials`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...(nextEmail !== prevEmail ? { email: nextEmail } : {}),
+            ...(newPassword ? { password: newPassword } : {}),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to update login credentials.");
+        }
+      }
+
       const claim = await claimUserFieldUniquesClient(
         token,
         {
@@ -130,7 +230,8 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
 
       await updateDoc(doc(db, "users", user.uid), {
         name: values.name,
-        email: values.email,
+        // Email may already be written by credentials API; keep profile in sync
+        email: nextEmail,
         phone: values.phone || null,
         companyName: values.companyName || null,
         ein: values.ein || null,
@@ -152,7 +253,9 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
 
       toast({
         title: "Success",
-        description: "User details have been updated successfully.",
+        description: credentialsChanged
+          ? "User details and login credentials were updated. They can sign in with the new email/password."
+          : "User details have been updated successfully.",
       });
 
       onSuccess();
@@ -195,10 +298,13 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Email *</FormLabel>
+                  <FormLabel>Login email *</FormLabel>
                   <FormControl>
                     <Input type="email" placeholder="john@example.com" {...field} />
                   </FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    Changing this updates their Firebase login. They must sign in with the new email.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}
@@ -298,6 +404,91 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
             />
           </div>
         </div>
+
+        {/* Login credentials */}
+        <div className="space-y-4">
+          <h4 className="font-semibold text-sm border-b pb-2">Reset password (optional)</h4>
+          <p className="text-xs text-muted-foreground">
+            Leave blank to keep the current password. If you set a new one, the user signs in with it
+            immediately (old password stops working).
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="newPassword"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>New password</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="Leave blank to keep current"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="confirmPassword"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Confirm new password</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="Repeat new password"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
+
+        {user.emailVerificationRequired === true && (
+          <div className="space-y-3 rounded-md border p-3">
+            <h4 className="font-semibold text-sm">Email verification</h4>
+            <p className="text-xs text-muted-foreground">
+              Use this when the user cannot receive the verification email. Allowing continuation does
+              not mark the email verified — they can still verify later from the verify-email page.
+            </p>
+            <div className="flex items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="defer-email-verification">Allow without verification</Label>
+                <p className="text-xs text-muted-foreground">
+                  {deferEmailVerification
+                    ? "Currently deferred — user can sign in and use the app."
+                    : "Currently blocked until email is verified."}
+                </p>
+              </div>
+              <Switch
+                id="defer-email-verification"
+                checked={deferEmailVerification}
+                disabled={emailVerificationBusy || isLoading}
+                onCheckedChange={(checked) => {
+                  void applyEmailVerificationAction(checked ? "defer" : "revoke_defer");
+                }}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={emailVerificationBusy || isLoading}
+              onClick={() => void applyEmailVerificationAction("mark_verified")}
+            >
+              {emailVerificationBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Mark email as verified instead
+            </Button>
+          </div>
+        )}
 
         {/* Company Information */}
         <div className="space-y-4">
