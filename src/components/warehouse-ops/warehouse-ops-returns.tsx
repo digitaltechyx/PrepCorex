@@ -23,24 +23,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import {
+  ReturnsFloorFlows,
+  type FloorFlow,
+  type WalkPhase,
+  type RecvPhase,
+} from "@/components/warehouse-ops/warehouse-ops-returns-floor-flows";
+
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
-import {
-  CrossdockClientCombobox,
-  formatClientOptionLabel,
-} from "@/components/warehouse-ops/crossdock-client-combobox";
+import { formatClientOptionLabel } from "@/components/warehouse-ops/crossdock-client-combobox";
 import {
   useAllProductReturns,
   type AdminProductReturn,
@@ -63,7 +59,6 @@ import {
   buildReturnStockLocations,
   type ReturnReceiveUnitType,
 } from "@/lib/warehouse-returns";
-import { describeReceiveLotHint } from "@/lib/warehouse-receive-lot";
 import { generateCrossdockReceiveLot } from "@/lib/warehouse-crossdock";
 import { buildWarehousePalletLabelsPdf } from "@/lib/warehouse-pallet-label-pdf";
 import { getWarehousePallet } from "@/lib/warehouse-receive-corrections";
@@ -73,7 +68,7 @@ import {
   downloadUint8ArrayAsFile,
 } from "@/lib/warehouse-carton-label-pdf";
 import { getWarehouseCarton } from "@/lib/warehouse-receive-corrections";
-import type { UserProfile, WarehouseDoc } from "@/types";
+import type { UserProfile, WarehouseCartonDoc, WarehouseDoc } from "@/types";
 import {
   Archive,
   CheckCircle2,
@@ -93,7 +88,6 @@ import { cn } from "@/lib/utils";
 
 type Props = { warehouse: WarehouseDoc };
 type StatusTab = "pending" | "open" | "in_progress" | "closed" | "all";
-
 function clientMatchesWarehouse(client: UserProfile, warehouse: WarehouseDoc): boolean {
   const linked = String(warehouse.linkedLocationId ?? "").trim();
   if (!linked) return true;
@@ -104,6 +98,29 @@ function clientMatchesWarehouse(client: UserProfile, warehouse: WarehouseDoc): b
 function displayName(client: UserProfile | undefined, uid: string): string {
   if (!client) return uid.slice(0, 8);
   return formatClientOptionLabel(client);
+}
+
+function walkInUnitKind(c: WarehouseCartonDoc): "PLT" | "PKG" | "CTN" {
+  if (c.palletId) return "PLT";
+  if (c.isPackage) return "PKG";
+  return "CTN";
+}
+
+function walkInUnitSearchHay(c: WarehouseCartonDoc): string {
+  return [
+    c.cartonCode,
+    c.barcode,
+    c.receiveLot,
+    c.lot,
+    c.receivedForClient,
+    c.productTitle,
+    c.notes,
+    walkInUnitKind(c),
+    String(c.quantity),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 }
 
 function StatusBadge({ status }: { status?: string }) {
@@ -218,7 +235,10 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
 
-  const [receiveOpen, setReceiveOpen] = useState(false);
+  const [floorFlow, setFloorFlow] = useState<FloorFlow>("queue");
+  const [walkPhase, setWalkPhase] = useState<WalkPhase>("pick-mode");
+  const [recvPhase, setRecvPhase] = useState<RecvPhase>("pick-unit");
+
   const [recvQty, setRecvQty] = useState("1");
   const [recvSku, setRecvSku] = useState("");
   const [recvTitle, setRecvTitle] = useState("");
@@ -247,7 +267,6 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const [generateInvoice, setGenerateInvoice] = useState(true);
   const [shipRemainingOnClose, setShipRemainingOnClose] = useState(false);
 
-  const [walkInOpen, setWalkInOpen] = useState(false);
   const [walkInMode, setWalkInMode] = useState<"with_user" | "no_user">("with_user");
   const [walkClientId, setWalkClientId] = useState("");
   const [walkClientLabel, setWalkClientLabel] = useState("");
@@ -261,7 +280,6 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const [walkUnitType, setWalkUnitType] = useState<"carton" | "pallet" | "package">("carton");
   const [walkLot, setWalkLot] = useState(() => generateCrossdockReceiveLot());
 
-  const [linkOpen, setLinkOpen] = useState(false);
   const [linkCartonId, setLinkCartonId] = useState("");
   const [linkClientId, setLinkClientId] = useState("");
   const [linkClientLabel, setLinkClientLabel] = useState("");
@@ -269,6 +287,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const [linkName, setLinkName] = useState("");
   const [linkSku, setLinkSku] = useState("");
   const [linkQty, setLinkQty] = useState("1");
+  const [linkUnitQuery, setLinkUnitQuery] = useState("");
 
   const clientById = useMemo(() => {
     const m = new Map<string, UserProfile>();
@@ -348,6 +367,25 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     );
   }, [cartons]);
 
+  const filteredLinkUnits = useMemo(() => {
+    const q = linkUnitQuery.trim().toLowerCase();
+    if (!q) return unallocatedReturnCartons;
+    return unallocatedReturnCartons.filter((c) => walkInUnitSearchHay(c).includes(q));
+  }, [unallocatedReturnCartons, linkUnitQuery]);
+
+  const selectedLinkUnit = useMemo(
+    () => unallocatedReturnCartons.find((c) => c.id === linkCartonId) ?? null,
+    [unallocatedReturnCartons, linkCartonId]
+  );
+
+  function pickLinkUnit(c: WarehouseCartonDoc) {
+    setLinkCartonId(c.id);
+    setLinkQty(String(Math.max(1, c.quantity || 1)));
+    if (!linkName.trim() && c.receivedForClient?.trim()) {
+      setLinkName(c.receivedForClient.trim());
+    }
+  }
+
   const priorLocations = useMemo(() => {
     if (!selected?.id) return [];
     return buildReturnStockLocations({
@@ -358,7 +396,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   }, [selected?.id, cartons, binPathById]);
 
   useEffect(() => {
-    if (!receiveOpen) return;
+    if (floorFlow !== "receive") return;
     let cancelled = false;
     void (async () => {
       try {
@@ -375,7 +413,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [receiveOpen, warehouse.id]);
+  }, [floorFlow, warehouse.id]);
 
   function openReceive(row: AdminProductReturn) {
     setSelected(row);
@@ -392,7 +430,45 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     setRecvLot("");
     setRecvExpiry("");
     setRecvCondition("good");
-    setReceiveOpen(true);
+    setRecvPhase("pick-unit");
+    setFloorFlow("receive");
+  }
+
+  function openWalkIn() {
+    setWalkInMode("with_user");
+    setWalkPhase("pick-mode");
+    setWalkClientId("");
+    setWalkClientLabel("");
+    setWalkType("existing");
+    setWalkReturnType("partial");
+    setWalkName("");
+    setWalkSku("");
+    setWalkQty("1");
+    setWalkNotes("");
+    setWalkUnknownName("");
+    setWalkUnitType("carton");
+    setWalkLot(generateCrossdockReceiveLot());
+    setFloorFlow("walk-in");
+  }
+
+  function openLinkUnallocated() {
+    const first = unallocatedReturnCartons[0] ?? null;
+    setLinkCartonId(first?.id ?? "");
+    setLinkClientId("");
+    setLinkClientLabel("");
+    setLinkType("new");
+    setLinkName(first?.receivedForClient?.trim() ?? "");
+    setLinkSku("");
+    setLinkQty(String(Math.max(1, first?.quantity || 1)));
+    setLinkUnitQuery("");
+    setFloorFlow("link");
+  }
+
+  function backToQueue() {
+    setFloorFlow("queue");
+    setWalkPhase("pick-mode");
+    setRecvPhase("pick-unit");
+    setLinkUnitQuery("");
   }
 
   function openShip(row: AdminProductReturn) {
@@ -529,7 +605,8 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
       } catch {
         /* label optional */
       }
-      setReceiveOpen(false);
+      setFloorFlow("queue");
+      setRecvPhase("pick-unit");
       setSelected(null);
     } catch (e) {
       toast({
@@ -681,7 +758,8 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
           description: `Approved · receive from Open / In progress (${returnId.slice(0, 8)}…)`,
         });
       }
-      setWalkInOpen(false);
+      setFloorFlow("queue");
+      setWalkPhase("pick-mode");
       setWalkName("");
       setWalkSku("");
       setWalkNotes("");
@@ -704,7 +782,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
 
   async function handleLinkWalkIn() {
     if (!linkCartonId || !linkClientId) {
-      toast({ title: "Select carton and client", variant: "destructive" });
+      toast({ title: "Select unit and client", variant: "destructive" });
       return;
     }
     setBusy(true);
@@ -733,9 +811,10 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
       });
       toast({
         title: "Return started",
-        description: `Linked · quarantine for Return QC (${returnId.slice(0, 8)}…)`,
+        description: `Linked · receive / putaway (${returnId.slice(0, 8)}…)`,
       });
-      setLinkOpen(false);
+      setFloorFlow("queue");
+      setLinkUnitQuery("");
     } catch (e) {
       toast({
         title: "Link failed",
@@ -757,6 +836,86 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
         description="Inbound-style receive · open/partial RMA · ship during receive · invoice on close"
       />
 
+
+      {floorFlow !== "queue" ? (
+        <ReturnsFloorFlows
+          floorFlow={floorFlow}
+          busy={busy}
+          clients={clients}
+          onBack={backToQueue}
+          onWalkIn={() => void handleWalkIn()}
+          onReceive={() => void handleReceive()}
+          onLink={() => void handleLinkWalkIn()}
+          walkPhase={walkPhase}
+          setWalkPhase={setWalkPhase}
+          walkInMode={walkInMode}
+          setWalkInMode={setWalkInMode}
+          walkClientId={walkClientId}
+          walkClientLabel={walkClientLabel}
+          setWalkClientId={setWalkClientId}
+          setWalkClientLabel={setWalkClientLabel}
+          walkType={walkType}
+          setWalkType={setWalkType}
+          walkReturnType={walkReturnType}
+          setWalkReturnType={setWalkReturnType}
+          walkName={walkName}
+          setWalkName={setWalkName}
+          walkSku={walkSku}
+          setWalkSku={setWalkSku}
+          walkQty={walkQty}
+          setWalkQty={setWalkQty}
+          walkNotes={walkNotes}
+          setWalkNotes={setWalkNotes}
+          walkUnknownName={walkUnknownName}
+          setWalkUnknownName={setWalkUnknownName}
+          walkUnitType={walkUnitType}
+          setWalkUnitType={setWalkUnitType}
+          walkLot={walkLot}
+          setWalkLot={setWalkLot}
+          selected={selected}
+          priorLocations={priorLocations}
+          recvPhase={recvPhase}
+          setRecvPhase={setRecvPhase}
+          recvUnitType={recvUnitType}
+          setRecvUnitType={setRecvUnitType}
+          recvSku={recvSku}
+          setRecvSku={setRecvSku}
+          recvTitle={recvTitle}
+          setRecvTitle={setRecvTitle}
+          recvQty={recvQty}
+          setRecvQty={setRecvQty}
+          recvLot={recvLot}
+          setRecvLot={setRecvLot}
+          recvExpiry={recvExpiry}
+          setRecvExpiry={setRecvExpiry}
+          recvCondition={recvCondition}
+          setRecvCondition={setRecvCondition}
+          recvNotes={recvNotes}
+          setRecvNotes={setRecvNotes}
+          recvCloseReady={recvCloseReady}
+          setRecvCloseReady={setRecvCloseReady}
+          unallocatedReturnCartons={unallocatedReturnCartons}
+          filteredLinkUnits={filteredLinkUnits}
+          selectedLinkUnit={selectedLinkUnit}
+          linkUnitQuery={linkUnitQuery}
+          setLinkUnitQuery={setLinkUnitQuery}
+          linkCartonId={linkCartonId}
+          pickLinkUnit={pickLinkUnit}
+          linkClientId={linkClientId}
+          linkClientLabel={linkClientLabel}
+          setLinkClientId={setLinkClientId}
+          setLinkClientLabel={setLinkClientLabel}
+          linkType={linkType}
+          setLinkType={setLinkType}
+          linkName={linkName}
+          setLinkName={setLinkName}
+          linkSku={linkSku}
+          setLinkSku={setLinkSku}
+          linkQty={linkQty}
+          setLinkQty={setLinkQty}
+        />
+      ) : (
+      <>
       <Card className="overflow-hidden border-orange-200/70 bg-gradient-to-br from-orange-50/90 via-background to-slate-50/80 shadow-sm">
         <CardContent className="p-4 sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -793,20 +952,13 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
               <Button
                 size="sm"
                 className="bg-orange-600 hover:bg-orange-700"
-                onClick={() => setWalkInOpen(true)}
+                onClick={openWalkIn}
               >
                 <UserPlus className="h-4 w-4 mr-1.5" />
                 Walk-in return
               </Button>
               {unallocatedReturnCartons.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    setLinkCartonId(unallocatedReturnCartons[0]?.id || "");
-                    setLinkOpen(true);
-                  }}
-                >
+                <Button size="sm" variant="secondary" onClick={openLinkUnallocated}>
                   <Package className="h-4 w-4 mr-1.5" />
                   Link unallocated
                   <Badge className="ml-1.5 bg-orange-600 hover:bg-orange-600 text-[10px] px-1.5">
@@ -960,7 +1112,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
                     <Button
                       size="sm"
                       className="mt-4 bg-orange-600 hover:bg-orange-700"
-                      onClick={() => setWalkInOpen(true)}
+                      onClick={openWalkIn}
                     >
                       <UserPlus className="h-3.5 w-3.5 mr-1.5" />
                       Walk-in return
@@ -1127,8 +1279,9 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
           </Tabs>
         </CardContent>
       </Card>
+      </>
+      )}
 
-      {/* Reject */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1150,127 +1303,6 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
               onClick={() => void handleReject()}
             >
               Reject
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Receive */}
-      <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Receive return</DialogTitle>
-            <DialogDescription>
-              Same pattern as inbound: choose unit, auto lot, print label, then putaway.
-              Partial OK — remain open until all qty is in.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            {priorLocations.length > 0 && (
-              <div className="rounded-md border border-blue-200 bg-blue-50/60 p-3 text-xs space-y-1.5">
-                <p className="font-medium text-blue-950">Previous qty for this return</p>
-                {priorLocations.map((loc) => (
-                  <div key={`${loc.cartonId}-${loc.binId || loc.stagingArea || loc.status}`}>
-                    {loc.cartonCode}: {loc.quantity} × {loc.sku}
-                    {loc.lot ? ` · ${loc.lot}` : ""}
-                    {" — "}
-                    {loc.binPath ||
-                      (loc.binId
-                        ? `Bin ${loc.binId.slice(0, 8)}…`
-                        : loc.status === "received"
-                          ? `Awaiting putaway (${loc.stagingArea || "RETURNS-STAGE"})`
-                          : loc.status)}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div>
-              <Label>Unit type</Label>
-              <Select
-                value={recvUnitType}
-                onValueChange={(v) => setRecvUnitType(v as ReturnReceiveUnitType)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="carton">Carton (CTN)</SelectItem>
-                  <SelectItem value="pallet">Pallet (PLT + CTN)</SelectItem>
-                  <SelectItem value="package">Package (PKG)</SelectItem>
-                  <SelectItem value="loose">Loose / unpackaged</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>SKU</Label>
-              <Input value={recvSku} onChange={(e) => setRecvSku(e.target.value)} />
-            </div>
-            <div>
-              <Label>Product title</Label>
-              <Input value={recvTitle} onChange={(e) => setRecvTitle(e.target.value)} />
-            </div>
-            <div>
-              <Label>Quantity this receive</Label>
-              <Input
-                type="number"
-                min={1}
-                value={recvQty}
-                onChange={(e) => setRecvQty(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label>Receive lot (optional)</Label>
-              <Input
-                value={recvLot}
-                onChange={(e) => setRecvLot(e.target.value)}
-                placeholder="Auto-generate if blank"
-              />
-              <p className="text-[11px] text-muted-foreground mt-1">{describeReceiveLotHint()}</p>
-            </div>
-            <div>
-              <Label>Expiry date (optional)</Label>
-              <Input
-                type="date"
-                value={recvExpiry}
-                onChange={(e) => setRecvExpiry(e.target.value)}
-              />
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Leave blank if no expiry (auto parts, etc.). Used in lot code and putaway FEFO.
-              </p>
-            </div>
-            <div>
-              <Label>Condition</Label>
-              <Select
-                value={recvCondition}
-                onValueChange={(v) => setRecvCondition(v as "good" | "damaged")}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="good">Good → putaway</SelectItem>
-                  <SelectItem value="damaged">Damaged → quarantine</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Notes</Label>
-              <Textarea value={recvNotes} onChange={(e) => setRecvNotes(e.target.value)} />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={recvCloseReady}
-                onCheckedChange={(v) => setRecvCloseReady(v === true)}
-              />
-              User asked to close after this receive (ready to close + invoice)
-            </label>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReceiveOpen(false)}>
-              Cancel
-            </Button>
-            <Button disabled={busy} onClick={() => void handleReceive()}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Receive → Putaway"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1442,262 +1474,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
         </DialogContent>
       </Dialog>
 
-      {/* Walk-in */}
-      <Dialog
-        open={walkInOpen}
-        onOpenChange={(open) => {
-          setWalkInOpen(open);
-          if (open) setWalkLot(generateCrossdockReceiveLot());
-        }}
-      >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Walk-in return</DialogTitle>
-            <DialogDescription>
-              Same idea as inbound walk-in: name + unit + lot + label. Unknown client goes to
-              Allocate, then Link unallocated.
-            </DialogDescription>
-          </DialogHeader>
-          <RadioGroup
-            value={walkInMode}
-            onValueChange={(v) => setWalkInMode(v as "with_user" | "no_user")}
-            className="flex gap-4"
-          >
-            <label className="flex items-center gap-2 text-sm">
-              <RadioGroupItem value="with_user" />
-              Client known
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <RadioGroupItem value="no_user" />
-              Client unknown
-            </label>
-          </RadioGroup>
-
-          {walkInMode === "with_user" ? (
-            <div className="space-y-3">
-              <div>
-                <Label>Client</Label>
-                <CrossdockClientCombobox
-                  clients={clients}
-                  clientId={walkClientId}
-                  clientLabel={walkClientLabel}
-                  onChange={({ clientId, clientLabel }) => {
-                    setWalkClientId(clientId);
-                    setWalkClientLabel(clientLabel);
-                  }}
-                />
-              </div>
-              <RadioGroup
-                value={walkType}
-                onValueChange={(v) => setWalkType(v as "existing" | "new")}
-                className="flex gap-4"
-              >
-                <label className="flex items-center gap-2 text-sm">
-                  <RadioGroupItem value="existing" />
-                  Existing product
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <RadioGroupItem value="new" />
-                  New product
-                </label>
-              </RadioGroup>
-              <div>
-                <Label>Return type</Label>
-                <Select
-                  value={walkReturnType}
-                  onValueChange={(v) => setWalkReturnType(v as "combine" | "partial")}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="partial">Partial — separate batches</SelectItem>
-                    <SelectItem value="combine">Combine — all together</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>{walkType === "new" ? "New product name" : "Product name"}</Label>
-                <Input value={walkName} onChange={(e) => setWalkName(e.target.value)} />
-              </div>
-              <div>
-                <Label>SKU (optional)</Label>
-                <Input value={walkSku} onChange={(e) => setWalkSku(e.target.value)} />
-              </div>
-              <div>
-                <Label>Requested qty</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={walkQty}
-                  onChange={(e) => setWalkQty(e.target.value)}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div>
-                <Label>Name on label *</Label>
-                <Input
-                  value={walkUnknownName}
-                  onChange={(e) => setWalkUnknownName(e.target.value)}
-                  placeholder="Shipper / sender / temp name"
-                />
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Like inbound closed receive — search later in Allocate by this name.
-                </p>
-              </div>
-              <div>
-                <Label>Unit type</Label>
-                <Select
-                  value={walkUnitType}
-                  onValueChange={(v) =>
-                    setWalkUnitType(v as "carton" | "pallet" | "package")
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="carton">Carton (CTN)</SelectItem>
-                    <SelectItem value="pallet">Pallet (PLT + CTN)</SelectItem>
-                    <SelectItem value="package">Package (PKG)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Receive lot (auto)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    readOnly
-                    value={walkLot}
-                    className="font-mono text-sm bg-muted/50 flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => setWalkLot(generateCrossdockReceiveLot())}
-                  >
-                    New lot
-                  </Button>
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  LOT-XDOCK + date + random — prints on the label.
-                </p>
-              </div>
-              <div>
-                <Label>Quantity</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={walkQty}
-                  onChange={(e) => setWalkQty(e.target.value)}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground rounded-md border bg-muted/30 px-3 py-2">
-                No SKUs yet. After client is found in Allocate, use{" "}
-                <strong>Link unallocated</strong> to start return receive / putaway.
-              </p>
-            </div>
-          )}
-          <div>
-            <Label>Notes</Label>
-            <Textarea value={walkNotes} onChange={(e) => setWalkNotes(e.target.value)} />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setWalkInOpen(false)}>
-              Cancel
-            </Button>
-            <Button disabled={busy} onClick={() => void handleWalkIn()}>
-              {walkInMode === "no_user" ? "Receive closed" : "Create return"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Link unallocated */}
-      <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Link unallocated return</DialogTitle>
-            <DialogDescription>
-              Assign client and create RMA → unit moves to putaway (received).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Carton</Label>
-              <Select value={linkCartonId} onValueChange={setLinkCartonId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select carton" />
-                </SelectTrigger>
-                <SelectContent>
-                  {unallocatedReturnCartons.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.cartonCode}
-                      {c.receivedForClient ? ` · ${c.receivedForClient}` : ""}
-                      {c.receiveLot ? ` · ${c.receiveLot}` : ""} · qty {c.quantity}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Client</Label>
-              <CrossdockClientCombobox
-                clients={clients}
-                clientId={linkClientId}
-                clientLabel={linkClientLabel}
-                onChange={({ clientId, clientLabel }) => {
-                  setLinkClientId(clientId);
-                  setLinkClientLabel(clientLabel);
-                }}
-              />
-            </div>
-            <RadioGroup
-              value={linkType}
-              onValueChange={(v) => setLinkType(v as "existing" | "new")}
-              className="flex gap-4"
-            >
-              <label className="flex items-center gap-2 text-sm">
-                <RadioGroupItem value="existing" />
-                Existing
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <RadioGroupItem value="new" />
-                New product
-              </label>
-            </RadioGroup>
-            <div>
-              <Label>Product name</Label>
-              <Input value={linkName} onChange={(e) => setLinkName(e.target.value)} />
-            </div>
-            <div>
-              <Label>SKU</Label>
-              <Input value={linkSku} onChange={(e) => setLinkSku(e.target.value)} />
-            </div>
-            <div>
-              <Label>Qty</Label>
-              <Input
-                type="number"
-                min={1}
-                value={linkQty}
-                onChange={(e) => setLinkQty(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setLinkOpen(false)}>
-              Cancel
-            </Button>
-            <Button disabled={busy} onClick={() => void handleLinkWalkIn()}>
-              Start return
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      
     </div>
   );
 }
