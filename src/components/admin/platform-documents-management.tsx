@@ -113,6 +113,8 @@ export function PlatformDocumentsManagement() {
 
   const archivedPagination = paginateList(archivedVersions, archivedPage, DEFAULT_LIST_PAGE_SIZE);
 
+  }, [slug, loadDocument, loadArchivedVersions]);
+
   async function handleSave() {
     if (!user) return;
     let version: number;
@@ -282,6 +284,8 @@ export function PlatformDocumentsManagement() {
             <>
             <div className="space-y-2">
               {archivedPagination.items.map((entry) => (
+            <div className="space-y-2">
+              {archivedVersions.map((entry) => (
                 <div
                   key={entry.version}
                   className="flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"

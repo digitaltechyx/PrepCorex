@@ -27,6 +27,13 @@ import { findDefaultWarehouseLocationId } from "@/lib/default-warehouse";
 import { Logo } from "@/components/logo";
 import { Loader2 } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { buildUserUniqueFieldKeys } from "@/lib/user-unique-fields";
 import {
   checkUserFieldsUniqueClient,
@@ -46,6 +53,10 @@ const formSchema = z.object({
   phone: z.string().min(10, { message: "Please enter a valid phone number." }),
   email: z.string().email({ message: "Invalid email address." }),
   referralCode: z.string().optional(),
+  password: z.string().min(6, { message: "Password must be at least 6 characters." }),
+  documentsAccepted: z.boolean().refine((val) => val === true, {
+    message: "You must agree to the listed documents.",
+  }),
   password: z.string().min(6, { message: "Password must be at least 6 characters." }),
   documentsAccepted: z.boolean().refine((val) => val === true, {
     message: "You must agree to the listed documents.",
@@ -107,6 +118,7 @@ export default function RegisterPage() {
       phone: "",
       email: "",
       referralCode: "",
+      storageType: "product_base",
       password: "",
       documentsAccepted: false,
       authorizedRepresentative: false,
@@ -187,6 +199,7 @@ export default function RegisterPage() {
         features: [],
         status: "pending",
         pricingProfileId: DEFAULT_PRICING_PROFILE_ID,
+        storageType: values.storageType,
         emailVerificationRequired: true,
         createdAt: new Date(),
         clientId: await generateClientId(),
@@ -231,6 +244,16 @@ export default function RegisterPage() {
             title: "Account created",
             description: "Unique field reservation is pending. Admin can reconcile it if needed.",
           });
+        });
+        if (!claim.ok) {
+          await user.delete();
+          toast({
+            variant: "destructive",
+            title: "Registration blocked",
+            description: uniquenessConflictMessage(claim),
+          });
+          setIsLoading(false);
+          return;
         }
       } catch {
         // Registry claim failed after account creation ? admin can reconcile

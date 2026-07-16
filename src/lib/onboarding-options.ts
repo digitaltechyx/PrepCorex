@@ -13,6 +13,7 @@ export type BusinessType = (typeof BUSINESS_TYPES)[number];
 export const SERVICES_NEEDED_OPTIONS = [
   "Amazon FBA Prep",
   "DTC/FBM Fulfillment",
+  "FBM Fulfillment",
   "Storage",
   "Returns",
   "Cross-Dock",

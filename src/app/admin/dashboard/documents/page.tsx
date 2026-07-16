@@ -151,6 +151,25 @@ export default function DocumentRequestsPage() {
   const [msaPage, setMsaPage] = useState(1);
   const [requestsPage, setRequestsPage] = useState(1);
 
+  function msaSortTimestamp(u: UserProfile): number {
+    const activated = u.accountActivatedAt;
+    if (activated && typeof activated === "object" && "seconds" in activated) {
+      return activated.seconds * 1000;
+    }
+    if (activated instanceof Date) {
+      return activated.getTime();
+    }
+    if (u.msaEffectiveDate) {
+      const d = new Date(u.msaEffectiveDate);
+      if (!Number.isNaN(d.getTime())) return d.getTime();
+    }
+    return 0;
+  }
+
+  function msaDisplayName(u: UserProfile): string {
+    return (u.name || u.email || u.msaClientDetails?.companyName || "").trim();
+  }
+
   // Search matches: documentType, userName, userEmail, companyName, contact, email, notes
   const matchesSearch = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -527,6 +546,25 @@ export default function DocumentRequestsPage() {
       if (msaDateFilter === "month") return diffDays <= 30;
       return true;
     });
+
+    return [...filtered].sort((a, b) => {
+      switch (msaSortOrder) {
+        case "oldest":
+          return msaSortTimestamp(a) - msaSortTimestamp(b);
+        case "name_asc":
+          return msaDisplayName(a).localeCompare(msaDisplayName(b), undefined, {
+            sensitivity: "base",
+          });
+        case "name_desc":
+          return msaDisplayName(b).localeCompare(msaDisplayName(a), undefined, {
+            sensitivity: "base",
+          });
+        case "newest":
+        default:
+          return msaSortTimestamp(b) - msaSortTimestamp(a);
+      }
+    });
+  }, [usersWithMSA, msaSearchQuery, msaSelectedCompany, msaDateFilter, msaVersionFilter, msaSortOrder]);
 
     return [...filtered].sort((a, b) => {
       switch (msaSortOrder) {

@@ -79,6 +79,7 @@ function formatRowQuantity(item: {
   isRequest?: boolean;
   status?: string;
   requestData?: InventoryRequest;
+  requestData?: { quantity?: number; requestedQuantity?: number; receivedQuantity?: number; status?: string };
 }): string {
   if (!item.isRequest) {
     const q = Number(item.quantity);
@@ -791,6 +792,7 @@ export function InventoryTable({
     () => inventoryRequests.filter((req) => shouldShowApprovedInboundRequestRow(req, data)).length,
     [inventoryRequests, data]
   );
+  const pendingCount = inventoryRequests.filter(req => req.status === "pending").length;
   const rejectedCount = inventoryRequests.filter(req => req.status === "rejected").length;
   const cancelledCount = inventoryRequests.filter(req => req.status === "cancelled").length;
   const outOfStockCount = data.filter((item) => item.status === "Out of Stock").length;
@@ -1105,6 +1107,7 @@ export function InventoryTable({
         inboundTrackings: resolveInboundTrackings(
           req as InventoryRequest & { trackingNumber?: string; carrier?: string }
         ),
+        inboundTrackings: (req as InventoryRequest & { inboundTrackings?: InboundTrackingEntry[] }).inboundTrackings,
         remarksPhotoAt: getRemarksPhotoAt(req),
       }));
 
@@ -1193,6 +1196,28 @@ export function InventoryTable({
       })),
     [combinedInventory.outOfStockItems]
   );
+    return { combined: [...pendingItems, ...activeInventoryItems], outOfStockItems: inventoryItems.filter((item) => item.status === "Out of Stock") };
+  }, [data, inventoryRequests]);
+
+  const combinedData = combinedInventory.combined;
+  const outOfStockRows: OutOfStockInventoryRow[] = useMemo(
+    () =>
+      combinedInventory.outOfStockItems.map((item) => ({
+        id: item.id,
+        productName: item.productName,
+        sku: (item as any).sku,
+        variantLabel: (item as any).variantLabel,
+        retailIdentifier: (item as any).retailIdentifier,
+        expiryDate: (item as any).expiryDate,
+        quantity: item.quantity,
+        dateAdded: item.dateAdded,
+        receivingDate: item.receivingDate,
+        remarks: item.remarks,
+        imageUrls: (item as any).imageUrls,
+        source: (item as any).source,
+      })),
+    [combinedInventory.outOfStockItems]
+  );
 
   // Filtered and sorted inventory data (newest first)
   const filteredData = useMemo(() => {
@@ -1256,6 +1281,41 @@ export function InventoryTable({
                   <PackageX className="h-3 w-3" />
                   {awaitingReceivingCount} Awaiting receive
                 </Badge>
+              {rejectedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setClosedRequestsSheet("rejected")}
+                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <Badge variant="destructive" className="flex items-center gap-1 cursor-pointer hover:opacity-90">
+                    <X className="h-3 w-3" />
+                    {rejectedCount} Rejected
+                  </Badge>
+                </button>
+              )}
+              {cancelledCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setClosedRequestsSheet("cancelled")}
+                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <Badge variant="outline" className="flex items-center gap-1 text-muted-foreground cursor-pointer hover:bg-muted/80">
+                    <Trash2 className="h-3 w-3" />
+                    {cancelledCount} Cancelled
+                  </Badge>
+                </button>
+              )}
+              {outOfStockCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setOutOfStockSheetOpen(true)}
+                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <Badge variant="secondary" className="flex items-center gap-1 cursor-pointer hover:opacity-90">
+                    <PackageX className="h-3 w-3" />
+                    {outOfStockCount} Out of stock
+                  </Badge>
+                </button>
               )}
               {rejectedCount > 0 && (
                 <button
@@ -1376,6 +1436,7 @@ export function InventoryTable({
                       <InventoryAvatar
                         item={item as any}
                         className="h-14 w-14 shrink-0"
+                        className="h-10 w-10 shrink-0"
                         onImageClick={handleImagePreview}
                       />
                       <InventoryProductName
@@ -1448,6 +1509,8 @@ export function InventoryTable({
                     )}
                     {((item.remarks && item.remarks.trim()) ||
                       getRemarksImageUrls(item as any).length > 0) && (
+                      ((item as any).imageUrls?.length ?? 0) > 0 ||
+                      (item as any).imageUrl) && (
                       <div className="mt-1">
                         <Button
                           variant="ghost"
@@ -1457,6 +1520,7 @@ export function InventoryTable({
                             handleRemarksClick(
                               item.remarks || "",
                               getRemarksImageUrls(item as any),
+                              (item as any).imageUrls || (item as any).imageUrl,
                               (item as any).remarksPhotoAt
                             )
                           }
@@ -1493,6 +1557,17 @@ export function InventoryTable({
                     )}
                   >
                     {inventoryStatusBadge(item.status).label}
+                    variant={
+                      item.status === "Pending" ? "outline" :
+                      item.status === "Rejected" ? "destructive" :
+                      item.status === "Cancelled" ? "secondary" :
+                      item.status === "In Stock" ? "secondary" : "destructive"
+                    }
+                    className="text-[10px] px-2 py-1"
+                  >
+                    {item.status === "Pending" ? "Pending Approval" :
+                     item.status === "Rejected" ? "Rejected" :
+                     item.status === "Cancelled" ? "Cancelled" : item.status}
                   </Badge>
                   {item.status !== "Rejected" && item.status !== "Cancelled" && (
                     <InboundTrackingStatusCell
@@ -1590,6 +1665,7 @@ export function InventoryTable({
                   Product
                 </TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell w-[92px]">Source</TableHead>
+                <TableHead className="text-xs sm:text-sm w-[280px] max-w-[280px]">Product</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">SKU</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden lg:table-cell">Identifier</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden xl:table-cell">Expiry</TableHead>
@@ -1625,6 +1701,12 @@ export function InventoryTable({
                           <InventoryAvatar
                             item={item as any}
                             className="h-14 w-14 shrink-0"
+                    <TableCell className="font-medium w-[280px] max-w-[280px] align-top overflow-visible">
+                      <div className="flex flex-col sm:block min-w-0">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <InventoryAvatar
+                            item={item as any}
+                            className="h-8 w-8 shrink-0"
                             onImageClick={handleImagePreview}
                           />
                           <InventoryProductName
@@ -1721,6 +1803,8 @@ export function InventoryTable({
                     <TableCell className="hidden lg:table-cell max-w-[180px]">
                       {(item.remarks && item.remarks.trim()) ||
                       getRemarksImageUrls(item as any).length > 0 ? (
+                      ((item as any).imageUrls?.length ?? 0) > 0 ||
+                      (item as any).imageUrl ? (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1729,6 +1813,7 @@ export function InventoryTable({
                             handleRemarksClick(
                               item.remarks || "",
                               getRemarksImageUrls(item as any),
+                              (item as any).imageUrls || (item as any).imageUrl,
                               (item as any).remarksPhotoAt
                             )
                           }
@@ -1754,6 +1839,17 @@ export function InventoryTable({
                         )}
                       >
                         {inventoryStatusBadge(item.status).label}
+                        variant={
+                          item.status === "Pending" ? "outline" :
+                          item.status === "Rejected" ? "destructive" :
+                          item.status === "Cancelled" ? "secondary" :
+                          item.status === "In Stock" ? "secondary" : "destructive"
+                        }
+                        className="text-xs px-2 py-1"
+                      >
+                        {item.status === "Pending" ? "Pending Approval" :
+                         item.status === "Rejected" ? "Rejected" :
+                         item.status === "Cancelled" ? "Cancelled" : item.status}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-center whitespace-nowrap">
@@ -1912,6 +2008,7 @@ export function InventoryTable({
               <div className="bg-gray-50 p-4 rounded-lg">
                 <p className="text-sm font-semibold">
                   Receive photos ({selectedImageUrls.length})
+                  Inventory Pictures ({selectedImageUrls.length})
                 </p>
                 {selectedPhotosAt && (
                   <p className="text-xs text-muted-foreground mt-0.5 mb-2">
