@@ -5,6 +5,7 @@ import { listWarehouseCartons } from "@/lib/warehouse-carton-firestore";
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
 import { normalizeReturnTracking } from "@/lib/return-tracking-client";
 import { resolveInboundTrackings } from "@/lib/inbound-tracking";
+import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
 import type { InventoryRequest, UserProfile, WarehouseCartonDoc, WarehouseDoc } from "@/types";
 
 export type ReceivingScenario = "client_request" | "walk_in" | "mixed_pallet" | "damaged";
@@ -413,16 +414,11 @@ export async function loadInboundRequestQueue(input: {
   }
 
   return rows.sort((a, b) => {
-    if (a.status === "pending" !== (b.status === "pending")) {
-      return a.status === "pending" ? -1 : 1;
-    }
-    if (a.remainingQty > 0 !== b.remainingQty > 0) {
-      return a.remainingQty > 0 ? -1 : 1;
-    }
-    if (a.status !== b.status) {
-      if (a.status === "pending") return -1;
-      if (b.status === "pending") return 1;
-    }
+    const at =
+      (dateFromFirestore(a.requestedAt) ?? dateFromFirestore(a.addDate))?.getTime() ?? 0;
+    const bt =
+      (dateFromFirestore(b.requestedAt) ?? dateFromFirestore(b.addDate))?.getTime() ?? 0;
+    if (at !== bt) return bt - at;
     return a.clientDisplayName.localeCompare(b.clientDisplayName);
   });
 }

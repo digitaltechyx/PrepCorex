@@ -20,6 +20,7 @@ import {
   warehousePalletDocRef,
 } from "@/lib/warehouse-carton-firestore";
 import { resolveReceiveLot } from "@/lib/warehouse-receive-lot";
+import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
 import { normalizeReturnTracking, parseReturnTrackings } from "@/lib/return-tracking-client";
 import {
   loadInboundRequestQueue,
@@ -229,9 +230,9 @@ export async function loadReturnRequestQueue(input: {
   }
 
   return rows.sort((a, b) => {
-    if (a.remainingQty > 0 !== b.remainingQty > 0) {
-      return a.remainingQty > 0 ? -1 : 1;
-    }
+    const at = dateFromFirestore(a.createdAt)?.getTime() ?? 0;
+    const bt = dateFromFirestore(b.createdAt)?.getTime() ?? 0;
+    if (at !== bt) return bt - at;
     return a.clientDisplayName.localeCompare(b.clientDisplayName);
   });
 }
@@ -382,7 +383,8 @@ export async function receiveReturnAtDock(input: {
     expiry: input.expiry?.trim().slice(0, 10) || null,
     condition,
     binId: null,
-    stagingArea: staging,
+    // Dock stage lives on the carton root only — line stagingArea means putaway-to-area done.
+    stagingArea: null,
     allocationStatus: "allocated",
     clientId: input.clientUserId,
     inventoryRequestId: null,
@@ -404,6 +406,7 @@ export async function receiveReturnAtDock(input: {
     isLoose: unitType === "loose",
     isPackage: unitType === "package",
     receiveMode: "unpackaged",
+    isReturnReceive: true,
     receiveLot,
     trackingNumber: input.trackingNumber ?? null,
     carrier: input.carrier ?? null,

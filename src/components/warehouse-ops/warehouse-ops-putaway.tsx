@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { WarehouseOpsActivityLog } from "@/components/warehouse-ops/warehouse-ops-activity-log";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type {
   WarehouseAreaDoc,
   WarehouseBinDoc,
@@ -35,6 +37,10 @@ import {
   resolveManifestLotLabel,
 } from "@/lib/warehouse-label-manifest";
 import { isLinePutawayPlaced } from "@/lib/warehouse-carton-line-utils";
+import {
+  isReturnWalkInCarton,
+  isReturnWalkInPallet,
+} from "@/lib/product-return-ops";
 import {
   applyPutawayAssignments,
   findBinByPath,
@@ -825,8 +831,10 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
       });
       const fresh = await reloadCarton(carton.cartonCode);
       toast({
-        title: "Carton opened",
-        description: "Scan bins to stow each SKU line.",
+        title: isReturnWalkInCarton(carton) ? "Return opened" : "Carton opened",
+        description: isReturnWalkInCarton(carton)
+          ? "Enter done — scan bins to put away this return (not inbound stock)."
+          : "Scan bins to stow each SKU line.",
       });
       setPendingDisposition(null);
       if (fresh) {
@@ -1127,6 +1135,12 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     <div className="max-w-4xl space-y-6">
       <WarehouseOpsHeader title="Putaway" />
 
+      <Tabs defaultValue="work">
+        <TabsList>
+          <TabsTrigger value="work">Putaway</TabsTrigger>
+          <TabsTrigger value="log">Log</TabsTrigger>
+        </TabsList>
+        <TabsContent value="work" className="mt-4 space-y-6">
       {!carton && !pallet ? (
         <Card className="border-blue-200/60 bg-blue-50/30 dark:bg-blue-950/20">
           <CardHeader>
@@ -1174,6 +1188,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         <CrossdockDispositionPicker
           carton={null}
           pallet={pallet}
+          isReturnReceive={isReturnWalkInPallet(pallet)}
           onPick={(d) => {
             setPendingDisposition(d);
             setStagingAreaCode("");
@@ -1208,6 +1223,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         <CrossdockOpenLinesForm
           carton={null}
           pallet={pallet}
+          isReturnReceive={isReturnWalkInPallet(pallet)}
           lines={captureLines}
           onLinesChange={setCaptureLines}
           onBack={() => setPendingDisposition(null)}
@@ -1244,6 +1260,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
       ) : carton && crossdockPhase === "choose_disposition" ? (
         <CrossdockDispositionPicker
           carton={carton}
+          isReturnReceive={isReturnWalkInCarton(carton)}
           onPick={(d) => {
             if (d === "open_for_storage" && isCrossdockClosedCarton(carton)) {
               setPendingDisposition(d);
@@ -1298,6 +1315,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
       ) : carton && crossdockPhase === "capture_skus" ? (
         <CrossdockOpenLinesForm
           carton={carton}
+          isReturnReceive={isReturnWalkInCarton(carton)}
           lines={captureLines}
           onLinesChange={setCaptureLines}
           onBack={() => setPendingDisposition(null)}
@@ -1358,6 +1376,11 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           saving={saving}
         />
       ) : null}
+        </TabsContent>
+        <TabsContent value="log" className="mt-4">
+          <WarehouseOpsActivityLog warehouse={warehouse} module="putaway" />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -2098,16 +2121,51 @@ function CartonPutawayPanel({
 function CrossdockDispositionPicker({
   carton,
   pallet,
+  isReturnReceive = false,
   onPick,
   onCancel,
 }: {
   carton: WarehouseCartonDoc | null;
   pallet?: WarehousePalletDoc | null;
+  isReturnReceive?: boolean;
   onPick: (d: WarehousePutawayDisposition) => void;
   onCancel: () => void;
 }) {
   const code = carton?.cartonCode ?? pallet?.palletCode ?? "Unit";
   const unitLabel = pallet ? "pallet" : "carton";
+  if (isReturnReceive) {
+    return (
+      <div className="space-y-4">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Different scan
+        </Button>
+        <Card className="border-orange-200/60 bg-orange-50/20">
+          <CardHeader>
+            <CardTitle className="text-base">{code}</CardTitle>
+            <CardDescription className="text-xs">
+              Closed <span className="font-medium text-orange-800">return</span> {unitLabel} — not
+              inbound receive. Link the client first if needed, then open and put away as a return.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full flex-col items-start gap-2 p-4 border-orange-200 hover:bg-orange-50"
+              onClick={() => onPick("open_for_storage")}
+            >
+              <PackageOpen className="h-5 w-5 text-orange-600" />
+              <span className="font-semibold text-sm">Open for return putaway</span>
+              <span className="text-xs text-muted-foreground text-left">
+                Enter SKUs / qty, then scan bins — credits the return RMA, not inbound stock
+              </span>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   return (
     <div className="space-y-4">
       <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
@@ -2251,6 +2309,7 @@ function CrossdockAreaPicker({
 function CrossdockOpenLinesForm({
   carton,
   pallet,
+  isReturnReceive = false,
   lines,
   onLinesChange,
   onBack,
@@ -2260,6 +2319,7 @@ function CrossdockOpenLinesForm({
 }: {
   carton: WarehouseCartonDoc | null;
   pallet?: WarehousePalletDoc | null;
+  isReturnReceive?: boolean;
   lines: Array<{ id: string; sku: string; qty: string; lot: string; expiry: string }>;
   onLinesChange: (
     next: Array<{ id: string; sku: string; qty: string; lot: string; expiry: string }>
@@ -2270,7 +2330,13 @@ function CrossdockOpenLinesForm({
   saving: boolean;
 }) {
   const code = carton?.cartonCode ?? pallet?.palletCode ?? "Unit";
-  const title = pallet ? "Open pallet — enter contents" : "Open carton — enter contents";
+  const title = isReturnReceive
+    ? pallet
+      ? "Open return pallet — enter contents"
+      : "Open return carton — enter contents"
+    : pallet
+      ? "Open pallet — enter contents"
+      : "Open carton — enter contents";
   return (
     <div className="space-y-4">
       <div className="flex gap-2">
@@ -2282,11 +2348,13 @@ function CrossdockOpenLinesForm({
           Different scan
         </Button>
       </div>
-      <Card className="border-orange-200/60">
+      <Card className={isReturnReceive ? "border-orange-200/60 bg-orange-50/10" : "border-orange-200/60"}>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">{title}</CardTitle>
           <CardDescription className="text-xs">
-            {code} was received closed. Add SKU lines, then scan storage bins.
+            {isReturnReceive
+              ? `${code} is a closed return. Add SKU lines, then put away — credits the RMA, not inbound receive.`
+              : `${code} was received closed. Add SKU lines, then scan storage bins.`}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -2363,7 +2431,13 @@ function CrossdockOpenLinesForm({
             onClick={onConfirm}
             disabled={saving}
           >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue to bin putaway"}
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isReturnReceive ? (
+              "Continue to return putaway"
+            ) : (
+              "Continue to bin putaway"
+            )}
           </Button>
         </CardContent>
       </Card>

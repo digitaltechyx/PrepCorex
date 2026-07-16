@@ -158,8 +158,27 @@ export function applyPutawayAreaAssignmentsToLines(
   return { nextLines, applied };
 }
 
+/** Dock receive stamps (carton root only). Never count as putaway-to-area. */
+const DOCK_RECEIVE_STAGING = new Set(["RETURNS-STAGE", "RCV-STAGE"]);
+
+export function isDockReceiveStagingArea(area: string | null | undefined): boolean {
+  const a = area?.trim().toUpperCase();
+  if (!a) return false;
+  return DOCK_RECEIVE_STAGING.has(a);
+}
+
 export function isLinePutawayPlaced(line: WarehouseCartonLine): boolean {
-  return Boolean(line.binId) || Boolean(line.stagingArea?.trim());
+  if (line.binId) return true;
+  const area = line.stagingArea?.trim();
+  if (!area) return false;
+  // Legacy return receive wrongly stamped dock stage on the line — still awaiting putaway.
+  if (isDockReceiveStagingArea(area)) return false;
+  // Real area putaway stamps a storage/quarantine area code on the line.
+  return true;
+}
+
+export function isLineAwaitingPutaway(line: WarehouseCartonLine): boolean {
+  return !isLinePutawayPlaced(line);
 }
 
 export function rollCartonBinStateFromLines(

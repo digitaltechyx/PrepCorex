@@ -19,6 +19,8 @@ import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-li
 import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { WarehouseOpsActivityLog } from "@/components/warehouse-ops/warehouse-ops-activity-log";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { resolveScan } from "@/lib/warehouse-putaway";
 import {
   buildPackPlan,
@@ -407,6 +409,12 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     return (
       <div className="space-y-4">
         <WarehouseOpsHeader title="Pack" />
+        <Tabs defaultValue="work">
+          <TabsList>
+            <TabsTrigger value="work">Pack</TabsTrigger>
+            <TabsTrigger value="log">Log</TabsTrigger>
+          </TabsList>
+          <TabsContent value="work" className="mt-4 space-y-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -926,6 +934,11 @@ export function WarehouseOpsPack({ warehouse }: Props) {
         <Button variant="outline" asChild>
           <Link href="/warehouse-ops/dispatch">View dispatch queue</Link>
         </Button>
+          </TabsContent>
+          <TabsContent value="log" className="mt-4">
+            <WarehouseOpsActivityLog warehouse={warehouse} module="pack" />
+          </TabsContent>
+        </Tabs>
       </div>
     );
   }

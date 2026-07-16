@@ -34,9 +34,10 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { WarehouseOpsActivityLog } from "@/components/warehouse-ops/warehouse-ops-activity-log";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import {
-  QUARANTINE_HOLD_DAYS,
   disposeQuarantineLine,
   listQuarantineHolds,
   releaseQuarantineLineToStorage,
@@ -51,6 +52,17 @@ import { cn } from "@/lib/utils";
 type Props = {
   warehouse: WarehouseDoc;
 };
+
+function ageBadgeClass(days: number): string {
+  if (days >= 14) return "bg-red-100 border-red-300 text-red-900";
+  if (days >= 7) return "bg-amber-50 border-amber-300 text-amber-900";
+  return "bg-muted border-border text-muted-foreground";
+}
+
+function formatAgeBadge(days: number): string {
+  if (days <= 0) return "New today";
+  return `${days}d`;
+}
 
 export function WarehouseOpsQuarantine({ warehouse }: Props) {
   const { toast } = useToast();
@@ -248,24 +260,27 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
     <div className="max-w-4xl space-y-6">
       <WarehouseOpsHeader title="Quarantine" />
 
+      <Tabs defaultValue="work">
+        <TabsList>
+          <TabsTrigger value="work">Quarantine</TabsTrigger>
+          <TabsTrigger value="log">Log</TabsTrigger>
+        </TabsList>
+        <TabsContent value="work" className="mt-4 space-y-6">
       <Card className="border-red-200/70 bg-red-50/30">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-red-600" />
-            Damaged hold · {QUARANTINE_HOLD_DAYS} days
+            Damaged hold
           </CardTitle>
           <CardDescription className="text-xs space-y-1">
             <p>
-              Use <strong>Return</strong> to send units to{" "}
-              <Link href="/warehouse-ops/putaway" className="underline font-medium">
-                Putaway
-              </Link>{" "}
-              (stow in a bin or area and update stock), or <strong>Send to Pack</strong> for pack →
-              dispatch (creates an Orders / Shipped entry for that qty — partial or full).
+              Hold damaged stock until you decide. Age badge shows how long it has been here —
+              there is no auto-dispose deadline.
             </p>
             <p>
-              You can also stow directly here into a storage bin. If nothing is done after{" "}
-              {QUARANTINE_HOLD_DAYS} days, stock is auto-disposed into the client disposed list.
+              <strong>Return → Putaway</strong> to stow again (good stock),{" "}
+              <strong>Send to Pack</strong> to ship via Pack → Dispatch, or{" "}
+              <strong>Dispose now</strong> to remove it manually.
             </p>
           </CardDescription>
         </CardHeader>
@@ -295,8 +310,7 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
                 onClick={() => selectRow(row)}
                 className={cn(
                   "w-full text-left rounded-lg border px-3 py-3 transition-colors",
-                  active ? "border-red-400 bg-red-50" : "bg-card hover:bg-muted/40",
-                  row.isExpired && "border-red-500"
+                  active ? "border-red-400 bg-red-50" : "bg-card hover:bg-muted/40"
                 )}
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -314,22 +328,16 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
                           : " · no client"}
                     </p>
                     <p className="text-[11px] text-muted-foreground">
-                      In quarantine since {format(row.quarantineAt, "MMM d, yyyy")} ·{" "}
-                      {row.daysInQuarantine}d
+                      In quarantine since {format(row.quarantineAt, "MMM d, yyyy")}
                     </p>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    {row.isExpired ? (
-                      <Badge variant="destructive">Due for auto-dispose</Badge>
-                    ) : (
-                      <Badge
-                        variant="outline"
-                        className="bg-amber-50 border-amber-300 text-amber-900"
-                      >
-                        {row.daysRemaining}d left
-                      </Badge>
-                    )}
-                  </div>
+                  <Badge
+                    variant="outline"
+                    className={ageBadgeClass(row.daysInQuarantine)}
+                    title={`In quarantine ${row.daysInQuarantine} day${row.daysInQuarantine === 1 ? "" : "s"}`}
+                  >
+                    Age {formatAgeBadge(row.daysInQuarantine)}
+                  </Badge>
                 </div>
               </button>
             );
@@ -344,7 +352,7 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
               {selected.cartonCode} · {selected.line.sku}
             </CardTitle>
             <CardDescription className="text-xs">
-              Return to Putaway, send to Pack → Dispatch, stow now, or dispose.
+              Putaway again, send to Pack to ship, stow now, or dispose manually.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -398,8 +406,9 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
                     </SelectContent>
                   </Select>
                   <p className="text-[11px] text-muted-foreground">
-                    After pack, Dispatch creates the client <strong>Shipped</strong> entry for this
-                    quarantine qty (use a partial qty above if only some units ship).
+                    Moves to the packing area. Complete pack on the Pack page, then Dispatch to
+                    create the client <strong>Shipped</strong> entry (use a partial qty above if
+                    only some units ship).
                   </p>
                 </div>
               ) : (
@@ -461,6 +470,11 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
           </CardContent>
         </Card>
       ) : null}
+        </TabsContent>
+        <TabsContent value="log" className="mt-4">
+          <WarehouseOpsActivityLog warehouse={warehouse} module="quarantine" />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

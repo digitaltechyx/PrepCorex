@@ -32,6 +32,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { WarehouseOpsActivityLog } from "@/components/warehouse-ops/warehouse-ops-activity-log";
 import { CycleCountTaskDetail } from "@/components/warehouse-ops/cycle-count-task-detail";
 import { resolveScan, findBinByPath } from "@/lib/warehouse-putaway";
 import {
@@ -946,9 +947,10 @@ export function WarehouseOpsCycleCount({ warehouse }: Props) {
       <WarehouseOpsHeader title="Cycle count" />
       {phase === "home" ? (
         <Tabs defaultValue="floor" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="floor">Count bins</TabsTrigger>
             <TabsTrigger value="plan">Plan for team</TabsTrigger>
+            <TabsTrigger value="log">Log</TabsTrigger>
           </TabsList>
           <TabsContent value="floor" className="mt-4 space-y-4">
             {mainContent}
@@ -1148,6 +1150,9 @@ export function WarehouseOpsCycleCount({ warehouse }: Props) {
                 </Button>
               </CardContent>
             </Card>
+          </TabsContent>
+          <TabsContent value="log" className="mt-4">
+            <WarehouseOpsActivityLog warehouse={warehouse} module="cycle_count" />
           </TabsContent>
         </Tabs>
       ) : (

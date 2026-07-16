@@ -469,7 +469,7 @@ export async function applyPutawayAssignments(
     appliedAreas.push(...areaResult.applied);
   }
 
-  // Damaged lines enter the 10-day quarantine hold clock on first putaway.
+  // Damaged lines get a quarantineAt stamp on first putaway (age tracking only).
   const quarantineStamp = new Date();
   nextLines = nextLines.map((l) => {
     if (l.condition !== "damaged") return l;

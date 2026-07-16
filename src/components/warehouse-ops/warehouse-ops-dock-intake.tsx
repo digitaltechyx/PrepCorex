@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,7 +18,6 @@ import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button"
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import {
   scanDockIntake,
-  type ReturnRequestRow,
 } from "@/lib/warehouse-returns";
 import { resolveInboundTrackings } from "@/lib/inbound-tracking";
 import type { InboundRequestRow } from "@/lib/warehouse-inbound-requests";
@@ -28,7 +26,7 @@ import {
   rejectInboundRequestAtDock,
 } from "@/lib/warehouse-inbound-receive";
 import type { UserProfile, WarehouseDoc } from "@/types";
-import { Check, Loader2, Package, RotateCcw, ScanLine, Search, Truck, X } from "lucide-react";
+import { Check, Loader2, Package, ScanLine, Search, Truck, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 function inboundKey(row: InboundRequestRow): string {
@@ -75,7 +73,6 @@ type Props = {
   clients: UserProfile[];
   clientsLoading?: boolean;
   onInbound: (rows: InboundRequestRow[], tracking: string) => void;
-  onReturn: (row: ReturnRequestRow, tracking: string) => void;
   onWalkIn: (tracking: string) => void;
 };
 
@@ -84,13 +81,12 @@ export function WarehouseOpsDockIntake({
   clients,
   clientsLoading = false,
   onInbound,
-  onReturn,
   onWalkIn,
 }: Props) {
   const { toast } = useToast();
   const { user } = useAuth();
   const operatorId = user?.uid ?? "";
-  const { inboundDockQueue, returnDockQueue, liveLoading } = useWarehouseOpsLive();
+  const { inboundDockQueue, liveLoading } = useWarehouseOpsLive();
   const [tracking, setTracking] = useState("");
   const [scanning, setScanning] = useState(false);
   const [managingKey, setManagingKey] = useState<string | null>(null);
@@ -99,7 +95,6 @@ export function WarehouseOpsDockIntake({
   const [lastScan, setLastScan] = useState<{
     tracking: string;
     inbound: InboundRequestRow[];
-    returns: ReturnRequestRow[];
   } | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -107,10 +102,6 @@ export function WarehouseOpsDockIntake({
 
   // Show full dock queue (pending + approved awaiting receive). Do not drop pending with 0 remaining.
   const inboundOpen = inboundDockQueue;
-  const returnOpen = useMemo(
-    () => returnDockQueue.filter((r) => r.remainingQty > 0),
-    [returnDockQueue]
-  );
   const listsLoading = clientsLoading || liveLoading;
 
   const pendingCount = useMemo(
@@ -138,7 +129,6 @@ export function WarehouseOpsDockIntake({
   }, [inboundOpen, listFilter, requestStatusTab]);
 
   const scanInbound = lastScan?.inbound ?? [];
-  const scanReturns = lastScan?.returns ?? [];
 
   const rowByKey = useMemo(() => {
     const map = new Map<string, InboundRequestRow>();
@@ -259,12 +249,12 @@ export function WarehouseOpsDockIntake({
     setScanning(true);
     try {
       const result = await scanDockIntake({ warehouse, clients, trackingRaw: v });
-      setLastScan(result);
+      setLastScan({ tracking: result.tracking, inbound: result.inbound });
       setSelectedKeys(new Set(result.inbound.map(inboundKey)));
-      if (result.inbound.length === 0 && result.returns.length === 0) {
+      if (result.inbound.length === 0) {
         toast({
           title: "No match",
-          description: "Not on inbound or return tracking — search by client name below, or walk-in.",
+          description: "Not on inbound tracking — search by client name below, or walk-in.",
         });
         searchRef.current?.focus();
       } else if (result.inbound.length > 1) {
@@ -424,34 +414,7 @@ export function WarehouseOpsDockIntake({
             </Card>
           ) : null}
 
-          {scanReturns.length > 0 ? (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <RotateCcw className="h-4 w-4 text-orange-600" />
-                  Return (RMA) match
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {scanReturns.map((row) => (
-                  <Button
-                    key={`${row.clientUserId}-${row.id}`}
-                    variant="outline"
-                    className="w-full h-auto py-3 flex flex-col items-start border-orange-200"
-                    onClick={() => onReturn(row, lastScan.tracking)}
-                  >
-                    <span className="font-medium">{row.clientDisplayName}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {row.productLabel}
-                      {row.skuLabel ? ` · ${row.skuLabel}` : ""} · {row.remainingQty} remaining
-                    </span>
-                  </Button>
-                ))}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          {scanInbound.length === 0 && scanReturns.length === 0 ? (
+          {scanInbound.length === 0 ? (
             <Card>
               <CardContent className="py-4 space-y-3">
                 <p className="text-sm text-muted-foreground">
@@ -594,46 +557,6 @@ export function WarehouseOpsDockIntake({
                   onApprove={() => void handleApproveRow(row)}
                   onReject={() => void handleRejectRow(row)}
                 />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <RotateCcw className="h-4 w-4" />
-              Open returns
-            </CardTitle>
-            <Button variant="link" size="sm" className="h-auto p-0 text-xs" asChild>
-              <Link href="/warehouse-ops/returns">Manage all returns</Link>
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {listsLoading ? (
-            <p className="text-xs text-muted-foreground flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Loading…
-            </p>
-          ) : returnOpen.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No open return requests.</p>
-          ) : (
-            <div className="max-h-48 overflow-y-auto space-y-2">
-              {returnOpen.slice(0, 20).map((row) => (
-                <button
-                  key={`${row.clientUserId}-${row.id}`}
-                  type="button"
-                  className="w-full text-left rounded-md border border-orange-100 px-3 py-2 text-sm hover:bg-orange-50/50"
-                  onClick={() => onReturn(row, "")}
-                >
-                  <div className="font-medium">{row.clientDisplayName}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {row.productLabel} · {row.remainingQty} left
-                  </div>
-                </button>
               ))}
             </div>
           )}

@@ -78,6 +78,7 @@ import {
 } from "@/components/warehouse-ops/quick-scan-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WarehouseOpsReceiveCorrection } from "@/components/warehouse-ops/warehouse-ops-receive-correction";
+import { WarehouseOpsReceiveLog } from "@/components/warehouse-ops/warehouse-ops-receive-log";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -95,7 +96,6 @@ import type { UserProfile } from "@/types";
 import { generateCrossdockReceiveLot } from "@/lib/warehouse-crossdock";
 import { CrossdockClientCombobox } from "@/components/warehouse-ops/crossdock-client-combobox";
 import { WarehouseOpsDockIntake } from "@/components/warehouse-ops/warehouse-ops-dock-intake";
-import { WarehouseOpsReturnReceive } from "@/components/warehouse-ops/warehouse-ops-return-receive";
 import {
   inboundRequestPrefill,
   recordInboundReceiveBatch,
@@ -112,7 +112,6 @@ import {
   inboundRequestOptionValue,
   parseInboundRequestOptionValue,
 } from "@/components/warehouse-ops/inbound-request-line-picker";
-import type { ReturnRequestRow } from "@/lib/warehouse-returns";
 import {
   batchHasPutaway,
   batchPutawayComplete,
@@ -129,7 +128,6 @@ type ReceiveType = "carton" | "pallet" | "loose" | "container";
 type ReceiveModule = "crossdock" | "loose";
 type ReceivePhase =
   | "dock-intake"
-  | "return-receive"
   | "hub"
   | "pick-package"
   | "pick-container-contents"
@@ -277,7 +275,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
     includeUnapproved: true,
   });
 
-  const [tab, setTab] = useState<"receive" | "correct">("receive");
+  const [tab, setTab] = useState<"receive" | "correct" | "log">("receive");
   const [phase, setPhase] = useState<ReceivePhase>("dock-intake");
   const [module, setModule] = useState<ReceiveModule | null>(null);
   const [type, setType] = useState<ReceiveType | null>(null);
@@ -285,7 +283,6 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   const [fromContainer, setFromContainer] = useState(false);
   const [formRestore, setFormRestore] = useState<StoredReceiveFormSnapshot | null>(null);
   const [restoreKey, setRestoreKey] = useState(0);
-  const [selectedReturn, setSelectedReturn] = useState<ReturnRequestRow | null>(null);
   const [selectedInbounds, setSelectedInbounds] = useState<InboundRequestRow[]>([]);
   const [dockTracking, setDockTracking] = useState("");
 
@@ -329,25 +326,16 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   function handleDockInbound(rows: InboundRequestRow[], tracking: string) {
     setSelectedInbounds(rows);
     setDockTracking(tracking);
-    setSelectedReturn(null);
     setPhase("hub");
-  }
-
-  function handleDockReturn(row: ReturnRequestRow, tracking: string) {
-    setSelectedReturn(row);
-    setDockTracking(tracking);
-    setPhase("return-receive");
   }
 
   function handleDockWalkIn(tracking: string) {
     setDockTracking(tracking);
-    setSelectedReturn(null);
     setSelectedInbounds([]);
     setPhase("hub");
   }
 
   function backToDockIntake() {
-    setSelectedReturn(null);
     setSelectedInbounds([]);
     setPhase("dock-intake");
   }
@@ -371,10 +359,14 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   return (
     <div className="max-w-3xl space-y-6">
       <WarehouseOpsHeader title="Receiving" />
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "receive" | "correct")}>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as "receive" | "correct" | "log")}
+      >
         <TabsList>
           <TabsTrigger value="receive">Receive</TabsTrigger>
           <TabsTrigger value="correct">Correct receive</TabsTrigger>
+          <TabsTrigger value="log">Log</TabsTrigger>
         </TabsList>
         <TabsContent value="receive" className="mt-4 space-y-4">
           {phase === "dock-intake" ? (
@@ -383,16 +375,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
               clients={clients}
               clientsLoading={clientsLoading}
               onInbound={handleDockInbound}
-              onReturn={handleDockReturn}
               onWalkIn={handleDockWalkIn}
-            />
-          ) : phase === "return-receive" && selectedReturn ? (
-            <WarehouseOpsReturnReceive
-              warehouse={warehouse}
-              returnRow={selectedReturn}
-              tracking={dockTracking}
-              onBack={backToDockIntake}
-              onDone={backToDockIntake}
             />
           ) : phase === "hub" ? (
             <>
@@ -678,6 +661,9 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
         </TabsContent>
         <TabsContent value="correct" className="mt-4">
           <WarehouseOpsReceiveCorrection warehouse={warehouse} />
+        </TabsContent>
+        <TabsContent value="log" className="mt-4">
+          <WarehouseOpsReceiveLog warehouse={warehouse} />
         </TabsContent>
       </Tabs>
     </div>

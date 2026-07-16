@@ -306,7 +306,7 @@ export async function createWalkInReturnWithUser(input: {
   return { returnId: ref.id };
 }
 
-/** Closed unit, no client uid — shows in Allocate. Marker in notes for return walk-in. */
+/** Closed unit, no client uid — return walk-in (not inbound). Link client later, then open at putaway. */
 export async function receiveReturnWalkInUnknownUser(input: {
   warehouseId: string;
   /** Label / shipper name (same role as inbound closed “client name”). */
@@ -346,6 +346,7 @@ export async function receiveReturnWalkInUnknownUser(input: {
       status: "receiving",
       receiveMode: "crossdock",
       isClosedCrossdock: true,
+      isReturnReceive: true,
       clientId: null,
       receivedForClient: name,
       receiveLot,
@@ -366,14 +367,15 @@ export async function receiveReturnWalkInUnknownUser(input: {
   });
   line.quantity = qty;
   line.productTitle = title;
-  line.stagingArea = staging;
+  // Dock stage on carton root only — line staging would block putaway.
+  line.stagingArea = null;
 
   const cartonId = await createWarehouseCarton({
     warehouseId: input.warehouseId,
     sku: CROSSDOCK_CLOSED_SKU,
     quantity: qty,
     productTitle: title,
-    status: "stowed",
+    status: "received",
     clientId: null,
     receivedForClient: name,
     palletId,
@@ -382,6 +384,7 @@ export async function receiveReturnWalkInUnknownUser(input: {
     isPackage: unitType === "package",
     receiveMode: "crossdock",
     isClosedCrossdock: true,
+    isReturnReceive: true,
     notes: noteParts.join(" "),
     photoUrls: input.photoUrls,
     receivedBy: input.receivedBy ?? null,
@@ -404,6 +407,7 @@ export async function receiveReturnWalkInUnknownUser(input: {
     receiveLot,
     displayName: name,
     unitType,
+    isReturnReceive: true,
     operatorId: input.operatorId ?? null,
     at: serverTimestamp(),
   });
@@ -412,13 +416,25 @@ export async function receiveReturnWalkInUnknownUser(input: {
 }
 
 export function isReturnWalkInCarton(carton: WarehouseCartonDoc): boolean {
+  if (carton.isReturnReceive === true) return true;
+  if (carton.productReturnId?.trim()) return true;
   const notes = String(carton.notes ?? "");
   if (notes.includes(RETURN_WALK_IN_MARKER)) return true;
+  const title = String(carton.productTitle ?? "");
+  if (/^Closed return\b/i.test(title)) return true;
   return false;
 }
 
+export function isReturnWalkInPallet(pallet: {
+  isReturnReceive?: boolean;
+  notes?: string | null;
+}): boolean {
+  if (pallet.isReturnReceive === true) return true;
+  return String(pallet.notes ?? "").includes(RETURN_WALK_IN_MARKER);
+}
+
 /**
- * After Allocate finds the client: create RMA + link carton + move to quarantine for return QC.
+ * After Allocate / Link finds the client: create RMA + link carton for return putaway.
  */
 export async function startReturnFromAllocatedWalkIn(input: {
   warehouseId: string;
@@ -456,7 +472,6 @@ export async function startReturnFromAllocatedWalkIn(input: {
     operatorId: input.operatorId,
   });
 
-  // Link + quarantine for Return QC; bump received qty to match carton
   const returnRef = doc(db, `users/${input.clientUserId}/productReturns`, returnId);
   const now = Timestamp.now();
   await updateDoc(returnRef, {
@@ -473,11 +488,39 @@ export async function startReturnFromAllocatedWalkIn(input: {
     ],
   });
 
+  const nextLines = (carton.lines ?? []).map((l) => ({
+    ...l,
+    clientId: input.clientUserId,
+    productReturnId: returnId,
+    allocationStatus: "allocated" as const,
+    stagingArea: l.stagingArea === "RETURNS-STAGE" || l.stagingArea === "RCV-STAGE" ? null : l.stagingArea,
+  }));
+
   const batch = writeBatch(db);
   batch.update(cartonRef, {
     clientId: input.clientUserId,
     productReturnId: returnId,
+    isReturnReceive: true,
     status: "received",
+    ...(nextLines.length > 0
+      ? {
+          lines: nextLines.map((l) => ({
+            lineId: l.lineId,
+            sku: l.sku,
+            productTitle: l.productTitle ?? null,
+            quantity: l.quantity,
+            lot: l.lot ?? null,
+            expiry: l.expiry ?? null,
+            condition: l.condition,
+            binId: l.binId ?? null,
+            stagingArea: l.stagingArea ?? null,
+            allocationStatus: l.allocationStatus ?? "allocated",
+            clientId: l.clientId ?? null,
+            inventoryRequestId: l.inventoryRequestId ?? null,
+            productReturnId: l.productReturnId ?? null,
+          })),
+        }
+      : {}),
     updatedAt: serverTimestamp(),
   });
   batch.set(doc(collection(db, "warehouses", input.warehouseId, "movementEvents")), {
@@ -486,6 +529,7 @@ export async function startReturnFromAllocatedWalkIn(input: {
     cartonCode: carton.cartonCode,
     productReturnId: returnId,
     clientUserId: input.clientUserId,
+    isReturnReceive: true,
     operatorId: input.operatorId,
     at: serverTimestamp(),
   });

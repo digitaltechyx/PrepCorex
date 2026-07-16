@@ -170,7 +170,7 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       title: "Quarantine",
       href: "/warehouse-ops/quarantine",
       feature: "ops_putaway",
-      description: "Damaged hold — release to storage or auto-dispose after 10 days",
+      description: "Damaged hold — putaway, send to pack to ship, or dispose manually",
     },
     {
       title: "Cycle count",

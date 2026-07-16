@@ -151,9 +151,9 @@ export interface WarehouseCartonLine {
   inventoryRequestId?: string | null;
   /** Linked client product return (RMA) when received as a return. */
   productReturnId?: string | null;
-  /** When this damaged line entered quarantine (putaway). Auto-dispose after 10 days. */
+  /** When this damaged line entered quarantine (putaway). */
   quarantineAt?: { seconds: number; nanoseconds: number } | Date | string | null;
-  /** Set when quarantine stock was disposed (manual or auto after 10 days). */
+  /** Set when quarantine stock was disposed (manual). */
   quarantineDisposedAt?: { seconds: number; nanoseconds: number } | Date | string | null;
   /** Set when operator released quarantine stock back to good storage. */
   quarantineReleasedAt?: { seconds: number; nanoseconds: number } | Date | string | null;
@@ -214,6 +214,11 @@ export interface WarehouseCartonDoc {
   receiveMode?: WarehouseReceiveMode | null;
   /** True when received closed — no SKU manifest until putaway opens it. */
   isClosedCrossdock?: boolean;
+  /**
+   * True when this unit entered via Returns (walk-in / RMA), not inbound receive.
+   * Closed return units reuse the closed-shell open-at-putaway UX but credit as returns.
+   */
+  isReturnReceive?: boolean;
   /** Chosen at putaway (forward / stage closed / open into bins). */
   putawayDisposition?: WarehousePutawayDisposition | null;
   /** Direct dispatch queue after forward putaway or hold linked to client outbound. */
@@ -276,6 +281,8 @@ export interface WarehousePalletDoc {
   crossdockLinkedShipmentRequestId?: string | null;
   /** Cross-dock pallet received closed — contents unknown until putaway. */
   isClosedCrossdock?: boolean;
+  /** True when received via Returns (not inbound). */
+  isReturnReceive?: boolean;
   /** Client when known at receive (optional). */
   clientId?: string | null;
   /** Display name when client typed manually (no system user). */

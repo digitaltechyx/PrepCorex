@@ -1,6 +1,7 @@
 "use client";
 
 import type { Dispatch, ReactNode, SetStateAction } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,6 +39,7 @@ import {
   CheckCircle2,
   Inbox,
   Loader2,
+  MapPin,
   Package,
   PackageOpen,
   PackagePlus,
@@ -52,7 +54,19 @@ import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button"
 
 export type FloorFlow = "queue" | "walk-in" | "receive" | "link";
 export type WalkPhase = "pick-mode" | "pick-unit" | "form";
-export type RecvPhase = "pick-unit" | "form";
+export type RecvPhase = "pick-unit" | "form" | "done";
+
+export type RecvLastResult = {
+  cartonId: string;
+  cartonCode: string;
+  receiveLot: string;
+  palletId: string | null;
+  palletCode: string | null;
+  quantity: number;
+  condition: "good" | "damaged";
+  unitType: ReturnReceiveUnitType;
+  remainingOnReturn: number;
+};
 
 function TypePickerCard({
   color,
@@ -174,6 +188,9 @@ export type ReturnsFloorFlowsProps = {
   recvPhotoFiles: File[];
   recvPhotoPreviews: string[];
   onRecvPhotosChange: (files: File[]) => void;
+  recvLastResult: RecvLastResult | null;
+  onReceiveMore: () => void;
+  putawayHref: string;
   unallocatedReturnCartons: WarehouseCartonDoc[];
   filteredLinkUnits: WarehouseCartonDoc[];
   selectedLinkUnit: WarehouseCartonDoc | null;
@@ -604,7 +621,64 @@ function ReceiveFlow({
         </Card>
       ) : null}
 
-      {props.recvPhase === "pick-unit" ? (
+      {props.recvPhase === "done" && props.recvLastResult ? (
+        <Card className="border-emerald-200/80 bg-emerald-50/30 shadow-none">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              Received — same as inbound
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Partial qty is putaway-ready now. Remaining stays on this RMA for later receive.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border bg-background px-3 py-2.5 text-sm space-y-1">
+              <p className="font-mono font-semibold">
+                {props.recvLastResult.palletCode || props.recvLastResult.cartonCode}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {props.recvLastResult.quantity} units · lot {props.recvLastResult.receiveLot}
+                {props.recvLastResult.condition === "damaged" ? " · quarantine" : " · good"}
+              </p>
+              {props.recvLastResult.remainingOnReturn > 0 ? (
+                <p className="text-xs text-amber-800">
+                  {props.recvLastResult.remainingOnReturn} still expected on this return — receive
+                  more anytime.
+                </p>
+              ) : (
+                <p className="text-xs text-emerald-800">Requested qty fully received on this RMA.</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              {props.recvLastResult.condition === "good" ? (
+                <Button asChild className="sm:flex-1">
+                  <Link href={props.putawayHref}>
+                    <MapPin className="h-4 w-4 mr-1.5" />
+                    Go to Putaway
+                  </Link>
+                </Button>
+              ) : (
+                <Button asChild className="sm:flex-1" variant="secondary">
+                  <Link href="/warehouse-ops/quarantine">Open Quarantine</Link>
+                </Button>
+              )}
+              {props.recvLastResult.remainingOnReturn > 0 ? (
+                <Button variant="outline" className="sm:flex-1" onClick={props.onReceiveMore}>
+                  Receive more of this return
+                </Button>
+              ) : null}
+              <Button variant="ghost" onClick={onBack}>
+                Back to queue
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Scan the printed CTN/PLT on Putaway, then the bin — you do not need to finish the
+              full RMA qty first.
+            </p>
+          </CardContent>
+        </Card>
+      ) : props.recvPhase === "pick-unit" ? (
         <>
           <p className="text-sm text-muted-foreground">Choose unit type — same as inbound receive.</p>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -659,7 +733,7 @@ function ReceiveFlow({
                   Receive as {props.recvUnitType}
                 </CardTitle>
                 <CardDescription className="text-xs mt-1">
-                  Lot + optional expiry · good stock → putaway · damaged → quarantine
+                  Hybrid: receive any qty now → putaway immediately · leave rest on RMA
                 </CardDescription>
               </div>
               <Button variant="ghost" size="sm" onClick={() => props.setRecvPhase("pick-unit")}>
@@ -682,6 +756,9 @@ function ReceiveFlow({
                   value={props.recvQty}
                   onChange={(e) => props.setRecvQty(e.target.value)}
                 />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Partial OK — putaway this parcel now; receive the rest later.
+                </p>
               </div>
             </div>
             <div>

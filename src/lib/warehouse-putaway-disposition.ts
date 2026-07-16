@@ -168,8 +168,16 @@ export async function openCrossdockCartonForStorage(input: {
     input.clientDisplayName?.trim() ||
     input.carton.receivedForClient?.trim() ||
     null;
-  const asOpenReceive = Boolean(input.convertToOpenReceive && ownerId);
-  const stagingArea = input.carton.stagingArea?.trim() || null;
+  const isReturnReceive =
+    input.carton.isReturnReceive === true ||
+    Boolean(input.carton.productReturnId?.trim()) ||
+    String(input.carton.notes ?? "").includes("[RETURN_WALK_IN]");
+  const productReturnId =
+    input.carton.productReturnId?.trim() || null;
+  // Returns must never convert into inbound open-receive inventory sync.
+  const asOpenReceive = Boolean(
+    input.convertToOpenReceive && ownerId && !isReturnReceive
+  );
 
   const lines: WarehouseCartonLine[] = valid.map((l, i) => {
     const lot = resolveReceiveLot({ sku: l.sku, expiry: l.expiry, lot: l.lot });
@@ -182,12 +190,14 @@ export async function openCrossdockCartonForStorage(input: {
       expiry: l.expiry,
       condition: (l.damaged ? "damaged" : "good") as "good" | "damaged",
       binId: null,
-      stagingArea,
+      // Dock stage stays on carton; line staging only after real area putaway.
+      stagingArea: null,
       allocationStatus: (ownerId ? "allocated" : "unallocated") as
         | "allocated"
         | "unallocated",
       clientId: ownerId,
       inventoryRequestId: input.carton.inventoryRequestId ?? null,
+      productReturnId,
       ...(l.damaged ? { quarantineAt: new Date() } : {}),
     };
   });
@@ -216,6 +226,7 @@ export async function openCrossdockCartonForStorage(input: {
       allocationStatus: l.allocationStatus ?? "unallocated",
       clientId: l.clientId ?? null,
       inventoryRequestId: l.inventoryRequestId ?? null,
+      productReturnId: l.productReturnId ?? null,
       ...(l.condition === "damaged" && l.quarantineAt
         ? { quarantineAt: l.quarantineAt }
         : {}),
@@ -227,6 +238,7 @@ export async function openCrossdockCartonForStorage(input: {
     quantity: totalQty,
     isMixed,
     isClosedCrossdock: false,
+    isReturnReceive: isReturnReceive || undefined,
     putawayDisposition: "open_for_storage",
     ...(ownerId
       ? {
@@ -235,12 +247,18 @@ export async function openCrossdockCartonForStorage(input: {
         }
       : {}),
     ...(asOpenReceive ? { receiveMode: "unpackaged" as const } : {}),
+    // Keep return closed-shell as return after open — unpackaged only for inventory path when NOT a return.
+    ...(isReturnReceive ? { receiveMode: "unpackaged" as const } : {}),
     updatedAt: serverTimestamp(),
   });
 
   const eventsRef = collection(db, WAREHOUSES, input.warehouseId, "movementEvents");
   batch.set(doc(eventsRef), {
-    type: asOpenReceive ? "allocate_open_receive" : "putaway",
+    type: isReturnReceive
+      ? "return_open_for_putaway"
+      : asOpenReceive
+        ? "allocate_open_receive"
+        : "putaway",
     cartonId: input.cartonId,
     cartonCode: input.carton.cartonCode,
     lineId: null,
@@ -251,9 +269,13 @@ export async function openCrossdockCartonForStorage(input: {
     toBinPath: null,
     putawayDisposition: "open_for_storage",
     clientId: ownerId,
-    note: asOpenReceive
-      ? `Allocate open receive — ${lines.length} SKU line(s) → client`
-      : `Opened for storage — ${lines.length} SKU line(s)`,
+    productReturnId,
+    isReturnReceive: isReturnReceive || null,
+    note: isReturnReceive
+      ? `Return opened for putaway — ${lines.length} SKU line(s)`
+      : asOpenReceive
+        ? `Allocate open receive — ${lines.length} SKU line(s) → client`
+        : `Opened for storage — ${lines.length} SKU line(s)`,
     operatorId: input.operatorId ?? null,
     at: serverTimestamp(),
   });

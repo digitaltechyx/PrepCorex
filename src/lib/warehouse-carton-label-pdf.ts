@@ -76,6 +76,11 @@ function drawCartonLabel(
   const isMixed = !!carton.isMixed || (carton.lines && carton.lines.length > 1) || false;
   const isLoose = !!carton.isLoose;
   const isClosed = isCrossdockClosedCarton(carton);
+  const isReturnReceive =
+    carton.isReturnReceive === true ||
+    Boolean(carton.productReturnId?.trim()) ||
+    String(carton.notes ?? "").includes("[RETURN_WALK_IN]") ||
+    /^Closed return\b/i.test(String(carton.productTitle ?? ""));
   const { damagedQty, showSplit } = manifestConditionQtys(carton);
   const hasDamaged = damagedQty > 0;
 
@@ -107,10 +112,14 @@ function drawCartonLabel(
     ? isMixed
       ? "OPEN RECEIVING · MIXED"
       : "OPEN RECEIVING"
+    : isClosed && isReturnReceive
+    ? "RETURN · CLOSED"
     : isClosed
     ? "CROSS-DOCK · CLOSED"
     : isMixed
     ? "MIXED CARTON"
+    : isReturnReceive
+    ? "RETURN CARTON"
     : "CARTON";
   page.drawText(pdfText(headerLabel), {
     x: innerX + 6,

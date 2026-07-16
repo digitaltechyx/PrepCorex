@@ -203,7 +203,7 @@ export function buildCrossdockDispatchQueue(input: {
   return units.sort((a, b) => {
     const ta = a.readyAt?.getTime() ?? 0;
     const tb = b.readyAt?.getTime() ?? 0;
-    if (ta !== tb) return ta - tb;
+    if (ta !== tb) return tb - ta;
     return a.code.localeCompare(b.code);
   });
 }

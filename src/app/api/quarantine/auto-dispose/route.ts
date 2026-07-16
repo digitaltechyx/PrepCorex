@@ -1,19 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase-admin";
-import {
-  QUARANTINE_HOLD_DAYS,
-  autoDisposeExpiredQuarantine,
-} from "@/lib/warehouse-quarantine";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
 export const runtime = "nodejs";
 
 /**
- * Daily quarantine auto-dispose: damaged receive stock past 10 days
- * is disposed and written to the client's recycledInventory with remarks.
+ * Quarantine auto-dispose by age is disabled.
+ * Operators dispose manually from Warehouse Ops → Quarantine
+ * (or putaway / send to pack for shipping).
  *
- * Secured with CRON_SECRET / QUARANTINE_CRON_SECRET.
+ * Endpoint kept so existing cron schedules do not 404.
  */
 export async function POST(request: NextRequest) {
   const secret =
@@ -30,36 +25,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  try {
-    // Client SDK helpers still need Admin listing of warehouses for the job scope,
-    // then autoDisposeExpiredQuarantine uses the client Firebase app (same Firestore).
-    const snap = await adminDb().collection("warehouses").get();
-    const warehouseIds = snap.docs
-      .filter((d: { data: () => Record<string, unknown>; id: string }) => d.data()?.active !== false)
-      .map((d: { id: string }) => d.id);
-
-    let disposed = 0;
-    const errors: string[] = [];
-    for (const warehouseId of warehouseIds) {
-      const result = await autoDisposeExpiredQuarantine(warehouseId);
-      disposed += result.disposed;
-      errors.push(...result.errors);
-    }
-
-    return NextResponse.json({
-      success: true,
-      holdDays: QUARANTINE_HOLD_DAYS,
-      warehouses: warehouseIds.length,
-      disposed,
-      errors,
-    });
-  } catch (e) {
-    console.error("[quarantine/auto-dispose]", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Auto-dispose failed" },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({
+    success: true,
+    disabled: true,
+    message:
+      "Quarantine auto-dispose is disabled. Operators dispose manually from Warehouse Ops.",
+    disposed: 0,
+  });
 }
 
 export async function GET(request: NextRequest) {

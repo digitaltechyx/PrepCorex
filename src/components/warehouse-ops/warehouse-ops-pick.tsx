@@ -30,6 +30,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { WarehouseOpsActivityLog } from "@/components/warehouse-ops/warehouse-ops-activity-log";
 import { findBinByPath, resolveScan } from "@/lib/warehouse-putaway";
 import {
   applyPickStep,
@@ -64,7 +65,7 @@ type Props = {
   warehouse: WarehouseDoc;
 };
 
-type QueueTab = "pending" | "ready";
+type QueueTab = "pending" | "ready" | "log";
 type PendingFilter = "all" | "approvable";
 type ReadyFilter = "all" | "ready" | "picking";
 
@@ -492,6 +493,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
           <TabsList>
             <TabsTrigger value="pending">Pending ({pendingCount})</TabsTrigger>
             <TabsTrigger value="ready">Ready to pick ({readyCount})</TabsTrigger>
+            <TabsTrigger value="log">Log</TabsTrigger>
           </TabsList>
 
           <TabsContent value="pending" className="mt-3">
@@ -789,6 +791,10 @@ export function WarehouseOpsPick({ warehouse }: Props) {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
+
+          <TabsContent value="log" className="mt-3">
+            <WarehouseOpsActivityLog warehouse={warehouse} module="pick" />
           </TabsContent>
         </Tabs>
 

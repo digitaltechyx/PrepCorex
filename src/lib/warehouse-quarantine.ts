@@ -35,10 +35,6 @@ import type {
   WarehouseDoc,
 } from "@/types";
 
-export const QUARANTINE_HOLD_DAYS = 10;
-
-const WAREHOUSES = "warehouses";
-
 export type QuarantineHoldRow = {
   warehouseId: string;
   cartonId: string;
@@ -49,10 +45,14 @@ export type QuarantineHoldRow = {
   binId: string | null;
   stagingArea: string | null;
   quarantineAt: Date;
+  /** Calendar days since the line entered quarantine (informational only). */
   daysInQuarantine: number;
-  daysRemaining: number;
-  isExpired: boolean;
 };
+
+/** @deprecated Hold window removed — operators dispose manually. Kept for API compat. */
+export const QUARANTINE_HOLD_DAYS = 0;
+
+const WAREHOUSES = "warehouses";
 
 function toDate(value: unknown, fallback?: Date | null): Date | null {
   if (!value) return fallback ?? null;
@@ -105,7 +105,6 @@ export async function listQuarantineHolds(warehouseId: string): Promise<Quaranti
       const start = resolveQuarantineStart(line, carton);
       if (!start) continue;
       const daysIn = Math.max(0, daysBetween(start, now));
-      const daysRemaining = Math.max(0, QUARANTINE_HOLD_DAYS - daysIn);
       rows.push({
         warehouseId,
         cartonId: carton.id,
@@ -117,13 +116,15 @@ export async function listQuarantineHolds(warehouseId: string): Promise<Quaranti
         stagingArea: line.stagingArea ?? null,
         quarantineAt: start,
         daysInQuarantine: daysIn,
-        daysRemaining,
-        isExpired: daysIn >= QUARANTINE_HOLD_DAYS,
       });
     }
   }
 
-  rows.sort((a, b) => a.daysRemaining - b.daysRemaining || a.cartonCode.localeCompare(b.cartonCode));
+  rows.sort(
+    (a, b) =>
+      (b.quarantineAt?.getTime() ?? 0) - (a.quarantineAt?.getTime() ?? 0) ||
+      a.cartonCode.localeCompare(b.cartonCode)
+  );
   return rows;
 }
 
@@ -164,7 +165,7 @@ function buildDisposeRemarks(input: {
 }): string {
   const when = input.quarantineAt.toISOString().slice(0, 10);
   const mode = input.auto
-    ? `Automatic dispose after ${QUARANTINE_HOLD_DAYS}-day quarantine hold (no operator release).`
+    ? "Automatic dispose from quarantine (legacy cron)."
     : `Manual dispose from quarantine by warehouse operator${
         input.operatorName ? ` (${input.operatorName})` : ""
       }.`;
@@ -681,45 +682,19 @@ export async function disposeQuarantineLine(input: {
   return { disposedQty: qty, recycledId };
 }
 
-/** Cron helper: dispose every quarantine line past the hold window in one warehouse. */
-export async function autoDisposeExpiredQuarantine(warehouseId: string): Promise<{
+/**
+ * Legacy cron helper — auto-dispose by age is disabled.
+ * Operators dispose manually from the Quarantine page.
+ */
+export async function autoDisposeExpiredQuarantine(_warehouseId: string): Promise<{
   disposed: number;
   errors: string[];
 }> {
-  const holds = await listQuarantineHolds(warehouseId);
-  const expired = holds.filter((h) => h.isExpired);
-  let disposed = 0;
-  const errors: string[] = [];
-  for (const row of expired) {
-    try {
-      await disposeQuarantineLine({
-        warehouseId,
-        cartonId: row.cartonId,
-        lineId: row.line.lineId,
-        quantity: row.line.quantity,
-        auto: true,
-        operatorName: "System",
-      });
-      disposed += 1;
-    } catch (e) {
-      errors.push(
-        `${row.cartonCode}/${row.line.sku}: ${e instanceof Error ? e.message : "failed"}`
-      );
-    }
-  }
-  return { disposed, errors };
+  return { disposed: 0, errors: [] };
 }
 
 export async function autoDisposeExpiredQuarantineAllWarehouses(
   warehouses: WarehouseDoc[]
 ): Promise<{ warehouses: number; disposed: number; errors: string[] }> {
-  let disposed = 0;
-  const errors: string[] = [];
-  for (const wh of warehouses) {
-    if (wh.active === false) continue;
-    const result = await autoDisposeExpiredQuarantine(wh.id);
-    disposed += result.disposed;
-    errors.push(...result.errors.map((e) => `${wh.code}: ${e}`));
-  }
-  return { warehouses: warehouses.length, disposed, errors };
+  return { warehouses: warehouses.length, disposed: 0, errors: [] };
 }

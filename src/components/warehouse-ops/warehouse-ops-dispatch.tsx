@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,8 +24,11 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
+import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { WarehouseOpsDispatchLog } from "@/components/warehouse-ops/warehouse-ops-dispatch-log";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   completeDispatchHandoff,
   returnToPackFromDispatchQc,
@@ -39,9 +42,23 @@ import {
   linkCrossdockHoldToShipment,
   type CrossdockDispatchUnit,
 } from "@/lib/warehouse-crossdock-dispatch";
+import {
+  countDispatchedToday,
+  loadDispatchLog,
+} from "@/lib/warehouse-dispatch-log";
 import { courierScansMatch } from "@/lib/warehouse-courier-label";
 import type { WarehouseDoc } from "@/types";
-import { CheckCircle2, Loader2, Package, ScanLine, Truck, XCircle, ArrowRightLeft } from "lucide-react";
+import {
+  CheckCircle2,
+  ClipboardList,
+  Loader2,
+  Package,
+  ScanLine,
+  Truck,
+  XCircle,
+  ArrowRightLeft,
+  Boxes,
+} from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -56,10 +73,50 @@ function formatWhen(date: Date | null): string {
 
 type DispatchMode = "outbound" | "crossdock";
 
+function StatCard({
+  label,
+  value,
+  hint,
+  icon,
+  accent,
+  loading,
+}: {
+  label: string;
+  value: number | string;
+  hint?: string;
+  icon: ReactNode;
+  accent?: string;
+  loading?: boolean;
+}) {
+  return (
+    <Card className="border-border/60 shadow-sm">
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <span className="text-muted-foreground/70">{icon}</span>
+        </div>
+        <p
+          className={cn(
+            "mt-1 text-2xl sm:text-3xl font-bold tabular-nums",
+            accent,
+            loading && "animate-pulse text-muted-foreground/60"
+          )}
+        >
+          {value}
+        </p>
+        {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function WarehouseOpsDispatch({ warehouse }: Props) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? userProfile?.name ?? userProfile?.email ?? null;
+  const { clients } = useWarehouseOpsClients({ includeUnapproved: true });
 
   const {
     dispatchQueue: orders,
@@ -69,7 +126,10 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
     liveLoading: crossdockLoading,
   } = useWarehouseOpsLive();
 
+  const [tab, setTab] = useState<"dispatch" | "log">("dispatch");
   const [mode, setMode] = useState<DispatchMode>("outbound");
+  const [dispatchedToday, setDispatchedToday] = useState(0);
+  const [todayLoading, setTodayLoading] = useState(true);
 
   const [scanValue, setScanValue] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -93,6 +153,26 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const crossdockUnitScanRef = useRef<HTMLInputElement | null>(null);
   const crossdockCourierScanRef = useRef<HTMLInputElement | null>(null);
+
+  const refreshTodayCount = useCallback(async () => {
+    setTodayLoading(true);
+    try {
+      const rows = await loadDispatchLog({
+        warehouse,
+        clients,
+        max: 100,
+      });
+      setDispatchedToday(countDispatchedToday(rows));
+    } catch {
+      // Stats are best-effort.
+    } finally {
+      setTodayLoading(false);
+    }
+  }, [warehouse, clients]);
+
+  useEffect(() => {
+    void refreshTodayCount();
+  }, [refreshTodayCount]);
 
   useEffect(() => {
     if (mode === "outbound") scanInputRef.current?.focus();
@@ -152,6 +232,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
         description: `${matchedCrossdockUnit.code} — entry added to client shipped table.`,
       });
       clearCrossdockMatch();
+      void refreshTodayCount();
     } catch (e) {
       toast({
         title: "Could not dispatch cross-dock",
@@ -318,6 +399,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
       setScanError(null);
       setQcCondition(null);
       setQcRemarks("");
+      void refreshTodayCount();
     } catch (e) {
       toast({
         title: "Could not confirm dispatch",
@@ -376,28 +458,74 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto max-w-6xl space-y-6">
       <WarehouseOpsHeader title="Dispatch" />
 
-      <div className="grid grid-cols-2 gap-2">
-        <Button
-          type="button"
-          variant={mode === "outbound" ? "default" : "outline"}
-          onClick={() => setMode("outbound")}
-        >
-          Outbound orders ({orders.length})
-        </Button>
-        <Button
-          type="button"
-          variant={mode === "crossdock" ? "default" : "outline"}
-          onClick={() => setMode("crossdock")}
-        >
-          Cross-dock ({crossdockDispatchQueue.length})
-        </Button>
-      </div>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as "dispatch" | "log")}
+      >
+        <TabsList>
+          <TabsTrigger value="dispatch">Dispatch</TabsTrigger>
+          <TabsTrigger value="log">Log</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="dispatch" className="mt-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard
+              label="Ready outbound"
+              value={orders.length}
+              hint="Awaiting carrier handoff"
+              icon={<Truck className="h-4 w-4" />}
+              accent="text-emerald-700 dark:text-emerald-400"
+              loading={queueLoading}
+            />
+            <StatCard
+              label="Ready cross-dock"
+              value={crossdockDispatchQueue.length}
+              hint="Forward / return units"
+              icon={<Package className="h-4 w-4" />}
+              accent="text-sky-700 dark:text-sky-400"
+              loading={crossdockLoading}
+            />
+            <StatCard
+              label="Held units"
+              value={crossdockHoldQueue.length}
+              hint="Awaiting outbound link"
+              icon={<Boxes className="h-4 w-4" />}
+              accent="text-amber-700 dark:text-amber-400"
+              loading={crossdockLoading}
+            />
+            <StatCard
+              label="Dispatched today"
+              value={dispatchedToday}
+              hint="Outbound + cross-dock"
+              icon={<ClipboardList className="h-4 w-4" />}
+              accent="text-violet-700 dark:text-violet-400"
+              loading={todayLoading}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={mode === "outbound" ? "default" : "outline"}
+              onClick={() => setMode("outbound")}
+            >
+              Outbound orders ({orders.length})
+            </Button>
+            <Button
+              type="button"
+              variant={mode === "crossdock" ? "default" : "outline"}
+              onClick={() => setMode("crossdock")}
+            >
+              Cross-dock ({crossdockDispatchQueue.length})
+            </Button>
+          </div>
 
       {mode === "outbound" ? (
-        <>
+        <div className="grid gap-4 lg:grid-cols-5">
+          <div className="space-y-4 lg:col-span-3">
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
@@ -606,7 +734,9 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
           ) : null}
         </CardContent>
       </Card>
+          </div>
 
+      <div className="space-y-4 lg:col-span-2">
       <Card>
         <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2">
           <CardTitle className="text-sm">Awaiting handoff ({orders.length})</CardTitle>
@@ -622,7 +752,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
               No orders ready to dispatch.
             </p>
           ) : (
-            <div className="space-y-2">
+            <div className="max-h-[28rem] space-y-2 overflow-y-auto">
               {orders.map((order) => {
                 const isMatched =
                   matchedOrder?.id === order.id &&
@@ -663,15 +793,17 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
         </CardContent>
       </Card>
 
-      <Button variant="outline" asChild>
+      <Button variant="outline" asChild className="w-full">
         <Link href="/warehouse-ops/pack">
           <Package className="h-4 w-4 mr-2" />
           Back to pack
         </Link>
       </Button>
-        </>
+      </div>
+        </div>
       ) : (
-        <>
+        <div className="grid gap-4 lg:grid-cols-5">
+          <div className="space-y-4 lg:col-span-3">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
@@ -866,7 +998,9 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
               </Button>
             </CardContent>
           </Card>
+          </div>
 
+          <div className="space-y-4 lg:col-span-2">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">
@@ -884,7 +1018,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                   No cross-dock units ready. Forward at putaway or link a held unit to outbound.
                 </p>
               ) : (
-                <div className="space-y-2">
+                <div className="max-h-[28rem] space-y-2 overflow-y-auto">
                   {crossdockDispatchQueue.map((unit) => (
                     <button
                       key={`${unit.kind}:${unit.id}`}
@@ -920,8 +1054,15 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
               )}
             </CardContent>
           </Card>
-        </>
+          </div>
+        </div>
       )}
+        </TabsContent>
+
+        <TabsContent value="log" className="mt-4">
+          <WarehouseOpsDispatchLog warehouse={warehouse} clients={clients} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

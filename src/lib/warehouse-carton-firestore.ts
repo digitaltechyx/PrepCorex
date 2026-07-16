@@ -215,6 +215,7 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
         ? data.putawayDisposition
         : null,
     isClosedCrossdock: data.isClosedCrossdock === true,
+    isReturnReceive: data.isReturnReceive === true,
     crossdockDispatchStatus:
       data.crossdockDispatchStatus === "awaiting_pack" ||
       data.crossdockDispatchStatus === "ready" ||
@@ -278,6 +279,7 @@ function docToPallet(id: string, data: Record<string, unknown>): WarehousePallet
         ? data.putawayDisposition
         : null,
     isClosedCrossdock: data.isClosedCrossdock === true,
+    isReturnReceive: data.isReturnReceive === true,
     crossdockDispatchStatus:
       data.crossdockDispatchStatus === "awaiting_pack" ||
       data.crossdockDispatchStatus === "ready" ||
@@ -399,6 +401,7 @@ export async function createWarehouseCarton(input: {
   isPackage?: boolean;
   receiveMode?: WarehouseReceiveMode | null;
   isClosedCrossdock?: boolean;
+  isReturnReceive?: boolean;
   putawayDisposition?: WarehousePutawayDisposition | null;
   trackingNumber?: string | null;
   carrier?: string | null;
@@ -460,6 +463,7 @@ export async function createWarehouseCarton(input: {
     ...(input.isPackage != null ? { isPackage: !!input.isPackage } : {}),
     ...(input.receiveMode ? { receiveMode: input.receiveMode } : {}),
     ...(input.isClosedCrossdock != null ? { isClosedCrossdock: !!input.isClosedCrossdock } : {}),
+    ...(input.isReturnReceive != null ? { isReturnReceive: !!input.isReturnReceive } : {}),
     ...(input.putawayDisposition ? { putawayDisposition: input.putawayDisposition } : {}),
     ...(input.trackingNumber !== undefined ? { trackingNumber: input.trackingNumber?.trim() || null } : {}),
     ...(input.carrier !== undefined ? { carrier: input.carrier?.trim() || null } : {}),
@@ -490,6 +494,7 @@ export async function createWarehousePallet(input: {
   receiveMode?: WarehouseReceiveMode | null;
   putawayDisposition?: WarehousePutawayDisposition | null;
   isClosedCrossdock?: boolean;
+  isReturnReceive?: boolean;
   clientId?: string | null;
   receivedForClient?: string | null;
   receiveLot?: string | null;
@@ -511,6 +516,7 @@ export async function createWarehousePallet(input: {
     ...(input.receiveMode ? { receiveMode: input.receiveMode } : {}),
     ...(input.putawayDisposition ? { putawayDisposition: input.putawayDisposition } : {}),
     ...(input.isClosedCrossdock != null ? { isClosedCrossdock: !!input.isClosedCrossdock } : {}),
+    ...(input.isReturnReceive != null ? { isReturnReceive: !!input.isReturnReceive } : {}),
     ...(input.clientId !== undefined ? { clientId: input.clientId?.trim() || null } : {}),
     ...(input.receivedForClient !== undefined
       ? { receivedForClient: input.receivedForClient?.trim() || null }

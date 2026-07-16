@@ -96,17 +96,18 @@ type Props = {
   warehouse: WarehouseDoc;
 };
 
-const BUCKET_LABEL: Record<AgingBucket, string> = {
-  fresh: "0–7 d",
-  aging: "8–30 d",
-  stale: "30+ d",
-};
-
 const BUCKET_CLASS: Record<AgingBucket, string> = {
   fresh: "bg-green-100 border-green-300 text-green-800",
   aging: "bg-yellow-100 border-yellow-300 text-yellow-800",
   stale: "bg-red-100 border-red-300 text-red-800",
 };
+
+/** Exact age label like inventory search / locate (`7d`). */
+function formatAgeDaysLabel(days: number | null): string {
+  if (days == null) return "—";
+  if (days <= 0) return "0d";
+  return `${days}d`;
+}
 
 export function WarehouseAllocate({ warehouse }: Props) {
   const { toast } = useToast();
@@ -650,12 +651,19 @@ export function WarehouseAllocate({ warehouse }: Props) {
               filteredUnallocated.map((u) => {
                 const key = u.cartonId + ":" + u.line.lineId;
                 const closedCrossdock = isCrossdockClosedSku(u.line.sku);
+                const closedReturn =
+                  closedCrossdock &&
+                  (/^Closed return\b/i.test(String(u.line.productTitle ?? "")) ||
+                    Boolean(u.line.productReturnId?.trim()));
                 const closedClient = closedCrossdock && u.line.clientId
                   ? clientById.get(u.line.clientId)
                   : null;
                 const closedClientLabel =
                   closedCrossdock && !closedClient && u.line.productTitle
-                    ? u.line.productTitle.replace(/^Closed cross-dock — /i, "").trim()
+                    ? u.line.productTitle
+                        .replace(/^Closed return — /i, "")
+                        .replace(/^Closed cross-dock — /i, "")
+                        .trim()
                     : null;
                 const receiveClient = !closedCrossdock && u.cartonClientId
                   ? clientById.get(u.cartonClientId)
@@ -675,7 +683,9 @@ export function WarehouseAllocate({ warehouse }: Props) {
                     className={cn(
                       "rounded-md border px-3 py-2 space-y-2",
                       closedCrossdock
-                        ? "border-indigo-200 bg-indigo-50/40 dark:bg-indigo-950/20"
+                        ? closedReturn
+                          ? "border-orange-200 bg-orange-50/40 dark:bg-orange-950/20"
+                          : "border-indigo-200 bg-indigo-50/40 dark:bg-indigo-950/20"
                         : isMatch
                         ? "border-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/30"
                         : u.line.condition === "damaged"
@@ -687,8 +697,15 @@ export function WarehouseAllocate({ warehouse }: Props) {
                       <div className="flex items-center gap-2 flex-wrap">
                         {closedCrossdock ? (
                           <>
-                            <Badge variant="outline" className="bg-indigo-100 border-indigo-300 text-indigo-900">
-                              Closed carton
+                            <Badge
+                              variant="outline"
+                              className={
+                                closedReturn
+                                  ? "bg-orange-100 border-orange-300 text-orange-900"
+                                  : "bg-indigo-100 border-indigo-300 text-indigo-900"
+                              }
+                            >
+                              {closedReturn ? "Closed return" : "Closed carton"}
                             </Badge>
                             <span className="font-mono text-sm font-semibold">{u.cartonCode}</span>
                           </>
@@ -703,8 +720,18 @@ export function WarehouseAllocate({ warehouse }: Props) {
                             DMG
                           </Badge>
                         ) : null}
-                        <Badge variant="outline" className={cn(BUCKET_CLASS[bucket])}>
-                          {BUCKET_LABEL[bucket]}
+                        <Badge
+                          variant="outline"
+                          className={cn("tabular-nums", BUCKET_CLASS[bucket])}
+                          title={
+                            u.ageDays != null
+                              ? u.ageDays === 1
+                                ? "1 day in warehouse"
+                                : `${u.ageDays} days in warehouse`
+                              : undefined
+                          }
+                        >
+                          {formatAgeDaysLabel(u.ageDays)}
                         </Badge>
                         {u.binPath ? (
                           <Badge variant="outline" className="font-mono text-[10px]">

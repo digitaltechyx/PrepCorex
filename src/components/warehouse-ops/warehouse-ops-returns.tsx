@@ -27,11 +27,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { WarehouseOpsActivityLog } from "@/components/warehouse-ops/warehouse-ops-activity-log";
 import {
   ReturnsFloorFlows,
   type FloorFlow,
   type WalkPhase,
   type RecvPhase,
+  type RecvLastResult,
 } from "@/components/warehouse-ops/warehouse-ops-returns-floor-flows";
 
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
@@ -60,6 +62,7 @@ import {
   type ReturnReceiveUnitType,
 } from "@/lib/warehouse-returns";
 import { generateCrossdockReceiveLot } from "@/lib/warehouse-crossdock";
+import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
 import { buildWarehousePalletLabelsPdf } from "@/lib/warehouse-pallet-label-pdf";
 import { getWarehousePallet } from "@/lib/warehouse-receive-corrections";
 import { allocateLine } from "@/lib/warehouse-allocate";
@@ -265,8 +268,10 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const { data: allReturns, loading: returnsLoading } = useAllProductReturns();
 
   const [tab, setTab] = useState<StatusTab>("pending");
+  const [pageTab, setPageTab] = useState<"work" | "log">("work");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<AdminProductReturn | null>(null);
+  const [logEntry, setLogEntry] = useState<AdminProductReturn | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -290,6 +295,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const [recvTracking, setRecvTracking] = useState("");
   const [recvPhotoFiles, setRecvPhotoFiles] = useState<File[]>([]);
   const [recvPhotoPreviews, setRecvPhotoPreviews] = useState<string[]>([]);
+  const [recvLastResult, setRecvLastResult] = useState<RecvLastResult | null>(null);
   const [walkProductId, setWalkProductId] = useState("");
   const [walkExpiry, setWalkExpiry] = useState("");
   const [walkInventory, setWalkInventory] = useState<InventoryItem[]>([]);
@@ -395,10 +401,9 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
         return hay.includes(q);
       })
       .sort((a, b) => {
-        const order = { pending: 0, approved: 1, in_progress: 2, closed: 3, cancelled: 4 };
-        const ao = order[a.status as keyof typeof order] ?? 9;
-        const bo = order[b.status as keyof typeof order] ?? 9;
-        if (ao !== bo) return ao - bo;
+        const at = dateFromFirestore(a.createdAt)?.getTime() ?? 0;
+        const bt = dateFromFirestore(b.createdAt)?.getTime() ?? 0;
+        if (at !== bt) return bt - at;
         return resolveReturnProductName(a).localeCompare(resolveReturnProductName(b));
       });
   }, [warehouseReturns, tab, query, clientById]);
@@ -542,6 +547,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
       prev.forEach((u) => URL.revokeObjectURL(u));
       return [];
     });
+    setRecvLastResult(null);
     setRecvPhase(prior.length > 0 ? "form" : "pick-unit");
     if (prior.length > 0) setRecvUnitType("carton");
     setFloorFlow("receive");
@@ -624,6 +630,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     setFloorFlow("queue");
     setWalkPhase("pick-mode");
     setRecvPhase("pick-unit");
+    setRecvLastResult(null);
     setLinkUnitQuery("");
   }
 
@@ -742,9 +749,17 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
         recvUnitType === "pallet"
           ? result.palletCode || "PLT"
           : result.cartonCode;
+      const prevReceived = Math.max(0, Math.floor(selected.receivedQuantity || 0));
+      const remainingOnReturn = Math.max(
+        0,
+        Math.floor(selected.requestedQuantity || 0) - (prevReceived + qty)
+      );
       toast({
         title: "Return received",
-        description: `${unitLabel} · lot ${result.receiveLot} → Putaway`,
+        description:
+          remainingOnReturn > 0
+            ? `${unitLabel} · lot ${result.receiveLot} ready for putaway · ${remainingOnReturn} still on RMA`
+            : `${unitLabel} · lot ${result.receiveLot} → Putaway`,
       });
       try {
         const carton = await getWarehouseCarton(warehouse.id, result.cartonId);
@@ -771,14 +786,19 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
       } catch {
         /* label optional */
       }
-      setFloorFlow("queue");
-      setRecvPhase("pick-unit");
+      setRecvLastResult({
+        ...result,
+        quantity: qty,
+        condition: recvCondition,
+        unitType: recvUnitType,
+        remainingOnReturn,
+      });
       setRecvPhotoFiles([]);
       setRecvPhotoPreviews((prev) => {
         prev.forEach((u) => URL.revokeObjectURL(u));
         return [];
       });
-      setSelected(null);
+      setRecvPhase("done");
     } catch (e) {
       toast({
         title: "Receive failed",
@@ -788,6 +808,31 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleReceiveMore() {
+    if (!selected) return;
+    const remaining = Math.max(
+      1,
+      (selected.requestedQuantity || 0) -
+        (selected.receivedQuantity || 0) -
+        (recvLastResult?.quantity || 0) || 1
+    );
+    // Prefer live remaining from last result when list hasn't refreshed yet.
+    const fromLast = recvLastResult?.remainingOnReturn;
+    setRecvQty(String(fromLast != null && fromLast > 0 ? fromLast : remaining));
+    setRecvNotes("");
+    setRecvCloseReady(false);
+    setRecvTracking("");
+    setRecvPhotoFiles([]);
+    setRecvPhotoPreviews((prev) => {
+      prev.forEach((u) => URL.revokeObjectURL(u));
+      return [];
+    });
+    // Keep lot for same return batch (hybrid / inbound-style continuity).
+    if (recvLastResult?.receiveLot) setRecvLot(recvLastResult.receiveLot);
+    setRecvLastResult(null);
+    setRecvPhase("form");
   }
 
   async function handleShip() {
@@ -1012,7 +1057,15 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
         description="Inbound-style receive · open/partial RMA · ship during receive · invoice on close"
       />
 
-
+      <Tabs
+        value={pageTab}
+        onValueChange={(v) => setPageTab(v as "work" | "log")}
+      >
+        <TabsList>
+          <TabsTrigger value="work">Returns</TabsTrigger>
+          <TabsTrigger value="log">Log</TabsTrigger>
+        </TabsList>
+        <TabsContent value="work" className="mt-4 space-y-5">
       {floorFlow !== "queue" ? (
         <ReturnsFloorFlows
           floorFlow={floorFlow}
@@ -1081,6 +1134,9 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
           recvPhotoFiles={recvPhotoFiles}
           recvPhotoPreviews={recvPhotoPreviews}
           onRecvPhotosChange={onRecvPhotosChange}
+          recvLastResult={recvLastResult}
+          onReceiveMore={handleReceiveMore}
+          putawayHref="/warehouse-ops/putaway"
           unallocatedReturnCartons={unallocatedReturnCartons}
           filteredLinkUnits={filteredLinkUnits}
           selectedLinkUnit={selectedLinkUnit}
@@ -1278,7 +1334,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
             <div>
               <CardTitle className="text-base">Queue</CardTitle>
               <CardDescription className="text-xs">
-                Search and work returns by status — partial receives stay open until complete.
+                Partial receive → putaway that parcel now; remaining qty stays open on the RMA.
               </CardDescription>
             </div>
             <div className="relative w-full sm:max-w-xs">
@@ -1448,6 +1504,14 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
                         </div>
 
                         <div className="flex flex-wrap gap-2 lg:justify-end lg:max-w-[16rem] shrink-0">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setLogEntry(row)}
+                          >
+                            <ClipboardList className="h-3.5 w-3.5 mr-1" />
+                            Log
+                          </Button>
                           {row.status === "pending" && (
                             <>
                               <Button
@@ -1516,6 +1580,51 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
       </Card>
       </>
       )}
+        </TabsContent>
+        <TabsContent value="log" className="mt-4">
+          <WarehouseOpsActivityLog
+            warehouse={warehouse}
+            module="returns"
+            title="All returns log"
+            description="Every return receive and QC action across clients — filter by date, operator, client, action, and condition."
+          />
+        </TabsContent>
+      </Tabs>
+
+      <Dialog
+        open={!!logEntry}
+        onOpenChange={(open) => !open && setLogEntry(null)}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          {logEntry ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4" />
+                  Return log
+                </DialogTitle>
+                <DialogDescription>
+                  {displayName(
+                    clientById.get(getReturnOwnerId(logEntry)),
+                    getReturnOwnerId(logEntry)
+                  )}
+                  {" · "}
+                  {resolveReturnProductName(logEntry)}
+                  {resolveReturnSku(logEntry)
+                    ? ` · ${resolveReturnSku(logEntry)}`
+                    : ""}
+                </DialogDescription>
+              </DialogHeader>
+              <WarehouseOpsActivityLog
+                warehouse={warehouse}
+                module="returns"
+                productReturnId={logEntry.id}
+                embedded
+              />
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
