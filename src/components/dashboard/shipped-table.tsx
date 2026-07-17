@@ -699,7 +699,6 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                     ((item as any).requestStatus === "awaiting_label_upload" ||
                       ((item as any).rawRequest?.fbaMasterCases?.length > 0 &&
                         (item as any).rawRequest?.fbaLabelWorkflow)) && (
-                  {(item as any).isRequest && (item as any).requestStatus === "awaiting_label_upload" && (
                     <Button
                       size="sm"
                       className="mt-2 h-7 text-xs"

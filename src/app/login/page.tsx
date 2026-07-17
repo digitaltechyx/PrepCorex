@@ -108,42 +108,6 @@ function LoginPageContent() {
           return;
         }
         
-        const { beginAuditSession, logUserAuditEvent } = await import("@/lib/user-audit-trail-client");
-        const session = beginAuditSession();
-        await logUserAuditEvent("sign_in", {
-          description: "Successful sign in.",
-          session,
-          metadata: {
-            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
-          },
-        });
-
-        // Import permission helpers
-        const { hasRole, getUserRoles } = await import("@/lib/permissions");
-        
-        // Redirect based on roles and status
-        const userRoles = getUserRoles(userProfile);
-        const hasAdminRole = hasRole(userProfile, 'admin') || hasRole(userProfile, 'sub_admin');
-        const hasUserRole = hasRole(userProfile, 'user');
-        const hasAgentRole = hasRole(userProfile, 'commission_agent');
-        
-        if (userStatus === "pending") {
-          router.push("/pending-approval");
-        } else if (hasAdminRole) {
-          // ALWAYS prioritize admin/sub_admin dashboard if user has that role
-          // Even if they have other roles, admin dashboard should be the default
-          router.push("/admin/dashboard");
-        } else if (hasUserRole) {
-          // If user has "user" role, redirect to client dashboard
-          router.push("/dashboard");
-        } else if (hasAgentRole) {
-          // If only commission_agent, redirect to agent dashboard
-          router.push("/dashboard/agent");
-        } else {
-          // Fallback to client dashboard
-          router.push("/dashboard");
-        }
-        
         const { getPostLoginPath } = await import("@/lib/auth-redirect");
         const { beginAuditSession, logUserAuditEvent } = await import("@/lib/user-audit-trail-client");
         const session = beginAuditSession();

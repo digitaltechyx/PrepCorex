@@ -15,11 +15,6 @@ import type {
   InboundTrackingEntry,
 } from "@/types";
 import { summarizeInboundTrackings, resolveInboundTrackings } from "@/lib/inbound-tracking";
-  ProductReturn,
-  DisposeRequest,
-  InboundTrackingEntry,
-} from "@/types";
-import { summarizeInboundTrackings } from "@/lib/inbound-tracking";
 import { db } from "@/lib/firebase";
 import { collection, collectionGroup, getDocs, query } from "firebase/firestore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -401,9 +396,6 @@ export default function AdminNotificationsPage() {
                 inboundTrackings: resolveInboundTrackings(
                   data as InventoryRequest & { trackingNumber?: string; carrier?: string }
                 ),
-                inboundTrackings: Array.isArray((data as any).inboundTrackings)
-                  ? ((data as any).inboundTrackings as InboundTrackingEntry[])
-                  : undefined,
               };
             })
               .filter((r): r is NotificationRow => r != null);
@@ -465,9 +457,6 @@ export default function AdminNotificationsPage() {
                   inboundTrackings: resolveInboundTrackings(
                     data as InventoryRequest & { trackingNumber?: string; carrier?: string }
                   ),
-                  inboundTrackings: Array.isArray((data as any).inboundTrackings)
-                    ? ((data as any).inboundTrackings as InboundTrackingEntry[])
-                    : undefined,
                 };
                 return row;
               })

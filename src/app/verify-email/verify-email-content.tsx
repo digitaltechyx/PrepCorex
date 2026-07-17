@@ -41,7 +41,6 @@ export default function VerifyEmailPage() {
       return;
     }
     // Deferred users may still open this page later to complete verification.
-    if (user.emailVerified) {
     if (isEmailVerificationSatisfied(userProfile, user)) {
       if (userProfile?.status === "pending") {
         router.replace("/pending-approval");

@@ -1011,7 +1011,6 @@ function DocumentsPageContent() {
                 <PlatformDocumentVersionRow key={doc.slug} doc={doc} />
               ))}
               {completedPagination.items.map((request) => (
-              {completedRequests.map((request) => (
                 <div
                   key={request.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"

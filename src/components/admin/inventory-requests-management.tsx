@@ -331,17 +331,6 @@ export function InventoryRequestsManagement({
     });
     await refreshInboundBatchCounts(userId, batchId, counts);
   };
-  const handleApprove = async (request: InventoryRequest, receivingDate: Date, status: "In Stock" | "Out of Stock", remarks?: string, editedQuantity?: number, editedProductName?: string, editedSku?: string, imageUrls?: string[]) => {
-    if (!selectedUser || !adminProfile) return;
-    if (request.status !== "pending") {
-      toast({
-        variant: "destructive",
-        title: "Request unavailable",
-        description: "This request is no longer pending and cannot be approved.",
-      });
-      return;
-    }
-
   const handleReviewBatchLine = async (request: InventoryRequest) => {
     if (!selectedBatch || !userId) {
       setSelectedRequest(request);
@@ -1164,17 +1153,6 @@ export function InventoryRequestsManagement({
                               </Button>
                             ) : null}
                           </div>
-                          <span className="text-muted-foreground text-sm">
-                            {request.status === "approved"
-                              ? `Approved ${request.approvedAt ? formatDate(request.approvedAt) : ""}`
-                              : request.status === "cancelled"
-                              ? `Cancelled ${(request as any).cancelledAt ? formatDate((request as any).cancelledAt) : ""}${
-                                  (request as any).cancellationReason
-                                    ? ` — ${(request as any).cancellationReason}`
-                                    : ""
-                                }`
-                              : `Rejected ${request.rejectedAt ? formatDate(request.rejectedAt) : ""}`}
-                          </span>
                         )}
                       </TableCell>
                     </TableRow>

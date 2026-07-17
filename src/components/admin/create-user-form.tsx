@@ -150,19 +150,6 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
           setIsLoading(false);
           return;
         }
-      const uniqueCheck = await checkUserFieldsUniqueClient({
-        companyName: values.companyName,
-        ein: values.ein,
-        phone: values.phone,
-      });
-      if (!uniqueCheck.ok) {
-        toast({
-          variant: "destructive",
-          title: "Duplicate information",
-          description: uniquenessConflictMessage(uniqueCheck),
-        });
-        setIsLoading(false);
-        return;
       }
 
       // Create the user account in Firebase Auth
@@ -190,9 +177,6 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
       const uniqueKeys = buildUserUniqueFieldKeys({
         companyName,
         ein: einValue,
-      const uniqueKeys = buildUserUniqueFieldKeys({
-        companyName: values.companyName,
-        ein: values.ein,
         phone: values.phone,
       });
 
@@ -216,19 +200,6 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
         status: values.role === "sub_admin" || isOps ? "approved" : "pending",
         emailVerificationRequired: false,
         pricingProfileId: values.role === "user" ? DEFAULT_PRICING_PROFILE_ID : undefined,
-        companyName: values.companyName,
-        ein: values.ein,
-        ...uniqueKeys,
-        address: values.address,
-        city: values.city,
-        state: values.state,
-        country: values.country,
-        zipCode: values.zipCode,
-        role: values.role,
-        roles: [values.role],
-        features: userFeatures,
-        status: values.role === "sub_admin" ? "approved" : "pending",
-        emailVerificationRequired: false,
         createdAt: new Date(),
         clientId: await generateClientId(),
       };
@@ -256,15 +227,6 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
         } catch {
           // Non-blocking; registry can be reconciled by admin
         }
-      try {
-        const token = await userCredential.user.getIdToken();
-        await claimUserFieldUniquesClient(token, {
-          companyName: values.companyName,
-          ein: values.ein,
-          phone: values.phone,
-        });
-      } catch {
-        // Non-blocking; registry can be reconciled by admin
       }
 
       toast({
