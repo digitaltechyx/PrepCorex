@@ -147,6 +147,40 @@ type LabelCartItem = {
   shipmentId: string | null;
 };
 
+type LabelProvider = "shippo" | "shipbest";
+
+function toPaymentSelectedRate(
+  rate: ShippingRate,
+  shipmentId: string | null
+): LabelPurchaseSelectedRate {
+  return {
+    objectId: rate.object_id,
+    amount: rate.amount,
+    currency: rate.currency,
+    provider: rate.provider,
+    serviceLevel: rate.servicelevel.name,
+    shipmentId: shipmentId || rate.shipment,
+    labelProvider: rate.labelProvider || (rate.object_id.startsWith("shipbest:") ? "shipbest" : "shippo"),
+    logisticsProductId: rate.logisticsProductId,
+    logisticsProductCode: rate.logisticsProductCode || rate.servicelevel.token,
+    originalAmount: rate.originalAmount,
+  };
+}
+
+/** Narrow type for payment payload — mirrors LabelPurchase.selectedRate */
+type LabelPurchaseSelectedRate = {
+  objectId: string;
+  amount: string;
+  currency: string;
+  provider: string;
+  serviceLevel: string;
+  shipmentId?: string;
+  labelProvider?: LabelProvider;
+  logisticsProductId?: number;
+  logisticsProductCode?: string;
+  originalAmount?: string;
+};
+
 type LocationDoc = {
   id: string;
   name?: string;
@@ -201,6 +235,7 @@ export function BuyLabelsForm() {
   const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
   const [selectedFromLocationId, setSelectedFromLocationId] = useState("");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [labelProvider, setLabelProvider] = useState<LabelProvider>("shippo");
   const canImportBuyLabels = canUseCsvImport(userProfile, "buy_labels");
 
   const assignedLocationIds = userProfile?.locations ?? [];
@@ -303,7 +338,10 @@ export function BuyLabelsForm() {
         weightUnit: "lb" as const,
       };
 
-      const response = await fetch("/api/shippo/rates", {
+      const ratesUrl =
+        labelProvider === "shipbest" ? "/api/shipbest/rates" : "/api/shippo/rates";
+
+      const response = await fetch(ratesUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -316,8 +354,9 @@ export function BuyLabelsForm() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to get rates");
+        const error = await response.json().catch(() => ({}));
+        const message = [error.error, error.details].filter(Boolean).join(" — ") || "Failed to get rates";
+        throw new Error(message);
       }
 
       const ratesData = await response.json();
@@ -366,14 +405,10 @@ export function BuyLabelsForm() {
         fromAddress: item.fromAddress,
         toAddress: item.toAddress,
         parcel: item.parcel,
-        selectedRate: {
-          objectId: item.selectedRate.object_id,
-          amount: item.selectedRate.amount,
-          currency: item.selectedRate.currency,
-          provider: item.selectedRate.provider,
-          serviceLevel: item.selectedRate.servicelevel.name,
-          shipmentId: item.shipmentId || (item.selectedRate as any).shipment,
-        },
+        selectedRate: toPaymentSelectedRate(
+          item.selectedRate,
+          item.shipmentId || item.selectedRate.shipment || null
+        ),
       }),
     });
 
@@ -485,14 +520,10 @@ export function BuyLabelsForm() {
             fromAddress: item.fromAddress,
             toAddress: item.toAddress,
             parcel: item.parcel,
-            selectedRate: {
-              objectId: item.selectedRate.object_id,
-              amount: item.selectedRate.amount,
-              currency: item.selectedRate.currency,
-              provider: item.selectedRate.provider,
-              serviceLevel: item.selectedRate.servicelevel.name,
-              shipmentId: item.shipmentId || (item.selectedRate as any).shipment,
-            },
+            selectedRate: toPaymentSelectedRate(
+              item.selectedRate,
+              item.shipmentId || item.selectedRate.shipment || null
+            ),
           })),
         }),
       });
@@ -583,7 +614,7 @@ export function BuyLabelsForm() {
               </CardTitle>
               <CardDescription>
                 Enter shipment details to get shipping rates and purchase a label, or import multiple
-                labels from CSV.
+                labels from CSV. Choose Shippo or ShipBest (GOFO) as the label provider.
               </CardDescription>
             </div>
             {canImportBuyLabels ? (
@@ -597,6 +628,26 @@ export function BuyLabelsForm() {
                 Import
               </Button>
             ) : null}
+          </div>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Label className="text-sm font-medium">Label provider</Label>
+            <Select
+              value={labelProvider}
+              onValueChange={(value: LabelProvider) => {
+                setLabelProvider(value);
+                setRates([]);
+                setSelectedRate(null);
+                setShipmentId(null);
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-[260px]">
+                <SelectValue placeholder="Select provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="shippo">Shippo</SelectItem>
+                <SelectItem value="shipbest">ShipBest (GOFO)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardHeader>
         <CardContent>

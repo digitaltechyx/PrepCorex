@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { applyBuyLabelsMarkup } from '@/lib/buy-labels-markup';
 
 const SHIPPO_API_BASE = 'https://api.goshippo.com';
 
@@ -146,16 +147,15 @@ export async function POST(request: NextRequest) {
     const ratesData = await ratesResponse.json();
     const rates = Array.isArray(ratesData.results) ? ratesData.results : ratesData;
 
-    // Format rates for frontend and add 15 cents admin markup
-    const ADMIN_MARKUP = 0.15; // 15 cents admin profit
+    // Format rates for frontend and add admin markup (same as ShipBest)
     const formattedRates = rates.map((rate: any) => {
       const baseAmount = parseFloat(rate.amount) || 0;
-      const markedUpAmount = (baseAmount + ADMIN_MARKUP).toFixed(2);
+      const markedUpAmount = applyBuyLabelsMarkup(baseAmount);
       
       return {
         object_id: rate.object_id,
-        amount: markedUpAmount, // Amount with 10 cents markup
-        originalAmount: rate.amount, // Store original amount for Shippo purchase
+        amount: markedUpAmount,
+        originalAmount: rate.amount,
         currency: rate.currency,
         provider: rate.provider,
         servicelevel: {
@@ -163,7 +163,8 @@ export async function POST(request: NextRequest) {
           token: rate.servicelevel?.token || rate.servicelevel_token || '',
         },
         estimated_days: rate.estimated_days,
-        shipment: shipment.object_id, // Store shipment ID for label purchase
+        shipment: shipment.object_id,
+        labelProvider: 'shippo' as const,
       };
     });
 

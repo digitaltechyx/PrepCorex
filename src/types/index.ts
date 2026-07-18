@@ -1500,6 +1500,10 @@ export interface ShippingRate {
   };
   estimated_days?: number;
   shipment?: string; // Shipment ID from Shippo
+  originalAmount?: string;
+  labelProvider?: "shippo" | "shipbest";
+  logisticsProductId?: number;
+  logisticsProductCode?: string;
 }
 
 export interface LabelPurchase {
@@ -1516,6 +1520,10 @@ export interface LabelPurchase {
     provider: string;
     serviceLevel: string;
     shipmentId?: string;
+    labelProvider?: "shippo" | "shipbest";
+    logisticsProductId?: number;
+    logisticsProductCode?: string;
+    originalAmount?: string;
   };
   stripePaymentIntentId: string;
   stripeChargeId?: string;
@@ -1523,7 +1531,10 @@ export interface LabelPurchase {
   paymentAmount: number;
   paymentCurrency: string;
   status: 'payment_pending' | 'payment_succeeded' | 'label_purchased' | 'label_failed' | 'completed';
+  labelProvider?: "shippo" | "shipbest";
   shippoTransactionId?: string;
+  shipbestOrderNo?: string;
+  shipbestCustomNo?: string;
   trackingNumber?: string;
   labelUrl?: string;
   errorMessage?: string;

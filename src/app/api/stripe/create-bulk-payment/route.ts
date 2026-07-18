@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
         paymentAmount: Math.round(Number.parseFloat(item.selectedRate.amount) * 100),
         paymentCurrency: firstCurrency,
         status: "payment_pending",
+        labelProvider: item.selectedRate.labelProvider || "shippo",
         bulkBatchId: batchId,
         bulkBatchIndex: index,
       };

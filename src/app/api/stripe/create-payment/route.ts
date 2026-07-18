@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
         paymentAmount: amount,
         paymentCurrency: currency,
         status: 'payment_pending',
+        labelProvider: selectedRate.labelProvider || 'shippo',
         ...(shippedItemId && { shippedItemId }),
       };
 

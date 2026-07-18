@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStripe } from '@/lib/stripe';
 import { adminDb, adminFieldValue } from '@/lib/firebase-admin';
+import {
+  buildShipBestCustomNo,
+  purchaseLabelFromShipBest,
+} from '@/lib/shipbest-purchase';
 import Stripe from 'stripe';
 
 const SHIPPO_API_BASE = 'https://api.goshippo.com';
@@ -201,6 +205,67 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     });
 
     const selectedRate = labelPurchaseData.selectedRate;
+    const labelProvider =
+      selectedRate?.labelProvider ||
+      labelPurchaseData.labelProvider ||
+      (String(selectedRate?.objectId || "").startsWith("shipbest:")
+        ? "shipbest"
+        : "shippo");
+
+    if (labelProvider === "shipbest") {
+      const logisticsProductCode =
+        selectedRate?.logisticsProductCode ||
+        String(selectedRate?.objectId || "").split(":")[2] ||
+        "";
+      const logisticsProductId =
+        selectedRate?.logisticsProductId != null
+          ? Number(selectedRate.logisticsProductId)
+          : Number(String(selectedRate?.objectId || "").split(":")[1]) || undefined;
+
+      if (!logisticsProductCode) {
+        await labelPurchaseRef.update({
+          status: "label_failed",
+          errorMessage: "ShipBest logistics product code not found",
+        });
+        continue;
+      }
+
+      const fromAddress = labelPurchaseData.fromAddress;
+      const toAddress = labelPurchaseData.toAddress;
+      const parcel = labelPurchaseData.parcel;
+      if (!fromAddress || !toAddress || !parcel) {
+        await labelPurchaseRef.update({
+          status: "label_failed",
+          errorMessage: "Shipment address/parcel missing for ShipBest purchase",
+        });
+        continue;
+      }
+
+      try {
+        await purchaseLabelFromShipBest({
+          labelPurchaseId: labelPurchaseDoc.id,
+          userId,
+          customNo: buildShipBestCustomNo(userId, labelPurchaseDoc.id),
+          logisticsProductCode,
+          logisticsProductId,
+          fromAddress,
+          toAddress,
+          parcel: {
+            length: Number(parcel.length),
+            width: Number(parcel.width),
+            height: Number(parcel.height),
+            weight: Number(parcel.weight),
+          },
+        });
+      } catch (error: any) {
+        console.error("Error purchasing ShipBest label:", error);
+        await labelPurchaseRef.update({
+          status: "label_failed",
+          errorMessage: error.message || "Error purchasing ShipBest label",
+        });
+      }
+      continue;
+    }
 
     // Purchase label from Shippo
     if (selectedRate?.objectId) {
