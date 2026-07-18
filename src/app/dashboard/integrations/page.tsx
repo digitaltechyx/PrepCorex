@@ -53,6 +53,16 @@ type EbayConnectionSummary = {
   selectedOfferIds?: string[];
 };
 
+type ShipStationConnectionSummary = {
+  id: string;
+  accountLabel?: string;
+  connectedAt: { seconds: number; nanoseconds: number } | string;
+  lastSyncedAt?: { seconds: number; nanoseconds: number } | string | null;
+  lastSyncOrderCount?: number | null;
+  lastSyncLabeledCount?: number | null;
+  apiKeyHint?: string | null;
+};
+
 type PlatformCategory = "marketplace" | "ecommerce" | "social" | "shipping";
 type PlatformStatus = "live" | "coming_soon";
 type FilterTab = "all" | "connected" | "available" | "soon";
@@ -154,8 +164,8 @@ const PLATFORMS: PlatformDef[] = [
     shortName: "SS",
     category: "shipping",
     categoryLabel: "Shipping",
-    status: "coming_soon",
-    description: "Import orders, print labels, and sync tracking from ShipStation — planned.",
+    status: "live",
+    description: "Connect your ShipStation account to sync orders and purchased shipping labels.",
     accent: "from-indigo-500/85 to-violet-600/85",
     ring: "ring-indigo-500/15",
   },
@@ -183,10 +193,12 @@ const CATEGORY_OPTIONS: { id: "all" | PlatformCategory; label: string }[] = [
 function connectionCountFor(
   platformId: string,
   shopify: ShopifyConnectionSummary[],
-  ebay: EbayConnectionSummary[]
+  ebay: EbayConnectionSummary[],
+  shipstation: ShipStationConnectionSummary[]
 ): number {
   if (platformId === "shopify") return shopify.length;
   if (platformId === "ebay") return ebay.length;
+  if (platformId === "shipstation") return shipstation.length;
   return 0;
 }
 
@@ -195,14 +207,21 @@ export default function IntegrationsPage() {
   const { toast } = useToast();
   const [shopifyConnections, setShopifyConnections] = useState<ShopifyConnectionSummary[]>([]);
   const [ebayConnections, setEbayConnections] = useState<EbayConnectionSummary[]>([]);
+  const [shipstationConnections, setShipstationConnections] = useState<ShipStationConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
-  const [shopInput, setShopInput] = useState("");
+  const [shipInput, setShopInput] = useState("");
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
   const [pendingDisconnect, setPendingDisconnect] = useState<{ id: string; shopName: string } | null>(null);
   const [ebayDisconnectId, setEbayDisconnectId] = useState<string | null>(null);
   const [ebayConnectLoading, setEbayConnectLoading] = useState(false);
+  const [shipstationDialogOpen, setShipstationDialogOpen] = useState(false);
+  const [shipstationApiKey, setShipstationApiKey] = useState("");
+  const [shipstationApiSecret, setShipstationApiSecret] = useState("");
+  const [shipstationLabel, setShipstationLabel] = useState("");
+  const [shipstationConnecting, setShipstationConnecting] = useState(false);
+  const [shipstationDisconnectId, setShipstationDisconnectId] = useState<string | null>(null);
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
   const [categoryFilter, setCategoryFilter] = useState<"all" | PlatformCategory>("all");
   const [search, setSearch] = useState("");
@@ -212,9 +231,10 @@ export default function IntegrationsPage() {
     setLoading(true);
     try {
       const token = await user.getIdToken();
-      const [shopifyRes, ebayRes] = await Promise.all([
+      const [shopifyRes, ebayRes, shipstationRes] = await Promise.all([
         fetch("/api/integrations/shopify-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/ebay-connections", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/integrations/shipstation-connections", { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (shopifyRes.ok) {
         const data = await shopifyRes.json();
@@ -224,9 +244,14 @@ export default function IntegrationsPage() {
         const data = await ebayRes.json();
         setEbayConnections(data.connections ?? []);
       }
+      if (shipstationRes.ok) {
+        const data = await shipstationRes.json();
+        setShipstationConnections(data.connections ?? []);
+      }
     } catch {
       setShopifyConnections([]);
       setEbayConnections([]);
+      setShipstationConnections([]);
     } finally {
       setLoading(false);
     }
@@ -236,21 +261,26 @@ export default function IntegrationsPage() {
     fetchConnections();
   }, [user?.uid]);
 
-  const totalConnections = shopifyConnections.length + ebayConnections.length;
-  const liveConnectedPlatforms = [shopifyConnections.length > 0, ebayConnections.length > 0].filter(Boolean).length;
+  const totalConnections =
+    shopifyConnections.length + ebayConnections.length + shipstationConnections.length;
+  const liveConnectedPlatforms = [
+    shopifyConnections.length > 0,
+    ebayConnections.length > 0,
+    shipstationConnections.length > 0,
+  ].filter(Boolean).length;
 
   const visiblePlatforms = useMemo(() => {
     const q = search.trim().toLowerCase();
     return PLATFORMS.filter((p) => {
-      if (q && !p.name.toLowerCase().includes(q) && !p.categoryLabel.toLowerCase().includes(q)) return false;
       if (categoryFilter !== "all" && p.category !== categoryFilter) return false;
-      const n = connectionCountFor(p.id, shopifyConnections, ebayConnections);
+      if (q && !`${p.name} ${p.description} ${p.categoryLabel}`.toLowerCase().includes(q)) return false;
+      const n = connectionCountFor(p.id, shopifyConnections, ebayConnections, shipstationConnections);
       if (filterTab === "connected") return p.status === "live" && n > 0;
       if (filterTab === "available") return p.status === "live" && n === 0;
       if (filterTab === "soon") return p.status === "coming_soon";
       return true;
     });
-  }, [search, categoryFilter, filterTab, shopifyConnections, ebayConnections]);
+  }, [search, categoryFilter, filterTab, shopifyConnections, ebayConnections, shipstationConnections]);
 
   const handleConnectShopify = () => {
     let shop = shopInput.trim().toLowerCase().replace(/\.myshopify\.com$/i, "");
@@ -363,6 +393,79 @@ export default function IntegrationsPage() {
       });
     } finally {
       setEbayDisconnectId(null);
+    }
+  };
+
+  const handleConnectShipStation = async () => {
+    if (!user) return;
+    if (!shipstationApiKey.trim() || !shipstationApiSecret.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Missing credentials",
+        description: "Enter both API Key and API Secret from ShipStation Settings → API.",
+      });
+      return;
+    }
+    setShipstationConnecting(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch("/api/integrations/shipstation/connect", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          apiKey: shipstationApiKey.trim(),
+          apiSecret: shipstationApiSecret.trim(),
+          accountLabel: shipstationLabel.trim() || "ShipStation",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to connect ShipStation");
+      toast({
+        title: "ShipStation connected",
+        description: `Synced ${data.synced ?? 0} orders (${data.withLabels ?? 0} with purchased labels).`,
+      });
+      setShipstationDialogOpen(false);
+      setShipstationApiKey("");
+      setShipstationApiSecret("");
+      setShipstationLabel("");
+      fetchConnections();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "ShipStation",
+        description: err instanceof Error ? err.message : "Could not connect.",
+      });
+    } finally {
+      setShipstationConnecting(false);
+    }
+  };
+
+  const handleDisconnectShipStation = async (id: string) => {
+    if (!user) return;
+    setShipstationDisconnectId(id);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/integrations/shipstation-connections?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to disconnect");
+      }
+      toast({ title: "Disconnected", description: "ShipStation account removed." });
+      fetchConnections();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err instanceof Error ? err.message : "Could not disconnect.",
+      });
+    } finally {
+      setShipstationDisconnectId(null);
     }
   };
 
@@ -526,7 +629,12 @@ export default function IntegrationsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 lg:gap-6">
           {visiblePlatforms.map((p) => {
-            const count = connectionCountFor(p.id, shopifyConnections, ebayConnections);
+            const count = connectionCountFor(
+              p.id,
+              shopifyConnections,
+              ebayConnections,
+              shipstationConnections
+            );
             const isLive = p.status === "live";
             const isSoon = p.status === "coming_soon";
 
@@ -611,6 +719,16 @@ export default function IntegrationsPage() {
                         )}
                       </Button>
                     )}
+                    {isLive && p.id === "shipstation" && (
+                      <Button
+                        size="sm"
+                        className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
+                        onClick={() => setShipstationDialogOpen(true)}
+                      >
+                        <Plus className="h-4 w-4 sm:mr-1" />
+                        {count > 0 ? "Add account" : "Connect"}
+                      </Button>
+                    )}
                     {isLive && p.id === "shipbest" && (
                       <Button
                         size="sm"
@@ -634,6 +752,60 @@ export default function IntegrationsPage() {
                         We&apos;ll announce when {p.name} is available for your workspace.
                       </p>
                     </div>
+                  )}
+
+                  {p.id === "shipstation" && isLive && (
+                    <>
+                      {shipstationConnections.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          No ShipStation account linked. Use <strong className="text-foreground">Connect</strong> with
+                          your API Key and Secret from ShipStation Settings → API.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {shipstationConnections.map((conn) => (
+                            <div
+                              key={conn.id}
+                              className="flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{conn.accountLabel || "ShipStation"}</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  Since {formatConnectedAt(conn.connectedAt)}
+                                  {conn.apiKeyHint ? ` · Key ${conn.apiKeyHint}` : ""}
+                                  {conn.lastSyncLabeledCount != null
+                                    ? ` · ${conn.lastSyncLabeledCount} labeled`
+                                    : ""}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button variant="outline" size="sm" className="h-8" asChild>
+                                  <Link
+                                    href={`/dashboard/integrations/shipstation/orders?connectionId=${encodeURIComponent(conn.id)}`}
+                                  >
+                                    <Package className="mr-1 h-3.5 w-3.5" />
+                                    Orders
+                                  </Link>
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 text-destructive"
+                                  disabled={shipstationDisconnectId === conn.id}
+                                  onClick={() => void handleDisconnectShipStation(conn.id)}
+                                >
+                                  {shipstationDisconnectId === conn.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {p.id === "shipbest" && isLive && (
@@ -814,6 +986,60 @@ export default function IntegrationsPage() {
               <Button onClick={handleConnectShopify}>
                 <ShoppingBag className="mr-2 h-4 w-4" />
                 Continue to Shopify
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={shipstationDialogOpen} onOpenChange={setShipstationDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Connect ShipStation</DialogTitle>
+            <DialogDescription>
+              Paste your API Key and API Secret from ShipStation → Settings → Account → API Settings. We sync your
+              orders and purchased labels into PrepCorex.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Account label (optional)</Label>
+              <Input
+                placeholder="e.g. Main ShipStation"
+                value={shipstationLabel}
+                onChange={(e) => setShipstationLabel(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>API Key</Label>
+              <Input
+                placeholder="API Key"
+                value={shipstationApiKey}
+                onChange={(e) => setShipstationApiKey(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>API Secret</Label>
+              <Input
+                type="password"
+                placeholder="API Secret"
+                value={shipstationApiSecret}
+                onChange={(e) => setShipstationApiSecret(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShipstationDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void handleConnectShipStation()} disabled={shipstationConnecting}>
+                {shipstationConnecting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 h-4 w-4" />
+                )}
+                Connect & sync
               </Button>
             </div>
           </div>

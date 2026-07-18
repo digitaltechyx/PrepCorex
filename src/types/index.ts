@@ -1254,6 +1254,18 @@ export interface ShopifyConnection {
   selectedVariants?: ShopifySelectedVariant[];
 }
 
+/** Client ShipStation account connected via API Key + Secret. */
+export interface ShipStationConnection {
+  id?: string;
+  accountLabel?: string;
+  apiKey: string;
+  apiSecret: string;
+  connectedAt: { seconds: number; nanoseconds: number } | string;
+  lastSyncedAt?: { seconds: number; nanoseconds: number } | string | null;
+  lastSyncOrderCount?: number | null;
+  lastSyncLabeledCount?: number | null;
+}
+
 export interface DeleteLog {
   id: string;
   productName: string;
