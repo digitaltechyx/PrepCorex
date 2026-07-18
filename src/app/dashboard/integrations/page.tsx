@@ -210,7 +210,7 @@ export default function IntegrationsPage() {
   const [shipstationConnections, setShipstationConnections] = useState<ShipStationConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
-  const [shipInput, setShopInput] = useState("");
+  const [shopInput, setShopInput] = useState("");
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
   const [pendingDisconnect, setPendingDisconnect] = useState<{ id: string; shopName: string } | null>(null);
