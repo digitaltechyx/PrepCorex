@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { removeShipStationWebhooks } from "@/lib/shipstation-webhooks";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,17 @@ export async function DELETE(request: NextRequest) {
     if (!connSnap.exists) {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     }
+
+    const connData = connSnap.data() || {};
+    const apiKey = String(connData.apiKey || "").trim();
+    const apiSecret = String(connData.apiSecret || "").trim();
+    await removeShipStationWebhooks({
+      userId: uid,
+      connectionId: id,
+      creds: apiKey && apiSecret ? { apiKey, apiSecret } : null,
+      webhookToken: connData.webhookToken || null,
+      webhookIds: Array.isArray(connData.webhookIds) ? connData.webhookIds : [],
+    });
 
     const ordersSnap = await adminDb()
       .collection("users")

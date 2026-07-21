@@ -61,8 +61,9 @@ const CLIENT_FEATURES: { value: UserFeature; label: string; description: string 
   { value: "delete_logs", label: "Delete Logs", description: "View deletion history" },
   { value: "disposed_inventory", label: "Disposed Inventory", description: "View disposed items and recycle bin" },
   { value: "client_documents", label: "Documents", description: "Access to document requests" },
-  { value: "integrations", label: "Integrations", description: "Access to Shopify and eBay integrations" },
+  { value: "integrations", label: "Integrations", description: "Access to Shopify, eBay, and ShipStation integrations" },
   { value: "view_shopify_orders", label: "Shopify Orders", description: "View orders synced from connected Shopify stores" },
+  { value: "view_shipstation_orders", label: "ShipStation Orders", description: "View orders and purchased labels from ShipStation" },
   { value: "affiliate_dashboard", label: "Affiliate Dashboard", description: "Access affiliate/commission dashboard" },
 ];
 
@@ -79,6 +80,7 @@ const ADMIN_FEATURES: { value: UserFeature; label: string; description: string }
   { value: "manage_dispose_requests", label: "Dispose Requests", description: "Access to dispose requests" },
   { value: "manage_shopify_orders", label: "Shopify Orders", description: "Access to Shopify orders" },
   { value: "manage_ebay_orders", label: "eBay Orders", description: "Access to eBay orders" },
+  { value: "manage_shipstation_orders", label: "ShipStation Orders", description: "Access to ShipStation orders and labels" },
   { value: "manage_inventory_admin", label: "Inventory Management", description: "Access to admin inventory management" },
   { value: "manage_notifications", label: "Notifications", description: "Access to notifications and pending requests" },
 ];

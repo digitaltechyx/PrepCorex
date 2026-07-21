@@ -36,6 +36,7 @@ export function getDefaultFeaturesForRole(role: UserRole): UserFeature[] {
       "manage_dispose_requests",
       "manage_shopify_orders",
       "manage_ebay_orders",
+      "manage_shipstation_orders",
     ];
   } else if (role === "warehouse_operator") {
     return ["ops_dashboard", "ops_receive", "ops_view_expected_inbound"];

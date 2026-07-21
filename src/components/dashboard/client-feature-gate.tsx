@@ -74,7 +74,9 @@ export function ClientFeatureGate({ children }: { children: React.ReactNode }) {
     isIntegrationsHubPath &&
     userProfile &&
     hasRole(userProfile, "sub_admin") &&
-    (hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders"))
+    (hasFeature(userProfile, "manage_shopify_orders") ||
+      hasFeature(userProfile, "manage_ebay_orders") ||
+      hasFeature(userProfile, "manage_shipstation_orders"))
   ) {
     return <>{children}</>;
   }

@@ -34,6 +34,7 @@ import {
   Tag,
   Plug,
   ShoppingCart,
+  Ship,
   Warehouse,
   Handshake,
   BarChart3,
@@ -238,7 +239,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/integrations",
       icon: Plug,
       color: "text-green-600",
-      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders"] as const satisfies readonly UserFeature[],
+      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders"] as const satisfies readonly UserFeature[],
     },
     {
       title: "Shopify Orders",
@@ -255,6 +256,14 @@ export function AdminSidebar() {
       color: "text-blue-600",
       badge: unfulfilledEbayOrdersCount > 0 ? unfulfilledEbayOrdersCount : null,
       requiredFeature: "manage_ebay_orders" as const,
+    },
+    {
+      title: "ShipStation Orders",
+      url: "/admin/dashboard/shipstation-orders",
+      icon: Ship,
+      color: "text-indigo-600",
+      badge: null,
+      requiredFeature: "manage_shipstation_orders" as const,
     },
   ];
 

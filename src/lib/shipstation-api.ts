@@ -201,3 +201,57 @@ export async function shipstationListShipments(
 
   return shipments;
 }
+
+export type ShipStationWebhookEvent =
+  | "ORDER_NOTIFY"
+  | "ITEM_ORDER_NOTIFY"
+  | "SHIP_NOTIFY"
+  | "ITEM_SHIP_NOTIFY"
+  | "FULFILLMENT_SHIPPED"
+  | "FULFILLMENT_REJECTED";
+
+export type ShipStationWebhookSubscription = {
+  WebHookID?: number;
+  HookType?: string;
+  Url?: string;
+  Name?: string;
+};
+
+/** Subscribe to a ShipStation event webhook. */
+export async function shipstationSubscribeWebhook(
+  creds: ShipStationCredentials,
+  input: {
+    targetUrl: string;
+    event: ShipStationWebhookEvent;
+    friendlyName?: string;
+  }
+): Promise<ShipStationWebhookSubscription> {
+  return shipstationRequest<ShipStationWebhookSubscription>(creds, "/webhooks/subscribe", {
+    method: "POST",
+    body: JSON.stringify({
+      target_url: input.targetUrl,
+      event: input.event,
+      store_id: null,
+      friendly_name: input.friendlyName || `PrepCorex ${input.event}`,
+    }),
+  });
+}
+
+/** List webhook subscriptions for this API key. */
+export async function shipstationListWebhooks(
+  creds: ShipStationCredentials
+): Promise<ShipStationWebhookSubscription[]> {
+  const data = await shipstationRequest<
+    ShipStationWebhookSubscription[] | { webhooks?: ShipStationWebhookSubscription[] }
+  >(creds, "/webhooks");
+  if (Array.isArray(data)) return data;
+  return Array.isArray(data.webhooks) ? data.webhooks : [];
+}
+
+/** Unsubscribe a webhook by id. */
+export async function shipstationUnsubscribeWebhook(
+  creds: ShipStationCredentials,
+  webhookId: number
+): Promise<void> {
+  await shipstationRequest(creds, `/webhooks/${webhookId}`, { method: "DELETE" });
+}

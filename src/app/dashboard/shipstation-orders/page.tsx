@@ -13,8 +13,7 @@ function ShipStationOrdersFallback() {
   );
 }
 
-/** Keep Integrations deep-link working; same UI as /dashboard/shipstation-orders. */
-export default function IntegrationsShipStationOrdersPage() {
+export default function DashboardShipStationOrdersPage() {
   return (
     <Suspense fallback={<ShipStationOrdersFallback />}>
       <ShipStationOrdersPanel

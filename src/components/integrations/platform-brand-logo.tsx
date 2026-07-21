@@ -22,7 +22,6 @@ const MONOGRAM: Record<string, { text: string; className: string }> = {
   walmart: { text: "WM", className: "text-sm tracking-tight text-[#0071CE]" },
   /** ShipStation not in simple-icons; purple aligns with common brand use */
   shipstation: { text: "SS", className: "text-[11px] font-bold tracking-tight text-[#522E92]" },
-  shipbest: { text: "SB", className: "text-[11px] font-bold tracking-tight text-[#E11D48]" },
 };
 
 type PlatformBrandLogoProps = {

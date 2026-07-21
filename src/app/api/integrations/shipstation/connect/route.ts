@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb, adminFieldValue } from "@/lib/firebase-admin";
 import { shipstationValidateCredentials } from "@/lib/shipstation-api";
 import { syncShipStationOrdersForConnection } from "@/lib/shipstation-sync";
+import { ensureShipStationWebhooks } from "@/lib/shipstation-webhooks";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ async function requireUid(request: NextRequest): Promise<string> {
   return decoded.uid;
 }
 
-/** POST: connect ShipStation with API Key + Secret, then sync orders. */
+/** POST: connect ShipStation with API Key + Secret, then sync orders + register webhooks. */
 export async function POST(request: NextRequest) {
   try {
     const uid = await requireUid(request);
@@ -61,10 +62,18 @@ export async function POST(request: NextRequest) {
       connectionId = docRef.id;
     }
 
+    const creds = { apiKey, apiSecret };
     const sync = await syncShipStationOrdersForConnection({
       userId: uid,
       connectionId,
-      creds: { apiKey, apiSecret },
+      creds,
+    });
+
+    const webhooks = await ensureShipStationWebhooks({
+      userId: uid,
+      connectionId,
+      creds,
+      accountLabel,
     });
 
     return NextResponse.json({
@@ -72,6 +81,8 @@ export async function POST(request: NextRequest) {
       connectionId,
       synced: sync.synced,
       withLabels: sync.withLabels,
+      webhooksRegistered: webhooks.ok,
+      webhookSkippedReason: webhooks.skippedReason || null,
     });
   } catch (error: unknown) {
     const status = (error as { status?: number })?.status || 500;

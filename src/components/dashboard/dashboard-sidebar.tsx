@@ -37,6 +37,7 @@ import {
   ArrowLeftRight,
   FolderOpen,
   Plug,
+  Ship,
   ChevronLeft,
   ChevronDown,
   Shield,
@@ -349,6 +350,15 @@ export function DashboardSidebar() {
       requiredFeature: "view_shopify_orders" as const,
     },
     {
+      title: "ShipStation Orders",
+      url: "/dashboard/shipstation-orders",
+      icon: Ship,
+      color: "text-indigo-600",
+      badge: null,
+      requiredRole: "user" as const,
+      requiredFeature: "integrations" as const,
+    },
+    {
       title: "Product Returns",
       url: "/dashboard/product-returns",
       icon: ArrowLeftRight,
@@ -475,7 +485,9 @@ export function DashboardSidebar() {
     hasAdminRole &&
     !hasUserRole &&
     !hasAgentRole &&
-    (hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders")) &&
+    (hasFeature(userProfile, "manage_shopify_orders") ||
+      hasFeature(userProfile, "manage_ebay_orders") ||
+      hasFeature(userProfile, "manage_shipstation_orders")) &&
     onClientIntegrationsSubtree;
 
   const showAffiliateAccess =

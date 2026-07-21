@@ -169,17 +169,6 @@ const PLATFORMS: PlatformDef[] = [
     accent: "from-indigo-500/85 to-violet-600/85",
     ring: "ring-indigo-500/15",
   },
-  {
-    id: "shipbest",
-    name: "ShipBest",
-    shortName: "SB",
-    category: "shipping",
-    categoryLabel: "Shipping",
-    status: "live",
-    description: "GOFO / ShipBest OMS labels in Buy Labels — rates, Stripe checkout, and tracking.",
-    accent: "from-rose-500/85 to-orange-600/85",
-    ring: "ring-rose-500/15",
-  },
 ];
 
 const CATEGORY_OPTIONS: { id: "all" | PlatformCategory; label: string }[] = [
@@ -680,10 +669,6 @@ export default function IntegrationsPage() {
                               <Link2 className="mr-1 h-3 w-3" />
                               Connected · {count}
                             </Badge>
-                          ) : isLive && p.id === "shipbest" ? (
-                            <Badge className="border-0 bg-emerald-600 text-[10px] hover:bg-emerald-600/90">
-                              Buy Labels
-                            </Badge>
                           ) : isLive ? (
                             <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-200 bg-amber-50">
                               Not connected
@@ -729,17 +714,6 @@ export default function IntegrationsPage() {
                         {count > 0 ? "Add account" : "Connect"}
                       </Button>
                     )}
-                    {isLive && p.id === "shipbest" && (
-                      <Button
-                        size="sm"
-                        className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
-                        asChild
-                      >
-                        <Link href="/dashboard/buy-labels">
-                          Buy Labels
-                        </Link>
-                      </Button>
-                    )}
                   </div>
                   <CardDescription className="text-sm leading-relaxed">{p.description}</CardDescription>
                 </CardHeader>
@@ -759,7 +733,8 @@ export default function IntegrationsPage() {
                       {shipstationConnections.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
                           No ShipStation account linked. Use <strong className="text-foreground">Connect</strong> with
-                          your API Key and Secret from ShipStation Settings → API.
+                          your API Key and Secret from ShipStation Settings → Account → API Settings.
+                          After connect, orders and labels sync automatically.
                         </p>
                       ) : (
                         <div className="space-y-2">
@@ -781,7 +756,7 @@ export default function IntegrationsPage() {
                               <div className="flex flex-wrap gap-2">
                                 <Button variant="outline" size="sm" className="h-8" asChild>
                                   <Link
-                                    href={`/dashboard/integrations/shipstation/orders?connectionId=${encodeURIComponent(conn.id)}`}
+                                    href={`/dashboard/shipstation-orders?connectionId=${encodeURIComponent(conn.id)}`}
                                   >
                                     <Package className="mr-1 h-3.5 w-3.5" />
                                     Orders
@@ -806,16 +781,6 @@ export default function IntegrationsPage() {
                         </div>
                       )}
                     </>
-                  )}
-
-                  {p.id === "shipbest" && isLive && (
-                    <div className="rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                      Warehouse ShipBest credentials power rates and labels in{" "}
-                      <Link href="/dashboard/buy-labels" className="font-medium text-foreground underline-offset-2 hover:underline">
-                        Buy Labels
-                      </Link>
-                      . Same Stripe checkout flow as Shippo.
-                    </div>
                   )}
 
                   {p.id === "shopify" && isLive && (

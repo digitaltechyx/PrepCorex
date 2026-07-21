@@ -49,7 +49,9 @@ export default function DashboardLayout({
     const hasUserRole = hasRole(userProfile, "user");
     const hasAgentRole = hasRole(userProfile, "commission_agent");
     const canManageOrderIntegrations =
-      hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders");
+      hasFeature(userProfile, "manage_shopify_orders") ||
+      hasFeature(userProfile, "manage_ebay_orders") ||
+      hasFeature(userProfile, "manage_shipstation_orders");
     if (hasAdminRole && !hasUserRole && !hasAgentRole && canManageOrderIntegrations) {
       router.replace("/admin/dashboard/integrations");
     }
@@ -74,7 +76,9 @@ export default function DashboardLayout({
       const adminCanUseClientIntegrationsHub =
         isOnIntegrations &&
         hasAdminRole &&
-        (hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders"));
+        (hasFeature(userProfile, "manage_shopify_orders") ||
+          hasFeature(userProfile, "manage_ebay_orders") ||
+          hasFeature(userProfile, "manage_shipstation_orders"));
 
       // Check if user is trying to access agent dashboard
       const isOnAgentDashboard = pathname?.startsWith("/dashboard/agent");
@@ -166,7 +170,9 @@ export default function DashboardLayout({
     !!userProfile &&
     isOnIntegrationsRoute &&
     (hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin")) &&
-    (hasFeature(userProfile, "manage_shopify_orders") || hasFeature(userProfile, "manage_ebay_orders"));
+    (hasFeature(userProfile, "manage_shopify_orders") ||
+      hasFeature(userProfile, "manage_ebay_orders") ||
+      hasFeature(userProfile, "manage_shipstation_orders"));
 
   if (
     userProfile &&
