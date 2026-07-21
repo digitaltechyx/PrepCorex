@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   getDocs,
@@ -32,6 +32,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchLinesPath } from "@/lib/inbound-batch";
+import { uploadInventoryProductImage } from "@/lib/inventory-product-images";
 import type { InboundBatch, InboundBatchLine } from "@/types";
 
 const LINES_PER_PAGE = 100;
@@ -83,6 +84,10 @@ export function InboundBatchUserDialog({
     expiryDate: "",
     remarks: "",
   });
+  const [editImageUrls, setEditImageUrls] = useState<string[]>([]);
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
+  const editImageInputRef = useRef<HTMLInputElement>(null);
 
   const linesPath = batch && userId ? inboundBatchLinesPath(userId, batch.id) : "";
   const pendingLines = useMemo(() => lines.filter((line) => line.status === "pending"), [lines]);
@@ -146,6 +151,48 @@ export function InboundBatchUserDialog({
       expiryDate: toDateInputValue(line.expiryDate),
       remarks: line.remarks || "",
     });
+    const urls =
+      Array.isArray(line.imageUrls) && line.imageUrls.length > 0
+        ? line.imageUrls
+        : line.imageUrl
+          ? [line.imageUrl]
+          : [];
+    setEditImageUrls(urls);
+    if (editImagePreview) URL.revokeObjectURL(editImagePreview);
+    setEditImageFile(null);
+    setEditImagePreview(null);
+  };
+
+  const clearEditImageSelection = () => {
+    if (editImagePreview) URL.revokeObjectURL(editImagePreview);
+    setEditImageFile(null);
+    setEditImagePreview(null);
+    if (editImageInputRef.current) editImageInputRef.current.value = "";
+  };
+
+  const handleEditImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({
+        variant: "destructive",
+        title: "Invalid file",
+        description: "Please select an image file.",
+      });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        variant: "destructive",
+        title: "Image too large",
+        description: "Please upload an image smaller than 5 MB.",
+      });
+      return;
+    }
+    if (editImagePreview) URL.revokeObjectURL(editImagePreview);
+    setEditImageFile(file);
+    setEditImagePreview(URL.createObjectURL(file));
   };
 
   const runAction = async (payload: Record<string, unknown>) => {
@@ -165,15 +212,30 @@ export function InboundBatchUserDialog({
   };
 
   const saveEdit = async () => {
-    if (!editingLine) return;
+    if (!editingLine || !userId) return;
     setSaving(true);
     try {
+      let imageUrls = editImageUrls;
+      let clearImage = false;
+      if (editImageFile) {
+        const url = await uploadInventoryProductImage(userId, editImageFile);
+        imageUrls = [url];
+      } else if (editImageUrls.length === 0) {
+        clearImage = true;
+      }
+
       await runAction({
         action: "updateLine",
         lineId: editingLine.id,
-        line: editForm,
+        line: {
+          ...editForm,
+          imageUrls,
+          imageUrl: imageUrls[0] || "",
+          clearImage,
+        },
       });
       toast({ title: "Line updated", description: "Your pending inbound line was updated." });
+      clearEditImageSelection();
       setEditingLine(null);
     } catch (error: any) {
       toast({ variant: "destructive", title: "Could not update line", description: error?.message || "Try again." });
@@ -417,9 +479,60 @@ export function InboundBatchUserDialog({
               <Label>Remarks</Label>
               <Textarea value={editForm.remarks} onChange={(e) => setEditForm((p) => ({ ...p, remarks: e.target.value }))} />
             </div>
+            <div className="space-y-1.5">
+              <Label>Product picture (optional)</Label>
+              <div className="flex items-start gap-3">
+                <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md border bg-muted/20">
+                  {(editImagePreview || editImageUrls[0]) ? (
+                    <img
+                      src={editImagePreview || editImageUrls[0]}
+                      alt="Product preview"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
+                      No image
+                    </div>
+                  )}
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <Input
+                    ref={editImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleEditImageSelect}
+                    disabled={saving}
+                  />
+                  {(editImageFile || editImageUrls.length > 0) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-fit px-2 text-xs"
+                      disabled={saving}
+                      onClick={() => {
+                        clearEditImageSelection();
+                        setEditImageUrls([]);
+                      }}
+                    >
+                      Remove picture
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingLine(null)} disabled={saving}>Cancel</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                clearEditImageSelection();
+                setEditingLine(null);
+              }}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
             <Button onClick={() => void saveEdit()} disabled={saving}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
               Save

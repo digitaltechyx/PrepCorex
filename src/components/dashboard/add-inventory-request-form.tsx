@@ -22,7 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { db, storage } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import { Archive, Boxes, CircleHelp, ImagePlus, Loader2, Package, Plus, Trash2, Truck, Upload } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { InventoryType, UserContainerHandlingPricing } from "@/types";
@@ -31,8 +31,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import type { InventoryItem } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import imageCompression from "browser-image-compression";
+import { uploadInventoryProductImage } from "@/lib/inventory-product-images";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { InboundBulkImportDialog } from "@/components/dashboard/inbound-bulk-import-dialog";
 import { InboundBulkRestockDialog } from "@/components/dashboard/inbound-bulk-restock-dialog";
@@ -484,40 +483,8 @@ export function AddInventoryRequestForm({
   };
 
   const uploadInventoryImageFile = async (ownerUid: string, file: File): Promise<string[]> => {
-    // Storage rules allow images under 1MB on inventory-images/*; compress before upload.
-    let toUpload = file;
-    try {
-      toUpload = await imageCompression(file, {
-        maxSizeMB: 0.9,
-        maxWidthOrHeight: 1920,
-        useWebWorker: true,
-        fileType: file.type.startsWith("image/") ? file.type : "image/jpeg",
-      });
-    } catch {
-      toUpload = file;
-    }
-    if (toUpload.size >= 1024 * 1024) {
-      throw new Error(
-        "This photo is too large. Please choose a smaller image (under 1 MB) and try again."
-      );
-    }
-    const cleanName = (toUpload.name || file.name || "product.jpg").replace(/\s+/g, "_");
-    const path = `inventory-images/${ownerUid}/${Date.now()}_${Math.random().toString(36).slice(2, 9)}_${cleanName}`;
-    const storageRef = ref(storage, path);
-    try {
-      await uploadBytes(storageRef, toUpload, {
-        contentType: toUpload.type || file.type || "image/jpeg",
-      });
-    } catch (err: unknown) {
-      const raw = err instanceof Error ? err.message : String(err || "");
-      if (/storage\/unauthorized|permission/i.test(raw)) {
-        throw new Error(
-          "Could not upload this photo. Please use a smaller image (under 1 MB) and try again."
-        );
-      }
-      throw new Error("Could not upload the product photo. Please try another image.");
-    }
-    const downloadUrl = await getDownloadURL(storageRef);
+    // Same compressor as edit/update picture flows (maxSizeMB 0.9, under Storage 1MB rule).
+    const downloadUrl = await uploadInventoryProductImage(ownerUid, file);
     return [downloadUrl];
   };
 

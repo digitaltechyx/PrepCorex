@@ -111,7 +111,44 @@ export async function POST(request: NextRequest) {
     const expiryDate = parseDateValue(payload.expiryDate);
     if (expiryDate !== undefined) update.expiryDate = expiryDate ?? FieldValue.delete();
 
+    const imageUrls = Array.isArray(payload.imageUrls)
+      ? payload.imageUrls.map((u: unknown) => String(u || "").trim()).filter(Boolean)
+      : typeof payload.imageUrl === "string" && payload.imageUrl.trim()
+        ? [payload.imageUrl.trim()]
+        : null;
+    if (imageUrls) {
+      update.imageUrls = imageUrls;
+      update.imageUrl = imageUrls[0] ?? FieldValue.delete();
+    } else if (payload.clearImage === true) {
+      update.imageUrls = [];
+      update.imageUrl = FieldValue.delete();
+    }
+
     await lineRef.update(update);
+
+    // Keep mirrored inventory request in sync when present
+    const inventoryRequestId = String(lineSnap.data()?.inventoryRequestId || "").trim();
+    if (inventoryRequestId) {
+      const requestUpdate: Record<string, unknown> = {
+        productName,
+        quantity,
+        requestedQuantity: quantity,
+        sku: cleanString(payload.sku) ?? FieldValue.delete(),
+        retailIdentifier: cleanString(payload.retailIdentifier) ?? FieldValue.delete(),
+        remarks: cleanString(payload.remarks) ?? FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (expiryDate !== undefined) requestUpdate.expiryDate = expiryDate ?? FieldValue.delete();
+      if (imageUrls) {
+        requestUpdate.imageUrls = imageUrls;
+        requestUpdate.imageUrl = imageUrls[0] ?? FieldValue.delete();
+      } else if (payload.clearImage === true) {
+        requestUpdate.imageUrls = [];
+        requestUpdate.imageUrl = FieldValue.delete();
+      }
+      await db.doc(`users/${userId}/inventoryRequests/${inventoryRequestId}`).update(requestUpdate);
+    }
+
     return NextResponse.json({ success: true });
   }
 

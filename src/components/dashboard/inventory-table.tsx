@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History, PackageX } from "lucide-react";
+import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History, PackageX, Upload, Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { InventoryHistoryDialog } from "@/components/inventory/inventory-history-dialog";
@@ -54,6 +54,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { doc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { uploadInventoryProductImage } from "@/lib/inventory-product-images";
 import { cn } from "@/lib/utils";
 import { formatInboundQuantityDisplay } from "@/lib/inventory-qty-display";
 import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath, mirrorUnlinkedPendingBatchLines } from "@/lib/inbound-batch";
@@ -258,22 +259,40 @@ function InventoryAvatar({
 }: {
   item: any;
   className: string;
-  onImageClick?: (url: string, name?: string) => void;
+  onImageClick?: (item: any) => void;
 }) {
   const imageUrl = getImageUrls(item)[0];
   const inventoryType = item?.inventoryType ?? "product";
+  const canInteract = typeof onImageClick === "function";
 
   if (imageUrl) {
     return (
       <button
         type="button"
         className="rounded-md transition-opacity hover:opacity-90"
-        onClick={() => onImageClick?.(imageUrl, item?.productName)}
-        title="View picture"
+        onClick={() => onImageClick?.(item)}
+        title={canInteract ? "View / update picture" : "View picture"}
       >
         <img
           src={imageUrl}
           alt={item?.productName || "Inventory item"}
+          className={`${className} rounded-md border object-cover`}
+        />
+      </button>
+    );
+  }
+
+  if (canInteract) {
+    return (
+      <button
+        type="button"
+        className="rounded-md transition-opacity hover:opacity-90"
+        onClick={() => onImageClick?.(item)}
+        title="Add picture"
+      >
+        <img
+          src={NO_IMAGE_PLACEHOLDER_SRC}
+          alt={`No image available for ${item?.productName || inventoryType || "inventory item"}`}
           className={`${className} rounded-md border object-cover`}
         />
       </button>
@@ -521,10 +540,18 @@ export function InventoryTable({
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [previewImageUrl, setPreviewImageUrl] = useState("");
   const [previewImageName, setPreviewImageName] = useState("");
+  const [previewImageItem, setPreviewImageItem] = useState<any | null>(null);
+  const [isUpdatingPreviewImage, setIsUpdatingPreviewImage] = useState(false);
+  const previewImageInputRef = useRef<HTMLInputElement>(null);
   const [editingRequest, setEditingRequest] = useState<InventoryRequest | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editProductName, setEditProductName] = useState("");
   const [editQuantity, setEditQuantity] = useState(0);
+  const [editImageUrls, setEditImageUrls] = useState<string[]>([]);
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
+  const [isUploadingEditImage, setIsUploadingEditImage] = useState(false);
+  const editImageInputRef = useRef<HTMLInputElement>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [cancellingRequest, setCancellingRequest] = useState<InventoryRequest | null>(null);
   const [cancellationReason, setCancellationReason] = useState("");
@@ -819,13 +846,137 @@ export function InventoryTable({
     setEditQuantity(request.quantity);
     setEditRetailIdentifier((request as any).retailIdentifier || "");
     setEditExpiryDate(toDateInputValue((request as any).expiryDate));
+    setEditImageUrls(getImageUrls(request as any));
+    setEditImageFile(null);
+    setEditImagePreview(null);
     setIsEditDialogOpen(true);
   };
 
-  const handleImagePreview = (url: string, name?: string) => {
+  const clearEditImageSelection = () => {
+    if (editImagePreview) URL.revokeObjectURL(editImagePreview);
+    setEditImageFile(null);
+    setEditImagePreview(null);
+    if (editImageInputRef.current) editImageInputRef.current.value = "";
+  };
+
+  const handleEditImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({
+        variant: "destructive",
+        title: "Invalid file",
+        description: "Please select an image file.",
+      });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        variant: "destructive",
+        title: "Image too large",
+        description: "Please upload an image smaller than 5 MB.",
+      });
+      return;
+    }
+    if (editImagePreview) URL.revokeObjectURL(editImagePreview);
+    setEditImageFile(file);
+    setEditImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleImagePreview = (item: any) => {
+    const url = getImageUrls(item)[0] || "";
+    setPreviewImageItem(item);
     setPreviewImageUrl(url);
-    setPreviewImageName(name || "Inventory picture");
+    setPreviewImageName(item?.productName || "Inventory picture");
     setIsImagePreviewOpen(true);
+  };
+
+  const resolveImageUpdateTarget = (
+    item: any
+  ): { collection: "inventoryRequests" | "inventory"; docId: string } | null => {
+    if (!item) return null;
+    if (item.isRequest && item.requestData?.id) {
+      return { collection: "inventoryRequests", docId: String(item.requestData.id) };
+    }
+    if (item.isRequest && item.id) {
+      return { collection: "inventoryRequests", docId: String(item.id) };
+    }
+    // Approved request rows awaiting receive still point at inventoryRequests
+    if (item.requestData?.id && (item.status === "Awaiting Receiving" || item.status === "Receiving")) {
+      return { collection: "inventoryRequests", docId: String(item.requestData.id) };
+    }
+    if (!item.isRequest && !item.isBatch && item.id) {
+      return { collection: "inventory", docId: String(item.id) };
+    }
+    return null;
+  };
+
+  const handlePreviewImageUpdate = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !effectiveUserId || !previewImageItem) return;
+
+    const target = resolveImageUpdateTarget(previewImageItem);
+    if (!target) {
+      toast({
+        variant: "destructive",
+        title: "Cannot update picture",
+        description: "This row does not support picture updates.",
+      });
+      return;
+    }
+
+    setIsUpdatingPreviewImage(true);
+    try {
+      const downloadUrl = await uploadInventoryProductImage(effectiveUserId, file);
+      const imageUrls = [downloadUrl];
+      await updateDoc(doc(db, `users/${effectiveUserId}/${target.collection}`, target.docId), {
+        imageUrls,
+        imageUrl: downloadUrl,
+      });
+
+      // Keep linked inventory in sync when updating an approved inbound request photo
+      if (target.collection === "inventoryRequests") {
+        const linkedInventory = data.find(
+          (inv) =>
+            !(inv as any).isRequest &&
+            ((inv as any).sourceRequestId === target.docId ||
+              String((inv as any).id) === String((previewImageItem as any).inventoryId))
+        );
+        if (linkedInventory?.id) {
+          await updateDoc(doc(db, `users/${effectiveUserId}/inventory`, linkedInventory.id), {
+            imageUrls,
+            imageUrl: downloadUrl,
+          });
+        }
+      }
+
+      // Keep source request photo in sync when updating inventory item
+      if (target.collection === "inventory") {
+        const sourceRequestId = String((previewImageItem as any).sourceRequestId || "").trim();
+        if (sourceRequestId) {
+          await updateDoc(doc(db, `users/${effectiveUserId}/inventoryRequests`, sourceRequestId), {
+            imageUrls,
+            imageUrl: downloadUrl,
+          });
+        }
+      }
+
+      setPreviewImageUrl(downloadUrl);
+      toast({
+        title: "Picture updated",
+        description: "Your product picture was updated successfully.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Upload failed",
+        description: error?.message || "Could not update picture.",
+      });
+    } finally {
+      setIsUpdatingPreviewImage(false);
+    }
   };
 
   const [editSku, setEditSku] = useState("");
@@ -920,6 +1071,13 @@ export function InventoryTable({
 
     setIsUpdating(true);
     try {
+      let nextImageUrls = editImageUrls;
+      if (editImageFile) {
+        setIsUploadingEditImage(true);
+        const downloadUrl = await uploadInventoryProductImage(effectiveUserId, editImageFile);
+        nextImageUrls = [downloadUrl];
+      }
+
       const requestRef = doc(db, `users/${effectiveUserId}/inventoryRequests`, editingRequest.id);
       const updatePayload: Record<string, unknown> = {
         productName: editProductName.trim(),
@@ -933,6 +1091,8 @@ export function InventoryTable({
       } else {
         updatePayload.expiryDate = null;
       }
+      updatePayload.imageUrls = nextImageUrls;
+      updatePayload.imageUrl = nextImageUrls[0] ?? null;
       await updateDoc(requestRef, updatePayload);
 
       toast({
@@ -940,6 +1100,8 @@ export function InventoryTable({
         description: "Inventory request updated successfully.",
       });
 
+      clearEditImageSelection();
+      setEditImageUrls([]);
       setIsEditDialogOpen(false);
       setEditingRequest(null);
     } catch (error: any) {
@@ -949,6 +1111,7 @@ export function InventoryTable({
         description: error.message || "Failed to update inventory request.",
       });
     } finally {
+      setIsUploadingEditImage(false);
       setIsUpdating(false);
     }
   };
@@ -1997,12 +2160,21 @@ export function InventoryTable({
       </Dialog>
 
       {/* Edit Inventory Request Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-md">
+      <Dialog
+        open={isEditDialogOpen}
+        onOpenChange={(open) => {
+          setIsEditDialogOpen(open);
+          if (!open) {
+            clearEditImageSelection();
+            setEditingRequest(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Inventory Request</DialogTitle>
             <DialogDescription>
-              Update the product name and quantity. You can only edit pending requests.
+              Update the product details and picture. You can only edit pending requests.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-4">
@@ -2060,22 +2232,77 @@ export function InventoryTable({
                 className="mt-1"
               />
             </div>
+            <div>
+              <Label className="text-sm font-medium">Product picture (optional)</Label>
+              <div className="mt-2 flex items-start gap-3">
+                <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md border bg-muted/20">
+                  {(editImagePreview || editImageUrls[0]) ? (
+                    <img
+                      src={editImagePreview || editImageUrls[0]}
+                      alt="Product preview"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <img
+                      src={NO_IMAGE_PLACEHOLDER_SRC}
+                      alt="No image"
+                      className="h-full w-full object-cover"
+                    />
+                  )}
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <Input
+                    ref={editImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleEditImageSelect}
+                    disabled={isUpdating || isUploadingEditImage}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Upload or replace the product photo before approval. Max 5 MB (auto-compressed).
+                  </p>
+                  {(editImageFile || editImageUrls.length > 0) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-fit px-2 text-xs"
+                      disabled={isUpdating || isUploadingEditImage}
+                      onClick={() => {
+                        clearEditImageSelection();
+                        setEditImageUrls([]);
+                      }}
+                    >
+                      Remove picture
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
             <div className="flex justify-end gap-2 pt-4">
               <Button
                 variant="outline"
                 onClick={() => {
+                  clearEditImageSelection();
                   setIsEditDialogOpen(false);
                   setEditingRequest(null);
                 }}
-                disabled={isUpdating}
+                disabled={isUpdating || isUploadingEditImage}
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleUpdateRequest}
-                disabled={isUpdating}
+                disabled={isUpdating || isUploadingEditImage}
               >
-                {isUpdating ? "Updating..." : "Update Request"}
+                {(isUpdating || isUploadingEditImage) ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  "Update Request"
+                )}
               </Button>
             </div>
           </div>
@@ -2083,13 +2310,26 @@ export function InventoryTable({
       </Dialog>
 
       {/* Image Preview Dialog */}
-      <Dialog open={isImagePreviewOpen} onOpenChange={setIsImagePreviewOpen}>
+      <Dialog
+        open={isImagePreviewOpen}
+        onOpenChange={(open) => {
+          setIsImagePreviewOpen(open);
+          if (!open) {
+            setPreviewImageItem(null);
+            setPreviewImageUrl("");
+          }
+        }}
+      >
         <DialogContent className="max-w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{previewImageName || "Inventory picture"}</DialogTitle>
-            <DialogDescription>Image preview</DialogDescription>
+            <DialogDescription>
+              {resolveImageUpdateTarget(previewImageItem)
+                ? "Preview your product picture. You can update it anytime."
+                : "Image preview"}
+            </DialogDescription>
           </DialogHeader>
-          {previewImageUrl && (
+          {previewImageUrl ? (
             <div className="mt-2 flex items-center justify-center rounded-lg border bg-muted/20 p-3">
               <img
                 src={previewImageUrl}
@@ -2097,7 +2337,36 @@ export function InventoryTable({
                 className="max-h-[70vh] w-auto max-w-full rounded-md object-contain"
               />
             </div>
+          ) : (
+            <div className="mt-2 flex flex-col items-center justify-center gap-2 rounded-lg border bg-muted/20 p-6 text-sm text-muted-foreground">
+              <img src={NO_IMAGE_PLACEHOLDER_SRC} alt="No image" className="h-28 w-28 rounded-md border object-cover" />
+              No picture uploaded yet.
+            </div>
           )}
+          {resolveImageUpdateTarget(previewImageItem) ? (
+            <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+              <input
+                ref={previewImageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => void handlePreviewImageUpdate(e)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isUpdatingPreviewImage}
+                onClick={() => previewImageInputRef.current?.click()}
+              >
+                {isUpdatingPreviewImage ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="mr-2 h-4 w-4" />
+                )}
+                {previewImageUrl ? "Update picture" : "Add picture"}
+              </Button>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
 
