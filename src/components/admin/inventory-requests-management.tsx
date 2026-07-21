@@ -93,6 +93,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import imageCompression from "browser-image-compression";
 import { formatInboundQuantityDisplay, getRequestedQuantity } from "@/lib/inventory-qty-display";
 import { closeInventoryRequest } from "@/lib/client-inventory-inbound-sync";
+import { AdminWarehouseActionsPanel } from "@/components/admin/admin-warehouse-actions-panel";
 
 function formatDate(date: InventoryRequest["addDate"] | InventoryRequest["requestedAt"] | InventoryRequest["receivingDate"]) {
   if (!date) return "N/A";
@@ -183,6 +184,13 @@ export function InventoryRequestsManagement({
   );
   const { data: inboundBatches, loading: batchesLoading } = useCollection<InboundBatch>(
     isValidUserId ? inboundBatchesPath(userId) : ""
+  );
+  const liveSelectedBatch = useMemo(
+    () =>
+      selectedBatch
+        ? inboundBatches.find((b) => b.id === selectedBatch.id) ?? selectedBatch
+        : null,
+    [selectedBatch, inboundBatches]
   );
   const { data: currentInventory } = useCollection<InventoryItemLite>(
     isValidUserId ? `users/${userId}/inventory` : ""
@@ -836,10 +844,14 @@ export function InventoryRequestsManagement({
               undefined,
               { quiet: true, skipBatchSync: true }
             );
+            await syncBatchLineStatus(userId, selectedBatch.id, line.id, "approved");
           } else {
             await handleReject(request, options.reason?.trim() || "Rejected in bulk", {
               quiet: true,
               skipBatchSync: true,
+            });
+            await syncBatchLineStatus(userId, selectedBatch.id, line.id, "rejected", {
+              rejectionReason: options.reason?.trim() || "Rejected in bulk",
             });
           }
           succeeded += 1;
@@ -1194,9 +1206,9 @@ export function InventoryRequestsManagement({
         </CardContent>
       </Card>
 
-      {selectedBatch && userId && (
+      {liveSelectedBatch && userId && (
         <InboundBatchAdminDialog
-          batch={selectedBatch}
+          batch={liveSelectedBatch}
           userId={userId}
           isProcessing={isProcessing}
           onClose={() => setSelectedBatch(null)}
@@ -1207,9 +1219,11 @@ export function InventoryRequestsManagement({
       )}
 
       {/* Review Dialog */}
-      {selectedRequest && (
+      {selectedRequest && userId && (
         <ReviewRequestDialog
           request={selectedRequest}
+          clientUserId={userId}
+          clientDisplayName={selectedUser?.name ?? selectedUser?.email ?? null}
           onApprove={handleApprove}
           onReject={handleReject}
           onClose={() => setSelectedRequest(null)}
@@ -1222,12 +1236,16 @@ export function InventoryRequestsManagement({
 
 function ReviewRequestDialog({
   request,
+  clientUserId,
+  clientDisplayName,
   onApprove,
   onReject,
   onClose,
   isProcessing,
 }: {
   request: InventoryRequest;
+  clientUserId: string;
+  clientDisplayName?: string | null;
   onApprove: (request: InventoryRequest, receivingDate: Date, status: "In Stock" | "Out of Stock", remarks?: string, editedQuantity?: number, editedProductName?: string, editedSku?: string, imageUrls?: string[]) => void;
   onReject: (request: InventoryRequest, reason: string) => void;
   onClose: () => void;
@@ -1793,10 +1811,19 @@ function ReviewRequestDialog({
           )}
 
           {readOnly && (
-            <div className="flex justify-end border-t pt-4">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Close
-              </Button>
+            <div className="space-y-4 border-t pt-4">
+              <AdminWarehouseActionsPanel
+                mode="inbound"
+                clientUserId={clientUserId}
+                clientDisplayName={clientDisplayName}
+                request={request}
+                onComplete={onClose}
+              />
+              <div className="flex justify-end">
+                <Button type="button" variant="outline" onClick={onClose}>
+                  Close
+                </Button>
+              </div>
             </div>
           )}
         </div>

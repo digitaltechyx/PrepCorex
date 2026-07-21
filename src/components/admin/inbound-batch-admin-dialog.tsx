@@ -127,7 +127,7 @@ export function InboundBatchAdminDialog({
     return () => {
       cancelled = true;
     };
-  }, [batch, linesPath, pageCursors, pageIndex, statusFilter]);
+  }, [batch, linesPath, pageCursors, pageIndex, statusFilter, isProcessing]);
 
   const pendingLines = useMemo(() => lines.filter((line) => line.status === "pending"), [lines]);
 

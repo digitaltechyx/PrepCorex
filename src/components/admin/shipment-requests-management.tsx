@@ -48,6 +48,7 @@ import { Check, X, Eye, Loader2, FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DatePicker } from "@/components/ui/date-picker";
 import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
+import { AdminWarehouseActionsPanel } from "@/components/admin/admin-warehouse-actions-panel";
 
 type LocationDoc = { id: string; name?: string; active?: boolean };
 
@@ -811,9 +812,10 @@ export function ShipmentRequestsManagement({
       </Card>
 
       {/* Review Dialog */}
-      {selectedRequest && (
+      {selectedRequest && userId && (
         <ReviewShipmentDialog
           request={selectedRequest}
+          clientUserId={userId}
           inventory={inventory}
           warehouseNameById={warehouseNameById}
           onConfirm={handleConfirm}
@@ -848,6 +850,7 @@ export function ShipmentRequestsManagement({
 
 function ReviewShipmentDialog({
   request,
+  clientUserId,
   inventory,
   warehouseNameById,
   onConfirm,
@@ -861,6 +864,7 @@ function ReviewShipmentDialog({
   palletForwardingPricing,
 }: {
   request: ShipmentRequest;
+  clientUserId: string;
   inventory: InventoryItem[];
   warehouseNameById: Record<string, string>;
   onConfirm: (
@@ -2288,10 +2292,18 @@ function ReviewShipmentDialog({
           )}
 
           {readOnly && (
-            <div className="flex justify-end border-t pt-4">
-              <Button type="button" variant="outline" onClick={onClose}>
-                Close
-              </Button>
+            <div className="space-y-4 border-t pt-4">
+              <AdminWarehouseActionsPanel
+                mode="outbound"
+                clientUserId={clientUserId}
+                request={{ ...request, id: (request as ShipmentRequest & { id?: string }).id ?? "" }}
+                onComplete={onClose}
+              />
+              <div className="flex justify-end">
+                <Button type="button" variant="outline" onClick={onClose}>
+                  Close
+                </Button>
+              </div>
             </div>
           )}
         </div>

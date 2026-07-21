@@ -276,6 +276,7 @@ export default function AdminNotificationsPage() {
   }, [filterParamsKey, searchParams]);
   const [notificationPage, setNotificationPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [notificationsRefreshKey, setNotificationsRefreshKey] = useState(0);
 
   const [shipmentRequests, setShipmentRequests] = useState<NotificationRow[]>([]);
   const [inventoryRequests, setInventoryRequests] = useState<NotificationRow[]>([]);
@@ -597,7 +598,18 @@ export default function AdminNotificationsPage() {
 
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userProfile, users, managedUserIds, toast]);
+  }, [userProfile, users, managedUserIds, toast, notificationsRefreshKey]);
+
+  useEffect(() => {
+    if (!canSeeAdminNotifications) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        setNotificationsRefreshKey((k) => k + 1);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [canSeeAdminNotifications]);
 
   const allRows = useMemo(() => {
     return [...shipmentRequests, ...inventoryRequests, ...productReturns, ...disposeRequests]
