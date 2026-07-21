@@ -56,8 +56,8 @@ import { doc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { uploadInventoryProductImage } from "@/lib/inventory-product-images";
 import { cn } from "@/lib/utils";
-import { formatInboundQuantityDisplay } from "@/lib/inventory-qty-display";
-import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath, mirrorUnlinkedPendingBatchLines } from "@/lib/inbound-batch";
+import { formatInboundQuantityDisplay, getRequestedQuantity } from "@/lib/inventory-qty-display";
+import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath, inboundBatchLinesPath, mirrorUnlinkedPendingBatchLines } from "@/lib/inbound-batch";
 import { resolveInboundTrackings } from "@/lib/inbound-tracking";
 import {
   formatInboundRequestRowQuantity,
@@ -547,6 +547,7 @@ export function InventoryTable({
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editProductName, setEditProductName] = useState("");
   const [editQuantity, setEditQuantity] = useState(0);
+  const [editRemarks, setEditRemarks] = useState("");
   const [editImageUrls, setEditImageUrls] = useState<string[]>([]);
   const [editImageFile, setEditImageFile] = useState<File | null>(null);
   const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
@@ -843,9 +844,10 @@ export function InventoryTable({
     setEditingRequest(request);
     setEditProductName(request.productName || "");
     setEditSku((request as any).sku || "");
-    setEditQuantity(request.quantity);
+    setEditQuantity(getRequestedQuantity(request as any));
     setEditRetailIdentifier((request as any).retailIdentifier || "");
     setEditExpiryDate(toDateInputValue((request as any).expiryDate));
+    setEditRemarks(String(request.remarks || "").trim());
     setEditImageUrls(getImageUrls(request as any));
     setEditImageFile(null);
     setEditImagePreview(null);
@@ -1079,11 +1081,15 @@ export function InventoryTable({
       }
 
       const requestRef = doc(db, `users/${effectiveUserId}/inventoryRequests`, editingRequest.id);
+      const remarksValue = editRemarks.trim();
       const updatePayload: Record<string, unknown> = {
         productName: editProductName.trim(),
         sku: editSku.trim(),
         quantity: editQuantity,
+        // Table display uses requestedQuantity first — keep both in sync on edit.
+        requestedQuantity: editQuantity,
         retailIdentifier: editRetailIdentifier.trim(),
+        remarks: remarksValue || null,
       };
       if (editExpiryDate.trim()) {
         const d = new Date(`${editExpiryDate.trim()}T12:00:00`);
@@ -1094,6 +1100,25 @@ export function InventoryTable({
       updatePayload.imageUrls = nextImageUrls;
       updatePayload.imageUrl = nextImageUrls[0] ?? null;
       await updateDoc(requestRef, updatePayload);
+
+      // Keep linked batch line in sync when this request was mirrored from a batch.
+      const batchId = String((editingRequest as InventoryRequest & { batchId?: string }).batchId || "").trim();
+      const batchLineId = String(
+        (editingRequest as InventoryRequest & { batchLineId?: string }).batchLineId || ""
+      ).trim();
+      if (batchId && batchLineId) {
+        await updateDoc(doc(db, inboundBatchLinesPath(effectiveUserId, batchId), batchLineId), {
+          productName: editProductName.trim(),
+          sku: editSku.trim(),
+          quantity: editQuantity,
+          requestedQuantity: editQuantity,
+          retailIdentifier: editRetailIdentifier.trim(),
+          remarks: remarksValue || null,
+          expiryDate: updatePayload.expiryDate ?? null,
+          imageUrls: nextImageUrls,
+          imageUrl: nextImageUrls[0] ?? null,
+        });
+      }
 
       toast({
         title: "Success",
@@ -2230,6 +2255,16 @@ export function InventoryTable({
                 value={editExpiryDate}
                 onChange={(e) => setEditExpiryDate(e.target.value)}
                 className="mt-1"
+              />
+            </div>
+            <div>
+              <label htmlFor="edit-remarks" className="text-sm font-medium">Remarks (optional)</label>
+              <Textarea
+                id="edit-remarks"
+                value={editRemarks}
+                onChange={(e) => setEditRemarks(e.target.value)}
+                placeholder="Add or update remarks for this request…"
+                className="mt-1 min-h-[80px]"
               />
             </div>
             <div>
