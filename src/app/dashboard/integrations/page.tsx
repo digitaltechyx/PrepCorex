@@ -74,6 +74,17 @@ type WooCommerceConnectionSummary = {
   consumerKeyHint?: string | null;
 };
 
+type TikTokSelectedProduct = { productId: string; skuId: string; title: string; sku?: string };
+
+type TikTokConnectionSummary = {
+  id: string;
+  shopId: string;
+  shopName: string;
+  region?: string | null;
+  connectedAt: { seconds: number; nanoseconds: number } | string;
+  selectedProducts?: TikTokSelectedProduct[];
+};
+
 type PlatformCategory = "marketplace" | "ecommerce" | "social" | "shipping";
 type PlatformStatus = "live" | "coming_soon";
 type FilterTab = "all" | "connected" | "available" | "soon";
@@ -142,8 +153,8 @@ const PLATFORMS: PlatformDef[] = [
     shortName: "TT",
     category: "social",
     categoryLabel: "Social commerce",
-    status: "coming_soon",
-    description: "TikTok Shop orders and catalog — planned.",
+    status: "live",
+    description: "Connect TikTok Shop to sync products, pull orders, and fulfill from PrepCorex.",
     accent: "from-fuchsia-500/80 to-pink-600/80",
     ring: "ring-fuchsia-500/15",
   },
@@ -195,12 +206,14 @@ function connectionCountFor(
   shopify: ShopifyConnectionSummary[],
   ebay: EbayConnectionSummary[],
   shipstation: ShipStationConnectionSummary[],
-  woocommerce: WooCommerceConnectionSummary[]
+  woocommerce: WooCommerceConnectionSummary[],
+  tiktok: TikTokConnectionSummary[]
 ): number {
   if (platformId === "shopify") return shopify.length;
   if (platformId === "ebay") return ebay.length;
   if (platformId === "shipstation") return shipstation.length;
   if (platformId === "woocommerce") return woocommerce.length;
+  if (platformId === "tiktok") return tiktok.length;
   return 0;
 }
 
@@ -211,7 +224,10 @@ export default function IntegrationsPage() {
   const [ebayConnections, setEbayConnections] = useState<EbayConnectionSummary[]>([]);
   const [shipstationConnections, setShipstationConnections] = useState<ShipStationConnectionSummary[]>([]);
   const [woocommerceConnections, setWoocommerceConnections] = useState<WooCommerceConnectionSummary[]>([]);
+  const [tiktokConnections, setTiktokConnections] = useState<TikTokConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tiktokConnectLoading, setTiktokConnectLoading] = useState(false);
+  const [tiktokDisconnectId, setTiktokDisconnectId] = useState<string | null>(null);
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   const [shopInput, setShopInput] = useState("");
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
@@ -241,11 +257,12 @@ export default function IntegrationsPage() {
     setLoading(true);
     try {
       const token = await user.getIdToken();
-      const [shopifyRes, ebayRes, shipstationRes, woocommerceRes] = await Promise.all([
+      const [shopifyRes, ebayRes, shipstationRes, woocommerceRes, tiktokRes] = await Promise.all([
         fetch("/api/integrations/shopify-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/ebay-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/shipstation-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/woocommerce-connections", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/integrations/tiktok-connections", { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (shopifyRes.ok) {
         const data = await shopifyRes.json();
@@ -263,11 +280,16 @@ export default function IntegrationsPage() {
         const data = await woocommerceRes.json();
         setWoocommerceConnections(data.connections ?? []);
       }
+      if (tiktokRes.ok) {
+        const data = await tiktokRes.json();
+        setTiktokConnections(data.connections ?? []);
+      }
     } catch {
       setShopifyConnections([]);
       setEbayConnections([]);
       setShipstationConnections([]);
       setWoocommerceConnections([]);
+      setTiktokConnections([]);
     } finally {
       setLoading(false);
     }
@@ -281,12 +303,14 @@ export default function IntegrationsPage() {
     shopifyConnections.length +
     ebayConnections.length +
     shipstationConnections.length +
-    woocommerceConnections.length;
+    woocommerceConnections.length +
+    tiktokConnections.length;
   const liveConnectedPlatforms = [
     shopifyConnections.length > 0,
     ebayConnections.length > 0,
     shipstationConnections.length > 0,
     woocommerceConnections.length > 0,
+    tiktokConnections.length > 0,
   ].filter(Boolean).length;
 
   const visiblePlatforms = useMemo(() => {
@@ -299,7 +323,8 @@ export default function IntegrationsPage() {
         shopifyConnections,
         ebayConnections,
         shipstationConnections,
-        woocommerceConnections
+        woocommerceConnections,
+        tiktokConnections
       );
       if (filterTab === "connected") return p.status === "live" && n > 0;
       if (filterTab === "available") return p.status === "live" && n === 0;
@@ -314,7 +339,39 @@ export default function IntegrationsPage() {
     ebayConnections,
     shipstationConnections,
     woocommerceConnections,
+    tiktokConnections,
   ]);
+
+  const handleConnectTikTok = () => {
+    setTiktokConnectLoading(true);
+    window.location.href = "/api/tiktok/install";
+  };
+
+  const handleDisconnectTikTok = async (id: string) => {
+    if (!user) return;
+    setTiktokDisconnectId(id);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(
+        `/api/integrations/tiktok-connections?id=${encodeURIComponent(id)}&removeInventory=true`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to disconnect");
+      }
+      toast({ title: "Disconnected", description: "TikTok Shop has been disconnected." });
+      fetchConnections();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err instanceof Error ? err.message : "Could not disconnect.",
+      });
+    } finally {
+      setTiktokDisconnectId(null);
+    }
+  };
 
   const handleConnectShopify = () => {
     let shop = shopInput.trim().toLowerCase().replace(/\.myshopify\.com$/i, "");
@@ -743,7 +800,8 @@ export default function IntegrationsPage() {
               shopifyConnections,
               ebayConnections,
               shipstationConnections,
-              woocommerceConnections
+              woocommerceConnections,
+              tiktokConnections
             );
             const isLive = p.status === "live";
             const isSoon = p.status === "coming_soon";
@@ -843,6 +901,23 @@ export default function IntegrationsPage() {
                       >
                         <Plus className="h-4 w-4 sm:mr-1" />
                         {count > 0 ? "Add store" : "Connect"}
+                      </Button>
+                    )}
+                    {isLive && p.id === "tiktok" && (
+                      <Button
+                        size="sm"
+                        className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
+                        onClick={handleConnectTikTok}
+                        disabled={tiktokConnectLoading}
+                      >
+                        {tiktokConnectLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Plus className="h-4 w-4 sm:mr-1" />
+                            {count > 0 ? "Add shop" : "Connect"}
+                          </>
+                        )}
                       </Button>
                     )}
                   </div>
@@ -1084,6 +1159,81 @@ export default function IntegrationsPage() {
                                     disabled={ebayDisconnectId === conn.id}
                                   >
                                     {ebayDisconnectId === conn.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+
+                  {p.id === "tiktok" && isLive && (
+                    <>
+                      <Alert className="border-fuchsia-200 bg-fuchsia-50/80 text-fuchsia-950 dark:border-fuchsia-900 dark:bg-fuchsia-950/40 dark:text-fuchsia-50">
+                        <Info className="h-4 w-4 text-fuchsia-700 dark:text-fuchsia-300" />
+                        <AlertTitle className="text-fuchsia-900 dark:text-fuchsia-100">
+                          TikTok Shop · Partner Center review in progress
+                        </AlertTitle>
+                        <AlertDescription className="text-fuchsia-800/90 dark:text-fuchsia-200/90">
+                          Connect a seller shop via TikTok OAuth to select products and pull orders. Public App Store
+                          listing unlocks after TikTok approves PrepCoreX.
+                        </AlertDescription>
+                      </Alert>
+                      {tiktokConnections.length === 0 ? (
+                        <div className="rounded-xl border border-dashed bg-muted/15 px-4 py-6 text-center text-sm text-muted-foreground">
+                          No TikTok Shop linked yet. Use <strong className="text-foreground">Connect</strong> to authorize.
+                        </div>
+                      ) : (
+                        <ul className="space-y-2">
+                          {tiktokConnections.map((conn) => (
+                            <li
+                              key={conn.id}
+                              className="rounded-lg border bg-background/80 p-3 shadow-sm ring-1 ring-border/50"
+                            >
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium">{conn.shopName || conn.shopId}</p>
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    {conn.region ? `${conn.region} · ` : ""}
+                                    {conn.shopId}
+                                  </p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Since {formatConnectedAt(conn.connectedAt)}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  <Button variant="secondary" size="sm" className="h-8" asChild>
+                                    <Link
+                                      href={`/dashboard/integrations/tiktok/products?connectionId=${encodeURIComponent(conn.id)}`}
+                                    >
+                                      <Package className="h-3.5 w-3.5 mr-1" />
+                                      {Array.isArray(conn.selectedProducts) && conn.selectedProducts.length > 0
+                                        ? `${conn.selectedProducts.length} products`
+                                        : "Products"}
+                                    </Link>
+                                  </Button>
+                                  <Button variant="secondary" size="sm" className="h-8" asChild>
+                                    <Link
+                                      href={`/dashboard/integrations/tiktok/orders?connectionId=${encodeURIComponent(conn.id)}`}
+                                    >
+                                      <ShoppingCart className="h-3.5 w-3.5 mr-1" />
+                                      Orders
+                                    </Link>
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 text-destructive hover:text-destructive"
+                                    onClick={() => void handleDisconnectTikTok(conn.id)}
+                                    disabled={tiktokDisconnectId === conn.id}
+                                  >
+                                    {tiktokDisconnectId === conn.id ? (
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                     ) : (
                                       <Trash2 className="h-3.5 w-3.5" />

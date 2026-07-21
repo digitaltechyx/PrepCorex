@@ -578,7 +578,7 @@ export interface InventoryItem {
   } | string;
   status: 'In Stock' | 'Out of Stock';
   /** Set when item is synced from an external integration (read-only in inventory list). */
-  source?: 'shopify' | 'ebay' | 'woocommerce';
+  source?: 'shopify' | 'ebay' | 'woocommerce' | 'tiktok';
   shopifyVariantId?: string;
   shopifyProductId?: string;
   /** Shopify inventory_item_id (for inventory_levels API and webhooks). */
@@ -589,6 +589,10 @@ export interface InventoryItem {
   woocommerceProductId?: string;
   woocommerceVariationId?: string;
   woocommerceStoreUrl?: string;
+  /** TikTok Shop linked catalog item */
+  tiktokShopId?: string;
+  tiktokProductId?: string;
+  tiktokSkuId?: string;
   sku?: string;
   retailIdentifier?: string;
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
@@ -1261,6 +1265,26 @@ export interface ShopifyConnection {
   connectedAt: { seconds: number; nanoseconds: number } | string;
   /** Variants the user selected for PrepCorex to fulfill (orders with these only). */
   selectedVariants?: ShopifySelectedVariant[];
+}
+
+/** One selected TikTok SKU for PrepCorex fulfillment / inventory. */
+export interface TikTokSelectedProduct {
+  productId: string;
+  skuId: string;
+  title: string;
+  sku?: string;
+}
+
+/** One connected TikTok Shop for a user. */
+export interface TikTokConnection {
+  id?: string;
+  shopId: string;
+  shopName?: string;
+  shopCipher?: string | null;
+  region?: string | null;
+  accessToken: string;
+  connectedAt: { seconds: number; nanoseconds: number } | string;
+  selectedProducts?: TikTokSelectedProduct[];
 }
 
 /** Client ShipStation account connected via API Key + Secret. */
