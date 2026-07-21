@@ -359,6 +359,15 @@ export function DashboardSidebar() {
       requiredFeature: "integrations" as const,
     },
     {
+      title: "WooCommerce Orders",
+      url: "/dashboard/woocommerce-orders",
+      icon: ShoppingBag,
+      color: "text-violet-600",
+      badge: null,
+      requiredRole: "user" as const,
+      requiredFeature: "integrations" as const,
+    },
+    {
       title: "Product Returns",
       url: "/dashboard/product-returns",
       icon: ArrowLeftRight,
@@ -487,7 +496,8 @@ export function DashboardSidebar() {
     !hasAgentRole &&
     (hasFeature(userProfile, "manage_shopify_orders") ||
       hasFeature(userProfile, "manage_ebay_orders") ||
-      hasFeature(userProfile, "manage_shipstation_orders")) &&
+      hasFeature(userProfile, "manage_shipstation_orders") ||
+      hasFeature(userProfile, "manage_woocommerce_orders")) &&
     onClientIntegrationsSubtree;
 
   const showAffiliateAccess =

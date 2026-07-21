@@ -19,6 +19,9 @@ export type ShopifyInventorySyncHint = {
   shopifyVariantId?: string;
   shopifyInventoryItemId?: string;
   source?: string;
+  woocommerceConnectionId?: string;
+  woocommerceProductId?: string;
+  woocommerceVariationId?: string;
 };
 
 function removeUndefined(obj: unknown): unknown {
@@ -281,6 +284,21 @@ export async function applyClientInventoryOnDispatch(input: {
           shop: currentInventory.shop,
           shopifyVariantId: currentInventory.shopifyVariantId,
           shopifyInventoryItemId: currentInventory.shopifyInventoryItemId,
+        });
+      }
+
+      if (
+        currentInventory.source === "woocommerce" &&
+        currentInventory.woocommerceConnectionId &&
+        currentInventory.woocommerceProductId
+      ) {
+        shopifyHints.push({
+          productId: String(row.shipment.productId),
+          newQuantity,
+          source: currentInventory.source,
+          woocommerceConnectionId: currentInventory.woocommerceConnectionId,
+          woocommerceProductId: currentInventory.woocommerceProductId,
+          woocommerceVariationId: currentInventory.woocommerceVariationId,
         });
       }
 

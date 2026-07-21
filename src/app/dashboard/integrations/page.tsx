@@ -63,6 +63,17 @@ type ShipStationConnectionSummary = {
   apiKeyHint?: string | null;
 };
 
+type WooCommerceConnectionSummary = {
+  id: string;
+  accountLabel?: string;
+  storeUrl?: string | null;
+  connectedAt: { seconds: number; nanoseconds: number } | string;
+  lastSyncedAt?: { seconds: number; nanoseconds: number } | string | null;
+  lastSyncOrderCount?: number | null;
+  lastSyncOpenCount?: number | null;
+  consumerKeyHint?: string | null;
+};
+
 type PlatformCategory = "marketplace" | "ecommerce" | "social" | "shipping";
 type PlatformStatus = "live" | "coming_soon";
 type FilterTab = "all" | "connected" | "available" | "soon";
@@ -153,8 +164,8 @@ const PLATFORMS: PlatformDef[] = [
     shortName: "WC",
     category: "ecommerce",
     categoryLabel: "E‑commerce",
-    status: "coming_soon",
-    description: "WordPress / WooCommerce store connection — planned.",
+    status: "live",
+    description: "Connect your WooCommerce store URL with REST API keys to sync orders, link products, and push inventory.",
     accent: "from-violet-500/80 to-purple-700/80",
     ring: "ring-violet-500/15",
   },
@@ -183,11 +194,13 @@ function connectionCountFor(
   platformId: string,
   shopify: ShopifyConnectionSummary[],
   ebay: EbayConnectionSummary[],
-  shipstation: ShipStationConnectionSummary[]
+  shipstation: ShipStationConnectionSummary[],
+  woocommerce: WooCommerceConnectionSummary[]
 ): number {
   if (platformId === "shopify") return shopify.length;
   if (platformId === "ebay") return ebay.length;
   if (platformId === "shipstation") return shipstation.length;
+  if (platformId === "woocommerce") return woocommerce.length;
   return 0;
 }
 
@@ -197,6 +210,7 @@ export default function IntegrationsPage() {
   const [shopifyConnections, setShopifyConnections] = useState<ShopifyConnectionSummary[]>([]);
   const [ebayConnections, setEbayConnections] = useState<EbayConnectionSummary[]>([]);
   const [shipstationConnections, setShipstationConnections] = useState<ShipStationConnectionSummary[]>([]);
+  const [woocommerceConnections, setWoocommerceConnections] = useState<WooCommerceConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   const [shopInput, setShopInput] = useState("");
@@ -211,6 +225,13 @@ export default function IntegrationsPage() {
   const [shipstationLabel, setShipstationLabel] = useState("");
   const [shipstationConnecting, setShipstationConnecting] = useState(false);
   const [shipstationDisconnectId, setShipstationDisconnectId] = useState<string | null>(null);
+  const [woocommerceDialogOpen, setWoocommerceDialogOpen] = useState(false);
+  const [woocommerceStoreUrl, setWoocommerceStoreUrl] = useState("");
+  const [woocommerceConsumerKey, setWoocommerceConsumerKey] = useState("");
+  const [woocommerceConsumerSecret, setWoocommerceConsumerSecret] = useState("");
+  const [woocommerceLabel, setWoocommerceLabel] = useState("");
+  const [woocommerceConnecting, setWoocommerceConnecting] = useState(false);
+  const [woocommerceDisconnectId, setWoocommerceDisconnectId] = useState<string | null>(null);
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
   const [categoryFilter, setCategoryFilter] = useState<"all" | PlatformCategory>("all");
   const [search, setSearch] = useState("");
@@ -220,10 +241,11 @@ export default function IntegrationsPage() {
     setLoading(true);
     try {
       const token = await user.getIdToken();
-      const [shopifyRes, ebayRes, shipstationRes] = await Promise.all([
+      const [shopifyRes, ebayRes, shipstationRes, woocommerceRes] = await Promise.all([
         fetch("/api/integrations/shopify-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/ebay-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/shipstation-connections", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/integrations/woocommerce-connections", { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (shopifyRes.ok) {
         const data = await shopifyRes.json();
@@ -237,10 +259,15 @@ export default function IntegrationsPage() {
         const data = await shipstationRes.json();
         setShipstationConnections(data.connections ?? []);
       }
+      if (woocommerceRes.ok) {
+        const data = await woocommerceRes.json();
+        setWoocommerceConnections(data.connections ?? []);
+      }
     } catch {
       setShopifyConnections([]);
       setEbayConnections([]);
       setShipstationConnections([]);
+      setWoocommerceConnections([]);
     } finally {
       setLoading(false);
     }
@@ -251,11 +278,15 @@ export default function IntegrationsPage() {
   }, [user?.uid]);
 
   const totalConnections =
-    shopifyConnections.length + ebayConnections.length + shipstationConnections.length;
+    shopifyConnections.length +
+    ebayConnections.length +
+    shipstationConnections.length +
+    woocommerceConnections.length;
   const liveConnectedPlatforms = [
     shopifyConnections.length > 0,
     ebayConnections.length > 0,
     shipstationConnections.length > 0,
+    woocommerceConnections.length > 0,
   ].filter(Boolean).length;
 
   const visiblePlatforms = useMemo(() => {
@@ -263,13 +294,27 @@ export default function IntegrationsPage() {
     return PLATFORMS.filter((p) => {
       if (categoryFilter !== "all" && p.category !== categoryFilter) return false;
       if (q && !`${p.name} ${p.description} ${p.categoryLabel}`.toLowerCase().includes(q)) return false;
-      const n = connectionCountFor(p.id, shopifyConnections, ebayConnections, shipstationConnections);
+      const n = connectionCountFor(
+        p.id,
+        shopifyConnections,
+        ebayConnections,
+        shipstationConnections,
+        woocommerceConnections
+      );
       if (filterTab === "connected") return p.status === "live" && n > 0;
       if (filterTab === "available") return p.status === "live" && n === 0;
       if (filterTab === "soon") return p.status === "coming_soon";
       return true;
     });
-  }, [search, categoryFilter, filterTab, shopifyConnections, ebayConnections, shipstationConnections]);
+  }, [
+    search,
+    categoryFilter,
+    filterTab,
+    shopifyConnections,
+    ebayConnections,
+    shipstationConnections,
+    woocommerceConnections,
+  ]);
 
   const handleConnectShopify = () => {
     let shop = shopInput.trim().toLowerCase().replace(/\.myshopify\.com$/i, "");
@@ -458,6 +503,81 @@ export default function IntegrationsPage() {
     }
   };
 
+  const handleConnectWooCommerce = async () => {
+    if (!user) return;
+    if (!woocommerceStoreUrl.trim() || !woocommerceConsumerKey.trim() || !woocommerceConsumerSecret.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Missing credentials",
+        description: "Enter store URL, Consumer Key, and Consumer Secret from WooCommerce → Settings → Advanced → REST API.",
+      });
+      return;
+    }
+    setWoocommerceConnecting(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch("/api/integrations/woocommerce/connect", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          storeUrl: woocommerceStoreUrl.trim(),
+          consumerKey: woocommerceConsumerKey.trim(),
+          consumerSecret: woocommerceConsumerSecret.trim(),
+          accountLabel: woocommerceLabel.trim() || "WooCommerce",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to connect WooCommerce");
+      toast({
+        title: "WooCommerce connected",
+        description: `Synced ${data.synced ?? 0} orders (${data.openCount ?? 0} open).`,
+      });
+      setWoocommerceDialogOpen(false);
+      setWoocommerceStoreUrl("");
+      setWoocommerceConsumerKey("");
+      setWoocommerceConsumerSecret("");
+      setWoocommerceLabel("");
+      fetchConnections();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "WooCommerce",
+        description: err instanceof Error ? err.message : "Could not connect.",
+      });
+    } finally {
+      setWoocommerceConnecting(false);
+    }
+  };
+
+  const handleDisconnectWooCommerce = async (id: string) => {
+    if (!user) return;
+    setWoocommerceDisconnectId(id);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/integrations/woocommerce-connections?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to disconnect");
+      }
+      toast({ title: "Disconnected", description: "WooCommerce store removed." });
+      fetchConnections();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err instanceof Error ? err.message : "Could not disconnect.",
+      });
+    } finally {
+      setWoocommerceDisconnectId(null);
+    }
+  };
+
   const formatConnectedAt = (raw: ShopifyConnectionSummary["connectedAt"]) => {
     if (!raw) return "—";
     if (typeof raw === "string") return format(new Date(raw), "PP");
@@ -622,7 +742,8 @@ export default function IntegrationsPage() {
               p.id,
               shopifyConnections,
               ebayConnections,
-              shipstationConnections
+              shipstationConnections,
+              woocommerceConnections
             );
             const isLive = p.status === "live";
             const isSoon = p.status === "coming_soon";
@@ -714,6 +835,16 @@ export default function IntegrationsPage() {
                         {count > 0 ? "Add account" : "Connect"}
                       </Button>
                     )}
+                    {isLive && p.id === "woocommerce" && (
+                      <Button
+                        size="sm"
+                        className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
+                        onClick={() => setWoocommerceDialogOpen(true)}
+                      >
+                        <Plus className="h-4 w-4 sm:mr-1" />
+                        {count > 0 ? "Add store" : "Connect"}
+                      </Button>
+                    )}
                   </div>
                   <CardDescription className="text-sm leading-relaxed">{p.description}</CardDescription>
                 </CardHeader>
@@ -770,6 +901,68 @@ export default function IntegrationsPage() {
                                   onClick={() => void handleDisconnectShipStation(conn.id)}
                                 >
                                   {shipstationDisconnectId === conn.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {p.id === "woocommerce" && isLive && (
+                    <>
+                      {woocommerceConnections.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          No WooCommerce store linked. Use <strong className="text-foreground">Connect</strong> with
+                          your store URL and REST API keys from WooCommerce → Settings → Advanced → REST API.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {woocommerceConnections.map((conn) => (
+                            <div
+                              key={conn.id}
+                              className="flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{conn.accountLabel || "WooCommerce"}</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {conn.storeUrl ? `${conn.storeUrl} · ` : ""}
+                                  Since {formatConnectedAt(conn.connectedAt)}
+                                  {conn.consumerKeyHint ? ` · Key ${conn.consumerKeyHint}` : ""}
+                                  {conn.lastSyncOpenCount != null
+                                    ? ` · ${conn.lastSyncOpenCount} open`
+                                    : ""}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button variant="outline" size="sm" className="h-8" asChild>
+                                  <Link
+                                    href={`/dashboard/woocommerce-orders?connectionId=${encodeURIComponent(conn.id)}`}
+                                  >
+                                    <Package className="mr-1 h-3.5 w-3.5" />
+                                    Orders
+                                  </Link>
+                                </Button>
+                                <Button variant="outline" size="sm" className="h-8" asChild>
+                                  <Link
+                                    href={`/dashboard/integrations/woocommerce/products?connectionId=${encodeURIComponent(conn.id)}`}
+                                  >
+                                    Products
+                                  </Link>
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 text-destructive"
+                                  disabled={woocommerceDisconnectId === conn.id}
+                                  onClick={() => void handleDisconnectWooCommerce(conn.id)}
+                                >
+                                  {woocommerceDisconnectId === conn.id ? (
                                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                   ) : (
                                     <Trash2 className="h-3.5 w-3.5" />
@@ -1000,6 +1193,69 @@ export default function IntegrationsPage() {
               </Button>
               <Button onClick={() => void handleConnectShipStation()} disabled={shipstationConnecting}>
                 {shipstationConnecting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 h-4 w-4" />
+                )}
+                Connect & sync
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={woocommerceDialogOpen} onOpenChange={setWoocommerceDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Connect WooCommerce</DialogTitle>
+            <DialogDescription>
+              Enter your store URL and REST API Consumer Key / Secret from WooCommerce → Settings → Advanced → REST
+              API. We sync recent orders into PrepCorex.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Account label (optional)</Label>
+              <Input
+                placeholder="e.g. Main store"
+                value={woocommerceLabel}
+                onChange={(e) => setWoocommerceLabel(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Store URL</Label>
+              <Input
+                placeholder="https://yourstore.com"
+                value={woocommerceStoreUrl}
+                onChange={(e) => setWoocommerceStoreUrl(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Consumer Key</Label>
+              <Input
+                placeholder="ck_…"
+                value={woocommerceConsumerKey}
+                onChange={(e) => setWoocommerceConsumerKey(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Consumer Secret</Label>
+              <Input
+                type="password"
+                placeholder="cs_…"
+                value={woocommerceConsumerSecret}
+                onChange={(e) => setWoocommerceConsumerSecret(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setWoocommerceDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void handleConnectWooCommerce()} disabled={woocommerceConnecting}>
+                {woocommerceConnecting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Plus className="mr-2 h-4 w-4" />

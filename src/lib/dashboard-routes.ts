@@ -22,6 +22,7 @@ const PATH_FEATURE_MAP: { path: string; feature: UserFeature; exact?: boolean }[
   { path: "/dashboard/documents", feature: "client_documents", exact: true },
   { path: "/dashboard/shopify-orders", feature: "view_shopify_orders", exact: true },
   { path: "/dashboard/shipstation-orders", feature: "integrations", exact: true },
+  { path: "/dashboard/woocommerce-orders", feature: "integrations", exact: true },
   { path: "/dashboard/integrations", feature: "integrations", exact: false },
   { path: "/dashboard/agent", feature: "affiliate_dashboard", exact: false },
   { path: "/dashboard", feature: "view_dashboard", exact: true },

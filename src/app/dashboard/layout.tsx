@@ -51,7 +51,8 @@ export default function DashboardLayout({
     const canManageOrderIntegrations =
       hasFeature(userProfile, "manage_shopify_orders") ||
       hasFeature(userProfile, "manage_ebay_orders") ||
-      hasFeature(userProfile, "manage_shipstation_orders");
+      hasFeature(userProfile, "manage_shipstation_orders") ||
+      hasFeature(userProfile, "manage_woocommerce_orders");
     if (hasAdminRole && !hasUserRole && !hasAgentRole && canManageOrderIntegrations) {
       router.replace("/admin/dashboard/integrations");
     }
@@ -78,7 +79,8 @@ export default function DashboardLayout({
         hasAdminRole &&
         (hasFeature(userProfile, "manage_shopify_orders") ||
           hasFeature(userProfile, "manage_ebay_orders") ||
-          hasFeature(userProfile, "manage_shipstation_orders"));
+          hasFeature(userProfile, "manage_shipstation_orders") ||
+          hasFeature(userProfile, "manage_woocommerce_orders"));
 
       // Check if user is trying to access agent dashboard
       const isOnAgentDashboard = pathname?.startsWith("/dashboard/agent");
@@ -172,7 +174,8 @@ export default function DashboardLayout({
     (hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin")) &&
     (hasFeature(userProfile, "manage_shopify_orders") ||
       hasFeature(userProfile, "manage_ebay_orders") ||
-      hasFeature(userProfile, "manage_shipstation_orders"));
+      hasFeature(userProfile, "manage_shipstation_orders") ||
+      hasFeature(userProfile, "manage_woocommerce_orders"));
 
   if (
     userProfile &&

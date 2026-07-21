@@ -408,6 +408,7 @@ export type UserFeature =
   | "integrations"
   | "view_shopify_orders"
   | "view_shipstation_orders"
+  | "view_woocommerce_orders"
   | "request_product_returns"
   | "csv_import_inbound"
   | "csv_import_outbound"
@@ -427,6 +428,7 @@ export type UserFeature =
   | "manage_shopify_orders"
   | "manage_ebay_orders"
   | "manage_shipstation_orders"
+  | "manage_woocommerce_orders"
   | "manage_inventory_admin"
   | "manage_notifications"
   | "ops_dashboard"
@@ -576,12 +578,17 @@ export interface InventoryItem {
   } | string;
   status: 'In Stock' | 'Out of Stock';
   /** Set when item is synced from an external integration (read-only in inventory list). */
-  source?: 'shopify' | 'ebay';
+  source?: 'shopify' | 'ebay' | 'woocommerce';
   shopifyVariantId?: string;
   shopifyProductId?: string;
   /** Shopify inventory_item_id (for inventory_levels API and webhooks). */
   shopifyInventoryItemId?: string;
   shop?: string;
+  /** WooCommerce linked catalog item */
+  woocommerceConnectionId?: string;
+  woocommerceProductId?: string;
+  woocommerceVariationId?: string;
+  woocommerceStoreUrl?: string;
   sku?: string;
   retailIdentifier?: string;
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;

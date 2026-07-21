@@ -522,6 +522,54 @@ export function ShipmentRequestsManagement({
               });
             }
           }
+
+          const wooItem = inventory.find((i) => i.id === shipment.productId) as
+            | (InventoryItem & {
+                source?: string;
+                woocommerceConnectionId?: string;
+                woocommerceProductId?: string;
+                woocommerceVariationId?: string;
+              })
+            | undefined;
+          if (
+            wooItem?.source === "woocommerce" &&
+            wooItem.woocommerceConnectionId &&
+            wooItem.woocommerceProductId
+          ) {
+            const totalRestore = (shipment.quantity || 0) * (shipment.packOf || 1);
+            const newQty = wooItem.quantity + totalRestore;
+            try {
+              const token = await authUser.getIdToken();
+              const res = await fetch("/api/integrations/woocommerce/sync-inventory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  userId: targetUserId,
+                  connectionId: wooItem.woocommerceConnectionId,
+                  productId: wooItem.woocommerceProductId,
+                  variationId: wooItem.woocommerceVariationId,
+                  newQuantity: newQty,
+                }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                toast({
+                  variant: "destructive",
+                  title: "Quantities restored in PrepCorex; WooCommerce did not update",
+                  description:
+                    typeof data.error === "string"
+                      ? data.error
+                      : "Re-connect the store in Integrations.",
+                });
+              }
+            } catch (e) {
+              toast({
+                variant: "destructive",
+                title: "Quantities restored in PrepCorex; WooCommerce did not update",
+                description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
+              });
+            }
+          }
         }
       }
 

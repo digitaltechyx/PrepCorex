@@ -180,43 +180,83 @@ export function DisposeRequestsManagement({
       shop?: string;
       shopifyVariantId?: string;
       shopifyInventoryItemId?: string;
+      woocommerceConnectionId?: string;
+      woocommerceProductId?: string;
+      woocommerceVariationId?: string;
     };
+    if (!authUser || !userId) return;
+
     if (
-      shopifyItem.source !== "shopify" ||
-      !shopifyItem.shop ||
-      !shopifyItem.shopifyVariantId ||
-      !authUser ||
-      !userId
+      shopifyItem.source === "shopify" &&
+      shopifyItem.shop &&
+      shopifyItem.shopifyVariantId
     ) {
-      return;
-    }
-    try {
-      const token = await authUser.getIdToken();
-      const res = await fetch("/api/shopify/sync-inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          userId,
-          shop: shopifyItem.shop,
-          shopifyVariantId: shopifyItem.shopifyVariantId,
-          shopifyInventoryItemId: shopifyItem.shopifyInventoryItemId,
-          newQuantity: newQtyAfterDispose,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      try {
+        const token = await authUser.getIdToken();
+        const res = await fetch("/api/shopify/sync-inventory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            userId,
+            shop: shopifyItem.shop,
+            shopifyVariantId: shopifyItem.shopifyVariantId,
+            shopifyInventoryItemId: shopifyItem.shopifyInventoryItemId,
+            newQuantity: newQtyAfterDispose,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            variant: "destructive",
+            title: "Disposed in PrepCorex; Shopify did not update",
+            description: typeof data.error === "string" ? data.error : "Add write_inventory scope and re-connect the store.",
+          });
+        }
+      } catch (e) {
         toast({
           variant: "destructive",
           title: "Disposed in PrepCorex; Shopify did not update",
-          description: typeof data.error === "string" ? data.error : "Add write_inventory scope and re-connect the store.",
+          description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
         });
       }
-    } catch (e) {
-      toast({
-        variant: "destructive",
-        title: "Disposed in PrepCorex; Shopify did not update",
-        description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
-      });
+    }
+
+    if (
+      shopifyItem.source === "woocommerce" &&
+      shopifyItem.woocommerceConnectionId &&
+      shopifyItem.woocommerceProductId
+    ) {
+      try {
+        const token = await authUser.getIdToken();
+        const res = await fetch("/api/integrations/woocommerce/sync-inventory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            userId,
+            connectionId: shopifyItem.woocommerceConnectionId,
+            productId: shopifyItem.woocommerceProductId,
+            variationId: shopifyItem.woocommerceVariationId,
+            newQuantity: newQtyAfterDispose,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            variant: "destructive",
+            title: "Disposed in PrepCorex; WooCommerce did not update",
+            description:
+              typeof data.error === "string"
+                ? data.error
+                : "Re-connect the store in Integrations.",
+          });
+        }
+      } catch (e) {
+        toast({
+          variant: "destructive",
+          title: "Disposed in PrepCorex; WooCommerce did not update",
+          description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
+        });
+      }
     }
   };
 

@@ -359,33 +359,70 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
       if (user && shopifyHints.length > 0) {
         const token = await user.getIdToken();
         for (const hint of shopifyHints) {
-          if (hint.source !== "shopify" || !hint.shop || !hint.shopifyVariantId) continue;
-          try {
-            const res = await fetch("/api/shopify/sync-inventory", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-              body: JSON.stringify({
-                userId: matchedOrder.clientUserId,
-                shop: hint.shop,
-                shopifyVariantId: hint.shopifyVariantId,
-                shopifyInventoryItemId: hint.shopifyInventoryItemId,
-                newQuantity: hint.newQuantity,
-              }),
-            });
-            if (!res.ok) {
-              const data = await res.json().catch(() => ({}));
+          if (hint.source === "shopify" && hint.shop && hint.shopifyVariantId) {
+            try {
+              const res = await fetch("/api/shopify/sync-inventory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  userId: matchedOrder.clientUserId,
+                  shop: hint.shop,
+                  shopifyVariantId: hint.shopifyVariantId,
+                  shopifyInventoryItemId: hint.shopifyInventoryItemId,
+                  newQuantity: hint.newQuantity,
+                }),
+              });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                toast({
+                  variant: "destructive",
+                  title: "Dispatched; Shopify inventory did not update",
+                  description: typeof data.error === "string" ? data.error : "Re-connect the store or use an admin account.",
+                });
+              }
+            } catch (e) {
               toast({
                 variant: "destructive",
                 title: "Dispatched; Shopify inventory did not update",
-                description: typeof data.error === "string" ? data.error : "Re-connect the store or use an admin account.",
+                description: e instanceof Error ? e.message : "Unknown error",
               });
             }
-          } catch (e) {
-            toast({
-              variant: "destructive",
-              title: "Dispatched; Shopify inventory did not update",
-              description: e instanceof Error ? e.message : "Unknown error",
-            });
+            continue;
+          }
+
+          if (
+            hint.source === "woocommerce" &&
+            hint.woocommerceConnectionId &&
+            hint.woocommerceProductId
+          ) {
+            try {
+              const res = await fetch("/api/integrations/woocommerce/sync-inventory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  userId: matchedOrder.clientUserId,
+                  connectionId: hint.woocommerceConnectionId,
+                  productId: hint.woocommerceProductId,
+                  variationId: hint.woocommerceVariationId,
+                  newQuantity: hint.newQuantity,
+                }),
+              });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                toast({
+                  variant: "destructive",
+                  title: "Dispatched; WooCommerce inventory did not update",
+                  description:
+                    typeof data.error === "string" ? data.error : "Re-connect the store in Integrations.",
+                });
+              }
+            } catch (e) {
+              toast({
+                variant: "destructive",
+                title: "Dispatched; WooCommerce inventory did not update",
+                description: e instanceof Error ? e.message : "Unknown error",
+              });
+            }
           }
         }
       }

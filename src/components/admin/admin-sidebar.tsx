@@ -35,6 +35,7 @@ import {
   Plug,
   ShoppingCart,
   Ship,
+  Store,
   Warehouse,
   Handshake,
   BarChart3,
@@ -239,7 +240,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/integrations",
       icon: Plug,
       color: "text-green-600",
-      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders"] as const satisfies readonly UserFeature[],
+      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders", "manage_woocommerce_orders"] as const satisfies readonly UserFeature[],
     },
     {
       title: "Shopify Orders",
@@ -264,6 +265,14 @@ export function AdminSidebar() {
       color: "text-indigo-600",
       badge: null,
       requiredFeature: "manage_shipstation_orders" as const,
+    },
+    {
+      title: "WooCommerce Orders",
+      url: "/admin/dashboard/woocommerce-orders",
+      icon: Store,
+      color: "text-violet-600",
+      badge: null,
+      requiredFeature: "manage_woocommerce_orders" as const,
     },
   ];
 
@@ -339,10 +348,14 @@ export function AdminSidebar() {
               <SidebarMenu className="space-y-1">
                 {menuItems.map((item) => {
                   const Icon = item.icon;
+                  const isWarehouseOps = Boolean(
+                    (item as { warehouseOpsEntry?: boolean }).warehouseOpsEntry
+                  );
                   const isActive =
                     pathname === item.url ||
                     (item.url === "/admin/dashboard/integrations" &&
-                      pathname.startsWith("/admin/dashboard/integrations"));
+                      pathname.startsWith("/admin/dashboard/integrations")) ||
+                    (isWarehouseOps && pathname?.startsWith("/warehouse-ops"));
                   
                   return (
                     <SidebarMenuItem key={item.url}>
@@ -352,22 +365,44 @@ export function AdminSidebar() {
                         tooltip={item.title}
                         className={cn(
                           "group relative h-11 overflow-visible rounded-lg transition-all duration-200",
-                          isActive 
-                            ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20" 
-                            : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                          isWarehouseOps && !isActive
+                            ? "border border-orange-300/70 bg-gradient-to-r from-orange-500/15 to-amber-500/10 text-orange-800 shadow-sm hover:from-orange-500/25 hover:to-amber-500/15 dark:border-orange-700/50 dark:text-orange-200"
+                            : isActive
+                              ? isWarehouseOps
+                                ? "border border-orange-400/50 bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-sm hover:from-orange-600 hover:to-amber-600 hover:text-white"
+                                : "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
+                              : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                         )}
                       >
                         <Link href={item.url} className="flex w-full min-w-0 items-center gap-3 pr-1">
                           <Icon className={cn(
                             "h-5 w-5 shrink-0 transition-transform group-hover:scale-110",
-                            isActive ? item.color : "text-muted-foreground"
+                            isWarehouseOps
+                              ? isActive
+                                ? "text-white"
+                                : "text-orange-600 dark:text-orange-400"
+                              : isActive
+                                ? item.color
+                                : "text-muted-foreground"
                           )} />
                           <span className={cn(
                             "min-w-0 flex-1 truncate font-medium transition-colors",
-                            isActive && "font-semibold"
+                            (isActive || isWarehouseOps) && "font-semibold"
                           )}>
                             {item.title}
                           </span>
+                          {isWarehouseOps ? (
+                            <span
+                              className={cn(
+                                "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                                isActive
+                                  ? "bg-white/20 text-white"
+                                  : "bg-orange-600 text-white"
+                              )}
+                            >
+                              Floor
+                            </span>
+                          ) : null}
                           {item.badge !== null && item.badge !== undefined && (
                             <NavMenuCountBadge
                               count={item.badge}

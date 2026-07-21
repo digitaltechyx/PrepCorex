@@ -162,6 +162,66 @@ export function AdminInventoryManagement({
     }
   };
 
+  const syncWooCommerceInventoryIfNeeded = async (
+    item: InventoryItem & {
+      source?: string;
+      woocommerceConnectionId?: string;
+      woocommerceProductId?: string;
+      woocommerceVariationId?: string;
+    },
+    newQuantity: number,
+    userId: string
+  ) => {
+    if (
+      item.source !== "woocommerce" ||
+      !item.woocommerceConnectionId ||
+      !item.woocommerceProductId ||
+      !authUser
+    ) {
+      return;
+    }
+    try {
+      const token = await authUser.getIdToken();
+      const res = await fetch("/api/integrations/woocommerce/sync-inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          userId,
+          connectionId: item.woocommerceConnectionId,
+          productId: item.woocommerceProductId,
+          variationId: item.woocommerceVariationId,
+          newQuantity,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "PrepCorex updated; WooCommerce did not update",
+          description:
+            typeof data.error === "string"
+              ? data.error
+              : "Check store REST API keys and Read/Write permission.",
+        });
+      }
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "PrepCorex updated; WooCommerce did not update",
+        description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
+      });
+    }
+  };
+
+  const syncExternalInventoryIfNeeded = async (
+    item: InventoryItem,
+    newQuantity: number,
+    userId: string
+  ) => {
+    await syncShopifyInventoryIfNeeded(item as any, newQuantity, userId);
+    await syncWooCommerceInventoryIfNeeded(item as any, newQuantity, userId);
+  };
+
   const syncShopifyProductTitleIfNeeded = async (
     item: InventoryItem & { source?: string; shop?: string; shopifyProductId?: string },
     newTitle: string,
@@ -737,7 +797,7 @@ export function AdminInventoryManagement({
         quantity: values.quantity,
         status: values.quantity > 0 ? "In Stock" : "Out of Stock",
       });
-      await syncShopifyInventoryIfNeeded(editingProduct as any, values.quantity, selectedUser.uid);
+      await syncExternalInventoryIfNeeded(editingProduct as any, values.quantity, selectedUser.uid);
       if (values.productName && (editingProduct as any).productName !== values.productName) {
         await syncShopifyProductTitleIfNeeded(editingProduct as any, values.productName, selectedUser.uid);
       }
@@ -771,7 +831,7 @@ export function AdminInventoryManagement({
         quantity: newQuantity,
         status: "In Stock",
       });
-      await syncShopifyInventoryIfNeeded(restockingProduct as any, newQuantity, selectedUser.uid);
+      await syncExternalInventoryIfNeeded(restockingProduct as any, newQuantity, selectedUser.uid);
       await syncEbayInventoryIfNeeded(restockingProduct as any, newQuantity, selectedUser.uid);
 
       // Record restock history with selected date
@@ -842,7 +902,7 @@ export function AdminInventoryManagement({
       // Delete the product
       const productRef = doc(db, `users/${selectedUser.uid}/inventory`, deletingProduct.id);
       await deleteDoc(productRef);
-      await syncShopifyInventoryIfNeeded(deletingProduct as any, 0, selectedUser.uid);
+      await syncExternalInventoryIfNeeded(deletingProduct as any, 0, selectedUser.uid);
 
       toast({
         title: "Success",
@@ -884,7 +944,7 @@ export function AdminInventoryManagement({
         quantity: newQty,
         status: newStatus,
       });
-      await syncShopifyInventoryIfNeeded(editingProductWithLog as any, newQty, selectedUser.uid);
+      await syncExternalInventoryIfNeeded(editingProductWithLog as any, newQty, selectedUser.uid);
       if (previousProductName !== editForm.getValues("productName")) {
         await syncShopifyProductTitleIfNeeded(editingProductWithLog as any, editForm.getValues("productName"), selectedUser.uid);
       }
@@ -1105,7 +1165,7 @@ export function AdminInventoryManagement({
         // Delete from original collection
         const inventoryRef = doc(db, `users/${selectedUser.uid}/inventory`, inventoryItem.id);
         await deleteDoc(inventoryRef);
-        await syncShopifyInventoryIfNeeded(inventoryItem as any, 0, selectedUser.uid);
+        await syncExternalInventoryIfNeeded(inventoryItem as any, 0, selectedUser.uid);
 
         toast({
           title: "Success",
@@ -1122,7 +1182,7 @@ export function AdminInventoryManagement({
           quantity: newQuantity,
           status: newStatus,
         });
-        await syncShopifyInventoryIfNeeded(inventoryItem as any, newQuantity, selectedUser.uid);
+        await syncExternalInventoryIfNeeded(inventoryItem as any, newQuantity, selectedUser.uid);
 
         // Add partial quantity to recycled collection
         const recycledRef = collection(db, `users/${selectedUser.uid}/recycledInventory`);
