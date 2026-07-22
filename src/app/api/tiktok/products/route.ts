@@ -5,6 +5,7 @@ import {
   getValidTikTokAccessToken,
   TikTokReconnectRequired,
 } from "@/lib/tiktok-access-token";
+import { collectTikTokProductImageUrls } from "@/lib/tiktok-product-image";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,11 +21,14 @@ type TikTokProduct = {
   title?: string;
   status?: string;
   skus?: TikTokSku[];
+  main_images?: unknown[];
+  images?: unknown[];
+  product_images?: unknown[];
 };
 
 /**
  * GET /api/tiktok/products?connectionId=...
- * Lists products from the connected TikTok Shop.
+ * Lists products from the connected TikTok Shop (includes image when search returns it).
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -65,6 +69,8 @@ export async function GET(request: NextRequest) {
       productId: string;
       productTitle: string;
       status: string | null;
+      imageUrl: string | null;
+      imageUrls: string[];
       skus: Array<{ skuId: string; sellerSku: string | null; quantity: number | null }>;
     }> = [];
 
@@ -93,10 +99,15 @@ export async function GET(request: NextRequest) {
       for (const p of res.data?.products ?? []) {
         const productId = String(p.id ?? "");
         if (!productId) continue;
+        const imageUrls = collectTikTokProductImageUrls(
+          p as Parameters<typeof collectTikTokProductImageUrls>[0]
+        );
         products.push({
           productId,
           productTitle: p.title || productId,
           status: p.status ?? null,
+          imageUrl: imageUrls[0] ?? null,
+          imageUrls,
           skus: (p.skus ?? []).map((s) => {
             const qty =
               s.stock_infos?.reduce((sum, si) => sum + (si.available_stock ?? 0), 0) ?? null;

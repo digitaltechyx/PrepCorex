@@ -6,6 +6,7 @@ import {
   getValidTikTokAccessToken,
   TikTokReconnectRequired,
 } from "@/lib/tiktok-access-token";
+import { collectTikTokProductImageUrls } from "@/lib/tiktok-product-image";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,11 +21,20 @@ type TikTokProduct = {
   id?: string;
   title?: string;
   skus?: TikTokSku[];
+  main_images?: unknown[];
+  images?: unknown[];
+  product_images?: unknown[];
 };
 
 function safeShopKey(shopId: string): string {
   return shopId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "shop";
 }
+
+type SelectedPayload = TikTokSelectedProduct & {
+  quantity?: number;
+  imageUrl?: string;
+  imageUrls?: string[];
+};
 
 /** PUT: Save selected TikTok products/SKUs and seed inventory rows (Shopify-style). */
 export async function PUT(request: NextRequest) {
@@ -53,7 +63,6 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Missing connectionId" }, { status: 400 });
   }
 
-  type SelectedPayload = TikTokSelectedProduct & { quantity?: number };
   const selectedProducts: SelectedPayload[] = Array.isArray(raw)
     ? raw
         .filter(
@@ -64,18 +73,37 @@ export async function PUT(request: NextRequest) {
             typeof (v as { skuId?: unknown }).skuId === "string" &&
             typeof (v as { title?: unknown }).title === "string"
         )
-        .map((v: { productId: string; skuId: string; title: string; sku?: string; quantity?: number }) => {
-          const item: SelectedPayload = {
-            productId: v.productId,
-            skuId: v.skuId,
-            title: v.title,
-          };
-          if (v.sku != null && v.sku !== "") item.sku = v.sku;
-          if (typeof v.quantity === "number" && Number.isFinite(v.quantity)) {
-            item.quantity = Math.max(0, Math.floor(v.quantity));
+        .map(
+          (v: {
+            productId: string;
+            skuId: string;
+            title: string;
+            sku?: string;
+            quantity?: number;
+            imageUrl?: string;
+            imageUrls?: string[];
+          }) => {
+            const item: SelectedPayload = {
+              productId: v.productId,
+              skuId: v.skuId,
+              title: v.title,
+            };
+            if (v.sku != null && v.sku !== "") item.sku = v.sku;
+            if (typeof v.quantity === "number" && Number.isFinite(v.quantity)) {
+              item.quantity = Math.max(0, Math.floor(v.quantity));
+            }
+            if (typeof v.imageUrl === "string" && v.imageUrl.trim().startsWith("http")) {
+              item.imageUrl = v.imageUrl.trim();
+            }
+            if (Array.isArray(v.imageUrls)) {
+              const urls = v.imageUrls.filter(
+                (u): u is string => typeof u === "string" && u.trim().startsWith("http")
+              );
+              if (urls.length) item.imageUrls = urls;
+            }
+            return item;
           }
-          return item;
-        })
+        )
     : [];
 
   try {
@@ -90,7 +118,6 @@ export async function PUT(request: NextRequest) {
     const shopName = String(conn.shopName ?? "TikTok Shop");
     const shopKey = safeShopKey(shopId);
 
-    // Persist selection without ephemeral quantity field
     await connRef.update({
       selectedProducts: selectedProducts.map(({ productId, skuId, title, sku }) => {
         const row: TikTokSelectedProduct = { productId, skuId, title };
@@ -103,16 +130,38 @@ export async function PUT(request: NextRequest) {
     const invRef = db.collection("users").doc(uid).collection("inventory");
     const selectedSkuIds = new Set(selectedProducts.map((p) => p.skuId));
 
-    // Prefer qty from client payload; refresh from TikTok API when missing
     const qtyBySku: Record<string, number> = {};
+    const imageByProduct: Record<string, string[]> = {};
     for (const sel of selectedProducts) {
       if (typeof sel.quantity === "number") qtyBySku[sel.skuId] = sel.quantity;
+      const fromClient = [
+        ...(sel.imageUrls ?? []),
+        ...(sel.imageUrl ? [sel.imageUrl] : []),
+      ].filter((u) => u.startsWith("http"));
+      if (fromClient.length) {
+        const existing = imageByProduct[sel.productId] ?? [];
+        const merged = [...existing];
+        for (const u of fromClient) {
+          if (!merged.includes(u)) merged.push(u);
+        }
+        imageByProduct[sel.productId] = merged;
+      }
     }
+
+    let accessToken: string | null = null;
+    let shopCipher: string | null = null;
+    const ensureToken = async () => {
+      if (accessToken) return;
+      accessToken = await getValidTikTokAccessToken(connRef, conn);
+      shopCipher = (conn.shopCipher as string) || null;
+    };
+
     const needsLiveQty = selectedProducts.some((p) => typeof p.quantity !== "number");
-    if (needsLiveQty) {
+    const needsImages = selectedProducts.some((p) => !(imageByProduct[p.productId]?.length));
+
+    if (needsLiveQty || needsImages) {
       try {
-        const accessToken = await getValidTikTokAccessToken(connRef, conn);
-        const shopCipher = (conn.shopCipher as string) || null;
+        await ensureToken();
         let pageToken: string | undefined;
         for (let page = 0; page < 5; page++) {
           const res = await tikTokApiRequest<{
@@ -121,7 +170,7 @@ export async function PUT(request: NextRequest) {
           }>({
             method: "POST",
             path: "/product/202309/products/search",
-            accessToken,
+            accessToken: accessToken!,
             shopCipher,
             query: { page_size: 50, ...(pageToken ? { page_token: pageToken } : {}) },
             body: { status: "ALL" },
@@ -131,12 +180,21 @@ export async function PUT(request: NextRequest) {
             break;
           }
           for (const p of res.data?.products ?? []) {
-            for (const s of p.skus ?? []) {
-              const id = String(s.id ?? "");
-              if (!id || id in qtyBySku) continue;
-              const qty =
-                s.stock_infos?.reduce((sum, si) => sum + (si.available_stock ?? 0), 0) ?? 0;
-              qtyBySku[id] = qty;
+            const pid = String(p.id ?? "");
+            if (needsLiveQty) {
+              for (const s of p.skus ?? []) {
+                const id = String(s.id ?? "");
+                if (!id || id in qtyBySku) continue;
+                const qty =
+                  s.stock_infos?.reduce((sum, si) => sum + (si.available_stock ?? 0), 0) ?? 0;
+                qtyBySku[id] = qty;
+              }
+            }
+            if (pid && !(imageByProduct[pid]?.length)) {
+              const urls = collectTikTokProductImageUrls(
+                p as Parameters<typeof collectTikTokProductImageUrls>[0]
+              );
+              if (urls.length) imageByProduct[pid] = urls;
             }
           }
           pageToken = res.data?.next_page_token;
@@ -144,19 +202,53 @@ export async function PUT(request: NextRequest) {
         }
       } catch (e) {
         if (e instanceof TikTokReconnectRequired) {
-          console.warn("[tiktok-selected-products] token refresh needed; seeding qty 0");
+          console.warn("[tiktok-selected-products] token refresh needed");
         } else {
-          console.warn("[tiktok-selected-products] qty fetch failed", e);
+          console.warn("[tiktok-selected-products] catalog fetch failed", e);
         }
+      }
+    }
+
+    // Fill missing images via Get Product detail (search often omits main_images)
+    const missingImageProductIds = [
+      ...new Set(
+        selectedProducts
+          .map((p) => p.productId)
+          .filter((pid) => !(imageByProduct[pid]?.length))
+      ),
+    ];
+    for (const productId of missingImageProductIds) {
+      try {
+        await ensureToken();
+        const detail = await tikTokApiRequest<TikTokProduct>({
+          method: "GET",
+          path: `/product/202309/products/${encodeURIComponent(productId)}`,
+          accessToken: accessToken!,
+          shopCipher,
+        });
+        if (detail.code !== 0 || !detail.data) {
+          console.warn(
+            "[tiktok-selected-products] product detail",
+            productId,
+            parseTikTokError(detail)
+          );
+          continue;
+        }
+        const urls = collectTikTokProductImageUrls(
+          detail.data as Parameters<typeof collectTikTokProductImageUrls>[0]
+        );
+        if (urls.length) imageByProduct[productId] = urls;
+      } catch (e) {
+        console.warn("[tiktok-selected-products] detail image failed", productId, e);
       }
     }
 
     for (const sel of selectedProducts) {
       const quantity = qtyBySku[sel.skuId] ?? 0;
-      // Linked catalog rows stay visible in inventory even at qty 0
       const status = "In Stock";
       const docId = `tiktok_${shopKey}_${sel.skuId}`;
       const existingSnap = await invRef.doc(docId).get();
+      const imageUrls = imageByProduct[sel.productId] ?? [];
       const payload: Record<string, unknown> = {
         productName: sel.title,
         quantity,
@@ -169,13 +261,16 @@ export async function PUT(request: NextRequest) {
         shop: shopName,
         ...(sel.sku ? { sku: sel.sku } : {}),
       };
+      if (imageUrls.length) {
+        payload.imageUrl = imageUrls[0];
+        payload.imageUrls = imageUrls;
+      }
       if (!existingSnap.exists) {
         payload.dateAdded = FieldValue.serverTimestamp();
       }
       await invRef.doc(docId).set(payload, { merge: true });
     }
 
-    // Remove deselected TikTok rows for this shop (by source + shop id, fallback prefix scan)
     const existing = await invRef.where("source", "==", "tiktok").get();
     for (const d of existing.docs) {
       const data = d.data();

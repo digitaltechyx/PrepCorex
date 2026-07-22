@@ -1315,19 +1315,27 @@ export function InventoryTable({
 
     // Convert approved inventory items - get remarks from inventory item OR approved request
     const inventoryItems = data.map(item => {
-      // Try to find matching approved request to get remarks
-      const matchingRequest = approvedRequests.find((req) => {
-        if ((item as any).sourceRequestId && req.id === (item as any).sourceRequestId) return true;
-        const requestSku = ((req as any).sku || "").trim().toLowerCase();
-        const itemSku = (((item as any).sku as string) || "").trim().toLowerCase();
-        if (requestSku && itemSku) return requestSku === itemSku;
-        const reqReceived = (req as any).receivedQuantity ?? req.quantity;
-        return (
-          req.productName === item.productName &&
-          req.requestedBy === item.requestedBy &&
-          (reqReceived === item.quantity || req.quantity === item.quantity)
-        );
-      });
+      const isMarketplace =
+        item.source === "shopify" ||
+        item.source === "ebay" ||
+        item.source === "woocommerce" ||
+        item.source === "tiktok";
+
+      // Marketplace catalog rows should not inherit inbound-request photos/dates by SKU coincidence
+      const matchingRequest = isMarketplace
+        ? undefined
+        : approvedRequests.find((req) => {
+            if ((item as any).sourceRequestId && req.id === (item as any).sourceRequestId) return true;
+            const requestSku = ((req as any).sku || "").trim().toLowerCase();
+            const itemSku = (((item as any).sku as string) || "").trim().toLowerCase();
+            if (requestSku && itemSku) return requestSku === itemSku;
+            const reqReceived = (req as any).receivedQuantity ?? req.quantity;
+            return (
+              req.productName === item.productName &&
+              req.requestedBy === item.requestedBy &&
+              (reqReceived === item.quantity || req.quantity === item.quantity)
+            );
+          });
       
       // Use remarks from inventory item first, then from approved request
       const remarks = item.remarks || matchingRequest?.remarks;

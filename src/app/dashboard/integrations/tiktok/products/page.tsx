@@ -16,6 +16,8 @@ type ProductRow = {
   productId: string;
   productTitle: string;
   status: string | null;
+  imageUrl?: string | null;
+  imageUrls?: string[];
   skus: SkuRow[];
 };
 
@@ -109,6 +111,8 @@ export default function TikTokProductsPage() {
         title: string;
         sku?: string;
         quantity?: number;
+        imageUrl?: string;
+        imageUrls?: string[];
       }> = [];
       for (const p of products) {
         for (const s of p.skus) {
@@ -119,6 +123,8 @@ export default function TikTokProductsPage() {
             title: p.skus.length > 1 ? `${p.productTitle} — ${s.sellerSku || s.skuId}` : p.productTitle,
             ...(s.sellerSku ? { sku: s.sellerSku } : {}),
             ...(typeof s.quantity === "number" ? { quantity: s.quantity } : {}),
+            ...(p.imageUrl ? { imageUrl: p.imageUrl } : {}),
+            ...(p.imageUrls?.length ? { imageUrls: p.imageUrls } : {}),
           });
         }
       }
