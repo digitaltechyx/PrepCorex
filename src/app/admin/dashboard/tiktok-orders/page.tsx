@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { formatUserDisplayName } from "@/lib/display-name";
+import { formatUserDisplayName } from "@/lib/format-user-display";
 import { Loader2, ShoppingBag, Truck } from "lucide-react";
 
 type TikTokOrderRow = {
