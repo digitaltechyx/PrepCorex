@@ -21,7 +21,7 @@ const PATH_FEATURE_MAP: { path: string; feature: UserFeature; exact?: boolean }[
   { path: "/dashboard/pricing", feature: "my_pricing", exact: true },
   { path: "/dashboard/documents", feature: "client_documents", exact: true },
   { path: "/dashboard/shopify-orders", feature: "view_shopify_orders", exact: true },
-  { path: "/dashboard/tiktok-orders", feature: "view_tiktok_orders", exact: true },
+  { path: "/dashboard/tiktok-orders", feature: "integrations", exact: true },
   { path: "/dashboard/shipstation-orders", feature: "integrations", exact: true },
   { path: "/dashboard/woocommerce-orders", feature: "integrations", exact: true },
   { path: "/dashboard/integrations", feature: "integrations", exact: false },

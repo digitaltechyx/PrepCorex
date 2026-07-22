@@ -356,7 +356,7 @@ export function DashboardSidebar() {
       color: "text-fuchsia-600",
       badge: null,
       requiredRole: "user" as const,
-      requiredFeature: "view_tiktok_orders" as const,
+      requiredFeature: "integrations" as const,
     },
     {
       title: "ShipStation Orders",
