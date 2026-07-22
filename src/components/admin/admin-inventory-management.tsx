@@ -213,6 +213,59 @@ export function AdminInventoryManagement({
     }
   };
 
+  const syncTikTokInventoryIfNeeded = async (
+    item: InventoryItem & {
+      source?: string;
+      tiktokConnectionId?: string;
+      tiktokProductId?: string;
+      tiktokSkuId?: string;
+      tiktokShopId?: string;
+    },
+    newQuantity: number,
+    userId: string
+  ) => {
+    if (
+      item.source !== "tiktok" ||
+      !item.tiktokProductId ||
+      !item.tiktokSkuId ||
+      !authUser
+    ) {
+      return;
+    }
+    if (!item.tiktokConnectionId && !item.tiktokShopId) return;
+    try {
+      const token = await authUser.getIdToken();
+      const res = await fetch("/api/tiktok/sync-inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          userId,
+          connectionId: item.tiktokConnectionId,
+          tiktokShopId: item.tiktokShopId,
+          productId: item.tiktokProductId,
+          skuId: item.tiktokSkuId,
+          newQuantity,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "PrepCorex updated; TikTok Shop did not update",
+          description:
+            [data.error, data.detail].filter(Boolean).join(" — ") ||
+            "Enable product write / inventory scopes and re-connect TikTok.",
+        });
+      }
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "PrepCorex updated; TikTok Shop did not update",
+        description: e instanceof Error ? e.message : "Re-connect TikTok in Integrations.",
+      });
+    }
+  };
+
   const syncExternalInventoryIfNeeded = async (
     item: InventoryItem,
     newQuantity: number,
@@ -220,6 +273,7 @@ export function AdminInventoryManagement({
   ) => {
     await syncShopifyInventoryIfNeeded(item as any, newQuantity, userId);
     await syncWooCommerceInventoryIfNeeded(item as any, newQuantity, userId);
+    await syncTikTokInventoryIfNeeded(item as any, newQuantity, userId);
   };
 
   const syncShopifyProductTitleIfNeeded = async (

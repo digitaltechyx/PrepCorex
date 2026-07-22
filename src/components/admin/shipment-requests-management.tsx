@@ -571,6 +571,56 @@ export function ShipmentRequestsManagement({
               });
             }
           }
+
+          const tiktokItem = inventory.find((i) => i.id === shipment.productId) as
+            | (InventoryItem & {
+                source?: string;
+                tiktokConnectionId?: string;
+                tiktokProductId?: string;
+                tiktokSkuId?: string;
+                tiktokShopId?: string;
+              })
+            | undefined;
+          if (
+            tiktokItem?.source === "tiktok" &&
+            tiktokItem.tiktokProductId &&
+            tiktokItem.tiktokSkuId &&
+            (tiktokItem.tiktokConnectionId || tiktokItem.tiktokShopId)
+          ) {
+            const totalRestore = (shipment.quantity || 0) * (shipment.packOf || 1);
+            const newQty = tiktokItem.quantity + totalRestore;
+            try {
+              const token = await authUser.getIdToken();
+              const res = await fetch("/api/tiktok/sync-inventory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  userId: targetUserId,
+                  connectionId: tiktokItem.tiktokConnectionId,
+                  tiktokShopId: tiktokItem.tiktokShopId,
+                  productId: tiktokItem.tiktokProductId,
+                  skuId: tiktokItem.tiktokSkuId,
+                  newQuantity: newQty,
+                }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                toast({
+                  variant: "destructive",
+                  title: "Quantities restored in PrepCorex; TikTok Shop did not update",
+                  description:
+                    [data.error, data.detail].filter(Boolean).join(" — ") ||
+                    "Re-connect TikTok in Integrations.",
+                });
+              }
+            } catch (e) {
+              toast({
+                variant: "destructive",
+                title: "Quantities restored in PrepCorex; TikTok Shop did not update",
+                description: e instanceof Error ? e.message : "Re-connect TikTok in Integrations.",
+              });
+            }
+          }
         }
       }
 

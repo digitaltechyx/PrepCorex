@@ -258,6 +258,52 @@ export function DisposeRequestsManagement({
         });
       }
     }
+
+    const tiktokItem = invItem as InventoryItem & {
+      source?: string;
+      tiktokConnectionId?: string;
+      tiktokProductId?: string;
+      tiktokSkuId?: string;
+      tiktokShopId?: string;
+    };
+    if (
+      tiktokItem.source === "tiktok" &&
+      tiktokItem.tiktokProductId &&
+      tiktokItem.tiktokSkuId &&
+      (tiktokItem.tiktokConnectionId || tiktokItem.tiktokShopId)
+    ) {
+      try {
+        const token = await authUser.getIdToken();
+        const res = await fetch("/api/tiktok/sync-inventory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            userId,
+            connectionId: tiktokItem.tiktokConnectionId,
+            tiktokShopId: tiktokItem.tiktokShopId,
+            productId: tiktokItem.tiktokProductId,
+            skuId: tiktokItem.tiktokSkuId,
+            newQuantity: newQtyAfterDispose,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            variant: "destructive",
+            title: "Disposed in PrepCorex; TikTok Shop did not update",
+            description:
+              [data.error, data.detail].filter(Boolean).join(" — ") ||
+              "Re-connect TikTok in Integrations.",
+          });
+        }
+      } catch (e) {
+        toast({
+          variant: "destructive",
+          title: "Disposed in PrepCorex; TikTok Shop did not update",
+          description: e instanceof Error ? e.message : "Re-connect TikTok in Integrations.",
+        });
+      }
+    }
   };
 
   const runBulkBatchAction = async (

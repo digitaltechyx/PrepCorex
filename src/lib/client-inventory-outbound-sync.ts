@@ -22,6 +22,10 @@ export type ShopifyInventorySyncHint = {
   woocommerceConnectionId?: string;
   woocommerceProductId?: string;
   woocommerceVariationId?: string;
+  tiktokConnectionId?: string;
+  tiktokProductId?: string;
+  tiktokSkuId?: string;
+  tiktokShopId?: string;
 };
 
 function removeUndefined(obj: unknown): unknown {
@@ -299,6 +303,23 @@ export async function applyClientInventoryOnDispatch(input: {
           woocommerceConnectionId: currentInventory.woocommerceConnectionId,
           woocommerceProductId: currentInventory.woocommerceProductId,
           woocommerceVariationId: currentInventory.woocommerceVariationId,
+        });
+      }
+
+      if (
+        currentInventory.source === "tiktok" &&
+        currentInventory.tiktokProductId &&
+        currentInventory.tiktokSkuId &&
+        (currentInventory.tiktokConnectionId || currentInventory.tiktokShopId)
+      ) {
+        shopifyHints.push({
+          productId: String(row.shipment.productId),
+          newQuantity,
+          source: currentInventory.source,
+          tiktokConnectionId: currentInventory.tiktokConnectionId,
+          tiktokProductId: currentInventory.tiktokProductId,
+          tiktokSkuId: currentInventory.tiktokSkuId,
+          tiktokShopId: currentInventory.tiktokShopId,
         });
       }
 

@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useSearchParams } from "next/navigation";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
@@ -152,6 +153,26 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
 
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const crossdockUnitScanRef = useRef<HTMLInputElement | null>(null);
+  const searchParams = useSearchParams();
+  const focusAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (focusAppliedRef.current || queueLoading) return;
+    const requestId = String(searchParams.get("requestId") || "").trim();
+    const userId = String(searchParams.get("userId") || "").trim();
+    if (!requestId) return;
+    const match = orders.find(
+      (o) => o.id === requestId && (!userId || o.clientUserId === userId)
+    );
+    if (!match) return;
+    setMatchedOrder(match);
+    if (match.courierTracking) {
+      setScanValue(match.courierTracking);
+      setLastScanValue(match.courierTracking);
+    }
+    setMode("outbound");
+    focusAppliedRef.current = true;
+  }, [orders, queueLoading, searchParams]);
   const crossdockCourierScanRef = useRef<HTMLInputElement | null>(null);
 
   const refreshTodayCount = useCallback(async () => {
@@ -420,6 +441,45 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
               toast({
                 variant: "destructive",
                 title: "Dispatched; WooCommerce inventory did not update",
+                description: e instanceof Error ? e.message : "Unknown error",
+              });
+            }
+            continue;
+          }
+
+          if (
+            hint.source === "tiktok" &&
+            hint.tiktokProductId &&
+            hint.tiktokSkuId &&
+            (hint.tiktokConnectionId || hint.tiktokShopId)
+          ) {
+            try {
+              const res = await fetch("/api/tiktok/sync-inventory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  userId: matchedOrder.clientUserId,
+                  connectionId: hint.tiktokConnectionId,
+                  tiktokShopId: hint.tiktokShopId,
+                  productId: hint.tiktokProductId,
+                  skuId: hint.tiktokSkuId,
+                  newQuantity: hint.newQuantity,
+                }),
+              });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                toast({
+                  variant: "destructive",
+                  title: "Dispatched; TikTok Shop inventory did not update",
+                  description:
+                    [data.error, data.detail].filter(Boolean).join(" — ") ||
+                    "Re-connect TikTok in Integrations.",
+                });
+              }
+            } catch (e) {
+              toast({
+                variant: "destructive",
+                title: "Dispatched; TikTok Shop inventory did not update",
                 description: e instanceof Error ? e.message : "Unknown error",
               });
             }

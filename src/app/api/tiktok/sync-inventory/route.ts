@@ -43,16 +43,31 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}));
   const userId = (typeof body.userId === "string" && body.userId.trim()) || callerUid;
-  const connectionId = typeof body.connectionId === "string" ? body.connectionId.trim() : "";
-  const productId = typeof body.productId === "string" ? body.productId.trim() : "";
-  const skuId = typeof body.skuId === "string" ? body.skuId.trim() : "";
+  const connectionId =
+    (typeof body.connectionId === "string" && body.connectionId.trim()) ||
+    (typeof body.tiktokConnectionId === "string" && body.tiktokConnectionId.trim()) ||
+    "";
+  const productId =
+    (typeof body.productId === "string" && body.productId.trim()) ||
+    (typeof body.tiktokProductId === "string" && body.tiktokProductId.trim()) ||
+    "";
+  const skuId =
+    (typeof body.skuId === "string" && body.skuId.trim()) ||
+    (typeof body.tiktokSkuId === "string" && body.tiktokSkuId.trim()) ||
+    "";
+  const quantityRaw =
+    typeof body.quantity === "number"
+      ? body.quantity
+      : typeof body.newQuantity === "number"
+        ? body.newQuantity
+        : undefined;
   const quantity =
-    typeof body.quantity === "number" ? Math.max(0, Math.floor(body.quantity)) : undefined;
+    typeof quantityRaw === "number" ? Math.max(0, Math.floor(quantityRaw)) : undefined;
   let warehouseId = typeof body.warehouseId === "string" ? body.warehouseId.trim() : "";
 
-  if (!connectionId || !productId || !skuId || quantity === undefined) {
+  if ((!connectionId && !body.tiktokShopId) || !productId || !skuId || quantity === undefined) {
     return NextResponse.json(
-      { error: "Missing connectionId, productId, skuId, or quantity" },
+      { error: "Missing connectionId, productId/skuId, or quantity" },
       { status: 400 }
     );
   }
@@ -62,9 +77,23 @@ export async function POST(request: NextRequest) {
 
   try {
     const db = adminDb();
-    const ref = db.collection("users").doc(userId).collection("tiktokConnections").doc(connectionId);
-    const snap = await ref.get();
-    if (!snap.exists) {
+    let ref = connectionId
+      ? db.collection("users").doc(userId).collection("tiktokConnections").doc(connectionId)
+      : null;
+    let snap = ref ? await ref.get() : null;
+
+    // Fallback: resolve connection by TikTok shop id when connectionId missing on older rows
+    if ((!snap || !snap.exists) && typeof body.tiktokShopId === "string" && body.tiktokShopId.trim()) {
+      const shopId = body.tiktokShopId.trim();
+      const list = await db.collection("users").doc(userId).collection("tiktokConnections").get();
+      const match = list.docs.find((d) => String(d.data()?.shopId ?? "") === shopId);
+      if (match) {
+        ref = match.ref;
+        snap = match;
+      }
+    }
+
+    if (!ref || !snap?.exists) {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     }
     const data = snap.data()!;
