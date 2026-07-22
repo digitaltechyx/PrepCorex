@@ -3,7 +3,7 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 export const dynamic = "force-dynamic";
 
-/** GET: list current user's TikTok connections (no tokens). */
+/** GET: list TikTok connections (no tokens). Admin may pass ?userId= */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
@@ -14,19 +14,33 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let uid: string;
+  let callerUid: string;
+  let isAdmin = false;
   try {
     const decoded = await adminAuth().verifyIdToken(token);
-    uid = decoded.uid;
-    if (!uid) throw new Error("No uid");
+    callerUid = decoded.uid;
+    if (!callerUid) throw new Error("No uid");
+    const userDoc = await adminDb().collection("users").doc(callerUid).get();
+    const data = userDoc.data();
+    const role = data?.role as string;
+    const roles = data?.roles as string[] | undefined;
+    isAdmin =
+      role === "admin" ||
+      role === "sub_admin" ||
+      (Array.isArray(roles) && (roles.includes("admin") || roles.includes("sub_admin")));
   } catch {
     return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 });
+  }
+
+  const targetUid = new URL(request.url).searchParams.get("userId")?.trim() || callerUid;
+  if (targetUid !== callerUid && !isAdmin) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
     const snapshot = await adminDb()
       .collection("users")
-      .doc(uid)
+      .doc(targetUid)
       .collection("tiktokConnections")
       .get();
     const list = snapshot.docs.map((d: { id: string; data: () => Record<string, unknown> }) => {

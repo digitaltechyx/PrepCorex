@@ -1220,7 +1220,7 @@ export default function IntegrationsPage() {
                                   </Button>
                                   <Button variant="secondary" size="sm" className="h-8" asChild>
                                     <Link
-                                      href={`/dashboard/integrations/tiktok/orders?connectionId=${encodeURIComponent(conn.id)}`}
+                                      href={`/dashboard/tiktok-orders?connectionId=${encodeURIComponent(conn.id)}`}
                                     >
                                       <ShoppingCart className="h-3.5 w-3.5 mr-1" />
                                       Orders

@@ -240,7 +240,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/integrations",
       icon: Plug,
       color: "text-green-600",
-      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders", "manage_woocommerce_orders"] as const satisfies readonly UserFeature[],
+      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders", "manage_woocommerce_orders", "manage_tiktok_orders"] as const satisfies readonly UserFeature[],
     },
     {
       title: "Shopify Orders",
@@ -249,6 +249,14 @@ export function AdminSidebar() {
       color: "text-emerald-600",
       badge: unfulfilledShopifyOrdersCount > 0 ? unfulfilledShopifyOrdersCount : null,
       requiredFeature: "manage_shopify_orders" as const,
+    },
+    {
+      title: "TikTok Shop Orders",
+      url: "/admin/dashboard/tiktok-orders",
+      icon: ShoppingBag,
+      color: "text-fuchsia-600",
+      badge: null,
+      requiredFeature: "manage_tiktok_orders" as const,
     },
     {
       title: "eBay Orders",

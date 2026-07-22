@@ -1,10 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb, adminFieldValue } from "@/lib/firebase-admin";
 import type { TikTokSelectedProduct } from "@/types";
+import { parseTikTokError, tikTokApiRequest } from "@/lib/tiktok-api";
+import {
+  getValidTikTokAccessToken,
+  TikTokReconnectRequired,
+} from "@/lib/tiktok-access-token";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-/** PUT: Save selected TikTok products/SKUs and seed inventory rows. */
+type TikTokSku = {
+  id?: string;
+  seller_sku?: string;
+  stock_infos?: Array<{ available_stock?: number }>;
+};
+
+type TikTokProduct = {
+  id?: string;
+  title?: string;
+  skus?: TikTokSku[];
+};
+
+function safeShopKey(shopId: string): string {
+  return shopId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "shop";
+}
+
+/** PUT: Save selected TikTok products/SKUs and seed inventory rows (Shopify-style). */
 export async function PUT(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
@@ -31,7 +53,8 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Missing connectionId" }, { status: 400 });
   }
 
-  const selectedProducts: TikTokSelectedProduct[] = Array.isArray(raw)
+  type SelectedPayload = TikTokSelectedProduct & { quantity?: number };
+  const selectedProducts: SelectedPayload[] = Array.isArray(raw)
     ? raw
         .filter(
           (v: unknown) =>
@@ -41,13 +64,16 @@ export async function PUT(request: NextRequest) {
             typeof (v as { skuId?: unknown }).skuId === "string" &&
             typeof (v as { title?: unknown }).title === "string"
         )
-        .map((v: { productId: string; skuId: string; title: string; sku?: string }) => {
-          const item: TikTokSelectedProduct = {
+        .map((v: { productId: string; skuId: string; title: string; sku?: string; quantity?: number }) => {
+          const item: SelectedPayload = {
             productId: v.productId,
             skuId: v.skuId,
             title: v.title,
           };
           if (v.sku != null && v.sku !== "") item.sku = v.sku;
+          if (typeof v.quantity === "number" && Number.isFinite(v.quantity)) {
+            item.quantity = Math.max(0, Math.floor(v.quantity));
+          }
           return item;
         })
     : [];
@@ -60,62 +86,109 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Store not connected" }, { status: 404 });
     }
     const conn = connSnap.data()!;
-    const shopId = String(conn.shopId ?? "");
+    const shopId = String(conn.shopId ?? connectionId);
     const shopName = String(conn.shopName ?? "TikTok Shop");
+    const shopKey = safeShopKey(shopId);
 
-    await connRef.update({ selectedProducts });
+    // Persist selection without ephemeral quantity field
+    await connRef.update({
+      selectedProducts: selectedProducts.map(({ productId, skuId, title, sku }) => {
+        const row: TikTokSelectedProduct = { productId, skuId, title };
+        if (sku) row.sku = sku;
+        return row;
+      }),
+    });
 
-    const selectedSkuIds = new Set(selectedProducts.map((p) => p.skuId));
     const FieldValue = adminFieldValue();
     const invRef = db.collection("users").doc(uid).collection("inventory");
+    const selectedSkuIds = new Set(selectedProducts.map((p) => p.skuId));
 
-    // Remove deselected TikTok inventory rows for this shop
-    const existing = await invRef.where("source", "==", "tiktok").where("tiktokShopId", "==", shopId).get();
-    const batch = db.batch();
-    let writes = 0;
-    for (const d of existing.docs) {
-      const skuId = d.data().tiktokSkuId as string | undefined;
-      if (skuId && !selectedSkuIds.has(skuId)) {
-        batch.delete(d.ref);
-        writes++;
+    // Prefer qty from client payload; refresh from TikTok API when missing
+    const qtyBySku: Record<string, number> = {};
+    for (const sel of selectedProducts) {
+      if (typeof sel.quantity === "number") qtyBySku[sel.skuId] = sel.quantity;
+    }
+    const needsLiveQty = selectedProducts.some((p) => typeof p.quantity !== "number");
+    if (needsLiveQty) {
+      try {
+        const accessToken = await getValidTikTokAccessToken(connRef, conn);
+        const shopCipher = (conn.shopCipher as string) || null;
+        let pageToken: string | undefined;
+        for (let page = 0; page < 5; page++) {
+          const res = await tikTokApiRequest<{
+            products?: TikTokProduct[];
+            next_page_token?: string;
+          }>({
+            method: "POST",
+            path: "/product/202309/products/search",
+            accessToken,
+            shopCipher,
+            query: { page_size: 50, ...(pageToken ? { page_token: pageToken } : {}) },
+            body: { status: "ALL" },
+          });
+          if (res.code !== 0) {
+            console.warn("[tiktok-selected-products] product search", parseTikTokError(res));
+            break;
+          }
+          for (const p of res.data?.products ?? []) {
+            for (const s of p.skus ?? []) {
+              const id = String(s.id ?? "");
+              if (!id || id in qtyBySku) continue;
+              const qty =
+                s.stock_infos?.reduce((sum, si) => sum + (si.available_stock ?? 0), 0) ?? 0;
+              qtyBySku[id] = qty;
+            }
+          }
+          pageToken = res.data?.next_page_token;
+          if (!pageToken) break;
+        }
+      } catch (e) {
+        if (e instanceof TikTokReconnectRequired) {
+          console.warn("[tiktok-selected-products] token refresh needed; seeding qty 0");
+        } else {
+          console.warn("[tiktok-selected-products] qty fetch failed", e);
+        }
       }
     }
 
     for (const sel of selectedProducts) {
-      const existingForSku = existing.docs.find(
-        (invDoc: { data: () => { tiktokSkuId?: string } }) => invDoc.data().tiktokSkuId === sel.skuId
-      );
-      if (existingForSku) {
-        batch.update(existingForSku.ref, {
-          productName: sel.title,
-          sku: sel.sku ?? null,
-          tiktokProductId: sel.productId,
-          tiktokSkuId: sel.skuId,
-          tiktokShopId: shopId,
-          shop: shopName,
-          source: "tiktok",
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-        writes++;
-      } else {
-        const newRef = invRef.doc();
-        batch.set(newRef, {
-          productName: sel.title,
-          sku: sel.sku ?? null,
-          quantity: 0,
-          status: "Out of Stock",
-          dateAdded: FieldValue.serverTimestamp(),
-          source: "tiktok",
-          tiktokProductId: sel.productId,
-          tiktokSkuId: sel.skuId,
-          tiktokShopId: shopId,
-          shop: shopName,
-        });
-        writes++;
+      const quantity = qtyBySku[sel.skuId] ?? 0;
+      // Linked catalog rows stay visible in inventory even at qty 0
+      const status = "In Stock";
+      const docId = `tiktok_${shopKey}_${sel.skuId}`;
+      const existingSnap = await invRef.doc(docId).get();
+      const payload: Record<string, unknown> = {
+        productName: sel.title,
+        quantity,
+        status,
+        source: "tiktok",
+        tiktokProductId: sel.productId,
+        tiktokSkuId: sel.skuId,
+        tiktokShopId: shopId,
+        tiktokConnectionId: connectionId,
+        shop: shopName,
+        ...(sel.sku ? { sku: sel.sku } : {}),
+      };
+      if (!existingSnap.exists) {
+        payload.dateAdded = FieldValue.serverTimestamp();
       }
+      await invRef.doc(docId).set(payload, { merge: true });
     }
 
-    if (writes > 0) await batch.commit();
+    // Remove deselected TikTok rows for this shop (by source + shop id, fallback prefix scan)
+    const existing = await invRef.where("source", "==", "tiktok").get();
+    for (const d of existing.docs) {
+      const data = d.data();
+      const rowShop = String(data.tiktokShopId ?? "");
+      const skuId = data.tiktokSkuId as string | undefined;
+      const belongs =
+        rowShop === shopId ||
+        d.id.startsWith(`tiktok_${shopKey}_`) ||
+        data.tiktokConnectionId === connectionId;
+      if (belongs && skuId && !selectedSkuIds.has(skuId)) {
+        await d.ref.delete();
+      }
+    }
 
     return NextResponse.json({ ok: true, selectedCount: selectedProducts.length });
   } catch (err: unknown) {

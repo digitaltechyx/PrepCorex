@@ -43,6 +43,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 });
   }
 
+  // Fulfill is admin-only (same as Shopify). Clients view status on /dashboard/tiktok-orders.
+  if (!isAdmin) {
+    return NextResponse.json(
+      { error: "Only admins can mark TikTok orders as shipped." },
+      { status: 403 }
+    );
+  }
+
   const body = await request.json().catch(() => ({}));
   const userId = (typeof body.userId === "string" && body.userId.trim()) || callerUid;
   const connectionId = typeof body.connectionId === "string" ? body.connectionId.trim() : "";
@@ -86,8 +94,16 @@ export async function POST(request: NextRequest) {
         body: { order_id: orderId },
       });
       if (pkgRes.code !== 0) {
+        const detail = parseTikTokError(pkgRes);
+        const scopeHint =
+          /access denied|scope/i.test(detail)
+            ? " Enable Fulfillment Basic and Package Write (or similar) in Partner Center → Manage API, wait for approval, then Disconnect and Connect TikTok again so the new token includes those scopes."
+            : "";
         return NextResponse.json(
-          { error: "Failed to load packages for order", detail: parseTikTokError(pkgRes) },
+          {
+            error: "Failed to load packages for order",
+            detail: `${detail}${scopeHint}`,
+          },
           { status: 502 }
         );
       }

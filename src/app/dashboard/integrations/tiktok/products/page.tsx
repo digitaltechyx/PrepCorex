@@ -108,6 +108,7 @@ export default function TikTokProductsPage() {
         skuId: string;
         title: string;
         sku?: string;
+        quantity?: number;
       }> = [];
       for (const p of products) {
         for (const s of p.skus) {
@@ -117,6 +118,7 @@ export default function TikTokProductsPage() {
             skuId: s.skuId,
             title: p.skus.length > 1 ? `${p.productTitle} — ${s.sellerSku || s.skuId}` : p.productTitle,
             ...(s.sellerSku ? { sku: s.sellerSku } : {}),
+            ...(typeof s.quantity === "number" ? { quantity: s.quantity } : {}),
           });
         }
       }
@@ -164,7 +166,7 @@ export default function TikTokProductsPage() {
           </Link>
         </Button>
         <Button asChild variant="outline" size="sm">
-          <Link href={`/dashboard/integrations/tiktok/orders?connectionId=${encodeURIComponent(connectionId)}`}>
+          <Link href={`/dashboard/tiktok-orders?connectionId=${encodeURIComponent(connectionId)}`}>
             View orders
           </Link>
         </Button>

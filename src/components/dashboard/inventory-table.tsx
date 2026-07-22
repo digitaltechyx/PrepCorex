@@ -338,6 +338,7 @@ function inventoryRowIsLowStockStyled(item: {
 }) {
   if (item.isRequest) return false;
   if (item.source === "ebay") return false;
+  if (item.source === "tiktok") return false;
   return rowIsLowStock(item);
 }
 
@@ -356,6 +357,8 @@ function inventorySourceKey(item: InventorySourceRow): string {
   if (item.isRequest) return "inbound";
   if (item.source === "shopify") return "shopify";
   if (item.source === "ebay") return "ebay";
+  if (item.source === "woocommerce") return "woocommerce";
+  if (item.source === "tiktok") return "tiktok";
   return "manual";
 }
 
@@ -382,6 +385,20 @@ function inventorySourceMeta(item: InventorySourceRow) {
       label: "eBay",
       detail: undefined,
       className: "border-blue-300 bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-100",
+    };
+  }
+  if (item.source === "woocommerce") {
+    return {
+      label: "WooCommerce",
+      detail: String(item.shop ?? "").trim() || undefined,
+      className: "border-violet-300 bg-violet-50 text-violet-800 dark:bg-violet-950 dark:text-violet-100",
+    };
+  }
+  if (item.source === "tiktok") {
+    return {
+      label: "TikTok Shop",
+      detail: String(item.shop ?? "").trim() || undefined,
+      className: "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-800 dark:bg-fuchsia-950 dark:text-fuchsia-100",
     };
   }
   return {
@@ -1357,9 +1374,22 @@ export function InventoryTable({
       };
     });
 
-    // Combine active inventory only — rejected/cancelled/OOS open in side panels via badges
-    const activeInventoryItems = inventoryItems.filter((item) => item.status !== "Out of Stock");
-    return { combined: [...pendingBatchItems, ...pendingItems, ...awaitingInboundItems, ...activeInventoryItems], outOfStockItems: inventoryItems.filter((item) => item.status === "Out of Stock") };
+    // Combine active inventory only — rejected/cancelled/OOS open in side panels via badges.
+    // Marketplace-linked rows (Shopify/eBay/Woo/TikTok) stay in the main table so selected SKUs remain visible.
+    const isMarketplaceLinked = (item: { source?: string }) =>
+      item.source === "shopify" ||
+      item.source === "ebay" ||
+      item.source === "woocommerce" ||
+      item.source === "tiktok";
+    const activeInventoryItems = inventoryItems.filter(
+      (item) => item.status !== "Out of Stock" || isMarketplaceLinked(item)
+    );
+    return {
+      combined: [...pendingBatchItems, ...pendingItems, ...awaitingInboundItems, ...activeInventoryItems],
+      outOfStockItems: inventoryItems.filter(
+        (item) => item.status === "Out of Stock" && !isMarketplaceLinked(item)
+      ),
+    };
   }, [data, inventoryRequests, inboundBatches]);
 
   const combinedData = combinedInventory.combined;
@@ -1524,6 +1554,8 @@ export function InventoryTable({
                 <SelectItem value="all">All sources</SelectItem>
                 <SelectItem value="shopify">Shopify</SelectItem>
                 <SelectItem value="ebay">eBay</SelectItem>
+                <SelectItem value="woocommerce">WooCommerce</SelectItem>
+                <SelectItem value="tiktok">TikTok Shop</SelectItem>
                 <SelectItem value="manual">Manual</SelectItem>
                 <SelectItem value="inbound">Inbound requests</SelectItem>
               </SelectContent>

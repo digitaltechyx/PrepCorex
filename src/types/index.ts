@@ -409,6 +409,7 @@ export type UserFeature =
   | "view_shopify_orders"
   | "view_shipstation_orders"
   | "view_woocommerce_orders"
+  | "view_tiktok_orders"
   | "request_product_returns"
   | "csv_import_inbound"
   | "csv_import_outbound"
@@ -429,6 +430,7 @@ export type UserFeature =
   | "manage_ebay_orders"
   | "manage_shipstation_orders"
   | "manage_woocommerce_orders"
+  | "manage_tiktok_orders"
   | "manage_inventory_admin"
   | "manage_notifications"
   | "ops_dashboard"
@@ -591,6 +593,7 @@ export interface InventoryItem {
   woocommerceStoreUrl?: string;
   /** TikTok Shop linked catalog item */
   tiktokShopId?: string;
+  tiktokConnectionId?: string;
   tiktokProductId?: string;
   tiktokSkuId?: string;
   sku?: string;

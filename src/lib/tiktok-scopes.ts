@@ -6,4 +6,7 @@ export const TIKTOK_SCOPES = [
   "seller.product.write",
   "seller.logistics",
   "seller.delivery.status.write",
+  /** Required for packages/search and ship / tracking updates */
+  "seller.fulfillment.basic",
+  "seller.fulfillment.package.write",
 ] as const;
