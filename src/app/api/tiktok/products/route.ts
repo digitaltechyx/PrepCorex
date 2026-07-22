@@ -6,6 +6,10 @@ import {
   TikTokReconnectRequired,
 } from "@/lib/tiktok-access-token";
 import { collectTikTokProductImageUrls } from "@/lib/tiktok-product-image";
+import {
+  fetchTikTokSkuQuantities,
+  quantityFromTikTokSkuStockInfos,
+} from "@/lib/tiktok-inventory";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,7 +17,8 @@ export const runtime = "nodejs";
 type TikTokSku = {
   id?: string;
   seller_sku?: string;
-  stock_infos?: Array<{ available_stock?: number; warehouse_id?: string }>;
+  stock_infos?: Array<{ available_stock?: number; available_quantity?: number }>;
+  inventory?: Array<{ available_quantity?: number; available_stock?: number; quantity?: number }>;
 };
 
 type TikTokProduct = {
@@ -28,7 +33,7 @@ type TikTokProduct = {
 
 /**
  * GET /api/tiktok/products?connectionId=...
- * Lists products from the connected TikTok Shop (includes image when search returns it).
+ * Lists products + SKU qty from Inventory Search (authoritative).
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -108,20 +113,32 @@ export async function GET(request: NextRequest) {
           status: p.status ?? null,
           imageUrl: imageUrls[0] ?? null,
           imageUrls,
-          skus: (p.skus ?? []).map((s) => {
-            const qty =
-              s.stock_infos?.reduce((sum, si) => sum + (si.available_stock ?? 0), 0) ?? null;
-            return {
-              skuId: String(s.id ?? ""),
-              sellerSku: s.seller_sku ?? null,
-              quantity: qty,
-            };
-          }),
+          skus: (p.skus ?? []).map((s) => ({
+            skuId: String(s.id ?? ""),
+            sellerSku: s.seller_sku ?? null,
+            quantity: quantityFromTikTokSkuStockInfos(s),
+          })),
         });
       }
 
       pageToken = res.data?.next_page_token;
       if (!pageToken) break;
+    }
+
+    // Enrich quantities via Inventory Search (product search often omits stock)
+    try {
+      const qtyBySku = await fetchTikTokSkuQuantities({
+        accessToken,
+        shopCipher,
+        productIds: products.map((p) => p.productId),
+      });
+      for (const p of products) {
+        for (const s of p.skus) {
+          if (s.skuId in qtyBySku) s.quantity = qtyBySku[s.skuId];
+        }
+      }
+    } catch (e) {
+      console.warn("[tiktok/products] inventory search enrich failed", e);
     }
 
     return NextResponse.json({ products, shopId: data.shopId, shopName: data.shopName });
