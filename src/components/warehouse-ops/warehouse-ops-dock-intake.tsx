@@ -28,6 +28,7 @@ import {
 import type { UserProfile, WarehouseDoc } from "@/types";
 import { Check, Loader2, Package, ScanLine, Search, Truck, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useSearchParams } from "next/navigation";
 
 function inboundKey(row: InboundRequestRow): string {
   return `${row.clientUserId}:${row.id}`;
@@ -149,11 +150,40 @@ export function WarehouseOpsDockIntake({
     [selectedRows]
   );
 
+  const searchParams = useSearchParams();
+  const focusAppliedRef = useRef(false);
+
   useEffect(() => {
     if (!clientsLoading) {
       inputRef.current?.focus();
     }
   }, [clientsLoading]);
+
+  useEffect(() => {
+    if (focusAppliedRef.current || listsLoading || inboundOpen.length === 0) return;
+    const requestId = String(searchParams.get("requestId") || "").trim();
+    const userId = String(searchParams.get("userId") || "").trim();
+    const tabParam = String(searchParams.get("tab") || "").trim().toLowerCase();
+    if (!requestId) return;
+
+    if (tabParam === "pending" || tabParam === "approved" || tabParam === "all") {
+      setRequestStatusTab(tabParam as RequestStatusTab);
+    }
+
+    const match = inboundOpen.find(
+      (r) =>
+        r.id === requestId && (!userId || r.clientUserId === userId)
+    );
+    if (!match) return;
+
+    if (isPendingInboundStatus(match.status)) setRequestStatusTab("pending");
+    else if (isApprovedInboundStatus(match.status)) setRequestStatusTab("approved");
+
+    const key = inboundKey(match);
+    setSelectedKeys(new Set([key]));
+    setManagingKey(key);
+    focusAppliedRef.current = true;
+  }, [inboundOpen, listsLoading, searchParams]);
 
   async function approveRows(rows: InboundRequestRow[]) {
     const pending = rows.filter((r) => isPendingInboundStatus(r.status));

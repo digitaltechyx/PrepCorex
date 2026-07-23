@@ -879,6 +879,10 @@ export interface ShipmentRequest {
   /** Client preference for outbound pack unit: box (carton) or pallet. */
   shipmentPreference?: "box" | "pallet";
   rejectionReason?: string;
+  /** When true, one or more lines were created from a pending / not-yet-received inbound (pre outbound). */
+  isPrepOutbound?: boolean;
+  /** Linked inbound inventory request ids for pre outbound. */
+  prepInboundRequestIds?: string[];
   shipments: Array<Record<string, unknown>>;
   confirmedAt?: { seconds: number; nanoseconds: number } | string;
   rejectedAt?: { seconds: number; nanoseconds: number } | string;

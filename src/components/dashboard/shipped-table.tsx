@@ -333,7 +333,10 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
       
       return {
         id: `request-${req.id}-${index}`,
-        productName: inventoryItem?.productName || "Unknown Product",
+        productName:
+          inventoryItem?.productName ||
+          String(shipment.productName ?? "").trim() ||
+          "Unknown Product",
         date: req.date,
         shippedQty: productUnits,
         boxesShipped: shipment.quantity || 0,
@@ -353,6 +356,11 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         requestId: req.id,
         requestStatus: req.status || "pending",
         rawRequest: req,
+        isPrepOutbound: Boolean(
+          (req as any).isPrepOutbound ||
+            shipment.sourceInventoryRequestId ||
+            String(shipment.productId ?? "").startsWith("prep:")
+        ),
         createdAt: req.requestedAt,
         additionalServices: shipment.selectedAdditionalServices || (req as any).additionalServices,
         canCancelRequest: status === "Pending" && (req.status || "pending") === "pending" && index === 0,
@@ -664,10 +672,20 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                 <div className="mt-2">
                   <div className="text-xs text-muted-foreground">Status</div>
                   {(item as any).status === "Pending" ? (
-                    <Badge variant="outline" className="flex items-center gap-1 w-fit mt-1">
-                      <Clock className="h-3 w-3" />
-                      Pending
-                    </Badge>
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <Badge variant="outline" className="flex items-center gap-1 w-fit">
+                        <Clock className="h-3 w-3" />
+                        Pending
+                      </Badge>
+                      {(item as any).isPrepOutbound ? (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-400 text-amber-800 w-fit"
+                        >
+                          Pre outbound
+                        </Badge>
+                      ) : null}
+                    </div>
                   ) : (item as any).status === "Rejected" ? (
                     <Badge variant="destructive" className="flex items-center gap-1 w-fit mt-1">
                       <XCircle className="h-3 w-3" />

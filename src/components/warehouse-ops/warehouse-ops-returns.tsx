@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -273,6 +274,41 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
   const [selected, setSelected] = useState<AdminProductReturn | null>(null);
   const [logEntry, setLogEntry] = useState<AdminProductReturn | null>(null);
   const [busy, setBusy] = useState(false);
+  const searchParams = useSearchParams();
+  const focusAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (focusAppliedRef.current || returnsLoading) return;
+    const returnId = String(searchParams.get("returnId") || "").trim();
+    const userId = String(searchParams.get("userId") || "").trim();
+    const tabParam = String(searchParams.get("tab") || "").trim().toLowerCase();
+    if (!returnId && !tabParam) return;
+
+    if (
+      tabParam === "pending" ||
+      tabParam === "open" ||
+      tabParam === "in_progress" ||
+      tabParam === "closed" ||
+      tabParam === "all"
+    ) {
+      setTab(tabParam as StatusTab);
+    }
+    if (!returnId) {
+      focusAppliedRef.current = true;
+      return;
+    }
+
+    const match = allReturns.find(
+      (r) => r.id === returnId && (!userId || r.ownerUserId === userId)
+    );
+    if (!match) return;
+    const status = String(match.status || "").toLowerCase();
+    if (status === "pending") setTab("pending");
+    else if (status === "approved") setTab("open");
+    else if (status === "in_progress") setTab("in_progress");
+    setSelected(match);
+    focusAppliedRef.current = true;
+  }, [allReturns, returnsLoading, searchParams]);
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");

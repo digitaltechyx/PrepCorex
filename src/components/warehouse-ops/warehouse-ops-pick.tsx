@@ -28,6 +28,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
+import { useSearchParams } from "next/navigation";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { WarehouseOpsActivityLog } from "@/components/warehouse-ops/warehouse-ops-activity-log";
@@ -133,6 +134,8 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   const [dismissing, setDismissing] = useState(false);
 
   const binInputRef = useRef<HTMLInputElement | null>(null);
+  const searchParams = useSearchParams();
+  const focusAppliedRef = useRef(false);
 
   const currentStep: PickTaskStep | null = plan?.steps[0] ?? null;
   const qtyNum = parseInt(pickQty, 10) || 0;
@@ -185,6 +188,41 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     await loadPlanForOrder(order);
     setTimeout(() => binInputRef.current?.focus(), 50);
   }
+
+  useEffect(() => {
+    if (focusAppliedRef.current || queueLoading) return;
+    const requestId = String(searchParams.get("requestId") || "").trim();
+    const userId = String(searchParams.get("userId") || "").trim();
+    const tabParam = String(searchParams.get("tab") || "").trim().toLowerCase();
+    if (!requestId && !tabParam) return;
+
+    if (tabParam === "pending" || tabParam === "ready") {
+      setQueueTab(tabParam as QueueTab);
+    }
+    if (!requestId) {
+      focusAppliedRef.current = true;
+      return;
+    }
+
+    const pendingMatch = pendingOutboundQueue.find(
+      (r) => r.id === requestId && (!userId || r.clientUserId === userId)
+    );
+    if (pendingMatch) {
+      setQueueTab("pending");
+      setManagingKey(`${pendingMatch.clientUserId}:${pendingMatch.id}`);
+      focusAppliedRef.current = true;
+      return;
+    }
+
+    const readyMatch = orders.find(
+      (o) => o.id === requestId && (!userId || o.clientUserId === userId)
+    );
+    if (readyMatch) {
+      setQueueTab("ready");
+      void selectOrder(readyMatch);
+      focusAppliedRef.current = true;
+    }
+  }, [orders, pendingOutboundQueue, queueLoading, searchParams]);
 
   async function approvePending(row: PendingOutboundRequest) {
     if (!operatorId) {
@@ -589,13 +627,23 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                             variant="outline"
                             className={cn(
                               "shrink-0 capitalize",
-                              row.needsClientLabel && "border-amber-300 text-amber-800"
+                              row.waitingOnInbound && "border-amber-300 text-amber-800",
+                              row.needsClientLabel && !row.waitingOnInbound && "border-amber-300 text-amber-800"
                             )}
                           >
-                            {row.status.replace(/_/g, " ")}
+                            {row.waitingOnInbound
+                              ? "Waiting inbound"
+                              : row.isPrepOutbound
+                                ? "Pre outbound"
+                                : row.status.replace(/_/g, " ")}
                           </Badge>
                         </div>
-                        {row.needsClientLabel && !row.canApprove ? (
+                        {row.waitingOnInbound ? (
+                          <p className="text-xs text-amber-700">
+                            Pre outbound — receive linked inbound first, then approve.
+                          </p>
+                        ) : null}
+                        {row.needsClientLabel && !row.canApprove && !row.waitingOnInbound ? (
                           <p className="text-xs text-amber-700">
                             Waiting for client shipping label before approve.
                           </p>

@@ -468,6 +468,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       clients,
       shipmentDocs,
       productMaps,
+      inventoryDocs,
     });
 
     const nextStats = computeWarehouseOpsLiveStats({

@@ -83,11 +83,16 @@ export function buildOrderLinesFromRequestData(
   const lines: OutboundPickLine[] = [];
   for (const shipment of shipments) {
     const productId = String(shipment.productId ?? "").trim();
-    if (!productId) continue;
-    const product = products.get(productId);
+    const inboundId = String(shipment.sourceInventoryRequestId ?? "").trim();
+    const isPrep = Boolean(inboundId) || productId.startsWith("prep:");
+    if (!productId && !isPrep) continue;
+    const product = productId ? products.get(productId) : undefined;
     // Requests usually store productId only; resolve SKU from inventory when loaded.
-    // Fall back to productId so Pending review still shows qty while inventory loads.
-    const sku = String(shipment.sku ?? product?.sku ?? "").trim() || productId;
+    // Pre outbound lines often have productName/sku on the shipment before inventory exists.
+    const sku =
+      String(shipment.sku ?? product?.sku ?? "").trim() ||
+      (productId && !productId.startsWith("prep:") ? productId : "") ||
+      "pending";
     const qty = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
     const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
     const quantityUnits = qty * packOf;
@@ -97,7 +102,7 @@ export function buildOrderLinesFromRequestData(
       productName:
         String(shipment.productName ?? product?.productName ?? sku).trim() || sku,
       quantityUnits,
-      productId,
+      productId: productId || undefined,
     });
   }
   return lines;

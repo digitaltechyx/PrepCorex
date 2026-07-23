@@ -14,10 +14,11 @@ import { Loader2, X, Plus, ChevronDown, Upload } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import type { InventoryItem, ServiceType, ProductType, UserProfile } from "@/types";
+import type { InventoryItem, InventoryRequest, ServiceType, ProductType, UserProfile } from "@/types";
 import { DTC_FBM_SERVICE, formatShipmentPreferenceLabel, isDtcFbmService } from "@/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/use-auth";
+import { useCollection } from "@/hooks/use-collection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
@@ -30,6 +31,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { OutboundBulkImportDialog } from "@/components/dashboard/outbound-bulk-import-dialog";
 import { canUseCsvImport, canUseCsvImportOnBehalf } from "@/lib/csv-import-permissions";
+import { Badge } from "@/components/ui/badge";
+import {
+  getCommittedPrepUnitsAgainstInbound,
+  isPrepOutboundProductId,
+  isSelectablePrepInbound,
+  inboundUnitsAvailableForPrep,
+  parsePrepOutboundRequestId,
+  prepInboundIdsFromShipments,
+  prepOutboundProductId,
+} from "@/lib/prep-outbound";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -44,6 +55,8 @@ const shipmentItemSchema = z.object({
   // Additional Services per product - user only selects which services they want (boolean flags)
   // Admin will add quantities during approval
   selectedAdditionalServices: z.array(z.string()).optional(),
+  /** Set when line is created from a pending / not-yet-received inbound. */
+  sourceInventoryRequestId: z.string().optional(),
 });
 
 const shipmentGroupSchema = z.object({
@@ -132,6 +145,26 @@ export function CreateShipmentWithLabelsForm({
   const ownerId = targetUserId ?? user?.uid ?? "";
   const ownerDisplayName =
     (targetUserName ?? userProfile?.name ?? "").trim() || "Unknown User";
+
+  const { data: inboundRequests } = useCollection<InventoryRequest>(
+    ownerId ? `users/${ownerId}/inventoryRequests` : ""
+  );
+
+  type SelectableOutboundProduct = {
+    id: string;
+    productName: string;
+    sku?: string;
+    quantity: number;
+    inventoryType?: string;
+    source: "inventory" | "pending_inbound";
+    sourceInventoryRequestId?: string;
+  };
+
+  const inboundById = useMemo(() => {
+    const map = new Map<string, InventoryRequest>();
+    for (const req of inboundRequests) map.set(req.id, req);
+    return map;
+  }, [inboundRequests]);
 
   const pricingUser = useMemo(() => {
     if (!ownerId) return null;
@@ -674,21 +707,54 @@ export function CreateShipmentWithLabelsForm({
       for (let i = 0; i < values.shipmentGroups.length; i++) {
         const group = values.shipmentGroups[i];
 
-        // Validate stock availability for this group
+        // Validate stock / pending-inbound availability for this group
         const stockErrors: string[] = [];
-        group.shipments.forEach((shipment) => {
-          const product = inventory.find(item => item.id === shipment.productId);
+        for (const shipment of group.shipments) {
+          const packOf = group.shipmentType === "product" ? (shipment.packOf || 1) : 1;
+          const totalUnits = shipment.quantity * packOf;
+          const inboundId =
+            shipment.sourceInventoryRequestId ||
+            parsePrepOutboundRequestId(shipment.productId) ||
+            "";
+
+          if (inboundId || isPrepOutboundProductId(shipment.productId)) {
+            const req = inboundById.get(inboundId);
+            if (!req) {
+              stockErrors.push(`Pending inbound not found for one of the selected products.`);
+              continue;
+            }
+            if (!isSelectablePrepInbound(req, group.shipmentType)) {
+              stockErrors.push(
+                `${req.productName}: This inbound is no longer available for pre outbound.`
+              );
+              continue;
+            }
+            const remaining = inboundUnitsAvailableForPrep(req);
+            const alreadyCommitted = await getCommittedPrepUnitsAgainstInbound(ownerId, inboundId);
+            const available = Math.max(0, remaining - alreadyCommitted);
+            if (totalUnits > available) {
+              stockErrors.push(
+                `${req.productName}: Requested ${totalUnits} units from pending inbound but only ${available} available.`
+              );
+            }
+            continue;
+          }
+
+          const product = inventory.find((item) => item.id === shipment.productId);
           if (product) {
-            const packOf = group.shipmentType === "product" ? (shipment.packOf || 1) : 1;
-            const totalUnits = shipment.quantity * packOf;
             if (totalUnits > product.quantity) {
-              const unitType = group.shipmentType === "box" ? "boxes" : group.shipmentType === "pallet" ? "pallets" : "units";
+              const unitType =
+                group.shipmentType === "box"
+                  ? "boxes"
+                  : group.shipmentType === "pallet"
+                    ? "pallets"
+                    : "units";
               stockErrors.push(
                 `${product.productName}: Requested ${totalUnits} ${unitType} but only ${product.quantity} available.`
               );
             }
           }
-        });
+        }
 
         if (stockErrors.length > 0) {
           toast({
@@ -714,15 +780,28 @@ export function CreateShipmentWithLabelsForm({
 
         const mapShipmentsForFirestore = (rows: typeof group.shipments) =>
           rows.map((shipment: any) => {
-            const inv = inventory.find((item) => item.id === shipment.productId);
+            const inboundId =
+              String(shipment.sourceInventoryRequestId ?? "").trim() ||
+              parsePrepOutboundRequestId(shipment.productId) ||
+              "";
+            const inbound = inboundId ? inboundById.get(inboundId) : undefined;
+            const inv = !inbound
+              ? inventory.find((item) => item.id === shipment.productId)
+              : undefined;
+
             const cleaned: any = {
-              productId: shipment.productId,
+              productId: inbound
+                ? String(inbound.productId ?? "").trim() || prepOutboundProductId(inbound.id)
+                : shipment.productId,
               quantity: shipment.quantity,
               packOf: shipment.packOf || 1,
               unitPrice: shipment.unitPrice || 0,
-              sku: String(inv?.sku ?? "").trim() || undefined,
-              productName: String(inv?.productName ?? "").trim() || undefined,
+              sku: String(inbound?.sku ?? inv?.sku ?? "").trim() || undefined,
+              productName: String(inbound?.productName ?? inv?.productName ?? "").trim() || undefined,
             };
+            if (inboundId) {
+              cleaned.sourceInventoryRequestId = inboundId;
+            }
             if (shipment.selectedAdditionalServices && shipment.selectedAdditionalServices.length > 0) {
               cleaned.selectedAdditionalServices = shipment.selectedAdditionalServices;
             }
@@ -738,6 +817,8 @@ export function CreateShipmentWithLabelsForm({
           const labelUrls = await uploadLabelsForShipmentIndices(shipmentIndices);
           const labelUrl = labelUrls.join(",");
           const requestRef = doc(collection(db, `users/${ownerId}/shipmentRequests`));
+          const mappedShipments = mapShipmentsForFirestore(shipmentsSlice);
+          const prepIds = prepInboundIdsFromShipments(mappedShipments);
           const requestData: any = {
             userId: ownerId,
             userName: ownerDisplayName,
@@ -750,6 +831,10 @@ export function CreateShipmentWithLabelsForm({
             requestedBy: ownerId,
             requestedAt,
           };
+          if (prepIds.length > 0) {
+            requestData.isPrepOutbound = true;
+            requestData.prepInboundRequestIds = prepIds;
+          }
 
           if (group.shipmentType === "box") {
             requestData.service = "Carton Forwarding";
@@ -777,7 +862,7 @@ export function CreateShipmentWithLabelsForm({
             }
           }
 
-          requestData.shipments = mapShipmentsForFirestore(shipmentsSlice);
+          requestData.shipments = mappedShipments;
           batch.set(requestRef, removeUndefined(requestData));
           totalRequestsCreated += 1;
         };
@@ -968,9 +1053,9 @@ export function CreateShipmentWithLabelsForm({
               0
             );
             
-            // Calculate available inventory without useMemo (inside map)
+            // Calculate available inventory + pending inbounds without useMemo (inside map)
             const normalizedQuery = query.trim().toLowerCase();
-            const availableInventory = inventory
+            const stockItems: SelectableOutboundProduct[] = inventory
               .filter((item) => item.quantity > 0)
               .filter((item) => {
                 const inventoryType = (item as any).inventoryType;
@@ -980,18 +1065,64 @@ export function CreateShipmentWithLabelsForm({
                   if (groupPalletSubType === "forwarding") {
                     return inventoryType === "pallet";
                   } else if (groupPalletSubType === "existing_inventory") {
-                    // Show all products (inventoryType === "product" or undefined/missing)
-                    const isExcludedType = inventoryType === "box" || inventoryType === "container" || inventoryType === "pallet";
+                    const isExcludedType =
+                      inventoryType === "box" ||
+                      inventoryType === "container" ||
+                      inventoryType === "pallet";
                     return !isExcludedType;
                   }
                   return false;
                 } else {
-                  // Product type - show all products (inventoryType === "product" or undefined/missing)
-                  const isExcludedType = inventoryType === "box" || inventoryType === "container" || inventoryType === "pallet";
+                  const isExcludedType =
+                    inventoryType === "box" ||
+                    inventoryType === "container" ||
+                    inventoryType === "pallet";
                   return !isExcludedType;
                 }
               })
-              .filter((item) => item.productName.toLowerCase().includes(normalizedQuery));
+              .filter((item) => item.productName.toLowerCase().includes(normalizedQuery))
+              .map((item) => ({
+                id: item.id,
+                productName: item.productName,
+                sku: item.sku,
+                quantity: item.quantity,
+                inventoryType: (item as any).inventoryType,
+                source: "inventory" as const,
+              }));
+
+            const pendingInboundItems: SelectableOutboundProduct[] =
+              groupShipmentType === "product" ||
+              groupShipmentType === "box" ||
+              groupShipmentType === "pallet"
+                ? inboundRequests
+                    .filter((req) =>
+                      isSelectablePrepInbound(
+                        req,
+                        (groupShipmentType || "product") as "product" | "box" | "pallet"
+                      )
+                    )
+                    .filter((req) => {
+                      if (groupShipmentType === "pallet" && groupPalletSubType === "existing_inventory") {
+                        return req.inventoryType === "product" || !req.inventoryType;
+                      }
+                      if (groupShipmentType === "pallet" && groupPalletSubType === "forwarding") {
+                        return req.inventoryType === "pallet";
+                      }
+                      return true;
+                    })
+                    .filter((req) => req.productName.toLowerCase().includes(normalizedQuery))
+                    .map((req) => ({
+                      id: prepOutboundProductId(req.id),
+                      productName: req.productName,
+                      sku: req.sku,
+                      quantity: inboundUnitsAvailableForPrep(req),
+                      inventoryType: req.inventoryType,
+                      source: "pending_inbound" as const,
+                      sourceInventoryRequestId: req.id,
+                    }))
+                : [];
+
+            const availableInventory = [...stockItems, ...pendingInboundItems];
             const popupKey = group.id;
 
             return (
@@ -1154,12 +1285,13 @@ export function CreateShipmentWithLabelsForm({
                           <DialogHeader>
                             <DialogTitle>Select Products And Fill Details</DialogTitle>
                             <DialogDescription>
-                              Select products, update line details, and remove rows from one place.
+                              Choose in-stock products or pending inbound lines to create a pre outbound
+                              (warehouse receives inbound first, then processes the outbound).
                             </DialogDescription>
                           </DialogHeader>
                           <div className="mouse-both-scroll max-h-[70vh] space-y-4 py-4 pr-2">
                             <Input
-                              placeholder="Search products..."
+                              placeholder="Search products or pending inbound..."
                               value={query}
                               onChange={(e) => setQuery(e.target.value)}
                             />
@@ -1167,11 +1299,12 @@ export function CreateShipmentWithLabelsForm({
                               <div className="space-y-2">
                                 {availableInventory.length === 0 ? (
                                   <p className="text-sm text-muted-foreground text-center py-4">
-                                    No products available for this shipment type.
+                                    No products or pending inbounds available for this shipment type.
                                   </p>
                                 ) : (
                                   availableInventory.map((item) => {
                                     const isSelected = groupShipments.some((shipment) => shipment.productId === item.id);
+                                    const isPrep = item.source === "pending_inbound";
                                     return (
                                       <div key={item.id} className="flex items-center space-x-2 p-2 hover:bg-muted rounded">
                                         <Checkbox
@@ -1250,6 +1383,7 @@ export function CreateShipmentWithLabelsForm({
                                                   productType: shipmentType === "product" ? ("Standard" as const) : undefined,
                                                   customDimensions: undefined,
                                                   selectedAdditionalServices: undefined,
+                                                  sourceInventoryRequestId: item.sourceInventoryRequestId,
                                                 }
                                               ]);
                                             } else {
@@ -1263,10 +1397,23 @@ export function CreateShipmentWithLabelsForm({
                                           }}
                                         />
                                         <label className="flex-1 text-sm cursor-pointer">
-                                          <div className="flex flex-col">
-                                            <span className="font-medium">{item.productName}</span>
+                                          <div className="flex flex-col gap-0.5">
+                                            <span className="font-medium flex flex-wrap items-center gap-1.5">
+                                              {item.productName}
+                                              {isPrep ? (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="border-amber-400 text-[10px] text-amber-800"
+                                                >
+                                                  Pending inbound
+                                                </Badge>
+                                              ) : null}
+                                            </span>
                                             <span className="text-xs text-muted-foreground">
-                                              SKU: {item.sku || "N/A"} | In Stock: {item.quantity}
+                                              SKU: {item.sku || "N/A"} |{" "}
+                                              {isPrep
+                                                ? `Pending inbound: ${item.quantity}`
+                                                : `In Stock: ${item.quantity}`}
                                             </span>
                                           </div>
                                         </label>
@@ -1296,7 +1443,12 @@ export function CreateShipmentWithLabelsForm({
                                     </div>
                                   ) : (
                                     groupShipments.map((shipment, shipmentIndex) => {
-                                      const selectedProduct = inventory.find((item) => item.id === shipment.productId);
+                                      const selectedProduct =
+                                        availableInventory.find((item) => item.id === shipment.productId) ||
+                                        inventory.find((item) => item.id === shipment.productId);
+                                      const isPrepLine =
+                                        Boolean(shipment.sourceInventoryRequestId) ||
+                                        isPrepOutboundProductId(shipment.productId);
                                       const lineKey = getLineKey(groupIndex, shipmentIndex);
                                       const lineLabelState = labelStates[lineKey] || { items: [], isUploading: false };
                                       const selectedServices =
@@ -1329,6 +1481,11 @@ export function CreateShipmentWithLabelsForm({
                                         >
                                           <div className="truncate text-xs font-medium">
                                             {selectedProduct?.productName || "Unknown"}
+                                            {isPrepLine ? (
+                                              <span className="ml-1 text-[10px] font-normal text-amber-700">
+                                                (pre)
+                                              </span>
+                                            ) : null}
                                           </div>
                                           <Input
                                             type="number"
@@ -1597,7 +1754,9 @@ export function CreateShipmentWithLabelsForm({
                             <div className="flex min-w-max items-center gap-1">
                               {groupShipments.length > 0 ? (
                                 groupShipments.map((shipment, shipmentIndex) => {
-                                  const summaryProduct = inventory.find((item) => item.id === shipment.productId);
+                                  const summaryProduct =
+                                    availableInventory.find((item) => item.id === shipment.productId) ||
+                                    inventory.find((item) => item.id === shipment.productId);
                                   const lineEditorPopupKey = `${popupKey}_line_${shipmentIndex}_editor`;
                                   return (
                                     <Button
@@ -1635,7 +1794,9 @@ export function CreateShipmentWithLabelsForm({
                       <div className="overflow-x-scroll">
                         <div className="flex min-w-max items-center gap-2 pb-1">
                       {groupShipments.map((shipment, shipmentIndex) => {
-                        const product = inventory.find((item) => item.id === shipment.productId);
+                        const product =
+                          availableInventory.find((item) => item.id === shipment.productId) ||
+                          inventory.find((item) => item.id === shipment.productId);
                         const quantity = form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`) || 0;
                         const packOf = form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf`) || 1;
                         const totalUnits = quantity * packOf;

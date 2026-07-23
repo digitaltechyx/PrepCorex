@@ -43,6 +43,7 @@ import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { doc, updateDoc, collection, Timestamp, runTransaction, addDoc } from "firebase/firestore";
 import { getCommittedOutboundUnits } from "@/lib/client-inventory-outbound-sync";
+import { resolvePrepOutboundShipmentsForConfirm, shipmentRequestIsPrepOutbound } from "@/lib/prep-outbound";
 import { format } from "date-fns";
 import { Check, X, Eye, Loader2, FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -275,8 +276,16 @@ export function ShipmentRequestsManagement({
       const crossdockHoldFulfillment = additionalServices?.crossdockHoldFulfillment === true;
 
       const committedByProduct = new Map<string, number>();
+      const requestData = request as unknown as Record<string, unknown>;
+      const resolvedShipments = await resolvePrepOutboundShipmentsForConfirm({
+        clientUserId: targetUserId,
+        requestData: {
+          ...requestData,
+          shipments: request.shipments as unknown as Array<Record<string, unknown>>,
+        },
+      });
       if (!crossdockHoldFulfillment) {
-      for (const shipment of request.shipments ?? []) {
+      for (const shipment of resolvedShipments) {
         const productId = String(shipment.productId ?? "").trim();
         if (!productId || committedByProduct.has(productId)) continue;
         committedByProduct.set(
@@ -297,22 +306,23 @@ export function ShipmentRequestsManagement({
 
         if (!crossdockHoldFulfillment) {
         await Promise.all(
-          request.shipments.map(async (shipment, index) => {
-            const inventoryDocRef = doc(db, `users/${targetUserId}/inventory`, shipment.productId);
+          resolvedShipments.map(async (shipment, index) => {
+            const productId = String(shipment.productId ?? "").trim();
+            const inventoryDocRef = doc(db, `users/${targetUserId}/inventory`, productId);
             const inventoryDoc = await transaction.get(inventoryDocRef);
 
             if (!inventoryDoc.exists()) {
-              throw new Error(`Product ${shipment.productId} not found in inventory.`);
+              throw new Error(`Product ${productId} not found in inventory.`);
             }
 
             const currentInventory = inventoryDoc.data() as Omit<InventoryItem, "id">;
             const effectivePackOf =
               isCustomProduct && additionalServices?.customProductPricing?.[index]?.packOf
                 ? additionalServices.customProductPricing[index].packOf
-                : shipment.packOf;
-            const totalUnitsShipped = shipment.quantity * effectivePackOf;
+                : Number(shipment.packOf) || 1;
+            const totalUnitsShipped = Number(shipment.quantity) * effectivePackOf;
             const selectedSourceLocationId = String((shipment as any).sourceLocationId || "").trim();
-            const committed = committedByProduct.get(shipment.productId) ?? 0;
+            const committed = committedByProduct.get(productId) ?? 0;
             const sellableQty = Math.max(0, currentInventory.quantity - committed);
 
             if (sellableQty < totalUnitsShipped) {
@@ -372,6 +382,7 @@ export function ShipmentRequestsManagement({
           status: "confirmed",
           confirmedBy: adminProfile.uid,
           confirmedAt,
+          shipments: resolvedShipments,
           ...(crossdockHoldFulfillment
             ? { crossdockFulfillment: true }
             : { clientInventoryDeductionTiming: "dispatch" }),
@@ -815,19 +826,26 @@ export function ShipmentRequestsManagement({
                     <TableCell>{request.shipments.length} product(s)</TableCell>
                     <TableCell>{formatDate(request.requestedAt)}</TableCell>
                     <TableCell>
-                      <Badge
-                        variant={
-                          request.status === "confirmed"
-                            ? "default"
-                            : request.status === "rejected"
-                            ? "destructive"
-                            : request.status === "cancelled"
-                            ? "secondary"
-                            : "secondary"
-                        }
-                      >
-                        {request.status}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge
+                          variant={
+                            request.status === "confirmed"
+                              ? "default"
+                              : request.status === "rejected"
+                              ? "destructive"
+                              : request.status === "cancelled"
+                              ? "secondary"
+                              : "secondary"
+                          }
+                        >
+                          {request.status}
+                        </Badge>
+                        {shipmentRequestIsPrepOutbound(request as unknown as Record<string, unknown>) ? (
+                          <Badge variant="outline" className="border-amber-400 text-amber-800">
+                            Pre outbound
+                          </Badge>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {request.status === "pending" || request.status === "awaiting_label_upload" ? (

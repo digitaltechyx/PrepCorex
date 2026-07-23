@@ -176,6 +176,28 @@ export function AssignLocationTab() {
     });
   }, [activeLocations, locationSearch]);
 
+  /** Location ids already on the selected user(s) — shown as Assigned (not the action checkbox). */
+  const assignedLocationMeta = useMemo(() => {
+    if (selectedUserIds.size === 0) {
+      return { any: new Set<string>(), all: new Set<string>(), selectedCount: 0 };
+    }
+    const selected = users.filter((u) => u.uid && selectedUserIds.has(u.uid));
+    const any = new Set<string>();
+    const counts = new Map<string, number>();
+    for (const u of selected) {
+      for (const id of normalizeUserLocationIds(u.locations)) {
+        any.add(id);
+        counts.set(id, (counts.get(id) ?? 0) + 1);
+      }
+    }
+    const all = new Set<string>();
+    const n = selected.length;
+    counts.forEach((count, id) => {
+      if (count === n) all.add(id);
+    });
+    return { any, all, selectedCount: n };
+  }, [selectedUserIds, users]);
+
   const openEdit = (loc: LocationType) => {
     setEditingLoc(loc);
     setEditForm({
@@ -640,8 +662,21 @@ export function AssignLocationTab() {
                     <Label className="text-sm font-semibold">Locations to assign</Label>
                     <span className="text-xs text-muted-foreground">
                       {selectedLocationIds.size} selected · {filteredLocations.length} shown
+                      {assignedLocationMeta.any.size > 0
+                        ? ` · ${assignedLocationMeta.any.size} already assigned`
+                        : ""}
                     </span>
                   </div>
+                  {selectedUserIds.size > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Green rows / Assigned badge = already on the selected user
+                      {selectedUserIds.size > 1 ? "(s)" : ""}. Checkboxes are for assign/remove only.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Select a user to see which locations they already have.
+                    </p>
+                  )}
                   <div className="rounded-xl border-2 border-border/60 bg-muted/5">
                     <div className="relative border-b">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -661,6 +696,10 @@ export function AssignLocationTab() {
                         filteredLocations.map((loc) => {
                           const checked = selectedLocationIds.has(loc.id);
                           const isDefault = defaultLocationId === loc.id;
+                          const isAssigned = assignedLocationMeta.any.has(loc.id);
+                          const assignedToAll =
+                            assignedLocationMeta.selectedCount > 1 &&
+                            assignedLocationMeta.all.has(loc.id);
                           return (
                             <button
                               key={loc.id}
@@ -668,7 +707,11 @@ export function AssignLocationTab() {
                               onClick={() => toggleLocation(loc.id)}
                               className={cn(
                                 "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
-                                checked ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/60"
+                                checked
+                                  ? "bg-primary/10 ring-1 ring-primary/30"
+                                  : isAssigned
+                                    ? "bg-emerald-50 ring-1 ring-emerald-200/80 dark:bg-emerald-950/30 dark:ring-emerald-800/60"
+                                    : "hover:bg-muted/60"
                               )}
                             >
                               <Checkbox
@@ -678,6 +721,18 @@ export function AssignLocationTab() {
                                 aria-label={`Select ${locationLabel(loc)}`}
                               />
                               <span className="min-w-0 flex-1 text-sm font-medium">{locationLabel(loc)}</span>
+                              {isAssigned ? (
+                                <Badge
+                                  variant="outline"
+                                  className="shrink-0 border-emerald-500/60 bg-emerald-500/10 text-[10px] text-emerald-800 dark:text-emerald-300"
+                                >
+                                  {assignedLocationMeta.selectedCount > 1
+                                    ? assignedToAll
+                                      ? "Assigned (all)"
+                                      : "Assigned (some)"
+                                    : "Assigned"}
+                                </Badge>
+                              ) : null}
                               {isDefault ? (
                                 <Badge
                                   variant="outline"

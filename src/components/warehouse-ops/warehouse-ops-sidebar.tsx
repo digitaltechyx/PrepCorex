@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Archive,
   AlertTriangle,
+  Bell,
   Box,
   ClipboardList,
   Home,
@@ -38,6 +39,7 @@ import { Shield } from "lucide-react";
 
 const NAV_ICONS: Record<string, LucideIcon> = {
   "/warehouse-ops": Home,
+  "/warehouse-ops/notifications": Bell,
   "/warehouse-ops/locate": Search,
   "/warehouse-ops/receiving": PackagePlus,
   "/warehouse-ops/putaway": Archive,
@@ -56,6 +58,7 @@ type NavGroup = "overview" | "inbound" | "floor" | "outbound" | "quality";
 
 const NAV_GROUP: Record<string, NavGroup> = {
   "/warehouse-ops": "overview",
+  "/warehouse-ops/notifications": "overview",
   "/warehouse-ops/locate": "overview",
   "/warehouse-ops/receiving": "inbound",
   "/warehouse-ops/putaway": "inbound",

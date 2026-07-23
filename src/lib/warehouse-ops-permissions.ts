@@ -120,6 +120,12 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       feature: "ops_dashboard",
     },
     {
+      title: "Notifications",
+      href: "/warehouse-ops/notifications",
+      feature: "ops_dashboard",
+      description: "Pending inbound, outbound, and returns to process",
+    },
+    {
       title: "Find product",
       href: "/warehouse-ops/locate",
       feature: "ops_dashboard",

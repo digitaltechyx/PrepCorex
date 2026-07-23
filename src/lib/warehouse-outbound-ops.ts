@@ -19,7 +19,12 @@ import {
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
 import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
 import type { LiveFirestoreDoc } from "@/lib/warehouse-ops-live-compute";
-import type { InventoryItem, UserProfile, WarehouseDoc } from "@/types";
+import {
+  prepOutboundWaitingOnInbound,
+  resolvePrepOutboundShipmentsForConfirm,
+  shipmentRequestIsPrepOutbound,
+} from "@/lib/prep-outbound";
+import type { InventoryItem, InventoryRequest, UserProfile, WarehouseDoc } from "@/types";
 
 export type PendingOutboundRequest = {
   id: string;
@@ -33,6 +38,8 @@ export type PendingOutboundRequest = {
   lineSummary: string;
   needsClientLabel: boolean;
   canApprove: boolean;
+  isPrepOutbound?: boolean;
+  waitingOnInbound?: boolean;
 };
 
 /** Parse comma/newline-separated label URLs on a shipment request. */
@@ -74,6 +81,8 @@ export function buildPendingOutboundQueueLive(input: {
   clients: UserProfile[];
   shipmentDocs: LiveFirestoreDoc[];
   productMaps: Map<string, ClientProductMap>;
+  /** Optional inbound request docs (`users/{uid}/inventoryRequests/...`) for prep-outbound gating. */
+  inventoryDocs?: LiveFirestoreDoc[];
 }): PendingOutboundRequest[] {
   const clientById = new Map(input.clients.map((c) => [c.uid, c]));
   const eligible = new Set(
@@ -81,6 +90,20 @@ export function buildPendingOutboundQueueLive(input: {
       .filter((c) => clientMatchesWarehouse(c, input.warehouse))
       .map((c) => c.uid)
   );
+
+  const inboundByClient = new Map<string, Map<string, InventoryRequest>>();
+  for (const invDoc of input.inventoryDocs ?? []) {
+    const path = invDoc.path;
+    if (!path.includes("/inventoryRequests/")) continue;
+    const clientUserId = userIdFromDocPath(path);
+    if (!clientUserId) continue;
+    let map = inboundByClient.get(clientUserId);
+    if (!map) {
+      map = new Map();
+      inboundByClient.set(clientUserId, map);
+    }
+    map.set(invDoc.id, { id: invDoc.id, ...(invDoc.data as Omit<InventoryRequest, "id">) });
+  }
 
   const rows: PendingOutboundRequest[] = [];
 
@@ -124,7 +147,14 @@ export function buildPendingOutboundQueueLive(input: {
         .includes("fba");
     const needsClientLabel =
       status === "awaiting_label_upload" || (isFba && labelUrls.length === 0);
-    const canApprove = status === "pending" || (status === "awaiting_label_upload" && labelUrls.length > 0);
+    const isPrepOutbound = shipmentRequestIsPrepOutbound(data);
+    const waitingOnInbound = prepOutboundWaitingOnInbound({
+      shipmentData: data,
+      inboundById: inboundByClient.get(clientUserId) ?? new Map(),
+    });
+    const canApprove =
+      (status === "pending" || (status === "awaiting_label_upload" && labelUrls.length > 0)) &&
+      !waitingOnInbound;
 
     rows.push({
       id: docRow.id,
@@ -141,6 +171,8 @@ export function buildPendingOutboundQueueLive(input: {
           : "No SKU lines resolved yet",
       needsClientLabel,
       canApprove,
+      isPrepOutbound,
+      waitingOnInbound,
     });
   }
 
@@ -151,6 +183,7 @@ export function buildPendingOutboundQueueLive(input: {
 /**
  * Floor approve for outbound — confirms request so it enters the pick queue.
  * Inventory deducts later at dispatch (same timing as admin confirm).
+ * Pre outbound: linked inbound must be received/put away first; productIds are resolved then.
  */
 export async function confirmOutboundRequestAtPick(input: {
   clientUserId: string;
@@ -178,13 +211,16 @@ export async function confirmOutboundRequestAtPick(input: {
     throw new Error("Client label not uploaded yet — wait for label, then approve.");
   }
 
-  const shipments = Array.isArray(data.shipments)
-    ? (data.shipments as Array<Record<string, unknown>>)
-    : [];
-  if (shipments.length === 0) throw new Error("Order has no line items.");
+  const resolvedShipments = await resolvePrepOutboundShipmentsForConfirm({
+    clientUserId,
+    requestData: data,
+  });
+  if (resolvedShipments.length === 0) throw new Error("Order has no line items.");
+
+  const resolvedData = { ...data, shipments: resolvedShipments };
 
   const committedByProduct = new Map<string, number>();
-  for (const shipment of shipments) {
+  for (const shipment of resolvedShipments) {
     const productId = String(shipment.productId ?? "").trim();
     if (!productId || committedByProduct.has(productId)) continue;
     committedByProduct.set(
@@ -194,8 +230,8 @@ export async function confirmOutboundRequestAtPick(input: {
   }
 
   await runTransaction(db, async (transaction) => {
-    for (let index = 0; index < shipments.length; index += 1) {
-      const shipment = shipments[index]!;
+    for (let index = 0; index < resolvedShipments.length; index += 1) {
+      const shipment = resolvedShipments[index]!;
       const productId = String(shipment.productId ?? "").trim();
       if (!productId) throw new Error("Missing product on a shipment line.");
 
@@ -206,7 +242,7 @@ export async function confirmOutboundRequestAtPick(input: {
       }
 
       const currentInventory = inventorySnap.data() as Omit<InventoryItem, "id">;
-      const totalUnits = shipmentUnits(data, shipment, index);
+      const totalUnits = shipmentUnits(resolvedData, shipment, index);
       const committed = committedByProduct.get(productId) ?? 0;
       const sellable = Math.max(0, Number(currentInventory.quantity) - committed);
       if (sellable < totalUnits) {
@@ -222,6 +258,7 @@ export async function confirmOutboundRequestAtPick(input: {
       confirmedAt: Timestamp.now(),
       clientInventoryDeductionTiming: "dispatch",
       warehousePickStatus: "ready",
+      shipments: resolvedShipments,
       updatedAt: serverTimestamp(),
     });
   });

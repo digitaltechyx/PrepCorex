@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
+import { useSearchParams } from "next/navigation";
 import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
@@ -134,6 +135,8 @@ export function WarehouseOpsPack({ warehouse }: Props) {
 
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const courierScanInputRef = useRef<HTMLInputElement | null>(null);
+  const searchParams = useSearchParams();
+  const focusAppliedRef = useRef(false);
 
   const verifiedSet = useMemo(
     () => new Set(plan?.verifiedKeys ?? []),
@@ -240,6 +243,19 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     setCourierPreview(null);
     await refreshPlan(order);
   }
+
+  useEffect(() => {
+    if (focusAppliedRef.current || queueLoading) return;
+    const requestId = String(searchParams.get("requestId") || "").trim();
+    const userId = String(searchParams.get("userId") || "").trim();
+    if (!requestId) return;
+    const match = orders.find(
+      (o) => o.id === requestId && (!userId || o.clientUserId === userId)
+    );
+    if (!match) return;
+    void selectOrder(match);
+    focusAppliedRef.current = true;
+  }, [orders, queueLoading, searchParams]);
 
   function resetToQueue() {
     setSelectedOrder(null);
