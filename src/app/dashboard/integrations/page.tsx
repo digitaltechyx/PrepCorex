@@ -85,6 +85,14 @@ type TikTokConnectionSummary = {
   selectedProducts?: TikTokSelectedProduct[];
 };
 
+type AmazonConnectionSummary = {
+  id: string;
+  connectedAt: { seconds: number; nanoseconds: number } | string;
+  environment: string;
+  sellingPartnerId?: string | null;
+  marketplaces?: Array<{ id?: string | null; name?: string | null; countryCode?: string | null }>;
+};
+
 type PlatformCategory = "marketplace" | "ecommerce" | "social" | "shipping";
 type PlatformStatus = "live" | "coming_soon";
 type FilterTab = "all" | "connected" | "available" | "soon";
@@ -131,8 +139,8 @@ const PLATFORMS: PlatformDef[] = [
     shortName: "AMZ",
     category: "marketplace",
     categoryLabel: "Marketplace",
-    status: "coming_soon",
-    description: "SP-API marketplace integration for orders and catalog — on our roadmap.",
+    status: "live",
+    description: "Connect Seller Central (SP-API sandbox) to authorize PrepCorex for orders and catalog.",
     accent: "from-amber-500/80 to-orange-600/80",
     ring: "ring-amber-500/15",
   },
@@ -207,13 +215,15 @@ function connectionCountFor(
   ebay: EbayConnectionSummary[],
   shipstation: ShipStationConnectionSummary[],
   woocommerce: WooCommerceConnectionSummary[],
-  tiktok: TikTokConnectionSummary[]
+  tiktok: TikTokConnectionSummary[],
+  amazon: AmazonConnectionSummary[]
 ): number {
   if (platformId === "shopify") return shopify.length;
   if (platformId === "ebay") return ebay.length;
   if (platformId === "shipstation") return shipstation.length;
   if (platformId === "woocommerce") return woocommerce.length;
   if (platformId === "tiktok") return tiktok.length;
+  if (platformId === "amazon") return amazon.length;
   return 0;
 }
 
@@ -225,9 +235,13 @@ export default function IntegrationsPage() {
   const [shipstationConnections, setShipstationConnections] = useState<ShipStationConnectionSummary[]>([]);
   const [woocommerceConnections, setWoocommerceConnections] = useState<WooCommerceConnectionSummary[]>([]);
   const [tiktokConnections, setTiktokConnections] = useState<TikTokConnectionSummary[]>([]);
+  const [amazonConnections, setAmazonConnections] = useState<AmazonConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [tiktokConnectLoading, setTiktokConnectLoading] = useState(false);
   const [tiktokDisconnectId, setTiktokDisconnectId] = useState<string | null>(null);
+  const [amazonConnectLoading, setAmazonConnectLoading] = useState(false);
+  const [amazonDisconnectId, setAmazonDisconnectId] = useState<string | null>(null);
+  const [amazonVerifyId, setAmazonVerifyId] = useState<string | null>(null);
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
   const [shopInput, setShopInput] = useState("");
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
@@ -257,12 +271,13 @@ export default function IntegrationsPage() {
     setLoading(true);
     try {
       const token = await user.getIdToken();
-      const [shopifyRes, ebayRes, shipstationRes, woocommerceRes, tiktokRes] = await Promise.all([
+      const [shopifyRes, ebayRes, shipstationRes, woocommerceRes, tiktokRes, amazonRes] = await Promise.all([
         fetch("/api/integrations/shopify-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/ebay-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/shipstation-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/woocommerce-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/tiktok-connections", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/integrations/amazon-connections", { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (shopifyRes.ok) {
         const data = await shopifyRes.json();
@@ -284,12 +299,17 @@ export default function IntegrationsPage() {
         const data = await tiktokRes.json();
         setTiktokConnections(data.connections ?? []);
       }
+      if (amazonRes.ok) {
+        const data = await amazonRes.json();
+        setAmazonConnections(data.connections ?? []);
+      }
     } catch {
       setShopifyConnections([]);
       setEbayConnections([]);
       setShipstationConnections([]);
       setWoocommerceConnections([]);
       setTiktokConnections([]);
+      setAmazonConnections([]);
     } finally {
       setLoading(false);
     }
@@ -304,13 +324,16 @@ export default function IntegrationsPage() {
     ebayConnections.length +
     shipstationConnections.length +
     woocommerceConnections.length +
-    tiktokConnections.length;
+    tiktokConnections.length +
+    amazonConnections.length;
+
   const liveConnectedPlatforms = [
     shopifyConnections.length > 0,
     ebayConnections.length > 0,
     shipstationConnections.length > 0,
     woocommerceConnections.length > 0,
     tiktokConnections.length > 0,
+    amazonConnections.length > 0,
   ].filter(Boolean).length;
 
   const visiblePlatforms = useMemo(() => {
@@ -324,7 +347,8 @@ export default function IntegrationsPage() {
         ebayConnections,
         shipstationConnections,
         woocommerceConnections,
-        tiktokConnections
+        tiktokConnections,
+        amazonConnections
       );
       if (filterTab === "connected") return p.status === "live" && n > 0;
       if (filterTab === "available") return p.status === "live" && n === 0;
@@ -340,6 +364,7 @@ export default function IntegrationsPage() {
     shipstationConnections,
     woocommerceConnections,
     tiktokConnections,
+    amazonConnections,
   ]);
 
   const handleConnectTikTok = () => {
@@ -484,6 +509,150 @@ export default function IntegrationsPage() {
       });
     } finally {
       setEbayDisconnectId(null);
+    }
+  };
+
+  const handleConnectAmazon = async (addNew?: boolean) => {
+    if (!user) return;
+    setAmazonConnectLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const url = addNew
+        ? "/api/integrations/amazon/authorize-url?addNew=true"
+        : "/api/integrations/amazon/authorize-url";
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "Amazon",
+          description: data.error || "Could not start connection.",
+        });
+        return;
+      }
+      if (data.url) {
+        try {
+          const consent = new URL(data.url);
+          const state = consent.searchParams.get("state");
+          if (state) sessionStorage.setItem("amazon_oauth_state", state);
+        } catch {
+          /* ignore */
+        }
+        window.location.href = data.url;
+      }
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: e instanceof Error ? e.message : "Failed to connect Amazon.",
+      });
+    } finally {
+      setAmazonConnectLoading(false);
+    }
+  };
+
+  const handleConnectAmazonRefreshToken = async () => {
+    if (!user) return;
+    setAmazonConnectLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch("/api/integrations/amazon/connect-refresh-token", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          addNew: amazonConnections.length > 0,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "Amazon",
+          description: data.detail ? `${data.error}: ${data.detail}` : data.error || "Connect failed.",
+        });
+        return;
+      }
+      toast({
+        title: "Amazon connected",
+        description: `Verified ${data.marketplaceCount ?? 0} marketplace(s) · ${data.environment || "production"}`,
+      });
+      fetchConnections();
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: e instanceof Error ? e.message : "Failed to connect Amazon.",
+      });
+    } finally {
+      setAmazonConnectLoading(false);
+    }
+  };
+
+  const handleVerifyAmazon = async (connectionId: string) => {
+    if (!user) return;
+    setAmazonVerifyId(connectionId);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(
+        `/api/integrations/amazon/status?connectionId=${encodeURIComponent(connectionId)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "Amazon verify failed",
+          description:
+            typeof data.detail === "string"
+              ? data.detail
+              : data.error || "Verify failed.",
+        });
+        return;
+      }
+      toast({
+        title: "Amazon OK",
+        description: `Verified ${data.marketplaceCount ?? 0} marketplace(s).`,
+      });
+      fetchConnections();
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: e instanceof Error ? e.message : "Verify failed.",
+      });
+    } finally {
+      setAmazonVerifyId(null);
+    }
+  };
+
+  const handleDisconnectAmazon = async (id: string) => {
+    if (!user) return;
+    setAmazonDisconnectId(id);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/integrations/amazon-connections?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to disconnect");
+      }
+      toast({ title: "Disconnected", description: "Amazon account has been disconnected." });
+      fetchConnections();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err instanceof Error ? err.message : "Could not disconnect.",
+      });
+    } finally {
+      setAmazonDisconnectId(null);
     }
   };
 
@@ -801,7 +970,8 @@ export default function IntegrationsPage() {
               ebayConnections,
               shipstationConnections,
               woocommerceConnections,
-              tiktokConnections
+              tiktokConnections,
+              amazonConnections
             );
             const isLive = p.status === "live";
             const isSoon = p.status === "coming_soon";
@@ -919,6 +1089,38 @@ export default function IntegrationsPage() {
                           </>
                         )}
                       </Button>
+                    )}
+                    {isLive && p.id === "amazon" && (
+                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
+                          onClick={() => void handleConnectAmazonRefreshToken()}
+                          disabled={amazonConnectLoading}
+                        >
+                          {amazonConnectLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>Save token</>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
+                          onClick={() => handleConnectAmazon(amazonConnections.length > 0)}
+                          disabled={amazonConnectLoading}
+                        >
+                          {amazonConnectLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Plus className="h-4 w-4 sm:mr-1" />
+                              {count > 0 ? "Add account" : "OAuth"}
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     )}
                   </div>
                   <CardDescription className="text-sm leading-relaxed">{p.description}</CardDescription>
@@ -1159,6 +1361,88 @@ export default function IntegrationsPage() {
                                     disabled={ebayDisconnectId === conn.id}
                                   >
                                     {ebayDisconnectId === conn.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+
+                  {p.id === "amazon" && isLive && (
+                    <>
+                      <Alert className="border-amber-200 bg-amber-50/80 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-50">
+                        <Info className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+                        <AlertTitle className="text-amber-900 dark:text-amber-100">
+                          Amazon SP-API · Production
+                        </AlertTitle>
+                        <AlertDescription className="text-amber-800/90 dark:text-amber-200/90">
+                          After Seller Central authorization, click <strong>Save token</strong> to import{" "}
+                          <code className="text-[11px]">AMAZON_REFRESH_TOKEN</code> from env and verify API access.
+                          Use <strong>OAuth</strong> only if website authorize URIs are configured on the app.
+                        </AlertDescription>
+                      </Alert>
+                      {amazonConnections.length === 0 ? (
+                        <div className="rounded-xl border border-dashed bg-muted/15 px-4 py-6 text-center text-sm text-muted-foreground">
+                          No Amazon seller linked yet. Use <strong className="text-foreground">Save token</strong> after
+                          adding the refresh token to <code className="text-[11px]">.env.local</code>.
+                        </div>
+                      ) : (
+                        <ul className="space-y-2">
+                          {amazonConnections.map((conn) => (
+                            <li
+                              key={conn.id}
+                              className="rounded-lg border bg-background/80 p-3 shadow-sm ring-1 ring-border/50"
+                            >
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="min-w-0">
+                                  <p className="font-medium">
+                                    Amazon · {conn.environment}
+                                    {conn.sellingPartnerId ? (
+                                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                                        ({conn.sellingPartnerId})
+                                      </span>
+                                    ) : null}
+                                  </p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Since {formatConnectedAt(conn.connectedAt)}
+                                    {conn.marketplaces && conn.marketplaces.length > 0
+                                      ? ` · ${conn.marketplaces
+                                          .map((m) => m.countryCode || m.name || m.id)
+                                          .filter(Boolean)
+                                          .slice(0, 4)
+                                          .join(", ")}`
+                                      : ""}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    className="h-8"
+                                    onClick={() => void handleVerifyAmazon(conn.id)}
+                                    disabled={amazonVerifyId === conn.id}
+                                  >
+                                    {amazonVerifyId === conn.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      "Verify"
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 text-destructive hover:text-destructive"
+                                    onClick={() => handleDisconnectAmazon(conn.id)}
+                                    disabled={amazonDisconnectId === conn.id}
+                                  >
+                                    {amazonDisconnectId === conn.id ? (
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                     ) : (
                                       <Trash2 className="h-3.5 w-3.5" />
