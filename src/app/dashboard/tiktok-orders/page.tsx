@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -16,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, RefreshCw, ShoppingBag } from "lucide-react";
+import type { TikTokNormalizedOrder } from "@/lib/tiktok-order-normalize";
+import { TikTokOrderDetailBody } from "@/components/integrations/tiktok-order-detail";
 
 type TikTokConnectionSummary = {
   id: string;
@@ -23,31 +24,12 @@ type TikTokConnectionSummary = {
   shopName: string;
 };
 
-type TikTokOrderRow = {
-  id: string;
-  status: string | null;
-  createTime: number | null;
-  connectionId?: string;
-  shopId?: string | null;
-  shopName?: string;
-  lineItems?: unknown;
-};
-
-function formatOrderDate(createTime: number | null) {
-  if (!createTime) return "—";
-  try {
-    return new Date(Number(createTime) * 1000).toLocaleString();
-  } catch {
-    return "—";
-  }
-}
-
-export default function TikTokOrdersPage() {
+function TikTokOrdersContent() {
   const searchParams = useSearchParams();
   const connectionParam = searchParams.get("connectionId")?.trim() || "";
   const { user } = useAuth();
   const { toast } = useToast();
-  const [orders, setOrders] = useState<TikTokOrderRow[]>([]);
+  const [orders, setOrders] = useState<TikTokNormalizedOrder[]>([]);
   const [connections, setConnections] = useState<TikTokConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -124,7 +106,7 @@ export default function TikTokOrdersPage() {
                 TikTok Shop Orders
               </CardTitle>
               <CardDescription className="mt-1">
-                View order status from your connected TikTok Shop(s). Shipping and tracking updates are handled by
+                Full order details from your connected TikTok Shop(s). Shipping and tracking updates are handled by
                 PrepCorex admins.
               </CardDescription>
             </div>
@@ -180,22 +162,13 @@ export default function TikTokOrdersPage() {
               </p>
             </div>
           ) : (
-            <ul className="divide-y rounded-lg border">
+            <ul className="space-y-4">
               {filteredOrders.map((o) => (
                 <li
                   key={`${o.connectionId || ""}-${o.id}`}
-                  className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4"
+                  className="rounded-xl border bg-card p-4 shadow-sm"
                 >
-                  <div className="min-w-0">
-                    <p className="font-mono text-sm font-medium">{o.id}</p>
-                    <p className="text-xs text-muted-foreground">{formatOrderDate(o.createTime)}</p>
-                    {o.shopName ? (
-                      <p className="text-[11px] text-muted-foreground mt-0.5">{o.shopName}</p>
-                    ) : null}
-                  </div>
-                  <Badge variant="outline" className="w-fit">
-                    {String(o.status ?? "—")}
-                  </Badge>
+                  <TikTokOrderDetailBody order={o} />
                 </li>
               ))}
             </ul>
@@ -203,5 +176,20 @@ export default function TikTokOrdersPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function TikTokOrdersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center gap-2 text-muted-foreground p-6">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Loading…
+        </div>
+      }
+    >
+      <TikTokOrdersContent />
+    </Suspense>
   );
 }

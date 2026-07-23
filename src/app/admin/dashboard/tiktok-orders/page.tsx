@@ -21,14 +21,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { Loader2, ShoppingBag, Truck } from "lucide-react";
-
-type TikTokOrderRow = {
-  id: string;
-  status: string | null;
-  createTime: number | null;
-  connectionId?: string;
-  shopName?: string;
-};
+import type { TikTokNormalizedOrder } from "@/lib/tiktok-order-normalize";
+import { TikTokOrderDetailBody } from "@/components/integrations/tiktok-order-detail";
 
 type TikTokConnectionSummary = {
   id: string;
@@ -51,7 +45,7 @@ function TikTokOrdersAdminContent() {
 
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [userSearchQuery, setUserSearchQuery] = useState("");
-  const [orders, setOrders] = useState<TikTokOrderRow[]>([]);
+  const [orders, setOrders] = useState<TikTokNormalizedOrder[]>([]);
   const [connections, setConnections] = useState<TikTokConnectionSummary[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [fulfillingId, setFulfillingId] = useState<string | null>(null);
@@ -110,7 +104,7 @@ function TikTokOrdersAdminContent() {
     void fetchOrders();
   }, [fetchOrders]);
 
-  const handleFulfill = async (order: TikTokOrderRow) => {
+  const handleFulfill = async (order: TikTokNormalizedOrder) => {
     if (!user || !selectedUser?.uid || !order.connectionId) return;
     const trackingNumber = (trackingByOrder[order.id] || "").trim();
     if (!trackingNumber) {
@@ -164,7 +158,7 @@ function TikTokOrdersAdminContent() {
                 TikTok Shop Orders
               </CardTitle>
               <CardDescription>
-                View client TikTok orders and mark shipped with tracking (admin only).
+                Full client order details. Mark shipped with tracking (admin only).
               </CardDescription>
             </div>
             <Dialog>
@@ -234,13 +228,13 @@ function TikTokOrdersAdminContent() {
           ) : orders.length === 0 ? (
             <p className="text-muted-foreground text-center py-8">No TikTok orders found for this user.</p>
           ) : (
-            <ul className="divide-y rounded-lg border">
+            <ul className="space-y-4">
               {orders.map((o) => (
-                <li key={`${o.connectionId}-${o.id}`} className="space-y-3 p-3 sm:p-4">
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="font-mono text-sm font-medium">{o.id}</p>
-                      <p className="text-xs text-muted-foreground">
+                <li key={`${o.connectionId}-${o.id}`} className="rounded-xl border bg-card p-4 shadow-sm space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-mono text-sm font-semibold">{o.id}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
                         {o.createTime
                           ? new Date(Number(o.createTime) * 1000).toLocaleString()
                           : "—"}
@@ -249,7 +243,10 @@ function TikTokOrdersAdminContent() {
                     </div>
                     <Badge variant="outline">{String(o.status ?? "—")}</Badge>
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+
+                  <TikTokOrderDetailBody order={o} compact />
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end border-t pt-3">
                     <div className="flex-1 space-y-1">
                       <Label htmlFor={`track-${o.id}`} className="text-xs">
                         Tracking number
@@ -257,7 +254,7 @@ function TikTokOrdersAdminContent() {
                       <Input
                         id={`track-${o.id}`}
                         placeholder="Tracking number"
-                        value={trackingByOrder[o.id] ?? ""}
+                        value={trackingByOrder[o.id] ?? o.trackingNumbers[0] ?? ""}
                         onChange={(e) =>
                           setTrackingByOrder((prev) => ({ ...prev, [o.id]: e.target.value }))
                         }

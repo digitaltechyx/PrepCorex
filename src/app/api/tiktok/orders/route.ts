@@ -5,6 +5,10 @@ import {
   getValidTikTokAccessToken,
   TikTokReconnectRequired,
 } from "@/lib/tiktok-access-token";
+import {
+  mergeTikTokOrderDetail,
+  normalizeTikTokOrder,
+} from "@/lib/tiktok-order-normalize";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,9 +24,39 @@ type ConnDoc = {
   refreshTokenExpiresAt?: { seconds: number; nanoseconds?: number };
 };
 
+async function fetchOrderDetails(options: {
+  accessToken: string;
+  shopCipher: string | null;
+  orderIds: string[];
+}): Promise<Record<string, Record<string, unknown>>> {
+  const map: Record<string, Record<string, unknown>> = {};
+  const ids = [...new Set(options.orderIds.filter(Boolean))];
+  for (let i = 0; i < ids.length; i += 20) {
+    const chunk = ids.slice(i, i + 20);
+    const res = await tikTokApiRequest<{
+      orders?: Array<Record<string, unknown>>;
+    }>({
+      method: "POST",
+      path: "/order/202309/orders/detail",
+      accessToken: options.accessToken,
+      shopCipher: options.shopCipher,
+      body: { order_id_list: chunk },
+    });
+    if (res.code !== 0) {
+      console.warn("[tiktok/orders] detail enrich failed", parseTikTokError(res));
+      continue;
+    }
+    for (const o of res.data?.orders ?? []) {
+      const id = String(o.id ?? o.order_id ?? "");
+      if (id) map[id] = o;
+    }
+  }
+  return map;
+}
+
 /**
  * GET /api/tiktok/orders?connectionId=&userId=
- * Pull recent TikTok orders. Caller must be the user or admin.
+ * Pull recent TikTok orders with full detail (line items, address, payment).
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -80,7 +114,7 @@ export async function GET(request: NextRequest) {
 
     const nowSec = Math.floor(Date.now() / 1000);
     const createTimeGe = nowSec - 30 * 24 * 3600;
-    const allOrders: Array<Record<string, unknown>> = [];
+    const allOrders: ReturnType<typeof normalizeTikTokOrder>[] = [];
 
     for (const conn of connections) {
       const ref = col.doc(conn.id);
@@ -109,20 +143,27 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      for (const o of res.data?.orders ?? []) {
-        allOrders.push({
-          id: String(o.id ?? o.order_id ?? ""),
-          status: o.status ?? null,
-          createTime: o.create_time ?? null,
-          updateTime: o.update_time ?? null,
-          buyerEmail: o.buyer_email ?? null,
-          payment: o.payment ?? null,
-          lineItems: o.line_items ?? o.item_list ?? [],
+      const searched = res.data?.orders ?? [];
+      const ids = searched
+        .map((o) => String(o.id ?? o.order_id ?? ""))
+        .filter(Boolean);
+
+      let details: Record<string, Record<string, unknown>> = {};
+      try {
+        details = await fetchOrderDetails({ accessToken, shopCipher, orderIds: ids });
+      } catch (e) {
+        console.warn("[tiktok/orders] detail enrich error", e);
+      }
+
+      for (const o of searched) {
+        const id = String(o.id ?? o.order_id ?? "");
+        const merged = mergeTikTokOrderDetail(o, details[id]);
+        const normalized = normalizeTikTokOrder(merged, {
           connectionId: conn.id,
           shopId: conn.shopId ?? null,
           shopName: conn.shopName ?? "TikTok Shop",
-          raw: o,
         });
+        if (normalized.id) allOrders.push(normalized);
       }
     }
 
