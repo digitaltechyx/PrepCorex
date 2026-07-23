@@ -126,6 +126,7 @@ function TikTokOrdersAdminContent() {
           connectionId: order.connectionId,
           orderId: order.id,
           trackingNumber,
+          orderLineItemIds: order.lineItems.map((li) => li.id).filter(Boolean),
         }),
       });
       const data = await res.json().catch(() => ({}));
