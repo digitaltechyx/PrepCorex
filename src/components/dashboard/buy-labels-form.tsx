@@ -27,6 +27,7 @@ import { getStripePublishableKey } from "@/lib/stripe";
 import { PaymentDialog } from "./payment-dialog";
 import type { ShippingAddress, ParcelDetails, ShippingRate } from "@/types";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
+import { findDefaultWarehouseLocationIdInList } from "@/lib/default-warehouse";
 import { locationToFromShippingAddress } from "@/lib/location-shipping-address";
 import { canUseCsvImport } from "@/lib/csv-import-permissions";
 
@@ -301,7 +302,9 @@ export function BuyLabelsForm() {
     if (locationOptions.length === 0) return;
     if (selectedFromLocationId && locationOptions.some((loc) => loc.id === selectedFromLocationId)) return;
 
+    const preferredId = findDefaultWarehouseLocationIdInList(locationOptions);
     const preferred =
+      (preferredId ? locationOptions.find((loc) => loc.id === preferredId) : undefined) ||
       locationOptions.find((loc) => isDefaultNj2Warehouse(loc.name)) ||
       locationOptions[0];
     if (!preferred) return;

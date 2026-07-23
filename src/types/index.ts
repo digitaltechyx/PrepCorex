@@ -15,6 +15,8 @@ export interface Location {
   city?: string;
   zip?: string;
   active: boolean;
+  /** When true, auto-assigned to new/existing clients as the inbound warehouse. */
+  isDefaultInbound?: boolean;
   createdAt?: Date;
 }
 

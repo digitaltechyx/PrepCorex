@@ -63,6 +63,7 @@ type LocationDoc = {
   country?: string;
   stateOrProvince?: string;
   active?: boolean;
+  isDefaultInbound?: boolean;
 };
 
 export function DashboardSidebar() {
@@ -117,20 +118,23 @@ export function DashboardSidebar() {
     }
     return undefined;
   }, [userProfile?.locations, allActiveLocations]);
-  const nj2Location = useMemo(
-    () =>
-      allActiveLocations.find((loc) => {
-        const display = formatWarehouseDisplayName(loc.name);
-        const normalized = normalizeWarehouseKey(loc.name ?? "");
-        return (
-          display === "NJ-02" ||
-          display.startsWith("NJ-02") ||
-          isDefaultNj2Warehouse(loc.name) ||
-          /^nj0*2/.test(normalized)
-        );
-      }),
-    [allActiveLocations]
-  );
+  const nj2Location = useMemo(() => {
+    const defaultId = findDefaultWarehouseLocationIdInList(allActiveLocations);
+    if (defaultId) {
+      const flagged = allActiveLocations.find((loc) => loc.id === defaultId);
+      if (flagged) return flagged;
+    }
+    return allActiveLocations.find((loc) => {
+      const display = formatWarehouseDisplayName(loc.name);
+      const normalized = normalizeWarehouseKey(loc.name ?? "");
+      return (
+        display === "NJ-02" ||
+        display.startsWith("NJ-02") ||
+        isDefaultNj2Warehouse(loc.name) ||
+        /^nj0*2/.test(normalized)
+      );
+    });
+  }, [allActiveLocations]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [inventoryMenuOpen, setInventoryMenuOpen] = useState(() =>
     pathname === "/dashboard/inventory" || pathname?.startsWith("/dashboard/create-shipment-with-labels")
@@ -145,8 +149,13 @@ export function DashboardSidebar() {
       setInventoryMenuOpen(true);
     }
   }, [pathname]);
-  const pickNj2FromPool = (pool: LocationDoc[]) =>
-    pool.find((loc) => {
+  const pickDefaultFromPool = (pool: LocationDoc[]) => {
+    const defaultId = findDefaultWarehouseLocationIdInList(pool);
+    if (defaultId) {
+      const match = pool.find((loc) => loc.id === defaultId);
+      if (match) return match;
+    }
+    return pool.find((loc) => {
       const display = formatWarehouseDisplayName(loc.name);
       const normalized = normalizeWarehouseKey(loc.name ?? "");
       return (
@@ -156,6 +165,7 @@ export function DashboardSidebar() {
         /^nj0*2/.test(normalized)
       );
     });
+  };
 
   useEffect(() => {
     if (!userProfile?.uid) return;
@@ -189,7 +199,7 @@ export function DashboardSidebar() {
 
       const defaultId = findDefaultWarehouseLocationIdInList(pool);
       const preferred =
-        pickNj2FromPool(pool) ||
+        pickDefaultFromPool(pool) ||
         (firstAssignedLocation && pool.some((l) => l.id === firstAssignedLocation.id)
           ? firstAssignedLocation
           : undefined) ||
@@ -274,7 +284,7 @@ export function DashboardSidebar() {
     if (pool.length === 0) return;
     const defaultId = findDefaultWarehouseLocationIdInList(pool);
     const preferredId =
-      pickNj2FromPool(pool)?.id ||
+      pickDefaultFromPool(pool)?.id ||
       (firstAssignedLocation && pool.some((l) => l.id === firstAssignedLocation.id)
         ? firstAssignedLocation.id
         : undefined) ||

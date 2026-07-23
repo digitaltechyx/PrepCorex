@@ -36,6 +36,8 @@ import {
   invalidateDefaultWarehouseLocationCache,
 } from "@/lib/default-warehouse";
 import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
+import { useAuth } from "@/hooks/use-auth";
+import { logRolesPermissionsEvent } from "@/lib/roles-permissions-audit";
 
 interface RoleFeatureManagementProps {
   user: UserProfile;
@@ -96,6 +98,7 @@ type LocationDoc = { id: string; name?: string; active?: boolean };
 
 export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagementProps) {
   const { toast } = useToast();
+  const { userProfile: adminUser } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
@@ -338,6 +341,21 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
         }
       }
 
+      void logRolesPermissionsEvent({
+        action: "roles_features_updated",
+        description: `Updated roles/features for ${formatUserDisplayName(user, { showEmail: false })}`,
+        actorUid: adminUser?.uid ?? null,
+        actorName: adminUser?.name ?? null,
+        actorEmail: adminUser?.email ?? null,
+        targetUserIds: user.uid ? [user.uid] : [],
+        targetUserLabels: [formatUserDisplayName(user, { showEmail: false })],
+        metadata: {
+          roles: selectedRoles,
+          features: selectedFeatures,
+          locations: selectedRoles.includes("user") ? clientLocationIds : undefined,
+        },
+      });
+
       const successMessage = isAddingCommissionAgentRole
         ? `Roles and features updated successfully. New referral code: ${updateData.referralCode}`
         : "Roles and features have been updated successfully.";
@@ -387,6 +405,15 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
       setManagedLocationIds([]);
       setAssignedUserIds([]);
       setClientLocationIds(Array.from(locationSet));
+      void logRolesPermissionsEvent({
+        action: "access_reset_to_default",
+        description: `Reset access to client defaults for ${formatUserDisplayName(user, { showEmail: false })}`,
+        actorUid: adminUser?.uid ?? null,
+        actorName: adminUser?.name ?? null,
+        actorEmail: adminUser?.email ?? null,
+        targetUserIds: user.uid ? [user.uid] : [],
+        targetUserLabels: [formatUserDisplayName(user, { showEmail: false })],
+      });
       toast({
         title: "Reset complete",
         description: "User is now client only with the default 8 features. They may need to log out and back in to see changes.",
@@ -506,7 +533,7 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
             </div>
             <CardDescription>
               Choose which warehouses this client may use in the app. Uncheck to remove access to a location. The
-              default inbound warehouse (NJ-02) is always kept when you save if it exists in your system.
+              system default inbound warehouse is always kept when you save if one is configured.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

@@ -1,11 +1,17 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { useCollection } from "@/hooks/use-collection";
-import { removeLocation } from "@/lib/locations";
+import { useAuth } from "@/hooks/use-auth";
+import { removeLocation, updateLocation } from "@/lib/locations";
+import {
+  findDefaultWarehouseLocationIdInList,
+  setDefaultInboundLocation,
+} from "@/lib/default-warehouse";
+import { logRolesPermissionsEvent } from "@/lib/roles-permissions-audit";
 import Link from "next/link";
 import { formatLocationPath } from "@/lib/region-display";
 import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
@@ -16,7 +22,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { MapPin, Trash2, Loader2, Search, Warehouse } from "lucide-react";
+import {
+  MapPin,
+  Trash2,
+  Loader2,
+  Search,
+  Warehouse,
+  Pencil,
+  Star,
+} from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,9 +41,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+
 type LocationDoc = {
   id: string;
   name?: string;
@@ -40,21 +63,43 @@ type LocationDoc = {
   street2?: string;
   city?: string;
   zip?: string;
+  isDefaultInbound?: boolean;
+};
+
+type EditForm = {
+  name: string;
+  country: string;
+  stateOrProvince: string;
+  street1: string;
+  street2: string;
+  city: string;
+  zip: string;
 };
 
 export function AssignLocationTab() {
   const { toast } = useToast();
+  const { userProfile: adminUser } = useAuth();
   const { data: locationDocs, loading: locationsLoading } = useCollection<LocationDoc>("locations");
   const { data: users } = useCollection<UserProfile>("users");
 
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [unassigning, setUnassigning] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [selectedLocationIds, setSelectedLocationIds] = useState<Set<string>>(new Set());
   const [userSearch, setUserSearch] = useState("");
   const [locationSearch, setLocationSearch] = useState("");
+  const [editingLoc, setEditingLoc] = useState<LocationType | null>(null);
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const actor = {
+    actorUid: adminUser?.uid ?? null,
+    actorName: adminUser?.name ?? null,
+    actorEmail: adminUser?.email ?? null,
+  };
 
   const activeLocations = useMemo(
     () =>
@@ -72,9 +117,15 @@ export function AssignLocationTab() {
               city: l.city ?? "",
               zip: l.zip ?? "",
               active: true,
-            } as LocationType)
+              isDefaultInbound: l.isDefaultInbound === true,
+            }) as LocationType
         ),
     [locationDocs]
+  );
+
+  const defaultLocationId = useMemo(
+    () => findDefaultWarehouseLocationIdInList(activeLocations) ?? null,
+    [activeLocations]
   );
 
   const countries = useMemo(() => {
@@ -102,7 +153,8 @@ export function AssignLocationTab() {
       (u) =>
         (u.name ?? "").toLowerCase().includes(q) ||
         (u.email ?? "").toLowerCase().includes(q) ||
-        (u.uid ?? "").toLowerCase().includes(q)
+        (u.uid ?? "").toLowerCase().includes(q) ||
+        String(u.clientId ?? "").toLowerCase().includes(q)
     );
   }, [assignableUsers, userSearch]);
 
@@ -119,16 +171,97 @@ export function AssignLocationTab() {
           : country
             ? `${country} > ${loc.name}`
             : loc.name;
-      const hay = `${path} ${pathLegacy}`.toLowerCase();
+      const hay = `${path} ${pathLegacy} ${formatWarehouseDisplayName(loc.name)}`.toLowerCase();
       return hay.includes(q);
     });
   }, [activeLocations, locationSearch]);
 
+  const openEdit = (loc: LocationType) => {
+    setEditingLoc(loc);
+    setEditForm({
+      name: loc.name ?? "",
+      country: loc.country ?? "",
+      stateOrProvince: loc.stateOrProvince ?? "",
+      street1: loc.street1 ?? "",
+      street2: loc.street2 ?? "",
+      city: loc.city ?? "",
+      zip: loc.zip ?? "",
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingLoc || !editForm) return;
+    const name = editForm.name.trim();
+    if (!name) {
+      toast({ variant: "destructive", title: "Error", description: "Location name is required." });
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await updateLocation(editingLoc.id, {
+        name,
+        country: editForm.country,
+        stateOrProvince: editForm.stateOrProvince,
+        street1: editForm.street1,
+        street2: editForm.street2,
+        city: editForm.city,
+        zip: editForm.zip,
+      });
+      void logRolesPermissionsEvent({
+        ...actor,
+        action: "location_updated",
+        description: `Updated location ${formatWarehouseDisplayName(name)}`,
+        locationIds: [editingLoc.id],
+        locationLabels: [formatWarehouseDisplayName(name)],
+        metadata: { previousName: editingLoc.name },
+      });
+      toast({ title: "Success", description: "Location updated." });
+      setEditingLoc(null);
+      setEditForm(null);
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error", description: (e as Error).message });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleSetDefault = async (loc: LocationType) => {
+    if (loc.isDefaultInbound === true) return;
+    setSettingDefaultId(loc.id);
+    try {
+      await setDefaultInboundLocation(loc.id);
+      void logRolesPermissionsEvent({
+        ...actor,
+        action: "default_location_changed",
+        description: `Set default inbound warehouse to ${formatWarehouseDisplayName(loc.name)}`,
+        locationIds: [loc.id],
+        locationLabels: [formatWarehouseDisplayName(loc.name)],
+        metadata: { previousDefaultId: defaultLocationId },
+      });
+      toast({
+        title: "Default location updated",
+        description: `${formatWarehouseDisplayName(loc.name)} is now the default inbound warehouse.`,
+      });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error", description: (e as Error).message });
+    } finally {
+      setSettingDefaultId(null);
+    }
+  };
+
   const handleRemoveLocation = async (id: string) => {
     setConfirmRemoveId(null);
+    const loc = activeLocations.find((l) => l.id === id);
     setRemovingId(id);
     try {
       await removeLocation(id);
+      void logRolesPermissionsEvent({
+        ...actor,
+        action: "location_removed",
+        description: `Removed location ${formatWarehouseDisplayName(loc?.name ?? id)}`,
+        locationIds: [id],
+        locationLabels: [formatWarehouseDisplayName(loc?.name ?? id)],
+      });
       toast({ title: "Success", description: "Location removed." });
     } catch (e) {
       toast({ variant: "destructive", title: "Error", description: (e as Error).message });
@@ -167,12 +300,33 @@ export function AssignLocationTab() {
     setAssigning(true);
     try {
       const locationIds = Array.from(selectedLocationIds);
+      const targetUserIds = Array.from(selectedUserIds);
+      const targetUserLabels = targetUserIds.map((uid) => {
+        const u = users.find((row) => row.uid === uid);
+        return u ? formatUserDisplayName(u, { showEmail: false }) : uid;
+      });
+      const locationLabels = locationIds.map((id) => {
+        const loc = activeLocations.find((l) => l.id === id);
+        return loc ? formatWarehouseDisplayName(loc.name) : id;
+      });
+
       for (const uid of selectedUserIds) {
         const user = users.find((u) => u.uid === uid);
         const current = normalizeUserLocationIds(user?.locations);
         const merged = Array.from(new Set([...current, ...locationIds]));
         await updateDoc(doc(db, "users", uid), { locations: merged });
       }
+
+      void logRolesPermissionsEvent({
+        ...actor,
+        action: "locations_assigned",
+        description: `Assigned ${locationLabels.length} location(s) to ${targetUserIds.length} user(s)`,
+        targetUserIds,
+        targetUserLabels,
+        locationIds,
+        locationLabels,
+      });
+
       setSelectedUserIds(new Set());
       setSelectedLocationIds(new Set());
       toast({ title: "Success", description: "Locations assigned to selected users." });
@@ -194,13 +348,35 @@ export function AssignLocationTab() {
     }
     setUnassigning(true);
     try {
-      const locationIds = new Set(Array.from(selectedLocationIds));
+      const locationIds = Array.from(selectedLocationIds);
+      const locationIdSet = new Set(locationIds);
+      const targetUserIds = Array.from(selectedUserIds);
+      const targetUserLabels = targetUserIds.map((uid) => {
+        const u = users.find((row) => row.uid === uid);
+        return u ? formatUserDisplayName(u, { showEmail: false }) : uid;
+      });
+      const locationLabels = locationIds.map((id) => {
+        const loc = activeLocations.find((l) => l.id === id);
+        return loc ? formatWarehouseDisplayName(loc.name) : id;
+      });
+
       for (const uid of selectedUserIds) {
         const row = users.find((u) => u.uid === uid);
         const current = normalizeUserLocationIds(row?.locations);
-        const next = current.filter((id) => !locationIds.has(id));
+        const next = current.filter((id) => !locationIdSet.has(id));
         await updateDoc(doc(db, "users", uid), { locations: next });
       }
+
+      void logRolesPermissionsEvent({
+        ...actor,
+        action: "locations_removed_from_users",
+        description: `Removed ${locationLabels.length} location(s) from ${targetUserIds.length} user(s)`,
+        targetUserIds,
+        targetUserLabels,
+        locationIds,
+        locationLabels,
+      });
+
       setSelectedUserIds(new Set());
       setSelectedLocationIds(new Set());
       toast({ title: "Success", description: "Removed selected locations from the selected users." });
@@ -209,6 +385,78 @@ export function AssignLocationTab() {
     } finally {
       setUnassigning(false);
     }
+  };
+
+  const renderLocationChip = (loc: LocationType) => {
+    const isDefault = defaultLocationId === loc.id;
+    return (
+      <div
+        key={loc.id}
+        className={cn(
+          "flex min-w-[220px] max-w-full items-center gap-2 rounded-lg border bg-background px-3 py-2",
+          isDefault && "border-amber-400/80 bg-amber-50/60 dark:bg-amber-950/20"
+        )}
+      >
+        <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="text-sm font-medium text-foreground">
+              {formatWarehouseDisplayName(loc.name)}
+            </p>
+            {isDefault ? (
+              <Badge className="bg-amber-500/90 text-[10px] font-semibold text-white hover:bg-amber-500">
+                Default
+              </Badge>
+            ) : null}
+          </div>
+          <p className="truncate text-xs text-muted-foreground">
+            {[loc.street1, loc.street2, loc.city, loc.zip].filter(Boolean).join(", ") ||
+              "Address not set"}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 rounded-lg"
+          title={isDefault ? (loc.isDefaultInbound ? "Current default" : "Confirm as default") : "Set as default"}
+          disabled={loc.isDefaultInbound === true || settingDefaultId === loc.id}
+          onClick={() => handleSetDefault(loc)}
+        >
+          {settingDefaultId === loc.id ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Star
+              className={cn("h-4 w-4", isDefault ? "fill-amber-500 text-amber-500" : "text-muted-foreground")}
+            />
+          )}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 rounded-lg"
+          title="Edit location"
+          onClick={() => openEdit(loc)}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={() => setConfirmRemoveId(loc.id)}
+          disabled={removingId === loc.id}
+        >
+          {removingId === loc.id ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+        </Button>
+      </div>
+    );
   };
 
   return (
@@ -222,24 +470,42 @@ export function AssignLocationTab() {
             Active locations
           </CardTitle>
           <CardDescription className="text-base">
-            Locations are created in Warehouses (with address and layout). Here you assign existing locations to users.
+            Edit warehouse details, set the system default inbound location, or remove a site. New warehouses are
+            created under Admin → Warehouses.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5 pt-6">
           <div className="flex flex-col gap-3 rounded-xl border-2 border-violet-200 bg-violet-50/80 p-4 dark:border-violet-900 dark:bg-violet-950/30 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex gap-3">
-              <Warehouse className="h-5 w-5 shrink-0 text-violet-600 mt-0.5" />
+              <Warehouse className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
               <div>
                 <p className="text-sm font-medium text-foreground">Add a new warehouse site</p>
-                <p className="text-sm text-muted-foreground mt-0.5">
+                <p className="mt-0.5 text-sm text-muted-foreground">
                   Use Admin → Warehouses to create the location, address, and bin layout in one step.
                 </p>
               </div>
             </div>
-            <Button asChild className="rounded-xl shrink-0">
+            <Button asChild className="shrink-0 rounded-xl">
               <Link href="/admin/dashboard/warehouses">Open Warehouses</Link>
             </Button>
           </div>
+
+          {defaultLocationId ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100">
+              Default inbound warehouse:{" "}
+              <span className="font-semibold">
+                {formatWarehouseDisplayName(
+                  activeLocations.find((l) => l.id === defaultLocationId)?.name ?? "—"
+                )}
+              </span>
+              . New clients keep this location when roles are saved. Use the star on any location to change it.
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-amber-300/80 bg-amber-50/50 px-4 py-3 text-sm text-amber-900">
+              No default inbound warehouse is set. Click the star on a location to choose one.
+            </div>
+          )}
+
           {locationsLoading ? (
             <div className="flex items-center gap-2 rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20 py-6 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading locations…
@@ -276,35 +542,7 @@ export function AssignLocationTab() {
                           <div key={`${country}-${stateOrProvince}`} className="rounded-lg border bg-muted/20 p-3">
                             <p className="text-sm font-medium">{stateOrProvince}</p>
                             <div className="mt-2 flex flex-wrap gap-2">
-                              {locationsInState.map((loc) => (
-                                <div
-                                  key={loc.id}
-                                  className="flex items-center gap-2 rounded-lg border bg-background px-3 py-2"
-                                >
-                                  <MapPin className="h-4 w-4 text-muted-foreground" />
-                                  <div className="min-w-0">
-                                    <p className="text-sm font-medium text-foreground">
-                                      {formatWarehouseDisplayName(loc.name)}
-                                    </p>
-                                    <p className="truncate text-xs text-muted-foreground">
-                                      {[loc.street1, loc.street2, loc.city, loc.zip].filter(Boolean).join(", ") || "Address not set"}
-                                    </p>
-                                  </div>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="ml-auto h-7 w-7 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                    onClick={() => setConfirmRemoveId(loc.id)}
-                                    disabled={removingId === loc.id}
-                                  >
-                                    {removingId === loc.id ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                </div>
-                              ))}
+                              {locationsInState.map(renderLocationChip)}
                             </div>
                           </div>
                         );
@@ -313,12 +551,6 @@ export function AssignLocationTab() {
                   </div>
                 );
               })}
-              {activeLocations.filter((loc) => !(loc.country || "").trim()).length > 0 && (
-                <div className="rounded-xl border-2 border-dashed border-amber-300/80 bg-amber-50 p-3 text-xs text-amber-800">
-                  Legacy locations without country/state exist. You can keep using them, or recreate them in the new
-                  Country → State/Province → Location structure.
-                </div>
-              )}
             </div>
           )}
         </CardContent>
@@ -344,97 +576,146 @@ export function AssignLocationTab() {
             </p>
           ) : (
             <>
-              <div className="grid gap-6 sm:grid-cols-2">
+              <div className="grid gap-6 lg:grid-cols-2">
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Users</Label>
-                  <div className="relative rounded-xl border-2 border-border/60 bg-muted/5 overflow-hidden">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                    <Input
-                      placeholder="Search users..."
-                      value={userSearch}
-                      onChange={(e) => setUserSearch(e.target.value)}
-                      className="h-10 rounded-t-xl rounded-b-none border-0 border-b bg-transparent pl-9 pr-3 focus-visible:ring-0"
-                    />
-                    <ScrollArea className="h-[180px] p-3">
-                      <div className="space-y-3">
-                        {filteredAssignableUsers.length === 0 ? (
-                          <p className="py-4 text-center text-sm text-muted-foreground">No users match your search.</p>
-                        ) : (
-                          filteredAssignableUsers.map((u) => (
-                            <div key={u.uid} className="flex items-center space-x-3 rounded-lg py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-sm font-semibold">Users</Label>
+                    <span className="text-xs text-muted-foreground">
+                      {selectedUserIds.size} selected · {filteredAssignableUsers.length} shown
+                    </span>
+                  </div>
+                  <div className="rounded-xl border-2 border-border/60 bg-muted/5">
+                    <div className="relative border-b">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        placeholder="Search users..."
+                        value={userSearch}
+                        onChange={(e) => setUserSearch(e.target.value)}
+                        className="h-10 rounded-t-xl rounded-b-none border-0 bg-transparent pl-9 pr-3 focus-visible:ring-0"
+                      />
+                    </div>
+                    <div className="max-h-[320px] space-y-1 overflow-y-auto overscroll-contain p-2">
+                      {filteredAssignableUsers.length === 0 ? (
+                        <p className="py-6 text-center text-sm text-muted-foreground">
+                          No users match your search.
+                        </p>
+                      ) : (
+                        filteredAssignableUsers.map((u) => {
+                          const checked = selectedUserIds.has(u.uid!);
+                          const locCount = normalizeUserLocationIds(u.locations).length;
+                          return (
+                            <button
+                              key={u.uid}
+                              type="button"
+                              onClick={() => toggleUser(u.uid!)}
+                              className={cn(
+                                "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+                                checked ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/60"
+                              )}
+                            >
                               <Checkbox
-                                id={`user-${u.uid}`}
-                                checked={selectedUserIds.has(u.uid!)}
+                                checked={checked}
                                 onCheckedChange={() => toggleUser(u.uid!)}
+                                onClick={(e) => e.stopPropagation()}
+                                aria-label={`Select ${formatUserDisplayName(u, { showEmail: false })}`}
                               />
-                              <label
-                                htmlFor={`user-${u.uid}`}
-                                className="cursor-pointer text-sm font-medium"
-                              >
+                              <span className="min-w-0 flex-1 text-sm font-medium">
                                 {formatUserDisplayName(u, { showEmail: false })}
-                                {normalizeUserLocationIds(u.locations).length > 0 && (
-                                  <Badge variant="secondary" className="ml-2 font-medium">
-                                    {normalizeUserLocationIds(u.locations).length} loc
-                                  </Badge>
-                                )}
-                              </label>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </ScrollArea>
+                              </span>
+                              {locCount > 0 ? (
+                                <Badge variant="secondary" className="shrink-0 font-medium">
+                                  {locCount} loc
+                                </Badge>
+                              ) : null}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
                 </div>
+
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold">Locations to assign</Label>
-                  <div className="relative rounded-xl border-2 border-border/60 bg-muted/5 overflow-hidden">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                    <Input
-                      placeholder="Search locations..."
-                      value={locationSearch}
-                      onChange={(e) => setLocationSearch(e.target.value)}
-                      className="h-10 rounded-t-xl rounded-b-none border-0 border-b bg-transparent pl-9 pr-3 focus-visible:ring-0"
-                    />
-                    <ScrollArea className="h-[180px] p-3">
-                      <div className="space-y-3">
-                        {filteredLocations.length === 0 ? (
-                          <p className="py-4 text-center text-sm text-muted-foreground">No locations match your search.</p>
-                        ) : (
-                          filteredLocations.map((loc) => (
-                            <div key={loc.id} className="flex items-center space-x-3 rounded-lg py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-sm font-semibold">Locations to assign</Label>
+                    <span className="text-xs text-muted-foreground">
+                      {selectedLocationIds.size} selected · {filteredLocations.length} shown
+                    </span>
+                  </div>
+                  <div className="rounded-xl border-2 border-border/60 bg-muted/5">
+                    <div className="relative border-b">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        placeholder="Search locations..."
+                        value={locationSearch}
+                        onChange={(e) => setLocationSearch(e.target.value)}
+                        className="h-10 rounded-t-xl rounded-b-none border-0 bg-transparent pl-9 pr-3 focus-visible:ring-0"
+                      />
+                    </div>
+                    <div className="max-h-[320px] space-y-1 overflow-y-auto overscroll-contain p-2">
+                      {filteredLocations.length === 0 ? (
+                        <p className="py-6 text-center text-sm text-muted-foreground">
+                          No locations match your search.
+                        </p>
+                      ) : (
+                        filteredLocations.map((loc) => {
+                          const checked = selectedLocationIds.has(loc.id);
+                          const isDefault = defaultLocationId === loc.id;
+                          return (
+                            <button
+                              key={loc.id}
+                              type="button"
+                              onClick={() => toggleLocation(loc.id)}
+                              className={cn(
+                                "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+                                checked ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/60"
+                              )}
+                            >
                               <Checkbox
-                                id={`loc-${loc.id}`}
-                                checked={selectedLocationIds.has(loc.id)}
+                                checked={checked}
                                 onCheckedChange={() => toggleLocation(loc.id)}
+                                onClick={(e) => e.stopPropagation()}
+                                aria-label={`Select ${locationLabel(loc)}`}
                               />
-                              <label htmlFor={`loc-${loc.id}`} className="cursor-pointer text-sm font-medium">
-                                {locationLabel(loc)}
-                              </label>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </ScrollArea>
+                              <span className="min-w-0 flex-1 text-sm font-medium">{locationLabel(loc)}</span>
+                              {isDefault ? (
+                                <Badge
+                                  variant="outline"
+                                  className="shrink-0 border-amber-400 text-[10px] text-amber-700"
+                                >
+                                  Default
+                                </Badge>
+                              ) : null}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
+
               <div className="flex flex-wrap gap-3">
                 <Button
                   onClick={handleAssignLocationsToUsers}
-                  disabled={assigning || unassigning || selectedUserIds.size === 0 || selectedLocationIds.size === 0}
-                  className="rounded-xl h-11 px-6 font-semibold"
+                  disabled={
+                    assigning || unassigning || selectedUserIds.size === 0 || selectedLocationIds.size === 0
+                  }
+                  className="h-11 rounded-xl px-6 font-semibold"
                 >
-                  {assigning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  {assigning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Assign locations to selected users
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={handleRemoveLocationsFromUsers}
-                  disabled={unassigning || assigning || selectedUserIds.size === 0 || selectedLocationIds.size === 0}
-                  className="rounded-xl h-11 px-6 font-semibold border-destructive/40 text-destructive hover:bg-destructive/10"
+                  disabled={
+                    unassigning || assigning || selectedUserIds.size === 0 || selectedLocationIds.size === 0
+                  }
+                  className="h-11 rounded-xl border-destructive/40 px-6 font-semibold text-destructive hover:bg-destructive/10"
                 >
-                  {unassigning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  {unassigning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Remove selected locations from users
                 </Button>
               </div>
@@ -442,6 +723,101 @@ export function AssignLocationTab() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={!!editingLoc}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingLoc(null);
+            setEditForm(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit location</DialogTitle>
+            <DialogDescription>
+              Update the display name and address fields for this warehouse site.
+            </DialogDescription>
+          </DialogHeader>
+          {editForm ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="edit-loc-name">Name</Label>
+                <Input
+                  id="edit-loc-name"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-loc-country">Country</Label>
+                <Input
+                  id="edit-loc-country"
+                  value={editForm.country}
+                  onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-loc-state">State / Province</Label>
+                <Input
+                  id="edit-loc-state"
+                  value={editForm.stateOrProvince}
+                  onChange={(e) => setEditForm({ ...editForm, stateOrProvince: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="edit-loc-street1">Street 1</Label>
+                <Input
+                  id="edit-loc-street1"
+                  value={editForm.street1}
+                  onChange={(e) => setEditForm({ ...editForm, street1: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="edit-loc-street2">Street 2</Label>
+                <Input
+                  id="edit-loc-street2"
+                  value={editForm.street2}
+                  onChange={(e) => setEditForm({ ...editForm, street2: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-loc-city">City</Label>
+                <Input
+                  id="edit-loc-city"
+                  value={editForm.city}
+                  onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-loc-zip">ZIP</Label>
+                <Input
+                  id="edit-loc-zip"
+                  value={editForm.zip}
+                  onChange={(e) => setEditForm({ ...editForm, zip: e.target.value })}
+                />
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setEditingLoc(null);
+                setEditForm(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleSaveEdit} disabled={savingEdit}>
+              {savingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!confirmRemoveId} onOpenChange={(open) => !open && setConfirmRemoveId(null)}>
         <AlertDialogContent>

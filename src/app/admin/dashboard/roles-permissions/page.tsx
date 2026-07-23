@@ -9,10 +9,11 @@ import { hasRole, getUserRoles } from "@/lib/permissions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, Users, KeyRound, ListChecks, UserCog, MapPin, Loader2, AlertCircle, Crown, User, HandCoins } from "lucide-react";
+import { ShieldCheck, Users, KeyRound, ListChecks, UserCog, MapPin, Loader2, AlertCircle, Crown, User, HandCoins, ScrollText } from "lucide-react";
 import { ROLE_DEFINITIONS, CLIENT_FEATURES_CONFIG, ADMIN_FEATURES_CONFIG } from "@/lib/roles-permissions-config";
 import { RoleFeatureManagement } from "@/components/admin/role-feature-management";
 import { AssignLocationTab } from "@/components/admin/assign-location-tab";
+import { RolesPermissionsLogsTab } from "@/components/admin/roles-permissions-logs-tab";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,7 +36,7 @@ export default function RolesPermissionsPage() {
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [userSelectOpen, setUserSelectOpen] = useState(false);
   const [userSelectSearch, setUserSelectSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<"overview" | "assign" | "locations">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "assign" | "locations" | "logs">("overview");
   const [selectedRoleForDialog, setSelectedRoleForDialog] = useState<UserRole | null>(null);
   const [dialogUserSearch, setDialogUserSearch] = useState("");
 
@@ -162,8 +163,8 @@ export default function RolesPermissionsPage() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "overview" | "assign" | "locations")}>
-        <TabsList className="inline-flex h-14 w-full max-w-2xl rounded-2xl border-2 border-border/60 bg-gradient-to-r from-muted/60 to-muted/40 p-1.5 shadow-sm">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "overview" | "assign" | "locations" | "logs")}>
+        <TabsList className="inline-flex h-14 w-full max-w-4xl rounded-2xl border-2 border-border/60 bg-gradient-to-r from-muted/60 to-muted/40 p-1.5 shadow-sm">
           <TabsTrigger
             value="overview"
             className="flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium transition-all duration-200 data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-background data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-md"
@@ -184,6 +185,13 @@ export default function RolesPermissionsPage() {
           >
             <MapPin className="h-4 w-4" />
             Assign Location
+          </TabsTrigger>
+          <TabsTrigger
+            value="logs"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium transition-all duration-200 data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-background data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-md"
+          >
+            <ScrollText className="h-4 w-4" />
+            Logs
           </TabsTrigger>
         </TabsList>
 
@@ -391,6 +399,10 @@ export default function RolesPermissionsPage() {
 
         <TabsContent value="locations" className="mt-8">
           <AssignLocationTab />
+        </TabsContent>
+
+        <TabsContent value="logs" className="mt-8">
+          <RolesPermissionsLogsTab />
         </TabsContent>
       </Tabs>
 

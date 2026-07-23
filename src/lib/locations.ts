@@ -102,6 +102,7 @@ export function docToLocation(docData: { id: string } & Record<string, unknown>)
     city: docData.city ? String(docData.city) : undefined,
     zip: docData.zip ? String(docData.zip) : undefined,
     active: Boolean(docData.active !== false),
+    isDefaultInbound: docData.isDefaultInbound === true,
     createdAt: docData.createdAt instanceof Date ? docData.createdAt : undefined,
   };
 }

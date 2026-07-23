@@ -337,6 +337,11 @@ service cloud.firestore {
       allow write: if isAdminOrSubAdmin();
     }
 
+    // Roles & Permissions audit (Assign Location, role/feature changes)
+    match /rolesPermissionsAudit/{logId} {
+      allow read, write: if isAdminOrSubAdmin();
+    }
+
     // ---- WAREHOUSES (barcode / bin hierarchy — Phase 1) ----
     match /warehouses/{warehouseId} {
       allow read: if signedIn();
