@@ -526,7 +526,7 @@ export function ProductReturnRequestForm({
           <p className="text-sm text-muted-foreground">
             Add one or more returns, review each, then submit together.
           </p>
-        </div>
+                </div>
         <div className="flex flex-wrap gap-2">
           {isOnBehalfOfUser && canImportReturnsOnBehalf ? (
             <Button
@@ -543,8 +543,8 @@ export function ProductReturnRequestForm({
             <Plus className="h-4 w-4 mr-2" />
             Add return
           </Button>
-        </div>
-      </div>
+                </div>
+                </div>
 
       {isOnBehalfOfUser && canImportReturnsOnBehalf ? (
         <ProductReturnBulkImportDialog
@@ -637,7 +637,7 @@ export function ProductReturnRequestForm({
               <Label htmlFor="return-trk-shared" className="font-normal cursor-pointer">
                 Same tracking for all returns
               </Label>
-            </div>
+              </div>
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="per_return" id="return-trk-per" />
               <Label htmlFor="return-trk-per" className="font-normal cursor-pointer">
@@ -660,7 +660,7 @@ export function ProductReturnRequestForm({
             Open each return above to add its own tracking number.
           </p>
         ) : null}
-      </div>
+        </div>
 
       <Button
         type="button"
@@ -668,9 +668,9 @@ export function ProductReturnRequestForm({
         className="w-full rounded-lg h-11 bg-orange-600 hover:bg-orange-700 font-medium"
         onClick={() => void handleSubmit()}
       >
-        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         Submit {drafts.length > 1 ? `${drafts.length} return requests` : "return request"}
-      </Button>
+        </Button>
     </div>
   );
 }

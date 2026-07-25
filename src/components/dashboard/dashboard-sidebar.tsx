@@ -41,6 +41,7 @@ import {
   ChevronLeft,
   ChevronDown,
   Shield,
+  ShieldAlert,
   XCircle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -403,6 +404,15 @@ export function DashboardSidebar() {
       badge: pendingDisposeCount > 0 ? pendingDisposeCount : null,
       requiredRole: "user" as const,
       requiredFeature: "disposed_inventory" as const,
+    },
+    {
+      title: "Quarantine",
+      url: "/dashboard/quarantine",
+      icon: ShieldAlert,
+      color: "text-amber-600",
+      badge: null,
+      requiredRole: "user" as const,
+      requiredFeature: "quarantine_inventory" as const,
     },
     {
       title: "Invoices",

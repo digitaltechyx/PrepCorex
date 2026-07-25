@@ -54,10 +54,26 @@ export function resolveReceiveLot(input: {
   return generateReceiveLot(input.sku, input.expiry);
 }
 
+/**
+ * One shared lot for all SKU lines in the same carton/receive.
+ * Prefer any operator-entered lot; otherwise generate once from the first line and reuse.
+ */
+export function resolveSharedReceiveLot(
+  lines: Array<{ sku: string; expiry?: string | null; lot?: string | null }>
+): string {
+  for (const l of lines) {
+    const manual = l.lot?.trim();
+    if (manual) return manual;
+  }
+  const first = lines[0];
+  if (!first) return generateReceiveLot("SKU", null);
+  return generateReceiveLot(first.sku, first.expiry);
+}
+
 export function describeReceiveLotPattern(): string {
   return `SKU-${RECEIVE_LOT_SEGMENT}-YYYYMMDD-### or SKU-${RECEIVE_LOT_SEGMENT}-NOEXP-###`;
 }
 
 export function describeReceiveLotHint(): string {
-  return "Leave lot blank to auto-generate. No expiry (auto parts, etc.) uses NOEXP in the lot code.";
+  return "Same lot is kept for every SKU in this carton. Enter your own lot once — it copies to new lines. Leave blank to auto-generate one shared lot.";
 }

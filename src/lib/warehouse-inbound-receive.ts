@@ -106,8 +106,8 @@ export async function recordInboundReceiveBatch(input: {
   }
 }
 
-/** Returns error message when any linked request would be over-received. */
-export function validateInboundReceiveQty(input: {
+/** Returns warning when linked lines exceed remaining request qty (over-receive is allowed). */
+export function warnInboundReceiveOverage(input: {
   cartons: Array<{
     copies: number;
     lines: Array<{
@@ -131,6 +131,7 @@ export function validateInboundReceiveQty(input: {
     }
   }
 
+  const notes: string[] = [];
   for (const [key, qty] of totals) {
     const sep = key.indexOf(":");
     if (sep < 0) continue;
@@ -141,11 +142,28 @@ export function validateInboundReceiveQty(input: {
     // Container handling requests are 1 unit (the container); product lines inside are not capped by that.
     if (row.inventoryType === "container") continue;
     if (qty > row.remainingQty) {
-      return `${row.clientDisplayName} — ${row.productName}: ${qty} entered but only ${row.remainingQty} remaining on the request.`;
+      notes.push(
+        `${row.clientDisplayName} — ${row.productName}: ${qty} vs ${row.remainingQty} on request (+${qty - row.remainingQty})`
+      );
     }
   }
 
-  return null;
+  return notes.length > 0 ? notes.join(" · ") : null;
+}
+
+/** @deprecated Use warnInboundReceiveOverage — over-receive is allowed after inspection. */
+export function validateInboundReceiveQty(input: {
+  cartons: Array<{
+    copies: number;
+    lines: Array<{
+      inventoryRequestId?: string | null;
+      clientId?: string | null;
+      goodQty: number;
+    }>;
+  }>;
+  queue: InboundRequestRow[];
+}): string | null {
+  return warnInboundReceiveOverage(input);
 }
 
 export async function recordInboundReceiveEvents(input: {
@@ -208,8 +226,9 @@ function isPendingRequestStatus(status: unknown): boolean {
 }
 
 /**
- * Warehouse-ops dock approve for product inbound (v2).
+ * Warehouse-ops dock approve (inbound v2).
  * Marks request approved + fulfillment open — stock is added after receive/putaway, not here.
+ * Product, box, pallet, and container are all dock-approvable (cross-dock or open receive next).
  */
 export async function approveInboundRequestAtDock(input: {
   clientUserId: string;
@@ -231,8 +250,8 @@ export async function approveInboundRequestAtDock(input: {
   const invType = String(data.inventoryType ?? "")
     .trim()
     .toLowerCase();
-  if (invType && invType !== "product" && invType !== "container") {
-    throw new Error("Dock approve is for product or container inbound. Use admin for box/pallet.");
+  if (invType && !["product", "box", "pallet", "container"].includes(invType)) {
+    throw new Error(`Unsupported inbound type for dock approve: ${invType}`);
   }
 
   const qty = expectedRequestQty(data);

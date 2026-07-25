@@ -12,8 +12,15 @@ import type {
   ProductReturn,
   DisposeRequest,
   DisposeBatch,
+  DeleteRequest,
+  QuarantineRequest,
   InboundTrackingEntry,
 } from "@/types";
+import {
+  QUARANTINE_REQUESTS,
+  quarantineRequestKindLabel,
+  requestSortMs,
+} from "@/lib/quarantine-request-ops";
 import { summarizeInboundTrackings, resolveInboundTrackings } from "@/lib/inbound-tracking";
 import { db } from "@/lib/firebase";
 import { collection, collectionGroup, getDocs, query } from "firebase/firestore";
@@ -37,10 +44,16 @@ import {
 import { hasRole } from "@/lib/permissions";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, Truck, Package, RotateCcw, Trash2, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye } from "lucide-react";
+import { Bell, Truck, Package, RotateCcw, Trash2, Eraser, ShieldAlert, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type NotificationType = "shipment_request" | "inventory_request" | "product_return" | "dispose_request";
+type NotificationType =
+  | "shipment_request"
+  | "inventory_request"
+  | "product_return"
+  | "dispose_request"
+  | "delete_request"
+  | "quarantine_request";
 type StatusFilter = "all" | "pending" | "paid" | "approved" | "confirmed" | "rejected" | "in_progress" | "closed" | "cancelled";
 
 type NotificationRow = {
@@ -115,12 +128,21 @@ const NOTIFICATION_TYPE_URL_VALUES = new Set<string>([
   "inventory_request",
   "product_return",
   "dispose_request",
+  "delete_request",
+  "quarantine_request",
 ]);
 
 const PERIOD_URL_VALUES = new Set<string>(["all", "today", "this_week", "this_month", "this_year"]);
 
 function isNotificationTypeParam(v: string): v is NotificationType {
-  return v === "shipment_request" || v === "inventory_request" || v === "product_return" || v === "dispose_request";
+  return (
+    v === "shipment_request" ||
+    v === "inventory_request" ||
+    v === "product_return" ||
+    v === "dispose_request" ||
+    v === "delete_request" ||
+    v === "quarantine_request"
+  );
 }
 
 function statusBadgeClass(status: string): string {
@@ -181,6 +203,8 @@ function typeIcon(type: NotificationType) {
     case "inventory_request": return <Package className="h-4 w-4 shrink-0" />;
     case "product_return": return <RotateCcw className="h-4 w-4 shrink-0" />;
     case "dispose_request": return <Trash2 className="h-4 w-4 shrink-0" />;
+    case "delete_request": return <Eraser className="h-4 w-4 shrink-0" />;
+    case "quarantine_request": return <ShieldAlert className="h-4 w-4 shrink-0" />;
   }
 }
 
@@ -196,6 +220,11 @@ function isProcessComplete(type: NotificationType, status: string): boolean {
       return ["confirmed", "closed", "rejected", "cancelled"].includes(s);
     case "dispose_request":
       return ["approved", "rejected", "completed"].includes(s);
+    case "delete_request":
+      return ["approved", "rejected", "cancelled"].includes(s);
+    case "quarantine_request":
+      // "approved" still needs the warehouse to move the stock, so it stays actionable.
+      return ["completed", "rejected", "cancelled"].includes(s);
     default:
       return false;
   }
@@ -282,6 +311,8 @@ export default function AdminNotificationsPage() {
   const [inventoryRequests, setInventoryRequests] = useState<NotificationRow[]>([]);
   const [productReturns, setProductReturns] = useState<NotificationRow[]>([]);
   const [disposeRequests, setDisposeRequests] = useState<NotificationRow[]>([]);
+  const [deleteRequests, setDeleteRequests] = useState<NotificationRow[]>([]);
+  const [quarantineRequests, setQuarantineRequests] = useState<NotificationRow[]>([]);
 
   const router = useRouter();
 
@@ -579,6 +610,59 @@ export default function AdminNotificationsPage() {
           }
         }
 
+        // Delete Requests (permanent inventory deletion approvals)
+        {
+          try {
+            const results = await Promise.all(userIds.map(async (uid) => {
+              const base = collection(db, `users/${uid}/deleteRequests`);
+              const snap = await getDocs(query(base));
+              return snap.docs.map((d) => {
+                const data = d.data() as DeleteRequest;
+                const dateMs = toMs(data.requestedAt) || 0;
+                return {
+                  type: "delete_request" as const,
+                  id: d.id,
+                  userId: uid,
+                  status: String(data.status || ""),
+                  createdAtMs: dateMs,
+                  title: `Delete Request • ${String(data.productName || "").substring(0, 40)}`,
+                  subtitle: `Qty: ${data.quantity ?? 0} • ${(data.reason || "").substring(0, 30)}`,
+                };
+              });
+            }));
+            setDeleteRequests(results.flat());
+          } catch (e) {
+            console.warn("Notifications: Could not fetch delete requests.", e);
+            setDeleteRequests([]);
+          }
+        }
+
+        // Quarantine / release / dispose requests (top-level, scoped to managed users)
+        {
+          try {
+            const snap = await getDocs(query(collection(db, QUARANTINE_REQUESTS)));
+            const managed = new Set(userIds);
+            const rows = snap.docs
+              .map((d) => ({ id: d.id, ...(d.data() as Omit<QuarantineRequest, "id">) }))
+              .filter((r) => managed.has(String(r.userId || "")))
+              .map((r) => ({
+                type: "quarantine_request" as const,
+                id: r.id,
+                userId: String(r.userId || ""),
+                status: String(r.status || ""),
+                createdAtMs: requestSortMs(r),
+                title: `${quarantineRequestKindLabel(r.kind)} • ${String(
+                  r.productName || ""
+                ).substring(0, 40)}`,
+                subtitle: `Qty: ${r.quantity ?? 0} • ${(r.reason || "").substring(0, 30)}`,
+              }));
+            setQuarantineRequests(rows);
+          } catch (e) {
+            console.warn("Notifications: Could not fetch quarantine requests.", e);
+            setQuarantineRequests([]);
+          }
+        }
+
         // Note: If anyFailed is true, we used per-user fallback instead of collectionGroup
         // This is expected when collectionGroup queries are blocked by Firestore security rules
         // The fallback works correctly and loads all notifications
@@ -591,6 +675,8 @@ export default function AdminNotificationsPage() {
         setInventoryRequests((prev) => prev.length ? prev : []);
         setProductReturns((prev) => prev.length ? prev : []);
         setDisposeRequests([]);
+        setDeleteRequests([]);
+        setQuarantineRequests([]);
       } finally {
         setLoading(false);
       }
@@ -612,9 +698,22 @@ export default function AdminNotificationsPage() {
   }, [canSeeAdminNotifications]);
 
   const allRows = useMemo(() => {
-    return [...shipmentRequests, ...inventoryRequests, ...productReturns, ...disposeRequests]
-      .sort((a, b) => b.createdAtMs - a.createdAtMs);
-  }, [shipmentRequests, inventoryRequests, productReturns, disposeRequests]);
+    return [
+      ...shipmentRequests,
+      ...inventoryRequests,
+      ...productReturns,
+      ...disposeRequests,
+      ...deleteRequests,
+      ...quarantineRequests,
+    ].sort((a, b) => b.createdAtMs - a.createdAtMs);
+  }, [
+    shipmentRequests,
+    inventoryRequests,
+    productReturns,
+    disposeRequests,
+    deleteRequests,
+    quarantineRequests,
+  ]);
 
   const statusCounts = useMemo(() => {
     const scoped = allRows.filter((r) => {
@@ -700,7 +799,15 @@ export default function AdminNotificationsPage() {
                   {r.status}
                 </Badge>
                 <Badge variant="outline" className="shrink-0 text-xs bg-muted/50">
-                  {r.type === "shipment_request" ? "Shipment" : r.type === "inventory_request" ? "Inventory" : r.type === "product_return" ? "Return" : "Dispose"}
+                  {r.type === "shipment_request"
+                    ? "Shipment"
+                    : r.type === "inventory_request"
+                      ? "Inventory"
+                      : r.type === "product_return"
+                        ? "Return"
+                        : r.type === "dispose_request"
+                          ? "Dispose"
+                          : "Delete"}
                 </Badge>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -802,7 +909,7 @@ export default function AdminNotificationsPage() {
                   Notifications
           </CardTitle>
                 <CardDescription className="text-indigo-100 mt-0.5 text-sm">
-                  Process shipment, inventory & return requests
+                  Process shipment, inventory, return, dispose & delete requests
                 </CardDescription>
               </div>
             </div>
@@ -826,6 +933,8 @@ export default function AdminNotificationsPage() {
                   <SelectItem value="inventory_request">Inventory Requests</SelectItem>
                   <SelectItem value="product_return">Product Returns</SelectItem>
                   <SelectItem value="dispose_request">Dispose Requests</SelectItem>
+                  <SelectItem value="delete_request">Delete Requests</SelectItem>
+                  <SelectItem value="quarantine_request">Quarantine Requests</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -40,6 +40,7 @@ import {
   Handshake,
   BarChart3,
   ClipboardList,
+  ArrowRightLeft,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
@@ -125,6 +126,13 @@ export function AdminSidebar() {
       url: "/admin/dashboard/warehouses",
       icon: Warehouse,
       color: "text-fuchsia-600",
+      requiredFeature: "manage_inventory_admin" as const,
+    },
+    {
+      title: "Internal Move",
+      url: "/admin/dashboard/internal-move",
+      icon: ArrowRightLeft,
+      color: "text-pink-600",
       requiredFeature: "manage_inventory_admin" as const,
     },
     {

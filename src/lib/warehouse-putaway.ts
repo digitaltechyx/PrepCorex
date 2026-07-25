@@ -86,17 +86,46 @@ export function binBelongsToWarehouseArea(
   return bin.area.trim().toUpperCase() === area.code.trim().toUpperCase();
 }
 
+/** Active bins in areas this line may use (storage vs quarantine). */
+export function binsEligibleForPutawayLine(
+  areas: WarehouseAreaDoc[],
+  bins: WarehouseBinDoc[],
+  line: WarehouseCartonLine
+): WarehouseBinDoc[] {
+  const eligible = areasEligibleForPutawayLine(areas, line);
+  return bins
+    .filter((b) => b.active !== false)
+    .filter((bin) => eligible.some((area) => binBelongsToWarehouseArea(bin, area)))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
 /** True when at least one active bin exists in an area this line may use. */
 export function lineEligibleAreasHaveBins(
   areas: WarehouseAreaDoc[],
   bins: WarehouseBinDoc[],
   line: WarehouseCartonLine
 ): boolean {
-  const eligible = areasEligibleForPutawayLine(areas, line);
-  const activeBins = bins.filter((b) => b.active !== false);
-  return eligible.some((area) =>
-    activeBins.some((bin) => binBelongsToWarehouseArea(bin, area))
-  );
+  return binsEligibleForPutawayLine(areas, bins, line).length > 0;
+}
+
+/**
+ * Bin ids that currently hold at least one carton (root or line-level).
+ * One collection read — safe to cache while a putaway session is open.
+ */
+export async function loadOccupiedBinIds(warehouseId: string): Promise<Set<string>> {
+  const snap = await getDocs(warehouseCartonsCollectionRef(warehouseId));
+  const occupied = new Set<string>();
+  for (const d of snap.docs) {
+    const data = d.data() as Record<string, unknown>;
+    const rootBin = typeof data.binId === "string" ? data.binId.trim() : "";
+    if (rootBin) occupied.add(rootBin);
+    const lines = Array.isArray(data.lines) ? (data.lines as Array<Record<string, unknown>>) : [];
+    for (const l of lines) {
+      const lineBin = typeof l.binId === "string" ? l.binId.trim() : "";
+      if (lineBin) occupied.add(lineBin);
+    }
+  }
+  return occupied;
 }
 
 export type PutawayPlacementMode = "bin" | "area";
@@ -304,7 +333,7 @@ export type LineValidationResult =
 export function validateLineToBin(
   line: WarehouseCartonLine,
   bin: WarehouseBinDoc,
-  binContents: { skus: string[] },
+  binContents: { skus: string[]; hasDamaged?: boolean; cartonCount?: number },
   areas?: WarehouseAreaDoc[]
 ): LineValidationResult {
   if (!bin.active) return { ok: false, reason: "Bin is inactive." };

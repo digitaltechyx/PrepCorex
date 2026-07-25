@@ -1,20 +1,27 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { WarehouseOpsMove } from "@/components/warehouse-ops/warehouse-ops-move";
 import { WarehouseOpsAreaMove } from "@/components/warehouse-ops/warehouse-ops-area-move";
 import { WarehouseOpsAreaToAreaMove } from "@/components/warehouse-ops/warehouse-ops-area-to-area-move";
+import { WarehouseOpsSiteMovesConfirm } from "@/components/warehouse-ops/warehouse-ops-site-moves-confirm";
 import { WarehouseOpsActivityLog } from "@/components/warehouse-ops/warehouse-ops-activity-log";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWarehouseOps } from "@/components/warehouse-ops/warehouse-ops-provider";
 import { hasFeature } from "@/lib/permissions";
 import { useAuth } from "@/hooks/use-auth";
 
-export default function WarehouseOpsMovePage() {
+function WarehouseOpsMoveContent() {
   const { userProfile } = useAuth();
   const { selectedWarehouse } = useWarehouseOps();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const defaultTab =
+    tabParam === "site" || tabParam === "site-moves" ? "site-moves" : "bin-bin";
 
   if (!hasFeature(userProfile, "ops_move")) {
     return (
@@ -40,13 +47,17 @@ export default function WarehouseOpsMovePage() {
   return (
     <div className="space-y-4">
       <WarehouseOpsHeader title="Internal move" />
-      <Tabs defaultValue="bin-bin" className="w-full">
+      <Tabs defaultValue={defaultTab} className="w-full">
         <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
+          <TabsTrigger value="site-moves">Site → site</TabsTrigger>
           <TabsTrigger value="bin-bin">Bin → bin</TabsTrigger>
           <TabsTrigger value="bin-area">Bin → area</TabsTrigger>
           <TabsTrigger value="area-area">Area → area</TabsTrigger>
           <TabsTrigger value="log">Log</TabsTrigger>
         </TabsList>
+        <TabsContent value="site-moves" className="mt-4">
+          <WarehouseOpsSiteMovesConfirm warehouse={selectedWarehouse} />
+        </TabsContent>
         <TabsContent value="bin-bin" className="mt-4">
           <WarehouseOpsMove warehouse={selectedWarehouse} hideHeader />
         </TabsContent>
@@ -61,5 +72,20 @@ export default function WarehouseOpsMovePage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+export default function WarehouseOpsMovePage() {
+  return (
+    <Suspense
+      fallback={
+        <div>
+          <WarehouseOpsHeader title="Internal move" />
+          <p className="text-muted-foreground">Loading…</p>
+        </div>
+      }
+    >
+      <WarehouseOpsMoveContent />
+    </Suspense>
   );
 }

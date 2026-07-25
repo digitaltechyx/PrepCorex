@@ -20,7 +20,10 @@ import {
   scanDockIntake,
 } from "@/lib/warehouse-returns";
 import { resolveInboundTrackings } from "@/lib/inbound-tracking";
-import type { InboundRequestRow } from "@/lib/warehouse-inbound-requests";
+import {
+  isApprovedAwaitingWarehouseReceive,
+  type InboundRequestRow,
+} from "@/lib/warehouse-inbound-requests";
 import {
   approveInboundRequestAtDock,
   rejectInboundRequestAtDock,
@@ -46,11 +49,40 @@ function isPendingInboundStatus(status: unknown): boolean {
   return s === "pending" || s === "pending_approval";
 }
 
-function isApprovedInboundStatus(status: unknown): boolean {
-  return normInboundStatus(status) === "approved";
+function isRejectedInboundStatus(status: unknown): boolean {
+  return normInboundStatus(status) === "rejected";
 }
 
-type RequestStatusTab = "pending" | "approved" | "all";
+function isCancelledInboundStatus(status: unknown): boolean {
+  return normInboundStatus(status) === "cancelled";
+}
+
+function isApprovedOpenInbound(row: InboundRequestRow): boolean {
+  return isApprovedAwaitingWarehouseReceive(row);
+}
+
+function isCompletedInbound(row: InboundRequestRow): boolean {
+  if (
+    isPendingInboundStatus(row.status) ||
+    isRejectedInboundStatus(row.status) ||
+    isCancelledInboundStatus(row.status)
+  ) {
+    return false;
+  }
+  if (isApprovedOpenInbound(row)) return false;
+  // Approved but not awaiting receive (legacy / closed / fully received).
+  return normInboundStatus(row.status) === "approved";
+}
+
+type RequestStatusTab = "pending" | "approved" | "rejected" | "completed" | "cancelled";
+
+function tabForRow(row: InboundRequestRow): RequestStatusTab {
+  if (isPendingInboundStatus(row.status)) return "pending";
+  if (isRejectedInboundStatus(row.status)) return "rejected";
+  if (isCancelledInboundStatus(row.status)) return "cancelled";
+  if (isApprovedOpenInbound(row)) return "approved";
+  return "completed";
+}
 
 function firstTrackingOnRow(row: InboundRequestRow): string {
   const list = resolveInboundTrackings(row);
@@ -101,7 +133,7 @@ export function WarehouseOpsDockIntake({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
-  // Show full dock queue (pending + approved awaiting receive). Do not drop pending with 0 remaining.
+  // Full dock list: pending, approved (open), rejected, completed (legacy/closed).
   const inboundOpen = inboundDockQueue;
   const listsLoading = clientsLoading || liveLoading;
 
@@ -110,15 +142,34 @@ export function WarehouseOpsDockIntake({
     [inboundOpen]
   );
   const approvedCount = useMemo(
-    () => inboundOpen.filter((r) => isApprovedInboundStatus(r.status)).length,
+    () => inboundOpen.filter((r) => isApprovedOpenInbound(r)).length,
     [inboundOpen]
   );
+  const rejectedCount = useMemo(
+    () => inboundOpen.filter((r) => isRejectedInboundStatus(r.status)).length,
+    [inboundOpen]
+  );
+  const completedCount = useMemo(
+    () => inboundOpen.filter((r) => isCompletedInbound(r)).length,
+    [inboundOpen]
+  );
+  const cancelledCount = useMemo(
+    () => inboundOpen.filter((r) => isCancelledInboundStatus(r.status)).length,
+    [inboundOpen]
+  );
+
+  const tabCount = (tab: RequestStatusTab) => {
+    if (tab === "pending") return pendingCount;
+    if (tab === "approved") return approvedCount;
+    if (tab === "rejected") return rejectedCount;
+    if (tab === "cancelled") return cancelledCount;
+    return completedCount;
+  };
 
   const filteredInboundOpen = useMemo(() => {
     const q = listFilter.trim().toLowerCase();
     return inboundOpen.filter((r) => {
-      if (requestStatusTab === "pending" && !isPendingInboundStatus(r.status)) return false;
-      if (requestStatusTab === "approved" && !isApprovedInboundStatus(r.status)) return false;
+      if (tabForRow(r) !== requestStatusTab) return false;
       if (!q) return true;
       const trackings = resolveInboundTrackings(r)
         .map((t) => String(t.trackingNumber ?? ""))
@@ -166,7 +217,13 @@ export function WarehouseOpsDockIntake({
     const tabParam = String(searchParams.get("tab") || "").trim().toLowerCase();
     if (!requestId) return;
 
-    if (tabParam === "pending" || tabParam === "approved" || tabParam === "all") {
+    if (
+      tabParam === "pending" ||
+      tabParam === "approved" ||
+      tabParam === "rejected" ||
+      tabParam === "completed" ||
+      tabParam === "cancelled"
+    ) {
       setRequestStatusTab(tabParam as RequestStatusTab);
     }
 
@@ -176,12 +233,11 @@ export function WarehouseOpsDockIntake({
     );
     if (!match) return;
 
-    if (isPendingInboundStatus(match.status)) setRequestStatusTab("pending");
-    else if (isApprovedInboundStatus(match.status)) setRequestStatusTab("approved");
+    setRequestStatusTab(tabForRow(match));
 
     const key = inboundKey(match);
     setSelectedKeys(new Set([key]));
-    setManagingKey(key);
+    // Do not set managingKey here — that locks Approve in a spinner and blocks dock actions.
     focusAppliedRef.current = true;
   }, [inboundOpen, listsLoading, searchParams]);
 
@@ -203,6 +259,8 @@ export function WarehouseOpsDockIntake({
     setManagingKey(key);
     try {
       await approveRows([row]);
+      setSelectedKeys(new Set([key]));
+      setRequestStatusTab("approved");
       toast({
         title: "Request approved",
         description: `${row.productName} is ready to receive.`,
@@ -254,9 +312,12 @@ export function WarehouseOpsDockIntake({
 
   async function handleApproveSelected() {
     if (selectedPending.length === 0) return;
+    const keys = selectedPending.map(inboundKey);
     setManagingKey("__bulk__");
     try {
       await approveRows(selectedPending);
+      setSelectedKeys(new Set(keys));
+      setRequestStatusTab("approved");
       toast({
         title: `${selectedPending.length} request${selectedPending.length === 1 ? "" : "s"} approved`,
         description: "Ready to receive.",
@@ -337,11 +398,21 @@ export function WarehouseOpsDockIntake({
             description: "Continuing to receive…",
           });
         }
-        const receivable = selectedRows.filter((r) => r.remainingQty > 0);
+        const receivable = selectedRows.filter((r) => {
+          if (
+            isRejectedInboundStatus(r.status) ||
+            isCompletedInbound(r) ||
+            isCancelledInboundStatus(r.status)
+          ) {
+            return false;
+          }
+          return r.remainingQty > 0 || isPendingInboundStatus(r.status);
+        });
         if (receivable.length === 0) {
           toast({
             title: "Nothing left to receive",
-            description: "Selected requests have no remaining quantity.",
+            description:
+              "Select pending or approved requests with remaining quantity. Completed, rejected, and cancelled cannot start receive.",
           });
           return;
         }
@@ -469,8 +540,11 @@ export function WarehouseOpsDockIntake({
               Find requests (always available)
             </CardTitle>
             <CardDescription className="mt-1">
-              Search by client name, product, or SKU. Use <strong>Pending</strong> to review and
-              approve, then <strong>Approved</strong> to start receive.
+              Search by client name, product, or SKU. Newest requests appear first.
+              Use <strong>Pending</strong> to review (same as notifications), then{" "}
+              <strong>Approved</strong> to start receive. Lists include product, box, pallet, and
+              container requests for all users (matching admin). Completed = older/admin-fulfilled;
+              Cancelled = client/admin cancelled.
               {pendingCount > 0 ? (
                 <>
                   {" "}
@@ -486,10 +560,37 @@ export function WarehouseOpsDockIntake({
               setSelectedKeys(new Set());
             }}
           >
-            <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-grid">
-              <TabsTrigger value="pending">Pending ({pendingCount})</TabsTrigger>
-              <TabsTrigger value="approved">Approved ({approvedCount})</TabsTrigger>
-              <TabsTrigger value="all">All ({inboundOpen.length})</TabsTrigger>
+            <TabsList className="grid h-auto w-full grid-cols-3 gap-1 rounded-xl border bg-muted/80 p-1.5 sm:grid-cols-5 sm:w-auto sm:inline-grid">
+              <TabsTrigger
+                value="pending"
+                className="rounded-lg px-2 py-2 text-xs font-semibold sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
+                Pending ({pendingCount})
+              </TabsTrigger>
+              <TabsTrigger
+                value="approved"
+                className="rounded-lg px-2 py-2 text-xs font-semibold sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
+                Approved ({approvedCount})
+              </TabsTrigger>
+              <TabsTrigger
+                value="rejected"
+                className="rounded-lg px-2 py-2 text-xs font-semibold sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
+                Rejected ({rejectedCount})
+              </TabsTrigger>
+              <TabsTrigger
+                value="completed"
+                className="rounded-lg px-2 py-2 text-xs font-semibold sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
+                Completed ({completedCount})
+              </TabsTrigger>
+              <TabsTrigger
+                value="cancelled"
+                className="rounded-lg px-2 py-2 text-xs font-semibold sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
+                Cancelled ({cancelledCount})
+              </TabsTrigger>
             </TabsList>
           </Tabs>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -507,7 +608,7 @@ export function WarehouseOpsDockIntake({
               <Button type="button" variant="ghost" size="sm" onClick={clearSelection}>
                 Clear
               </Button>
-              {requestStatusTab !== "approved" ? (
+              {requestStatusTab === "pending" ? (
                 <Button
                   type="button"
                   variant="secondary"
@@ -523,39 +624,25 @@ export function WarehouseOpsDockIntake({
                   Approve selected ({selectedPending.length})
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                size="sm"
-                disabled={selectedRows.length === 0 || managingKey != null}
-                onClick={() => startReceiveSelected()}
-              >
-                {managingKey === "__start__" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                ) : null}
-                Start receive ({selectedRows.length})
-              </Button>
+              {requestStatusTab === "pending" || requestStatusTab === "approved" ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={selectedRows.length === 0 || managingKey != null}
+                  onClick={() => startReceiveSelected()}
+                >
+                  {managingKey === "__start__" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                  ) : null}
+                  Start receive ({selectedRows.length})
+                </Button>
+              ) : null}
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Showing {filteredInboundOpen.length} of{" "}
-            {requestStatusTab === "pending"
-              ? pendingCount
-              : requestStatusTab === "approved"
-                ? approvedCount
-                : inboundOpen.length}{" "}
-            {requestStatusTab === "pending"
-              ? "pending"
-              : requestStatusTab === "approved"
-                ? "approved"
-                : "open"}{" "}
-            request
-            {(requestStatusTab === "pending"
-              ? pendingCount
-              : requestStatusTab === "approved"
-                ? approvedCount
-                : inboundOpen.length) === 1
-              ? ""
-              : "s"}
+            Showing {filteredInboundOpen.length} of {tabCount(requestStatusTab)}{" "}
+            {requestStatusTab} request
+            {tabCount(requestStatusTab) === 1 ? "" : "s"}
             {selectedRows.length > 0 ? ` · ${selectedRows.length} selected` : ""}
           </p>
         </CardHeader>
@@ -573,7 +660,11 @@ export function WarehouseOpsDockIntake({
                   ? "No pending requests to review."
                   : requestStatusTab === "approved"
                     ? "No approved requests awaiting receive."
-                    : "No open inbound requests for this warehouse."}
+                    : requestStatusTab === "rejected"
+                      ? "No rejected requests."
+                      : requestStatusTab === "cancelled"
+                        ? "No cancelled requests."
+                        : "No completed inbound requests."}
             </p>
           ) : (
             <div className="max-h-[360px] overflow-y-scroll overscroll-contain space-y-2 pr-1">
@@ -620,6 +711,13 @@ function InboundSelectRow({
 }) {
   const tracking = firstTrackingOnRow(row);
   const pending = isPendingInboundStatus(row.status);
+  const rejected = isRejectedInboundStatus(row.status);
+  const cancelled = isCancelledInboundStatus(row.status);
+  const completed = isCompletedInbound(row);
+  const approvedOpen = isApprovedOpenInbound(row);
+  const invType = String(row.inventoryType ?? "")
+    .trim()
+    .toLowerCase();
   return (
     <div className="flex w-full items-start gap-3 rounded-md border px-3 py-3 text-sm">
       <label className="flex items-start gap-3 min-w-0 flex-1 cursor-pointer">
@@ -628,6 +726,7 @@ function InboundSelectRow({
           onCheckedChange={(v) => onCheckedChange(v === true)}
           className="mt-0.5"
           aria-label={`Select ${row.productName}`}
+          disabled={rejected || completed || cancelled}
         />
         <span className="min-w-0 flex-1 text-left space-y-1">
           <span className="font-medium block">{row.clientDisplayName}</span>
@@ -640,14 +739,35 @@ function InboundSelectRow({
               <Badge className="bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-100 text-[10px] px-1.5 py-0">
                 Pending
               </Badge>
-            ) : (
+            ) : rejected ? (
+              <Badge className="bg-red-100 text-red-900 border-red-300 hover:bg-red-100 text-[10px] px-1.5 py-0">
+                Rejected
+              </Badge>
+            ) : cancelled ? (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                Cancelled
+              </Badge>
+            ) : completed ? (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                Completed
+              </Badge>
+            ) : approvedOpen ? (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-emerald-800 border-emerald-300">
                 Approved
               </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                {String(row.status)}
+              </Badge>
             )}
-            {row.inventoryType === "container" ? (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-sky-900 border-sky-300">
-                Container
+            {invType && invType !== "product" ? (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize text-sky-900 border-sky-300">
+                {invType}
+              </Badge>
+            ) : null}
+            {row.fulfillmentStatus === "closed" ? (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                Closed
               </Badge>
             ) : null}
             {tracking ? (

@@ -405,6 +405,7 @@ export type UserFeature =
   | "delete_logs"
   | "modification_logs"
   | "disposed_inventory"
+  | "quarantine_inventory"
   | "my_pricing"
   | "client_documents"
   | "integrations"
@@ -632,6 +633,74 @@ export interface InventoryTransfer {
   reason?: string;
   movedBy?: string;
   movedAt?: { seconds: number; nanoseconds: number } | string | Date;
+  /** Default/legacy = quantity-only move; site_move = Internal Move (site-to-site). */
+  kind?: "location_qty" | "site_move";
+  /** Linked `internalMoveRequests/{id}` when kind is site_move. */
+  requestId?: string;
+}
+
+export type InternalMoveUserScope = "one" | "some" | "all";
+
+export type InternalMoveRequestStatus =
+  | "pending"
+  | "in_progress"
+  | "awaiting_putaway"
+  | "completed"
+  | "cancelled";
+
+export type InternalMoveProcessMode = "admin_approve" | "ops_confirm";
+
+/** One product line on an internal site-to-site move request. */
+export interface InternalMoveRequestLine {
+  userId: string;
+  userName?: string;
+  inventoryId: string;
+  productName: string;
+  sku?: string;
+  quantity: number;
+  /** Source carton ids resolved at process time (filled after process). */
+  sourceCartonIds?: string[];
+  /** Destination carton ids created at process time. */
+  destCartonIds?: string[];
+  error?: string;
+}
+
+/**
+ * Admin Internal Move (site → site).
+ * Collection: `internalMoveRequests/{requestId}`
+ */
+export interface InternalMoveRequest {
+  id: string;
+  fromLocationId: string;
+  toLocationId: string;
+  fromLocationName?: string;
+  toLocationName?: string;
+  fromWarehouseId: string;
+  toWarehouseId: string;
+  fromWarehouseCode?: string;
+  toWarehouseCode?: string;
+  userScope: InternalMoveUserScope;
+  userIds: string[];
+  lines: InternalMoveRequestLine[];
+  reason?: string;
+  status: InternalMoveRequestStatus;
+  createdBy: string;
+  createdByName?: string;
+  createdAt?: { seconds: number; nanoseconds: number } | string | Date;
+  processedBy?: string;
+  processedByName?: string;
+  processedAt?: { seconds: number; nanoseconds: number } | string | Date;
+  processMode?: InternalMoveProcessMode;
+  /** Dest carton refs written on process: `{ warehouseId, cartonId, cartonCode }`. */
+  movedCartonRefs?: Array<{
+    warehouseId: string;
+    cartonId: string;
+    cartonCode: string;
+    userId: string;
+    inventoryId: string;
+  }>;
+  cancelledAt?: { seconds: number; nanoseconds: number } | string | Date;
+  cancelReason?: string;
 }
 
 /** User request to add inventory (pending/approved/rejected). */
@@ -1323,6 +1392,121 @@ export interface DeleteLog {
   } | string;
   deletedBy: string; // Admin name who deleted
   reason: string; // Reason for deletion
+  /** Set when the deletion came from an approved delete request. */
+  requestId?: string;
+  requestedByName?: string;
+}
+
+export type DeleteRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+/**
+ * User-initiated request to permanently delete an inventory entry
+ * (`users/{uid}/deleteRequests`). Admin approval performs the delete and
+ * writes the matching `deleteLogs` audit row.
+ */
+export interface DeleteRequest {
+  id: string;
+  productId: string;
+  productName: string;
+  sku?: string;
+  /** Snapshot at request time — the live item may change before approval. */
+  quantity: number;
+  dateAdded?: { seconds: number; nanoseconds: number } | string | null;
+  stockStatus: "In Stock" | "Out of Stock";
+  reason: string;
+  status: DeleteRequestStatus;
+  requestedAt?: { seconds: number; nanoseconds: number } | string;
+  requestedBy?: string;
+  requestedByName?: string;
+  /** True when an admin raised this request for the client. */
+  onBehalf?: boolean;
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: { seconds: number; nanoseconds: number } | string;
+  rejectedBy?: string;
+  rejectedByName?: string;
+  rejectedAt?: { seconds: number; nanoseconds: number } | string;
+  cancelledAt?: { seconds: number; nanoseconds: number } | string;
+  adminFeedback?: string;
+  /** Audit row written when the request was approved. */
+  deleteLogId?: string;
+}
+
+/**
+ * What a quarantine request asks the floor to do.
+ * - `quarantine`: move sellable stock into a quarantine bin/area (good → damaged)
+ * - `release`: bring quarantined stock back into normal storage (damaged → good)
+ * - `dispose`: scrap quarantined stock (writes the client's recycledInventory row)
+ */
+export type QuarantineRequestKind = "quarantine" | "release" | "dispose";
+
+export type QuarantineRequestStatus =
+  | "pending"
+  | "approved"
+  | "completed"
+  | "rejected"
+  | "cancelled";
+
+/** One physical source the operator pulled units from when completing the request. */
+export interface QuarantineRequestPick {
+  cartonId: string;
+  cartonCode: string;
+  lineId: string;
+  locationLabel: string;
+  quantity: number;
+}
+
+/**
+ * Client-initiated (or admin-on-behalf) quarantine workflow request — top-level
+ * `quarantineRequests` so warehouse ops can see every client's queue without a
+ * collection-group read. Admin approves; warehouse ops performs the physical
+ * move and completes it.
+ */
+export interface QuarantineRequest {
+  id: string;
+  kind: QuarantineRequestKind;
+  /** Owning client uid — also the security-rule read key. */
+  userId: string;
+  userName: string;
+  /** `users/{userId}/inventory` doc id. */
+  productId: string;
+  productName: string;
+  sku: string;
+  /** Units requested. Snapshot at request time; the floor may complete fewer. */
+  quantity: number;
+  reason: string;
+  notes?: string | null;
+  status: QuarantineRequestStatus;
+
+  requestedAt?: { seconds: number; nanoseconds: number } | string;
+  requestedBy?: string;
+  requestedByName?: string;
+  /** True when an admin raised this request for the client. */
+  onBehalf?: boolean;
+
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: { seconds: number; nanoseconds: number } | string;
+  rejectedBy?: string;
+  rejectedByName?: string;
+  rejectedAt?: { seconds: number; nanoseconds: number } | string;
+  cancelledAt?: { seconds: number; nanoseconds: number } | string;
+  adminFeedback?: string;
+
+  completedBy?: string;
+  completedByName?: string;
+  completedAt?: { seconds: number; nanoseconds: number } | string;
+  /** Units actually moved — may be less than `quantity` on a short pick. */
+  completedQty?: number;
+  /** Warehouse the operator completed it from. */
+  warehouseId?: string | null;
+  warehouseCode?: string | null;
+  /** Destination the stock landed in (bin when the zone has bins, else area). */
+  destBinId?: string | null;
+  destBinPath?: string | null;
+  destAreaCode?: string | null;
+  /** Where the operator pulled the units from. */
+  picks?: QuarantineRequestPick[];
 }
 
 export interface EditLog {

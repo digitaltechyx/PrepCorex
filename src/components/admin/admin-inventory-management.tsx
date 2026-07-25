@@ -32,6 +32,8 @@ import { ShipmentRequestsManagement } from "@/components/admin/shipment-requests
 import { InventoryRequestsManagement } from "@/components/admin/inventory-requests-management";
 import { ProductReturnsManagement } from "@/components/admin/product-returns-management";
 import { DisposeRequestsManagement } from "@/components/admin/dispose-requests-management";
+import { DeleteRequestsManagement } from "@/components/admin/delete-requests-management";
+import { QuarantineRequestsManagement } from "@/components/admin/quarantine-requests-management";
 import { InventoryTable } from "@/components/dashboard/inventory-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -49,7 +51,7 @@ interface AdminInventoryManagementProps {
   loading: boolean;
   /** When set to "user-requests", opens the User Requests card and section (e.g. from Notifications "Process"). */
   initialSection?: string;
-  /** Notification type: shipment_request | inventory_request | product_return — selects the corresponding tab. */
+  /** Notification type: shipment_request | inventory_request | product_return | dispose_request | delete_request — selects the corresponding tab. */
   initialRequestTab?: string;
   /** Request/return ID to auto-open in the request management component. */
   initialRequestId?: string;
@@ -81,11 +83,21 @@ const editLogSchema = z.object({
   reason: z.string().min(1, "Reason for editing is required."),
 });
 
-function notificationTypeToTabValue(type: string): "shipment" | "inventory" | "return" | "dispose" {
+type UserRequestsTab =
+  | "shipment"
+  | "inventory"
+  | "return"
+  | "dispose"
+  | "delete"
+  | "quarantine";
+
+function notificationTypeToTabValue(type: string): UserRequestsTab {
   if (type === "shipment_request") return "shipment";
   if (type === "inventory_request") return "inventory";
   if (type === "product_return") return "return";
   if (type === "dispose_request") return "dispose";
+  if (type === "delete_request") return "delete";
+  if (type === "quarantine_request") return "quarantine";
   return "shipment";
 }
 
@@ -373,8 +385,7 @@ export function AdminInventoryManagement({
   const [moveItemSearchTerm, setMoveItemSearchTerm] = useState("");
   const [addInventoryMode, setAddInventoryMode] = useState<"quick" | "request">("quick");
   const [shipInventoryMode, setShipInventoryMode] = useState<"quick" | "request">("quick");
-  // User Requests tab (shipment | inventory | return | dispose)
-  const [userRequestsTab, setUserRequestsTab] = useState<"shipment" | "inventory" | "return" | "dispose">(
+  const [userRequestsTab, setUserRequestsTab] = useState<UserRequestsTab>(
     initialRequestTab ? notificationTypeToTabValue(initialRequestTab) : "shipment"
   );
   // Dispose requests dedicated section sub-tab (requests | log)
@@ -1900,10 +1911,10 @@ export function AdminInventoryManagement({
                     <p className={`font-semibold text-xs ${
                       activeSection === "move-inventory" ? "text-emerald-900" : "text-gray-700"
                     }`}>
-                      Move Inventory
+                      Qty relocate
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      Internal transfer
+                      Location qty only
                     </p>
                   </div>
                 </div>
@@ -2099,7 +2110,7 @@ export function AdminInventoryManagement({
                       User Requests
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      Shipment · Inventory · Return · Dispose
+                      Shipment · Inventory · Return · Dispose · Delete
                     </p>
                   </div>
                 </div>
@@ -2115,16 +2126,22 @@ export function AdminInventoryManagement({
           <CardHeader>
             <CardTitle>User Requests — {selectedUser.name}</CardTitle>
             <CardDescription>
-              Process this user&apos;s shipment, inventory, and return requests. Each tab shows only this user&apos;s requests.
+              Process this user&apos;s shipment, inventory, return, dispose, and delete requests. Each tab shows only this user&apos;s requests.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs value={userRequestsTab} onValueChange={(v) => setUserRequestsTab(v as "shipment" | "inventory" | "return" | "dispose")} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
+            <Tabs
+              value={userRequestsTab}
+              onValueChange={(v) => setUserRequestsTab(v as UserRequestsTab)}
+              className="w-full"
+            >
+              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-6">
                 <TabsTrigger value="shipment">Shipment</TabsTrigger>
                 <TabsTrigger value="inventory">Inventory</TabsTrigger>
                 <TabsTrigger value="return">Returns</TabsTrigger>
                 <TabsTrigger value="dispose">Dispose</TabsTrigger>
+                <TabsTrigger value="delete">Delete</TabsTrigger>
+                <TabsTrigger value="quarantine">Quarantine</TabsTrigger>
               </TabsList>
               <TabsContent value="shipment" className="mt-4">
                 <ShipmentRequestsManagement selectedUser={selectedUser} inventory={inventory} initialRequestId={initialRequestId} />
@@ -2141,6 +2158,23 @@ export function AdminInventoryManagement({
               </TabsContent>
               <TabsContent value="dispose" className="mt-4">
                 <DisposeRequestsManagement selectedUser={selectedUser} inventory={inventory} initialRequestId={initialRequestId} />
+              </TabsContent>
+              <TabsContent value="delete" className="mt-4">
+                <DeleteRequestsManagement
+                  selectedUser={selectedUser}
+                  inventory={inventory}
+                  initialRequestId={initialRequestId}
+                  onInventoryDeleted={async (item) => {
+                    await syncExternalInventoryIfNeeded(item as any, 0, selectedUser.uid);
+                  }}
+                />
+              </TabsContent>
+              <TabsContent value="quarantine" className="mt-4">
+                <QuarantineRequestsManagement
+                  selectedUser={selectedUser}
+                  inventory={inventory}
+                  initialRequestId={initialRequestId}
+                />
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -2197,10 +2231,15 @@ export function AdminInventoryManagement({
           <CardHeader className="bg-gradient-to-r from-emerald-50 to-emerald-100 border-b">
             <CardTitle className="text-emerald-900 flex items-center gap-2">
               <ArrowRight className="h-5 w-5" />
-              Move Inventory (Admin Internal)
+              Relocate quantity (no putaway)
             </CardTitle>
             <CardDescription className="text-emerald-700">
-              Move inventory between internal locations. Users will not see internal transfer details.
+              Adjusts this user&apos;s location quantities only — does not move warehouse labels or
+              create putaway work. For site-to-site moves with putaway, use{" "}
+              <a href="/admin/dashboard/internal-move" className="underline font-medium text-emerald-900">
+                Internal Move
+              </a>
+              .
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6 space-y-6">
@@ -2321,7 +2360,7 @@ export function AdminInventoryManagement({
             <div className="flex justify-end">
               <Button onClick={handleMoveInventory} disabled={isMovingInventory || !moveInventoryItemId}>
                 {isMovingInventory && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Move Inventory
+                Relocate quantity
               </Button>
             </div>
 

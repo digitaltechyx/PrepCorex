@@ -63,6 +63,9 @@ import {
   RotateCcw,
   ArrowRightLeft,
   Truck,
+  ClipboardPen,
+  ScrollText,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { detectCarrier } from "@/lib/carrier-detect";
@@ -70,6 +73,7 @@ import {
   describeReceiveLotHint,
   describeReceiveLotPattern,
 } from "@/lib/warehouse-receive-lot";
+import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
 import { ScanLookupPopover } from "@/components/warehouse-ops/scan-lookup-popover";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import {
@@ -77,6 +81,12 @@ import {
   type QuickScanLine,
 } from "@/components/warehouse-ops/quick-scan-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { WarehouseOpsReceiveCorrection } from "@/components/warehouse-ops/warehouse-ops-receive-correction";
 import { WarehouseOpsReceiveLog } from "@/components/warehouse-ops/warehouse-ops-receive-log";
 import {
@@ -100,7 +110,7 @@ import {
   inboundRequestPrefill,
   recordInboundReceiveBatch,
   reloadInboundRequestRow,
-  validateInboundReceiveQty,
+  warnInboundReceiveOverage,
 } from "@/lib/warehouse-inbound-receive";
 import {
   loadInboundRequestQueue,
@@ -129,7 +139,6 @@ type ReceiveModule = "crossdock" | "loose";
 type ReceivePhase =
   | "dock-intake"
   | "hub"
-  | "pick-package"
   | "pick-container-contents"
   | "form";
 
@@ -286,15 +295,10 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   const [selectedInbounds, setSelectedInbounds] = useState<InboundRequestRow[]>([]);
   const [dockTracking, setDockTracking] = useState("");
 
-  function startModule(m: ReceiveModule) {
+  function selectReceiveType(m: ReceiveModule, t: ReceiveType) {
     setModule(m);
-    setPhase("pick-package");
-    setType(null);
     setFromContainer(false);
-  }
-
-  function pickPackage(t: ReceiveType) {
-    if (module === "loose" && t === "container") {
+    if (m === "loose" && t === "container") {
       setFromContainer(true);
       setType(null);
       setPhase("pick-container-contents");
@@ -310,15 +314,8 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
     setPhase("form");
   }
 
-  function backFromPickPackage() {
-    setPhase("hub");
-    setModule(null);
-    setType(null);
-    setFromContainer(false);
-  }
-
   function backFromContainerContents() {
-    setPhase("pick-package");
+    setPhase("hub");
     setType(null);
     setFromContainer(false);
   }
@@ -326,17 +323,26 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   function handleDockInbound(rows: InboundRequestRow[], tracking: string) {
     setSelectedInbounds(rows);
     setDockTracking(tracking);
+    setModule(null);
+    setType(null);
+    setFromContainer(false);
     setPhase("hub");
   }
 
   function handleDockWalkIn(tracking: string) {
     setDockTracking(tracking);
     setSelectedInbounds([]);
+    setModule(null);
+    setType(null);
+    setFromContainer(false);
     setPhase("hub");
   }
 
   function backToDockIntake() {
     setSelectedInbounds([]);
+    setModule(null);
+    setType(null);
+    setFromContainer(false);
     setPhase("dock-intake");
   }
 
@@ -346,27 +352,41 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
       setType(null);
       return;
     }
-    if (type === "loose" && module === "loose") {
-      setPhase("hub");
-      setModule(null);
-      setType(null);
-    } else {
-      setPhase("pick-package");
-      setType(null);
-    }
+    setPhase("hub");
+    setType(null);
+    setFromContainer(false);
   }
 
   return (
     <div className="max-w-3xl space-y-6">
-      <WarehouseOpsHeader title="Receiving" />
+      <WarehouseOpsHeader title="Inspection / Receiving" />
       <Tabs
         value={tab}
         onValueChange={(v) => setTab(v as "receive" | "correct" | "log")}
       >
-        <TabsList>
-          <TabsTrigger value="receive">Receive</TabsTrigger>
-          <TabsTrigger value="correct">Correct receive</TabsTrigger>
-          <TabsTrigger value="log">Log</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-3 gap-1 rounded-xl border border-border bg-muted/80 p-1.5 shadow-sm">
+          <TabsTrigger
+            value="receive"
+            className="gap-1.5 rounded-lg px-2 py-2.5 text-xs font-semibold sm:gap-2 sm:px-3 sm:text-sm data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-primary/30 data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-background/70 data-[state=inactive]:hover:text-foreground"
+          >
+            <Package className="h-4 w-4 shrink-0" />
+            Receive
+          </TabsTrigger>
+          <TabsTrigger
+            value="correct"
+            className="gap-1.5 rounded-lg px-2 py-2.5 text-xs font-semibold sm:gap-2 sm:px-3 sm:text-sm data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-primary/30 data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-background/70 data-[state=inactive]:hover:text-foreground"
+          >
+            <ClipboardPen className="h-4 w-4 shrink-0" />
+            <span className="sm:hidden">Correct</span>
+            <span className="hidden sm:inline">Correct receive</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="log"
+            className="gap-1.5 rounded-lg px-2 py-2.5 text-xs font-semibold sm:gap-2 sm:px-3 sm:text-sm data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-primary/30 data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-background/70 data-[state=inactive]:hover:text-foreground"
+          >
+            <ScrollText className="h-4 w-4 shrink-0" />
+            Log
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="receive" className="mt-4 space-y-4">
           {phase === "dock-intake" ? (
@@ -446,134 +466,129 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   </CardContent>
                 </Card>
               )}
-              <TypePickerCard
-                color="indigo"
-                icon={<ArrowRightLeft className="h-8 w-8" />}
-                title={
-                  selectedInbounds.length === 0
-                    ? "Walk-in / closed receive"
-                    : "Cross-dock receiving"
-                }
-                description={
-                  selectedInbounds.length === 0
-                    ? "No request — generate lot, take photos, print one label (carton, pallet, package, or container). No SKUs yet."
-                    : "Closed cartons, pallets, or polybags — labels only. Then ship or putaway. SKUs later if kept."
-                }
-                onClick={() => startModule("crossdock")}
-              />
-              <TypePickerCard
-                color="emerald"
-                icon={<PackageOpen className="h-8 w-8" />}
-                title="Open receiving"
-                description={
-                  selectedInbounds.length === 0
-                    ? "Client must be known — assign the user, count SKUs (carton, pallet, package, or container), then putaway."
-                    : "Open and count at the dock — products go to client inventory after putaway; inbound closes."
-                }
-                onClick={() => startModule("loose")}
-              />
-            </>
-          ) : phase === "pick-package" && module === "crossdock" ? (
-            <>
-              <Button variant="ghost" size="sm" className="-ml-2" onClick={backFromPickPackage}>
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                Back
-              </Button>
-              <p className="text-sm text-muted-foreground">
-                {selectedInbounds.length === 0
-                  ? "Walk-in — lot + photos + one label (no SKUs yet)"
-                  : "Cross-dock — what are you receiving?"}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="border-emerald-300 text-emerald-900 hover:bg-emerald-50 w-fit"
-                onClick={() => {
-                  setModule("loose");
-                  setFormRestore(null);
+              <Accordion
+                type="single"
+                collapsible
+                value={module ?? ""}
+                onValueChange={(value) => {
+                  setModule(value ? (value as ReceiveModule) : null);
                   setType(null);
+                  setFromContainer(false);
                 }}
+                className="space-y-3"
               >
-                <PackageOpen className="h-4 w-4 mr-1" />
-                Switch to open receiving instead
-              </Button>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <TypePickerCard
-                  color="orange"
-                  icon={<Package className="h-8 w-8" />}
-                  title="Carton"
-                  description="One closed carton — CTN label, auto lot, photos. SKUs when client is known."
-                  onClick={() => pickPackage("carton")}
-                />
-                <TypePickerCard
-                  color="indigo"
-                  icon={<Boxes className="h-8 w-8" />}
-                  title="Pallet"
-                  description="One closed pallet — PLT label, auto lot, photos."
-                  onClick={() => pickPackage("pallet")}
-                />
-                <TypePickerCard
-                  color="emerald"
-                  icon={<PackageOpen className="h-8 w-8" />}
-                  title="Package / polybag"
-                  description="Closed bag — PKG label, auto lot, photos."
-                  onClick={() => pickPackage("loose")}
-                />
-                <TypePickerCard
-                  color="orange"
-                  icon={<Truck className="h-8 w-8" />}
-                  title="Container"
-                  description="Count cartons, pallets, and/or packages inside — one CTR label, lot, photos."
-                  onClick={() => pickPackage("container")}
-                />
-              </div>
-            </>
-          ) : phase === "pick-package" && module === "loose" ? (
-            <>
-              <Button variant="ghost" size="sm" className="-ml-2" onClick={backFromPickPackage}>
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                Back
-              </Button>
-              <p className="text-sm text-muted-foreground">
-                {selectedInbounds.length === 0
-                  ? "Client known — count SKUs into their inventory (required). Unknown owner? Use Walk-in / closed receive first."
-                  : "Open receiving — open, inspect, and enter SKUs at the dock."}
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <TypePickerCard
-                  color="orange"
-                  icon={<Package className="h-8 w-8" />}
-                  title="Carton"
-                  description="Open each carton — which products inside and how many units per SKU."
-                  onClick={() => pickPackage("carton")}
-                />
-                <TypePickerCard
-                  color="indigo"
-                  icon={<Boxes className="h-8 w-8" />}
-                  title="Pallet"
-                  description="Count cartons on the pallet; for each carton enter products and SKU quantities."
-                  onClick={() => pickPackage("pallet")}
-                />
-                <TypePickerCard
-                  color="emerald"
-                  icon={<PackageOpen className="h-8 w-8" />}
-                  title="Packages / polybags"
-                  description="Small bags or totes — one PKG label with full SKU manifest. Scan PKG at putaway."
-                  onClick={() => pickPackage("loose")}
-                />
-                <TypePickerCard
-                  color="orange"
-                  icon={<Truck className="h-8 w-8" />}
-                  title="Container"
-                  description={
-                    selectedInbounds.some(isContainerInbound)
-                      ? "Container can hold cartons, pallets, packages, or all of them — pick what’s inside next."
-                      : "Open a container — then count cartons, pallets, and/or packages inside for the client."
-                  }
-                  onClick={() => pickPackage("container")}
-                />
-              </div>
+                <AccordionItem
+                  value="crossdock"
+                  className="overflow-hidden rounded-xl border-2 border-indigo-200 bg-indigo-50/30 px-4 shadow-sm data-[state=open]:border-indigo-400 data-[state=open]:bg-indigo-50/70"
+                >
+                  <AccordionTrigger className="gap-3 py-4 text-left hover:no-underline">
+                    <span className="flex min-w-0 items-center gap-3">
+                      <span className="rounded-lg bg-indigo-100 p-2 text-indigo-700">
+                        <ArrowRightLeft className="h-5 w-5" />
+                      </span>
+                      <span>
+                        <span className="block font-semibold text-foreground">
+                          {selectedInbounds.length === 0
+                            ? "Walk-in / closed receive"
+                            : "Cross-dock / closed receive"}
+                        </span>
+                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                          Keep the shipment closed; print its warehouse label.
+                        </span>
+                      </span>
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent className="border-t border-indigo-200 pt-4">
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      Select what arrived:
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <TypePickerCard
+                        color="orange"
+                        icon={<Package className="h-6 w-6" />}
+                        title="Carton"
+                        description="Closed carton · CTN label"
+                        onClick={() => selectReceiveType("crossdock", "carton")}
+                      />
+                      <TypePickerCard
+                        color="indigo"
+                        icon={<Boxes className="h-6 w-6" />}
+                        title="Pallet"
+                        description="Closed pallet · PLT label"
+                        onClick={() => selectReceiveType("crossdock", "pallet")}
+                      />
+                      <TypePickerCard
+                        color="emerald"
+                        icon={<PackageOpen className="h-6 w-6" />}
+                        title="Package / polybag"
+                        description="Closed package · PKG label"
+                        onClick={() => selectReceiveType("crossdock", "loose")}
+                      />
+                      <TypePickerCard
+                        color="orange"
+                        icon={<Truck className="h-6 w-6" />}
+                        title="Container"
+                        description="Container · CTR label"
+                        onClick={() => selectReceiveType("crossdock", "container")}
+                      />
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem
+                  value="loose"
+                  className="overflow-hidden rounded-xl border-2 border-emerald-200 bg-emerald-50/30 px-4 shadow-sm data-[state=open]:border-emerald-400 data-[state=open]:bg-emerald-50/70"
+                >
+                  <AccordionTrigger className="gap-3 py-4 text-left hover:no-underline">
+                    <span className="flex min-w-0 items-center gap-3">
+                      <span className="rounded-lg bg-emerald-100 p-2 text-emerald-700">
+                        <PackageOpen className="h-5 w-5" />
+                      </span>
+                      <span>
+                        <span className="block font-semibold text-foreground">Open receiving</span>
+                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                          Open, inspect, and count products at the dock.
+                        </span>
+                      </span>
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent className="border-t border-emerald-200 pt-4">
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      Select what you are opening:
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <TypePickerCard
+                        color="orange"
+                        icon={<Package className="h-6 w-6" />}
+                        title="Carton"
+                        description="Count products and SKU quantities"
+                        onClick={() => selectReceiveType("loose", "carton")}
+                      />
+                      <TypePickerCard
+                        color="indigo"
+                        icon={<Boxes className="h-6 w-6" />}
+                        title="Pallet"
+                        description="Count cartons and products"
+                        onClick={() => selectReceiveType("loose", "pallet")}
+                      />
+                      <TypePickerCard
+                        color="emerald"
+                        icon={<PackageOpen className="h-6 w-6" />}
+                        title="Package / polybag"
+                        description="Count package contents"
+                        onClick={() => selectReceiveType("loose", "loose")}
+                      />
+                      <TypePickerCard
+                        color="orange"
+                        icon={<Truck className="h-6 w-6" />}
+                        title="Container"
+                        description="Choose and count its contents"
+                        onClick={() => selectReceiveType("loose", "container")}
+                      />
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </>
           ) : phase === "pick-container-contents" && module === "loose" ? (
             <>
@@ -641,7 +656,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   ? () => {
                       setModule("loose");
                       setFormRestore(null);
-                      setPhase("pick-package");
+                      setPhase("hub");
                       setType(null);
                       setFromContainer(false);
                     }
@@ -693,14 +708,14 @@ function TypePickerCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-xl border-2 p-5 text-left transition-colors flex flex-col items-start gap-3 h-full",
+        "flex h-full items-center gap-3 rounded-xl border-2 p-3 text-left transition-colors",
         colorMap[color]
       )}
     >
-      <div className={cn(colorMap[color].split(" ").pop())}>{icon}</div>
-      <div>
-        <h3 className="text-base font-semibold text-foreground">{title}</h3>
-        <p className="text-xs text-muted-foreground mt-1">{description}</p>
+      <div className={cn("shrink-0", colorMap[color].split(" ").pop())}>{icon}</div>
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
       </div>
     </button>
   );
@@ -803,6 +818,7 @@ function ReceiveForm({
   });
   const [saving, setSaving] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  const [reprintingLastBatch, setReprintingLastBatch] = useState(false);
   const [storageDialogOpen, setStorageDialogOpen] = useState(false);
   const [storageAssignContext, setStorageAssignContext] =
     useState<ReceiveStorageAssignContext | null>(null);
@@ -987,16 +1003,79 @@ function ReceiveForm({
   }
   function updateLine(cartonId: string, lineId: string, patch: Partial<LineDraft>) {
     setCartons((prev) =>
-      prev.map((c) =>
-        c.id === cartonId
-          ? { ...c, lines: c.lines.map((l) => (l.id === lineId ? { ...l, ...patch } : l)) }
-          : c
-      )
+      prev.map((c) => {
+        if (c.id !== cartonId) return c;
+        // Operator lot is shared across SKUs in the same carton/receive.
+        if (typeof patch.lot === "string") {
+          const nextLot = patch.lot;
+          return {
+            ...c,
+            lines: c.lines.map((l) =>
+              l.id === lineId ? { ...l, ...patch } : { ...l, lot: nextLot }
+            ),
+          };
+        }
+        return {
+          ...c,
+          lines: c.lines.map((l) => (l.id === lineId ? { ...l, ...patch } : l)),
+        };
+      })
     );
+  }
+  function sharedLotFromCarton(lines: LineDraft[]): string {
+    for (const l of lines) {
+      const lot = l.lot.trim();
+      if (lot) return lot;
+    }
+    return "";
+  }
+  function clientDefaultsForCarton(c: CartonDraft): {
+    clientId: string;
+    clientLabel: string;
+  } {
+    const fromLine = c.lines.find((l) => l.clientId?.trim());
+    if (fromLine?.clientId?.trim()) {
+      return {
+        clientId: fromLine.clientId.trim(),
+        clientLabel: fromLine.clientLabel?.trim() || c.clientLabel?.trim() || "",
+      };
+    }
+    if (c.clientId?.trim()) {
+      return {
+        clientId: c.clientId.trim(),
+        clientLabel: c.clientLabel?.trim() || "",
+      };
+    }
+    const primary = inboundRequests[0];
+    if (primary) {
+      return {
+        clientId: primary.clientUserId,
+        clientLabel: primary.clientDisplayName,
+      };
+    }
+    return { clientId: "", clientLabel: "" };
   }
   function addLine(cartonId: string) {
     setCartons((prev) =>
-      prev.map((c) => (c.id === cartonId ? { ...c, lines: [...c.lines, newLine()] } : c))
+      prev.map((c) => {
+        if (c.id !== cartonId) return c;
+        const sharedLot = sharedLotFromCarton(c.lines);
+        const client = clientDefaultsForCarton(c);
+        // Extra SKU lines keep the client so putaway credits their inventory,
+        // but do not link inventoryRequestId (that belongs to the original request SKU).
+        return {
+          ...c,
+          lines: [
+            ...c.lines,
+            {
+              ...newLine(),
+              lot: sharedLot,
+              clientId: client.clientId || undefined,
+              clientLabel: client.clientLabel || undefined,
+            },
+          ],
+        };
+      })
     );
   }
   function removeLine(cartonId: string, lineId: string) {
@@ -1052,14 +1131,21 @@ function ReceiveForm({
         const hasOnlyEmptyDefault =
           c.lines.length === 1 && !c.lines[0].sku.trim() && c.lines[0].goodQty === "1";
         const base = hasOnlyEmptyDefault ? [] : c.lines;
+        const sharedLot =
+          sharedLotFromCarton(base) ||
+          scanned.map((s) => s.lot.trim()).find(Boolean) ||
+          "";
+        const client = clientDefaultsForCarton({ ...c, lines: base });
         const newLines: LineDraft[] = scanned.map((s) => ({
           id: uid("ln"),
           sku: s.sku,
           productTitle: s.productTitle,
           goodQty: s.goodQty,
           damagedQty: s.damagedQty,
-          lot: s.lot,
+          lot: s.lot.trim() || sharedLot,
           expiry: s.expiry,
+          clientId: client.clientId || undefined,
+          clientLabel: client.clientLabel || undefined,
         }));
         return { ...c, lines: [...base, ...newLines] };
       })
@@ -1069,26 +1155,27 @@ function ReceiveForm({
   function addLineFromRequest(cartonId: string, row: InboundRequestRow) {
     const link = inboundLineLinkFromRow(row);
     setCartons((prev) =>
-      prev.map((c) =>
-        c.id === cartonId
-          ? {
-              ...c,
-              lines: [
-                ...c.lines,
-                {
-                  ...newLine(),
-                  sku: link.sku,
-                  productTitle: link.productTitle,
-                  goodQty: link.goodQty,
-                  expiry: link.expiry,
-                  inventoryRequestId: link.inventoryRequestId,
-                  clientId: link.clientId,
-                  clientLabel: link.clientLabel,
-                },
-              ],
-            }
-          : c
-      )
+      prev.map((c) => {
+        if (c.id !== cartonId) return c;
+        const sharedLot = sharedLotFromCarton(c.lines);
+        return {
+          ...c,
+          lines: [
+            ...c.lines,
+            {
+              ...newLine(),
+              sku: link.sku,
+              productTitle: link.productTitle,
+              goodQty: link.goodQty,
+              expiry: link.expiry,
+              lot: sharedLot,
+              inventoryRequestId: link.inventoryRequestId,
+              clientId: link.clientId,
+              clientLabel: link.clientLabel,
+            },
+          ],
+        };
+      })
     );
   }
 
@@ -1388,25 +1475,27 @@ function ReceiveForm({
       }
       if (inboundRequests.length === 1) {
         const only = inboundRequests[0];
-        const receiveUnits = cartons.reduce((sum, c) => {
+        // Only compare units linked to this request (extra SKU lines without request id are allowed).
+        const linkedUnits = cartons.reduce((sum, c) => {
           const copies = showCopies ? Math.max(1, parseInt(c.copies, 10) || 1) : 1;
-          const units = c.lines.reduce(
-            (u, l) => u + Math.max(0, parseInt(l.goodQty, 10) || 0),
-            0
-          );
+          const units = c.lines.reduce((u, l) => {
+            const linked =
+              l.inventoryRequestId?.trim() === only.id &&
+              (l.clientId?.trim() === only.clientUserId || !l.clientId?.trim());
+            if (!linked) return u;
+            return u + Math.max(0, parseInt(l.goodQty, 10) || 0);
+          }, 0);
           return sum + copies * units;
         }, 0);
-        if (receiveUnits > only.remainingQty) {
+        if (only.inventoryType !== "container" && linkedUnits > only.remainingQty) {
           toast({
-            title: "Over receive",
-            description: `This request has ${only.remainingQty} remaining — you entered ${receiveUnits} units on linked lines.`,
-            variant: "destructive",
+            title: "Qty over request (allowed)",
+            description: `Request has ${only.remainingQty} remaining; you entered ${linkedUnits}. Extra units will still be received into inventory after putaway.`,
           });
-          return;
         }
       }
 
-      const qtyError = validateInboundReceiveQty({
+      const overageNote = warnInboundReceiveOverage({
         cartons: cartons.map((c) => ({
           copies: showCopies ? Math.max(1, parseInt(c.copies, 10) || 1) : 1,
           lines: c.lines.map((l) => ({
@@ -1417,9 +1506,11 @@ function ReceiveForm({
         })),
         queue: inboundQueue,
       });
-      if (qtyError) {
-        toast({ title: "Over receive", description: qtyError, variant: "destructive" });
-        return;
+      if (overageNote && inboundRequests.length !== 1) {
+        toast({
+          title: "Qty over request (allowed)",
+          description: `${overageNote}. Extra units will still be received into inventory after putaway.`,
+        });
       }
     }
 
@@ -1691,6 +1782,36 @@ function ReceiveForm({
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDownloadLastBatchLabels() {
+    if (!lastBatch) return;
+    setReprintingLastBatch(true);
+    try {
+      let pallets: Awaited<ReturnType<typeof listWarehousePallets>> = [];
+      if (lastBatch.palletId) {
+        const all = await listWarehousePallets(warehouse.id);
+        const p = all.find((x) => x.id === lastBatch.palletId);
+        if (p) pallets = [p];
+      }
+      await downloadReceiveLabels({
+        warehouseCode: warehouse.code,
+        cartons: lastBatch.cartons,
+        pallets,
+      });
+      toast({
+        title: "Labels downloaded",
+        description: "Label PDF saved — print and stick again if needed.",
+      });
+    } catch (e) {
+      toast({
+        title: "Download failed",
+        description: e instanceof Error ? e.message : "Could not build label PDF.",
+        variant: "destructive",
+      });
+    } finally {
+      setReprintingLastBatch(false);
     }
   }
 
@@ -2290,6 +2411,11 @@ function ReceiveForm({
                             value={line.goodQty}
                             onChange={(e) => updateLine(c.id, line.id, { goodQty: e.target.value })}
                           />
+                          {line.inventoryRequestId ? (
+                            <p className="text-[10px] text-muted-foreground">
+                              Can exceed request qty after inspection
+                            </p>
+                          ) : null}
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs text-red-700">Damaged qty</Label>
@@ -2304,11 +2430,11 @@ function ReceiveForm({
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-xs">Lot (required)</Label>
+                          <Label className="text-xs">Lot (shared)</Label>
                           <Input
                             value={line.lot}
                             onChange={(e) => updateLine(c.id, line.id, { lot: e.target.value })}
-                            placeholder="Or leave blank to auto-generate"
+                            placeholder="Shared across SKUs · blank = auto"
                           />
                         </div>
                         <div className="space-y-1">
@@ -2342,6 +2468,9 @@ function ReceiveForm({
                       <Plus className="h-3 w-3 mr-1" />
                       Add SKU line
                     </Button>
+                    <p className="w-full text-[10px] text-muted-foreground sm:w-auto">
+                      Extra SKUs go to this client’s inventory after putaway
+                    </p>
                     {receiveModule === "loose" && inboundQueue.some((r) => r.remainingQty > 0) ? (
                       <Select
                         onValueChange={(v) => {
@@ -2514,6 +2643,20 @@ function ReceiveForm({
               </p>
             ) : null}
             <div className="flex flex-wrap gap-2 pt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={reprintingLastBatch}
+                onClick={() => void handleDownloadLastBatchLabels()}
+              >
+                {reprintingLastBatch ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Download className="h-4 w-4 mr-1" />
+                )}
+                Download labels again
+              </Button>
               {canUndoLastBatch ? (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>

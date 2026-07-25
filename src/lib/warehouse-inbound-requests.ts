@@ -35,6 +35,7 @@ export async function loadClientInventoryByUser(
   return map;
 }
 
+/** Requests already fulfilled when admin approved and added client inventory (legacy path). */
 export function isLegacyAdminFulfilledInboundRequest(input: {
   clientUserId: string;
   requestId: string;
@@ -49,10 +50,10 @@ export function isLegacyAdminFulfilledInboundRequest(input: {
   // Warehouse inbound v2: approved product requests stay open until putaway syncs stock.
   if (req.fulfillmentStatus === "open") return false;
 
+  // Any inventory row linked to this request proves admin already fulfilled it
+  // (even if qty was later shipped to zero).
   if (
-    inventory.some(
-      (inv) => String(inv.sourceRequestId ?? "").trim() === requestId
-    )
+    inventory.some((inv) => String(inv.sourceRequestId ?? "").trim() === requestId)
   ) {
     return true;
   }
@@ -82,6 +83,25 @@ export function isLegacyAdminFulfilledInboundRequest(input: {
   });
 }
 
+/**
+ * Approved requests only await warehouse receive when fulfillmentStatus is "open" (v2).
+ * Missing/closed fulfillment = already completed on the old admin path (or fully received).
+ */
+export function isApprovedAwaitingWarehouseReceive(
+  row: Pick<InventoryRequest, "status" | "fulfillmentStatus" | "remainingQty">,
+  legacyFulfilled = false
+): boolean {
+  const status = String(row.status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (status !== "approved") return false;
+  if (String(row.fulfillmentStatus ?? "").toLowerCase() !== "open") return false;
+  if ((row.remainingQty ?? 0) <= 0) return false;
+  if (legacyFulfilled) return false;
+  return true;
+}
+
 /** Warehouse dock: pending (needs review) + approved awaiting physical receive. */
 function isAwaitingDockReceive(row: InboundRequestRow, legacyFulfilled: boolean): boolean {
   const status = String(row.status ?? "")
@@ -90,11 +110,8 @@ function isAwaitingDockReceive(row: InboundRequestRow, legacyFulfilled: boolean)
     .replace(/[\s-]+/g, "_");
   if (status === "rejected" || status === "cancelled") return false;
   // Pending always listed for dock review (match Notifications), even if qty is already 0.
-  if (status === "pending") return true;
-  if (status !== "approved") return false;
-  if (row.remainingQty <= 0) return false;
-  if (legacyFulfilled) return false;
-  return true;
+  if (status === "pending" || status === "pending_approval") return true;
+  return isApprovedAwaitingWarehouseReceive(row, legacyFulfilled);
 }
 
 export function inboundRequestMatchesTracking(
@@ -259,7 +276,7 @@ export async function countInboundDockQueue(input: {
 
   for (const d of docs) {
     const data = d.data() as Omit<InventoryRequest, "id">;
-    if (data.inventoryType && data.inventoryType !== "product" && data.inventoryType !== "container") continue;
+    if (data.inventoryType && !["product", "box", "pallet", "container"].includes(String(data.inventoryType))) continue;
 
     const clientUserId = userIdFromDocPath(d.ref.path);
     if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;
@@ -364,7 +381,7 @@ export async function loadInboundRequestQueue(input: {
   const rows: InboundRequestRow[] = [];
   for (const d of docs) {
     const data = d.data() as Omit<InventoryRequest, "id">;
-    if (data.inventoryType && data.inventoryType !== "product" && data.inventoryType !== "container") continue;
+    if (data.inventoryType && !["product", "box", "pallet", "container"].includes(String(data.inventoryType))) continue;
 
     const clientUserId = userIdFromDocPath(d.ref.path);
     if (!clientUserId || !eligibleClientIds.has(clientUserId)) continue;

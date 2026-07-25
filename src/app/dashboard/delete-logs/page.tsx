@@ -2,13 +2,14 @@
 
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
-import type { DeleteLog } from "@/types";
+import type { DeleteLog, DeleteRequest, InventoryItem } from "@/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -17,12 +18,37 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Trash2, Search, X, Calendar, AlertCircle } from "lucide-react";
+import { DeleteRequestDialog } from "@/components/inventory/delete-request-dialog";
+import { useToast } from "@/hooks/use-toast";
+import {
+  cancelDeleteRequest,
+  deleteRequestsPath,
+  pendingDeleteProductIds,
+} from "@/lib/delete-request-ops";
+import { Trash2, Search, X, Calendar, AlertCircle, Loader2, Plus } from "lucide-react";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+
+function toRequestMs(value: DeleteRequest["requestedAt"]): number {
+  if (!value) return 0;
+  if (typeof value === "string") {
+    const ms = new Date(value).getTime();
+    return Number.isNaN(ms) ? 0 : ms;
+  }
+  if (typeof value === "object" && typeof value.seconds === "number") return value.seconds * 1000;
+  return 0;
+}
+
+const REQUEST_STATUS_CLASS: Record<DeleteRequest["status"], string> = {
+  pending: "bg-amber-100 text-amber-900 border-amber-200",
+  approved: "bg-emerald-100 text-emerald-900 border-emerald-200",
+  rejected: "bg-red-100 text-red-900 border-red-200",
+  cancelled: "bg-slate-100 text-slate-700 border-slate-200",
+};
 
 export default function DeleteLogsPage() {
   const { userProfile } = useAuth();
+  const { toast } = useToast();
   const [deleteLogsDateFilter, setDeleteLogsDateFilter] = useState<string>("all");
   const [deleteLogsFromDate, setDeleteLogsFromDate] = useState<Date | undefined>(undefined);
   const [deleteLogsToDate, setDeleteLogsToDate] = useState<Date | undefined>(undefined);
@@ -30,12 +56,56 @@ export default function DeleteLogsPage() {
   const [deleteLogsPage, setDeleteLogsPage] = useState(1);
   const itemsPerPage = 10;
 
+  const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
   const { 
     data: deleteLogs, 
     loading: deleteLogsLoading 
   } = useCollection<DeleteLog>(
     userProfile ? `users/${userProfile.uid}/deleteLogs` : ""
   );
+
+  const { data: inventory } = useCollection<InventoryItem>(
+    userProfile ? `users/${userProfile.uid}/inventory` : ""
+  );
+
+  const { data: deleteRequests, loading: deleteRequestsLoading } = useCollection<DeleteRequest>(
+    userProfile ? deleteRequestsPath(userProfile.uid) : ""
+  );
+
+  const sortedRequests = useMemo(
+    () =>
+      [...deleteRequests].sort(
+        (a, b) => toRequestMs(b.requestedAt) - toRequestMs(a.requestedAt)
+      ),
+    [deleteRequests]
+  );
+  const pendingRequestCount = sortedRequests.filter((r) => r.status === "pending").length;
+  const pendingProductIds = useMemo(
+    () => pendingDeleteProductIds(deleteRequests),
+    [deleteRequests]
+  );
+
+  const handleCancelRequest = async (request: DeleteRequest) => {
+    if (!userProfile) return;
+    setCancellingId(request.id);
+    try {
+      await cancelDeleteRequest({ userId: userProfile.uid, requestId: request.id });
+      toast({
+        title: "Request withdrawn",
+        description: `Your delete request for "${request.productName}" was cancelled.`,
+      });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Could not cancel request",
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
+      setCancellingId(null);
+    }
+  };
 
   const formatDate = (date: any) => {
     if (!date) return "N/A";
@@ -122,12 +192,36 @@ export default function DeleteLogsPage() {
                 View products that were permanently deleted by admins ({filteredDeleteLogs.length} records)
               </CardDescription>
             </div>
-            <div className="h-14 w-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-              <AlertCircle className="h-7 w-7 text-white" />
+            <div className="flex items-center gap-3">
+              <Button
+                variant="secondary"
+                className="bg-white/20 text-white border border-white/30 hover:bg-white/30"
+                onClick={() => setRequestDialogOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Request deletion
+              </Button>
+              <div className="h-14 w-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                <AlertCircle className="h-7 w-7 text-white" />
+              </div>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-6">
+          <Tabs defaultValue="logs" className="w-full">
+            <TabsList className="mb-6">
+              <TabsTrigger value="logs">Deleted logs ({deleteLogs.length})</TabsTrigger>
+              <TabsTrigger value="requests">
+                My requests ({sortedRequests.length})
+                {pendingRequestCount > 0 ? (
+                  <Badge className="ml-2 bg-amber-500 text-white text-[10px]">
+                    {pendingRequestCount} pending
+                  </Badge>
+                ) : null}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="logs" className="mt-0">
           {/* Filters */}
           <div className="flex flex-col sm:flex-row gap-4 mb-6 pb-6 border-b">
             <div className="flex-1">
@@ -271,8 +365,110 @@ export default function DeleteLogsPage() {
               </div>
             </div>
           )}
+            </TabsContent>
+
+            <TabsContent value="requests" className="mt-0">
+              {deleteRequestsLoading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-20 bg-muted animate-pulse rounded-xl" />
+                  ))}
+                </div>
+              ) : sortedRequests.length > 0 ? (
+                <div className="rounded-lg border overflow-hidden">
+                  <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                    <TableHeader className="bg-muted/60">
+                      <TableRow>
+                        <TableHead className="min-w-[220px]">Product</TableHead>
+                        <TableHead className="min-w-[100px]">Quantity</TableHead>
+                        <TableHead className="min-w-[240px]">Reason</TableHead>
+                        <TableHead className="min-w-[150px]">Requested</TableHead>
+                        <TableHead className="min-w-[130px]">Status</TableHead>
+                        <TableHead className="min-w-[220px]">Admin response</TableHead>
+                        <TableHead className="min-w-[120px] text-right">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sortedRequests.map((request) => (
+                        <TableRow key={request.id}>
+                          <TableCell className="font-semibold text-slate-900">
+                            {request.productName}
+                            {request.onBehalf ? (
+                              <span className="block text-[11px] font-normal text-muted-foreground">
+                                Filed by {request.requestedByName || "admin"} on your behalf
+                              </span>
+                            ) : null}
+                          </TableCell>
+                          <TableCell>{request.quantity}</TableCell>
+                          <TableCell className="text-slate-700">{request.reason}</TableCell>
+                          <TableCell className="text-slate-700">
+                            {formatDate(request.requestedAt)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] capitalize ${REQUEST_STATUS_CLASS[request.status]}`}
+                            >
+                              {request.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-slate-700">
+                            {request.adminFeedback || "—"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {request.status === "pending" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleCancelRequest(request)}
+                                disabled={cancellingId === request.id}
+                              >
+                                {cancellingId === request.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  "Withdraw"
+                                )}
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="text-center py-16">
+                  <div className="mx-auto h-20 w-20 rounded-full bg-red-100 flex items-center justify-center mb-4">
+                    <Trash2 className="h-10 w-10 text-red-600" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2">No delete requests yet</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Request a deletion and an admin will review it before anything is removed.
+                  </p>
+                  <Button onClick={() => setRequestDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Request deletion
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
+
+      {userProfile ? (
+        <DeleteRequestDialog
+          open={requestDialogOpen}
+          onOpenChange={setRequestDialogOpen}
+          userId={userProfile.uid}
+          inventory={inventory}
+          submitterUid={userProfile.uid}
+          submitterName={userProfile.name || "User"}
+          pendingProductIds={pendingProductIds}
+        />
+      ) : null}
     </div>
   );
 }

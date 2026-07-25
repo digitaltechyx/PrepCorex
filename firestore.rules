@@ -397,6 +397,28 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Internal site-to-site move requests (admin create; ops confirm at source)
+    match /internalMoveRequests/{requestId} {
+      allow read: if isAdminOrSubAdmin() || isWarehouseOperator();
+      allow create: if isAdminOrSubAdmin();
+      allow update: if isAdminOrSubAdmin() || isWarehouseOperator();
+      allow delete: if isAdminOrSubAdmin();
+    }
+
+    // Quarantine / release / dispose requests.
+    // Clients see and raise their own; admin approves; warehouse ops completes the move.
+    match /quarantineRequests/{requestId} {
+      allow read: if isAdminOrSubAdmin()
+                  || isWarehouseOperator()
+                  || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isAdminOrSubAdmin()
+                    || (signedIn() && request.resource.data.userId == request.auth.uid);
+      allow update: if isAdminOrSubAdmin()
+                    || isWarehouseOperator()
+                    || (signedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdminOrSubAdmin();
+    }
+
     // ---- ADMIN OVERRIDE ----
     // Ensures admin/sub_admin never sees "Missing or insufficient permissions"
     // for top-level admin-managed collections not explicitly listed above.

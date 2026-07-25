@@ -34,6 +34,7 @@ import type {
 } from "@/types";
 import {
   Boxes,
+  Download,
   ImageIcon,
   Layers,
   Loader2,
@@ -43,6 +44,7 @@ import {
   Truck,
   User as UserIcon,
 } from "lucide-react";
+import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
 
 type Props = {
   warehouse: WarehouseDoc;
@@ -77,6 +79,9 @@ type LogEntry = {
   notes: string | null;
   photoCount: number;
   totalQty: number;
+  receiveLot: string | null;
+  carton?: WarehouseCartonDoc;
+  pallet?: WarehousePalletDoc;
   lines: Array<{
     sku: string;
     productTitle: string | null;
@@ -124,6 +129,7 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
   const [clientFilter, setClientFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [photosFilter, setPhotosFilter] = useState<"all" | "yes" | "no">("all");
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -241,6 +247,8 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
           notes: c.notes ?? null,
           photoCount,
           totalQty,
+          receiveLot: c.receiveLot ?? lines[0]?.lot ?? null,
+          carton: c,
           lines,
           searchText,
         };
@@ -261,6 +269,7 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
           p.carrier,
           clientLabel,
           receivedBy,
+          p.receiveLot,
         ]
           .filter(Boolean)
           .join(" ")
@@ -280,6 +289,8 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
           notes: p.notes ?? null,
           photoCount: p.photoUrl ? 1 : 0,
           totalQty: 0,
+          receiveLot: p.receiveLot ?? null,
+          pallet: p,
           lines: [],
           searchText,
         };
@@ -363,6 +374,30 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
     return { count: filtered.length, units, receivers: receivers.size };
   }, [filtered]);
 
+  async function handleDownloadLabels(entry: LogEntry) {
+    const key = `${entry.kind}-${entry.id}`;
+    setDownloadingId(key);
+    try {
+      await downloadReceiveLabels({
+        warehouseCode: warehouse.code,
+        cartons: entry.carton ? [entry.carton] : [],
+        pallets: entry.pallet ? [entry.pallet] : [],
+      });
+      toast({
+        title: "Label downloaded",
+        description: `${entry.code} label PDF saved.`,
+      });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Download failed",
+        description: err instanceof Error ? err.message : "Could not build label PDF.",
+      });
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -371,7 +406,8 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
             <CardTitle>Receive log</CardTitle>
             <CardDescription>
               Full audit of what was received, when, and by whom — cartons,
-              pallets, packages, cross-dock and returns.
+              pallets, packages, cross-dock and returns. Download labels again
+              for any lot/code below.
             </CardDescription>
           </div>
           <Button
@@ -531,9 +567,26 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
                     <Badge variant="outline">{e.typeLabel}</Badge>
                     <Badge variant="secondary">{e.statusLabel}</Badge>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {fmtDateTime(e.receivedAt)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {fmtDateTime(e.receivedAt)}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={downloadingId === `${e.kind}-${e.id}`}
+                      onClick={() => void handleDownloadLabels(e)}
+                    >
+                      {downloadingId === `${e.kind}-${e.id}` ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Download className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      Download label
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -545,6 +598,11 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
                     <span className="flex items-center gap-1">
                       <Boxes className="h-3.5 w-3.5" />
                       {e.clientLabel}
+                    </span>
+                  )}
+                  {e.receiveLot && (
+                    <span className="font-mono">
+                      Lot {e.receiveLot}
                     </span>
                   )}
                   {e.tracking && (

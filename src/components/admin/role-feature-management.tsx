@@ -62,6 +62,7 @@ const CLIENT_FEATURES: { value: UserFeature; label: string; description: string 
   { value: "modification_logs", label: "Modification Logs", description: "View edit history" },
   { value: "delete_logs", label: "Delete Logs", description: "View deletion history" },
   { value: "disposed_inventory", label: "Disposed Inventory", description: "View disposed items and recycle bin" },
+  { value: "quarantine_inventory", label: "Quarantine", description: "Request quarantine, release, or dispose of stock and view quarantined qty" },
   { value: "client_documents", label: "Documents", description: "Access to document requests" },
   { value: "integrations", label: "Integrations", description: "Access to Shopify, eBay, ShipStation, WooCommerce, and TikTok Shop integrations" },
   { value: "view_shopify_orders", label: "Shopify Orders", description: "View orders synced from connected Shopify stores" },

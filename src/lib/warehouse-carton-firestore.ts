@@ -25,7 +25,7 @@ import {
   assertCartonStatusTransition,
   isExpiryPast,
 } from "@/lib/warehouse-carton-states";
-import { resolveReceiveLot } from "@/lib/warehouse-receive-lot";
+import { resolveSharedReceiveLot } from "@/lib/warehouse-receive-lot";
 import {
   buildClosedCrossdockLine,
   closedCrossdockProductTitle,
@@ -711,10 +711,12 @@ export async function createReceiveBatch(input: {
               inventoryRequestId: cfgRequestId,
             }),
           ]
-        : validLines.map((l, i) => {
+        : (() => {
+            const sharedLot = resolveSharedReceiveLot(validLines);
+            return validLines.map((l, i) => {
         const sku = l.sku.trim();
         const expiry = l.expiry?.trim().slice(0, 10) || null;
-        const lot = resolveReceiveLot({ sku, expiry, lot: l.lot });
+        const lot = sharedLot;
         const lineRequestId = l.inventoryRequestId?.trim() || cfgRequestId || null;
         const lineClientId = l.clientId?.trim() || cfgClientId || null;
         return {
@@ -731,6 +733,7 @@ export async function createReceiveBatch(input: {
         inventoryRequestId: lineRequestId,
       };
       });
+          })();
 
       const distinctLineClients = new Set(
         lines.map((l) => l.clientId?.trim()).filter(Boolean) as string[]

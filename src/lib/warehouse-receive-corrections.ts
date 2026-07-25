@@ -8,7 +8,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { encodeCartonBarcode } from "@/lib/warehouse-carton-barcode";
-import { resolveReceiveLot } from "@/lib/warehouse-receive-lot";
+import { resolveSharedReceiveLot } from "@/lib/warehouse-receive-lot";
 import {
   assertCartonStatusTransition,
   canTransitionCartonStatus,
@@ -99,10 +99,11 @@ export function canEditReceivedCarton(carton: WarehouseCartonDoc, supervisor: bo
 }
 
 export function buildLinesFromReceiveInput(validLines: ReceiveLineInput[]): WarehouseCartonLine[] {
+  const sharedLot = resolveSharedReceiveLot(validLines);
   return validLines.map((l, i) => {
     const sku = l.sku.trim();
     const expiry = l.expiry?.trim().slice(0, 10) || null;
-    const lot = resolveReceiveLot({ sku, expiry, lot: l.lot });
+    const lot = sharedLot;
     return {
     lineId: `L${i + 1}`,
     sku,
@@ -701,13 +702,16 @@ export function lineDraftsToReceiveInput(
     expiry: string;
   }>
 ): ReceiveLineInput[] {
+  const sharedLot = resolveSharedReceiveLot(
+    drafts.map((l) => ({ sku: l.sku, expiry: l.expiry, lot: l.lot }))
+  );
   const out: ReceiveLineInput[] = [];
   for (const l of drafts) {
     const good = Math.max(0, parseInt(l.goodQty, 10) || 0);
     const dmg = Math.max(0, parseInt(l.damagedQty, 10) || 0);
     const sku = l.sku.trim();
     const expiry = l.expiry.trim() || null;
-    const lot = resolveReceiveLot({ sku, expiry, lot: l.lot });
+    const lot = sharedLot;
     if (good > 0) {
       out.push({
         sku,

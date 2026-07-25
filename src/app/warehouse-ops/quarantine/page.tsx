@@ -1,6 +1,8 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { WarehouseOpsQuarantine } from "@/components/warehouse-ops/warehouse-ops-quarantine";
@@ -8,9 +10,12 @@ import { useWarehouseOps } from "@/components/warehouse-ops/warehouse-ops-provid
 import { hasFeature } from "@/lib/permissions";
 import { useAuth } from "@/hooks/use-auth";
 
-export default function WarehouseOpsQuarantinePage() {
+function WarehouseOpsQuarantineContent() {
   const { userProfile } = useAuth();
   const { selectedWarehouse } = useWarehouseOps();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const defaultTab = tabParam === "requests" ? "requests" : tabParam === "log" ? "log" : "work";
 
   if (!hasFeature(userProfile, "ops_putaway") && !hasFeature(userProfile, "ops_returns")) {
     return (
@@ -33,5 +38,20 @@ export default function WarehouseOpsQuarantinePage() {
     );
   }
 
-  return <WarehouseOpsQuarantine warehouse={selectedWarehouse} />;
+  return <WarehouseOpsQuarantine warehouse={selectedWarehouse} defaultTab={defaultTab} />;
+}
+
+export default function WarehouseOpsQuarantinePage() {
+  return (
+    <Suspense
+      fallback={
+        <div>
+          <WarehouseOpsHeader title="Quarantine" />
+          <p className="text-muted-foreground">Loading…</p>
+        </div>
+      }
+    >
+      <WarehouseOpsQuarantineContent />
+    </Suspense>
+  );
 }

@@ -13,6 +13,7 @@ const WAREHOUSES = "warehouses";
 
 /** Event types written by each warehouse-ops module. */
 export const OPS_LOG_EVENT_TYPES = {
+  receive: ["inbound_receive", "receive_correct"],
   putaway: ["putaway"],
   pick: ["pick"],
   pack: ["dispatch", "crossdock_pack_complete", "dispatch_qc_return", "return_pack_complete"],
@@ -22,6 +23,7 @@ export const OPS_LOG_EVENT_TYPES = {
     "quarantine_return_pack",
     "quarantine_dispose",
     "quarantine_auto_dispose",
+    "quarantine_request_complete",
   ],
   returns: [
     "return_receive",
@@ -30,11 +32,16 @@ export const OPS_LOG_EVENT_TYPES = {
     "return_qc_dispose",
     "unallocated_return_to_pack",
   ],
-  move: ["move", "area_move"],
+  move: ["move", "area_move", "internal_site_move"],
   cycle_count: ["cycle_count", "cycle_count_resolve"],
 } as const;
 
-export type OpsLogModule = keyof typeof OPS_LOG_EVENT_TYPES;
+export type OpsLogModule = keyof typeof OPS_LOG_EVENT_TYPES | "overview";
+
+/** All floor event types for Notifications / ops-home log. */
+export const OPS_LOG_OVERVIEW_EVENT_TYPES: readonly string[] = [
+  ...new Set(Object.values(OPS_LOG_EVENT_TYPES).flatMap((types) => [...types])),
+];
 
 export type OpsActivityLogEntry = {
   id: string;
@@ -58,6 +65,8 @@ export type OpsActivityLogEntry = {
 };
 
 const TYPE_LABELS: Record<string, string> = {
+  inbound_receive: "Inbound receive",
+  receive_correct: "Receive correction",
   putaway: "Putaway",
   pick: "Pick",
   dispatch: "Pack complete",
@@ -69,6 +78,7 @@ const TYPE_LABELS: Record<string, string> = {
   quarantine_return_pack: "Send to Pack",
   quarantine_dispose: "Dispose",
   quarantine_auto_dispose: "Auto-dispose",
+  quarantine_request_complete: "Quarantine request",
   return_receive: "Return receive",
   return_qc_restock: "QC restock",
   return_qc_damaged: "QC damaged",
@@ -76,6 +86,7 @@ const TYPE_LABELS: Record<string, string> = {
   unallocated_return_to_pack: "Unallocated → Pack",
   move: "Bin move",
   area_move: "Area move",
+  internal_site_move: "Site-to-site move",
   cycle_count: "Cycle count",
   cycle_count_resolve: "Variance resolve",
 };
@@ -297,5 +308,6 @@ export async function loadOpsActivityLog(input: {
 }
 
 export function eventTypesForModule(module: OpsLogModule): readonly string[] {
+  if (module === "overview") return OPS_LOG_OVERVIEW_EVENT_TYPES;
   return OPS_LOG_EVENT_TYPES[module];
 }

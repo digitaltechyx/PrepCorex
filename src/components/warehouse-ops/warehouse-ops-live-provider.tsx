@@ -196,6 +196,7 @@ type WarehouseOpsLiveContextValue = {
   returnDockQueue: ReturnRequestRow[];
   quarantineReturnCartons: WarehouseCartonDoc[];
   cartons: WarehouseCartonDoc[];
+  pallets: WarehousePalletDoc[];
   liveLoading: boolean;
   outboundLoading: boolean;
   clientsLoading: boolean;
@@ -584,6 +585,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       returnDockQueue,
       quarantineReturnCartons,
       cartons,
+      pallets,
       liveLoading,
       outboundLoading,
       clientsLoading,
@@ -603,6 +605,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       returnDockQueue,
       quarantineReturnCartons,
       cartons,
+      pallets,
       liveLoading,
       outboundLoading,
       clientsLoading,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,9 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PutawayBinWritePicker } from "@/components/warehouse-ops/putaway-bin-write-picker";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import {
   areasEligibleForPutawayLine,
+  binsEligibleForPutawayLine,
   classifyBin,
   defaultPutawayPlacementMode,
   formatWarehouseAreaOption,
@@ -22,10 +25,12 @@ import {
   type PutawayPlacementMode,
 } from "@/lib/warehouse-putaway";
 import type { WarehouseAreaDoc, WarehouseBinDoc, WarehouseCartonLine } from "@/types";
-import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Keyboard, Loader2, ScanLine } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+
+export type BinEntryMode = "write" | "scan";
 
 export type { PutawayPlacementMode };
 
@@ -138,6 +143,8 @@ type Props = {
   slot: PutawayLineSlot;
   warehouseAreas: WarehouseAreaDoc[];
   warehouseBins: WarehouseBinDoc[];
+  occupiedBinIds?: ReadonlySet<string>;
+  occupancyLoading?: boolean;
   areasLoading?: boolean;
   onBinPathChange: (value: string) => void;
   onResolveBin: (pathOverride?: string) => void;
@@ -152,6 +159,8 @@ export function PutawayDestinationFields({
   slot,
   warehouseAreas,
   warehouseBins,
+  occupiedBinIds,
+  occupancyLoading = false,
   areasLoading = false,
   onBinPathChange,
   onResolveBin,
@@ -160,7 +169,9 @@ export function PutawayDestinationFields({
   onClear,
   showClear = false,
 }: Props) {
+  const [binEntryMode, setBinEntryMode] = useState<BinEntryMode>("write");
   const eligibleAreas = areasEligibleForPutawayLine(warehouseAreas, line);
+  const eligibleBins = binsEligibleForPutawayLine(warehouseAreas, warehouseBins, line);
   const selectedArea = eligibleAreas.find((a) => a.code === slot.areaCode) ?? null;
   const useBinScan = lineEligibleAreasHaveBins(warehouseAreas, warehouseBins, line);
   const placementMode: PutawayPlacementMode = useBinScan ? "bin" : "area";
@@ -233,34 +244,83 @@ export function PutawayDestinationFields({
       ) : null}
 
       {placementMode === "bin" ? (
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">
-            {line.condition === "damaged"
-              ? "Scan quarantine bin"
-              : "Scan storage bin"}
-          </Label>
-          <div className="flex gap-2">
-            <Input
-              value={slot.binPath}
-              onChange={(e) => onBinPathChange(e.target.value)}
-              placeholder="Camera or type bin path"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onResolveBin();
-              }}
-              className="flex-1"
-            />
-            <ScanCameraButton
-              onScan={(text) => {
-                onBinPathChange(text);
-                onResolveBin(text);
-              }}
-              scannerTitle="Scan bin label"
-              scannerDescription="Scan the QR on the destination bin."
-            />
-            <Button onClick={() => onResolveBin()} disabled={slot.loading}>
-              {slot.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
-            </Button>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <Label className="text-xs text-muted-foreground">
+              {line.condition === "damaged" ? "Quarantine bin" : "Storage bin"}
+            </Label>
+            <div className="inline-flex rounded-md border bg-muted/40 p-0.5">
+              <Button
+                type="button"
+                size="sm"
+                variant={binEntryMode === "write" ? "default" : "ghost"}
+                className="h-7 px-2.5 text-xs gap-1"
+                onClick={() => setBinEntryMode("write")}
+              >
+                <Keyboard className="h-3.5 w-3.5" />
+                Write
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={binEntryMode === "scan" ? "default" : "ghost"}
+                className="h-7 px-2.5 text-xs gap-1"
+                onClick={() => setBinEntryMode("scan")}
+              >
+                <ScanLine className="h-3.5 w-3.5" />
+                Scan
+              </Button>
+            </div>
           </div>
+          {binEntryMode === "write" ? (
+            <div className="flex gap-2 items-start">
+              <div className="flex-1 min-w-0">
+                <PutawayBinWritePicker
+                  bins={eligibleBins}
+                  value={slot.binPath}
+                  occupiedBinIds={occupiedBinIds}
+                  occupancyLoading={occupancyLoading}
+                  disabled={areasLoading || eligibleBins.length === 0}
+                  placeholder={
+                    areasLoading
+                      ? "Loading bins…"
+                      : eligibleBins.length === 0
+                        ? "No eligible bins"
+                        : "Search or select bin…"
+                  }
+                  onChange={onBinPathChange}
+                  onSelect={(bin) => onResolveBin(bin.path)}
+                  onSubmitTyped={() => onResolveBin()}
+                />
+              </div>
+              <Button onClick={() => onResolveBin()} disabled={slot.loading || !slot.binPath.trim()}>
+                {slot.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Input
+                value={slot.binPath}
+                onChange={(e) => onBinPathChange(e.target.value)}
+                placeholder="Scan or type bin path"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") onResolveBin();
+                }}
+                className="flex-1 font-mono"
+              />
+              <ScanCameraButton
+                onScan={(text) => {
+                  onBinPathChange(text);
+                  onResolveBin(text);
+                }}
+                scannerTitle="Scan bin label"
+                scannerDescription="Scan the QR on the destination bin."
+              />
+              <Button onClick={() => onResolveBin()} disabled={slot.loading}>
+                {slot.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-1">
@@ -367,6 +427,8 @@ export function PutawayLineDestinationCard({
   slot,
   warehouseAreas,
   warehouseBins,
+  occupiedBinIds,
+  occupancyLoading = false,
   areasLoading = false,
   damagedBadge = "Damaged",
   onUpdateSlot,
@@ -377,6 +439,8 @@ export function PutawayLineDestinationCard({
   slot: PutawayLineSlot;
   warehouseAreas: WarehouseAreaDoc[];
   warehouseBins: WarehouseBinDoc[];
+  occupiedBinIds?: ReadonlySet<string>;
+  occupancyLoading?: boolean;
   areasLoading?: boolean;
   damagedBadge?: string;
   onUpdateSlot: (patch: Partial<PutawayLineSlot>) => void;
@@ -422,6 +486,8 @@ export function PutawayLineDestinationCard({
           slot={slot}
           warehouseAreas={warehouseAreas}
           warehouseBins={warehouseBins}
+          occupiedBinIds={occupiedBinIds}
+          occupancyLoading={occupancyLoading}
           areasLoading={areasLoading}
           onBinPathChange={(value) =>
             onUpdateSlot({ binPath: value, resolved: null, error: null })

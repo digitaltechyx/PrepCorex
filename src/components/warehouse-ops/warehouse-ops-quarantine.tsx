@@ -35,6 +35,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { WarehouseOpsActivityLog } from "@/components/warehouse-ops/warehouse-ops-activity-log";
+import { WarehouseOpsQuarantineRequests } from "@/components/warehouse-ops/warehouse-ops-quarantine-requests";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import {
@@ -51,6 +52,7 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   warehouse: WarehouseDoc;
+  defaultTab?: "work" | "requests" | "log";
 };
 
 function ageBadgeClass(days: number): string {
@@ -64,7 +66,7 @@ function formatAgeBadge(days: number): string {
   return `${days}d`;
 }
 
-export function WarehouseOpsQuarantine({ warehouse }: Props) {
+export function WarehouseOpsQuarantine({ warehouse, defaultTab = "work" }: Props) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? null;
@@ -260,9 +262,10 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
     <div className="max-w-4xl space-y-6">
       <WarehouseOpsHeader title="Quarantine" />
 
-      <Tabs defaultValue="work">
+      <Tabs defaultValue={defaultTab}>
         <TabsList>
           <TabsTrigger value="work">Quarantine</TabsTrigger>
+          <TabsTrigger value="requests">Client requests</TabsTrigger>
           <TabsTrigger value="log">Log</TabsTrigger>
         </TabsList>
         <TabsContent value="work" className="mt-4 space-y-6">
@@ -470,6 +473,9 @@ export function WarehouseOpsQuarantine({ warehouse }: Props) {
           </CardContent>
         </Card>
       ) : null}
+        </TabsContent>
+        <TabsContent value="requests" className="mt-4">
+          <WarehouseOpsQuarantineRequests warehouse={warehouse} />
         </TabsContent>
         <TabsContent value="log" className="mt-4">
           <WarehouseOpsActivityLog warehouse={warehouse} module="quarantine" />

@@ -1,46 +1,66 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import {
   ArrowRight,
+  ArrowRightLeft,
+  Archive,
   Bell,
   Box,
   Loader2,
   PackagePlus,
   RotateCcw,
   Search,
+  ShieldAlert,
   ShoppingCart,
   Truck,
 } from "lucide-react";
 
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { WarehouseOpsActivityLog } from "@/components/warehouse-ops/warehouse-ops-activity-log";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { useAuth } from "@/hooks/use-auth";
 import { useAllProductReturns } from "@/hooks/use-all-product-returns";
 import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { hasFeature } from "@/lib/permissions";
+import { buildPutawayQueueLabels } from "@/lib/warehouse-putaway-queue";
+import { listPendingInternalMovesForSourceWarehouse } from "@/lib/internal-move-ops";
+import {
+  listOpenQuarantineRequests,
+  quarantineRequestKindLabel,
+  requestSortMs,
+} from "@/lib/quarantine-request-ops";
 import { formatClientOptionLabel } from "@/components/warehouse-ops/crossdock-client-combobox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import type { UserFeature, WarehouseDoc } from "@/types";
+import type {
+  InternalMoveRequest,
+  QuarantineRequest,
+  UserFeature,
+  WarehouseDoc,
+} from "@/types";
 
 type NotifKind =
   | "inbound_pending"
   | "inbound_receive"
+  | "inbound_putaway"
   | "outbound_pending"
   | "outbound_pick"
   | "outbound_pack"
   | "outbound_dispatch"
   | "return_pending"
-  | "return_open";
+  | "return_open"
+  | "site_move_confirm"
+  | "quarantine_pending"
+  | "quarantine_approved";
 
-type NotifFilter = "all" | "inbound" | "outbound" | "returns";
+type NotifFilter = "all" | "inbound" | "outbound" | "returns" | "moves" | "quarantine";
 
 type OpsNotificationRow = {
   id: string;
@@ -85,10 +105,17 @@ function kindTone(kind: NotifKind): string {
     case "inbound_pending":
     case "outbound_pending":
     case "return_pending":
+    case "quarantine_pending":
       return "bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800";
+    case "quarantine_approved":
+      return "bg-rose-100 text-rose-900 border-rose-200 dark:bg-rose-950 dark:text-rose-200 dark:border-rose-800";
     case "inbound_receive":
     case "return_open":
       return "bg-sky-100 text-sky-900 border-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:border-sky-800";
+    case "inbound_putaway":
+      return "bg-orange-100 text-orange-900 border-orange-200 dark:bg-orange-950 dark:text-orange-200 dark:border-orange-800";
+    case "site_move_confirm":
+      return "bg-pink-100 text-pink-900 border-pink-200 dark:bg-pink-950 dark:text-pink-200 dark:border-pink-800";
     case "outbound_pick":
       return "bg-violet-100 text-violet-900 border-violet-200 dark:bg-violet-950 dark:text-violet-200 dark:border-violet-800";
     case "outbound_pack":
@@ -105,6 +132,13 @@ function kindIcon(kind: NotifKind) {
     case "inbound_pending":
     case "inbound_receive":
       return PackagePlus;
+    case "inbound_putaway":
+      return Archive;
+    case "site_move_confirm":
+      return ArrowRightLeft;
+    case "quarantine_pending":
+    case "quarantine_approved":
+      return ShieldAlert;
     case "outbound_pending":
     case "outbound_pick":
       return ShoppingCart;
@@ -125,6 +159,8 @@ function matchesFilter(kind: NotifKind, filter: NotifFilter): boolean {
   if (filter === "inbound") return kind.startsWith("inbound_");
   if (filter === "outbound") return kind.startsWith("outbound_");
   if (filter === "returns") return kind.startsWith("return_");
+  if (filter === "moves") return kind === "site_move_confirm";
+  if (filter === "quarantine") return kind.startsWith("quarantine_");
   return true;
 }
 
@@ -137,6 +173,8 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
     packQueue,
     dispatchQueue,
     returnDockQueue,
+    cartons,
+    pallets,
     liveLoading,
     outboundLoading,
   } = useWarehouseOpsLive();
@@ -154,9 +192,67 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
   const [search, setSearch] = useState("");
 
   const canReceive = hasFeature(userProfile, "ops_receive");
+  const canPutaway = hasFeature(userProfile, "ops_putaway");
   const canPick = hasFeature(userProfile, "ops_pick");
   const canPack = hasFeature(userProfile, "ops_pack");
   const canReturns = hasFeature(userProfile, "ops_returns");
+  const canMove = hasFeature(userProfile, "ops_move");
+  const canQuarantine = canPutaway || canReturns;
+
+  const [siteMoves, setSiteMoves] = useState<InternalMoveRequest[]>([]);
+  const [siteMovesLoading, setSiteMovesLoading] = useState(false);
+
+  useEffect(() => {
+    if (!canMove || !warehouse?.id) {
+      setSiteMoves([]);
+      return;
+    }
+    let cancelled = false;
+    setSiteMovesLoading(true);
+    void listPendingInternalMovesForSourceWarehouse(warehouse.id)
+      .then((rows) => {
+        if (!cancelled) setSiteMoves(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setSiteMoves([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSiteMovesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canMove, warehouse?.id]);
+
+  const [quarantineRequests, setQuarantineRequests] = useState<QuarantineRequest[]>([]);
+  const [quarantineLoading, setQuarantineLoading] = useState(false);
+
+  useEffect(() => {
+    if (!canQuarantine) {
+      setQuarantineRequests([]);
+      return;
+    }
+    let cancelled = false;
+    setQuarantineLoading(true);
+    void listOpenQuarantineRequests()
+      .then((rows) => {
+        if (!cancelled) setQuarantineRequests(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setQuarantineRequests([]);
+      })
+      .finally(() => {
+        if (!cancelled) setQuarantineLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canQuarantine]);
+
+  const putawayLabels = useMemo(
+    () => buildPutawayQueueLabels(cartons, pallets),
+    [cartons, pallets]
+  );
 
   const rows = useMemo(() => {
     const out: OpsNotificationRow[] = [];
@@ -183,7 +279,11 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
             processHref: `/warehouse-ops/receiving?tab=pending&userId=${encodeURIComponent(r.clientUserId)}&requestId=${encodeURIComponent(r.id)}`,
             processLabel: "Approve at dock",
           });
-        } else if (isApprovedInbound(r.status) && r.remainingQty > 0) {
+        } else if (
+          isApprovedInbound(r.status) &&
+          String(r.fulfillmentStatus ?? "").toLowerCase() === "open" &&
+          r.remainingQty > 0
+        ) {
           out.push({
             id: `inbound-receive:${r.clientUserId}:${r.id}`,
             kind: "inbound_receive",
@@ -197,6 +297,63 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
             processLabel: "Receive",
           });
         }
+      }
+    }
+
+    if (canPutaway) {
+      for (const label of putawayLabels) {
+        out.push({
+          id: `inbound-putaway:${label.kind}:${label.id}`,
+          kind: "inbound_putaway",
+          feature: "ops_putaway",
+          title: label.code,
+          subtitle: [label.badge, label.subtitle].filter(Boolean).join(" · "),
+          clientLabel: warehouse.name || warehouse.code || "Warehouse",
+          statusLabel: "Awaiting putaway",
+          createdAtMs: label.sortMs,
+          processHref: `/warehouse-ops/putaway?label=${encodeURIComponent(label.code)}`,
+          processLabel: "Putaway",
+        });
+      }
+    }
+
+    if (canMove) {
+      for (const r of siteMoves) {
+        const createdAtMs =
+          r.createdAt && typeof (r.createdAt as { seconds?: number }).seconds === "number"
+            ? (r.createdAt as { seconds: number }).seconds * 1000
+            : 0;
+        out.push({
+          id: `site-move:${r.id}`,
+          kind: "site_move_confirm",
+          feature: "ops_move",
+          title: `${r.fromLocationName || r.fromWarehouseCode} → ${r.toLocationName || r.toWarehouseCode}`,
+          subtitle: `${r.lines.length} line${r.lines.length === 1 ? "" : "s"} · ${r.userIds.length} user${r.userIds.length === 1 ? "" : "s"}`,
+          clientLabel: warehouse.name || warehouse.code || "Warehouse",
+          statusLabel: "Confirm moved out",
+          createdAtMs,
+          processHref: `/warehouse-ops/move?tab=site-moves`,
+          processLabel: "Confirm",
+        });
+      }
+    }
+
+    if (canQuarantine) {
+      for (const r of quarantineRequests) {
+        out.push({
+          id: `quarantine:${r.id}`,
+          kind: r.status === "pending" ? "quarantine_pending" : "quarantine_approved",
+          feature: "ops_putaway",
+          title: r.productName || "Quarantine request",
+          subtitle: `${quarantineRequestKindLabel(r.kind)} · ${r.quantity} units${
+            r.sku ? ` · SKU ${r.sku}` : ""
+          }`,
+          clientLabel: clientNameById.get(r.userId) || r.userName || "Client",
+          statusLabel: r.status === "pending" ? "Pending approval" : "Ready to process",
+          createdAtMs: requestSortMs(r),
+          processHref: `/warehouse-ops/quarantine?tab=requests`,
+          processLabel: r.status === "pending" ? "Review" : "Process",
+        });
       }
     }
 
@@ -322,8 +479,11 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
     return out;
   }, [
     allReturns,
+    canMove,
     canPack,
     canPick,
+    canPutaway,
+    canQuarantine,
     canReceive,
     canReturns,
     clientNameById,
@@ -332,7 +492,12 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
     packQueue,
     pendingOutboundQueue,
     pickQueue,
+    putawayLabels,
+    quarantineRequests,
     returnDockQueue,
+    siteMoves,
+    warehouse.code,
+    warehouse.name,
   ]);
 
   const filtered = useMemo(() => {
@@ -351,10 +516,13 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
       inbound: rows.filter((r) => r.kind.startsWith("inbound_")).length,
       outbound: rows.filter((r) => r.kind.startsWith("outbound_")).length,
       returns: rows.filter((r) => r.kind.startsWith("return_")).length,
+      moves: rows.filter((r) => r.kind === "site_move_confirm").length,
+      quarantine: rows.filter((r) => r.kind.startsWith("quarantine_")).length,
     };
   }, [rows]);
 
-  const loading = liveLoading || outboundLoading || returnsLoading;
+  const loading =
+    liveLoading || outboundLoading || returnsLoading || siteMovesLoading || quarantineLoading;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -364,81 +532,107 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
         matching Warehouse Ops screen.
       </p>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Search client, product, SKU…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      <Tabs value={filter} onValueChange={(v) => setFilter(v as NotifFilter)}>
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
-          <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
-          <TabsTrigger value="inbound" disabled={!canReceive}>
-            Inbound ({counts.inbound})
-          </TabsTrigger>
-          <TabsTrigger value="outbound" disabled={!canPick && !canPack}>
-            Outbound ({counts.outbound})
-          </TabsTrigger>
-          <TabsTrigger value="returns" disabled={!canReturns}>
-            Returns ({counts.returns})
-          </TabsTrigger>
+      <Tabs defaultValue="work">
+        <TabsList>
+          <TabsTrigger value="work">Queue</TabsTrigger>
+          <TabsTrigger value="log">Log</TabsTrigger>
         </TabsList>
-      </Tabs>
 
-      {loading ? (
-        <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          Loading notifications…
-        </div>
-      ) : filtered.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
-            <Bell className="h-8 w-8 opacity-50" />
-            <p className="font-medium text-foreground">No items to process</p>
-            <p className="text-sm">When new inbound, outbound, or returns arrive, they show up here.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {filtered.map((row) => {
-            const Icon = kindIcon(row.kind);
-            return (
-              <Card key={row.id} className="border-border/70 shadow-sm">
-                <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300">
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate font-semibold leading-tight">{row.title}</p>
-                        <Badge variant="outline" className={cn("text-[10px]", kindTone(row.kind))}>
-                          {row.statusLabel}
-                        </Badge>
+        <TabsContent value="work" className="mt-4 space-y-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Search client, product, SKU…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <Tabs value={filter} onValueChange={(v) => setFilter(v as NotifFilter)}>
+            <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
+              <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
+              <TabsTrigger value="inbound" disabled={!canReceive && !canPutaway}>
+                Inbound ({counts.inbound})
+              </TabsTrigger>
+              <TabsTrigger value="outbound" disabled={!canPick && !canPack}>
+                Outbound ({counts.outbound})
+              </TabsTrigger>
+              <TabsTrigger value="returns" disabled={!canReturns}>
+                Returns ({counts.returns})
+              </TabsTrigger>
+              <TabsTrigger value="moves" disabled={!canMove}>
+                Site moves ({counts.moves})
+              </TabsTrigger>
+              <TabsTrigger value="quarantine" disabled={!canQuarantine}>
+                Quarantine ({counts.quarantine})
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Loading notifications…
+            </div>
+          ) : filtered.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
+                <Bell className="h-8 w-8 opacity-50" />
+                <p className="font-medium text-foreground">No items to process</p>
+                <p className="text-sm">
+                  When new inbound, putaway, outbound, returns, or site moves arrive, they show up here.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {filtered.map((row) => {
+                const Icon = kindIcon(row.kind);
+                return (
+                  <Card key={row.id} className="border-border/70 shadow-sm">
+                    <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300">
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate font-semibold leading-tight">{row.title}</p>
+                            <Badge
+                              variant="outline"
+                              className={cn("text-[10px]", kindTone(row.kind))}
+                            >
+                              {row.statusLabel}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{row.clientLabel}</p>
+                          <p className="text-xs text-muted-foreground">{row.subtitle}</p>
+                          {row.createdAtMs ? (
+                            <p className="text-[11px] text-muted-foreground/80">
+                              {formatWhen(row.createdAtMs)}
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
-                      <p className="text-sm text-muted-foreground">{row.clientLabel}</p>
-                      <p className="text-xs text-muted-foreground">{row.subtitle}</p>
-                      {row.createdAtMs ? (
-                        <p className="text-[11px] text-muted-foreground/80">{formatWhen(row.createdAtMs)}</p>
-                      ) : null}
-                    </div>
-                  </div>
-                  <Button asChild className="w-full shrink-0 sm:w-auto">
-                    <Link href={row.processHref}>
-                      {row.processLabel}
-                      <ArrowRight className="ml-1.5 h-4 w-4" />
-                    </Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                      <Button asChild className="w-full shrink-0 sm:w-auto">
+                        <Link href={row.processHref}>
+                          {row.processLabel}
+                          <ArrowRight className="ml-1.5 h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="log" className="mt-4">
+          <WarehouseOpsActivityLog warehouse={warehouse} module="overview" />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

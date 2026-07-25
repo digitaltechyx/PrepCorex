@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,10 +44,12 @@ import {
 } from "@/lib/product-return-ops";
 import {
   applyPutawayAssignments,
+  binsEligibleForPutawayLine,
   findBinByPath,
   findCartonByCode,
   inspectBinContents,
   lineEligibleAreasHaveBins,
+  loadOccupiedBinIds,
   resolveScan,
   validateLineToBin,
   type PutawayLineAssignment,
@@ -76,6 +79,7 @@ import {
 import {
   Loader2,
   Scan,
+  ScanLine,
   Package,
   PackageOpen,
   AlertTriangle,
@@ -88,6 +92,7 @@ import {
   Truck,
   Box,
   Plus,
+  Keyboard,
 } from "lucide-react";
 import {
   Select,
@@ -98,6 +103,8 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
+import { PutawayBinWritePicker } from "@/components/warehouse-ops/putaway-bin-write-picker";
+import { PutawayLabelWritePicker } from "@/components/warehouse-ops/putaway-label-write-picker";
 import {
   PutawayDestinationFields,
   PutawayLineDestinationCard,
@@ -106,10 +113,15 @@ import {
   isPutawayLineSlotReady,
   parsePutawayQty,
   putawayQtyError,
+  type BinEntryMode,
   type PutawayDestinationContext,
   type PutawayLineSlot,
   type ResolvedBin,
 } from "@/components/warehouse-ops/putaway-destination-fields";
+import {
+  listPutawayQueueLabels,
+  type PutawayQueueLabel,
+} from "@/lib/warehouse-putaway-queue";
 
 function initPerLineFromCarton(
   carton: WarehouseCartonDoc,
@@ -162,6 +174,97 @@ function PutawayLineSku({
   );
 }
 
+function QtySplitBinEntry({
+  row,
+  eligibleBins,
+  occupiedBinIds,
+  occupancyLoading,
+  onBinPathChange,
+  onResolveBin,
+}: {
+  row: QtySplitRow;
+  eligibleBins: WarehouseBinDoc[];
+  occupiedBinIds?: ReadonlySet<string>;
+  occupancyLoading?: boolean;
+  onBinPathChange: (value: string) => void;
+  onResolveBin: (path?: string) => void;
+}) {
+  const [entryMode, setEntryMode] = useState<BinEntryMode>("write");
+
+  return (
+    <div className="flex-1 space-y-1.5 min-w-0">
+      <div className="flex justify-end">
+        <div className="inline-flex rounded-md border bg-muted/40 p-0.5">
+          <Button
+            type="button"
+            size="sm"
+            variant={entryMode === "write" ? "default" : "ghost"}
+            className="h-7 px-2.5 text-xs gap-1"
+            onClick={() => setEntryMode("write")}
+          >
+            <Keyboard className="h-3.5 w-3.5" />
+            Write
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={entryMode === "scan" ? "default" : "ghost"}
+            className="h-7 px-2.5 text-xs gap-1"
+            onClick={() => setEntryMode("scan")}
+          >
+            <ScanLine className="h-3.5 w-3.5" />
+            Scan
+          </Button>
+        </div>
+      </div>
+      {entryMode === "write" ? (
+        <div className="flex gap-2 items-start">
+          <div className="flex-1 min-w-0">
+            <PutawayBinWritePicker
+              bins={eligibleBins}
+              value={row.bin.binPath}
+              occupiedBinIds={occupiedBinIds}
+              occupancyLoading={occupancyLoading}
+              onChange={onBinPathChange}
+              onSelect={(bin) => onResolveBin(bin.path)}
+              onSubmitTyped={() => onResolveBin()}
+            />
+          </div>
+          <Button
+            onClick={() => onResolveBin()}
+            disabled={row.bin.loading || !row.bin.binPath.trim()}
+          >
+            {row.bin.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
+          </Button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <Input
+            value={row.bin.binPath}
+            onChange={(e) => onBinPathChange(e.target.value)}
+            placeholder="Scan bin"
+            className="font-mono"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onResolveBin();
+            }}
+          />
+          <ScanCameraButton
+            onScan={(text) => {
+              onBinPathChange(text);
+              onResolveBin(text);
+            }}
+            scannerTitle="Scan bin"
+            scannerDescription="Scan destination bin for this quantity."
+          />
+          <Button onClick={() => onResolveBin()} disabled={row.bin.loading}>
+            {row.bin.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function pendingManifestLines(cartons: WarehouseCartonDoc[]): ManifestLine[] {
   const out: ManifestLine[] = [];
   for (const carton of cartons) {
@@ -190,6 +293,9 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
   const operatorName = userProfile?.name || userProfile?.email || null;
 
   const [cartonScan, setCartonScan] = useState("");
+  const [labelEntryMode, setLabelEntryMode] = useState<BinEntryMode>("write");
+  const [putawayLabels, setPutawayLabels] = useState<PutawayQueueLabel[]>([]);
+  const [labelsLoading, setLabelsLoading] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [carton, setCarton] = useState<WarehouseCartonDoc | null>(null);
   const [pallet, setPallet] = useState<WarehousePalletDoc | null>(null);
@@ -205,6 +311,8 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
 
   const [warehouseAreas, setWarehouseAreas] = useState<WarehouseAreaDoc[]>([]);
   const [warehouseBins, setWarehouseBins] = useState<WarehouseBinDoc[]>([]);
+  const [occupiedBinIds, setOccupiedBinIds] = useState<Set<string>>(new Set());
+  const [occupancyLoading, setOccupancyLoading] = useState(false);
   const [areasLoading, setAreasLoading] = useState(false);
   const [pendingDisposition, setPendingDisposition] =
     useState<WarehousePutawayDisposition | null>(null);
@@ -214,9 +322,31 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
   >([{ id: "ln1", sku: "", qty: "1", lot: "", expiry: "" }]);
 
   const cartonInputRef = useRef<HTMLInputElement | null>(null);
+  const labelDeepLinkAppliedRef = useRef(false);
+  const searchParams = useSearchParams();
+
   useEffect(() => {
-    cartonInputRef.current?.focus();
-  }, []);
+    if (labelEntryMode === "scan") cartonInputRef.current?.focus();
+  }, [labelEntryMode, carton, pallet]);
+
+  useEffect(() => {
+    if (carton || pallet) return;
+    let cancelled = false;
+    setLabelsLoading(true);
+    void listPutawayQueueLabels(warehouse.id)
+      .then((labels) => {
+        if (!cancelled) setPutawayLabels(labels);
+      })
+      .catch(() => {
+        if (!cancelled) setPutawayLabels([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLabelsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouse.id, carton, pallet]);
 
   const isMixed =
     !!carton &&
@@ -274,18 +404,24 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
     if (!carton && !pallet) return;
     let cancelled = false;
     setAreasLoading(true);
+    setOccupancyLoading(true);
     void Promise.all([
       listWarehouseAreas(warehouse.id),
       listActiveWarehouseBins(warehouse.id),
+      loadOccupiedBinIds(warehouse.id),
     ])
-      .then(([areas, bins]) => {
+      .then(([areas, bins, occupied]) => {
         if (!cancelled) {
           setWarehouseAreas(areas);
           setWarehouseBins(bins);
+          setOccupiedBinIds(occupied);
         }
       })
       .finally(() => {
-        if (!cancelled) setAreasLoading(false);
+        if (!cancelled) {
+          setAreasLoading(false);
+          setOccupancyLoading(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -461,6 +597,18 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
   function handleResolveCarton() {
     void handleResolveCartonWithValue();
   }
+
+  useEffect(() => {
+    if (labelDeepLinkAppliedRef.current || carton || pallet || resolving) return;
+    const label = String(searchParams.get("label") || "").trim();
+    if (!label) return;
+    labelDeepLinkAppliedRef.current = true;
+    setLabelEntryMode("write");
+    setCartonScan(label);
+    void handleResolveCartonWithValue(label);
+    // Deep-link once from Notifications (?label=CTN-…).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, carton, pallet, resolving]);
 
   async function resolveBin(path: string): Promise<ResolvedBin | null> {
     const bin = await findBinByPath(warehouse.id, path);
@@ -1146,41 +1294,100 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Scan className="h-4 w-4 text-blue-600" />
-              Scan label to putaway
+              Label to putaway
             </CardTitle>
             <CardDescription className="text-xs">
-              Scan the carton label first (what you are moving), then the bin or area (where it
-              goes). The app shows area pick only when that zone has no bins yet.
+              Scan or select the carton / package / pallet label first (what you are moving), then
+              the bin or area (where it goes).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex gap-2">
-              <Input
-                ref={cartonInputRef}
-                value={cartonScan}
-                onChange={(e) => setCartonScan(e.target.value)}
-                placeholder="Camera or type CTN-… PKG-… or PAL-…"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleResolveCarton();
-                }}
-                autoFocus
-                className="flex-1"
-              />
-              <ScanCameraButton
-                onScan={(text) => void handleResolveCartonWithValue(text)}
-                scannerTitle="Scan carton label"
-                scannerDescription="Scan the QR or barcode on the carton label."
-              />
-              <Button onClick={() => void handleResolveCarton()} disabled={resolving}>
-                {resolving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Find"}
-              </Button>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <Label className="text-xs text-muted-foreground">
+                CTN · PKG · PAL
+                {putawayLabels.length > 0
+                  ? ` · ${putawayLabels.length} awaiting`
+                  : ""}
+              </Label>
+              <div className="inline-flex rounded-md border bg-muted/40 p-0.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={labelEntryMode === "write" ? "default" : "ghost"}
+                  className="h-7 px-2.5 text-xs gap-1"
+                  onClick={() => setLabelEntryMode("write")}
+                >
+                  <Keyboard className="h-3.5 w-3.5" />
+                  Write
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={labelEntryMode === "scan" ? "default" : "ghost"}
+                  className="h-7 px-2.5 text-xs gap-1"
+                  onClick={() => setLabelEntryMode("scan")}
+                >
+                  <ScanLine className="h-3.5 w-3.5" />
+                  Scan
+                </Button>
+              </div>
             </div>
+            {labelEntryMode === "write" ? (
+              <div className="flex gap-2 items-start">
+                <div className="flex-1 min-w-0">
+                  <PutawayLabelWritePicker
+                    labels={putawayLabels}
+                    value={cartonScan}
+                    loading={labelsLoading}
+                    disabled={resolving}
+                    placeholder={
+                      labelsLoading
+                        ? "Loading labels…"
+                        : putawayLabels.length === 0
+                          ? "No labels awaiting — type a code"
+                          : "Search or select label…"
+                    }
+                    onChange={setCartonScan}
+                    onSelect={(label) => void handleResolveCartonWithValue(label.code)}
+                    onSubmitTyped={() => void handleResolveCarton()}
+                  />
+                </div>
+                <Button
+                  onClick={() => void handleResolveCarton()}
+                  disabled={resolving || !cartonScan.trim()}
+                >
+                  {resolving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Find"}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Input
+                  ref={cartonInputRef}
+                  value={cartonScan}
+                  onChange={(e) => setCartonScan(e.target.value)}
+                  placeholder="Camera or type CTN-… PKG-… or PAL-…"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleResolveCarton();
+                  }}
+                  autoFocus
+                  className="flex-1 font-mono"
+                />
+                <ScanCameraButton
+                  onScan={(text) => void handleResolveCartonWithValue(text)}
+                  scannerTitle="Scan carton label"
+                  scannerDescription="Scan the QR or barcode on the carton label."
+                />
+                <Button onClick={() => void handleResolveCarton()} disabled={resolving}>
+                  {resolving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Find"}
+                </Button>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">
-              No carton in front of you? Print labels at{" "}
+              No label in the list? Print labels at{" "}
               <Link href="/warehouse-ops/receiving" className="text-blue-600 underline">
                 Receiving
               </Link>{" "}
-              first.
+              first, or switch to Scan.
             </p>
           </CardContent>
         </Card>
@@ -1244,6 +1451,8 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           setMode={setPalletMode}
           warehouseAreas={warehouseAreas}
           warehouseBins={warehouseBins}
+          occupiedBinIds={occupiedBinIds}
+          occupancyLoading={occupancyLoading}
           areasLoading={areasLoading}
           wholeSlot={palletWholeBin}
           onUpdateWholeSlot={updatePalletWholeSlot}
@@ -1334,6 +1543,8 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           damagedQty={manifestDamagedQty(carton)}
           warehouseAreas={warehouseAreas}
           warehouseBins={warehouseBins}
+          occupiedBinIds={occupiedBinIds}
+          occupancyLoading={occupancyLoading}
           areasLoading={areasLoading}
           perLine={perLine}
           onUpdatePerLineSlot={updatePerLineSlot}
@@ -1354,6 +1565,8 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
           setMode={setMode}
           warehouseAreas={warehouseAreas}
           warehouseBins={warehouseBins}
+          occupiedBinIds={occupiedBinIds}
+          occupancyLoading={occupancyLoading}
           areasLoading={areasLoading}
           wholeSlot={wholeSlot}
           onUpdateWholeSlot={updateWholeSlot}
@@ -1395,6 +1608,8 @@ type PalletPanelProps = {
   setMode: (m: Mode) => void;
   warehouseAreas: WarehouseAreaDoc[];
   warehouseBins: WarehouseBinDoc[];
+  occupiedBinIds?: ReadonlySet<string>;
+  occupancyLoading?: boolean;
   areasLoading: boolean;
   wholeSlot: PutawayLineSlot;
   onUpdateWholeSlot: (patch: Partial<PutawayLineSlot>) => void;
@@ -1419,6 +1634,8 @@ function PalletPutawayPanel({
   setMode,
   warehouseAreas,
   warehouseBins,
+  occupiedBinIds,
+  occupancyLoading = false,
   areasLoading,
   wholeSlot,
   onUpdateWholeSlot,
@@ -1517,6 +1734,8 @@ function PalletPutawayPanel({
                   slot={wholeSlot}
                   warehouseAreas={warehouseAreas}
                   warehouseBins={warehouseBins}
+                  occupiedBinIds={occupiedBinIds}
+                  occupancyLoading={occupancyLoading}
                   areasLoading={areasLoading}
                   onBinPathChange={(value) =>
                     onUpdateWholeSlot({ binPath: value, resolved: null, error: null })
@@ -1585,6 +1804,8 @@ function PalletPutawayPanel({
                         slot={perLine[key] ?? emptyPutawayLineSlot(entry.line, { areas: warehouseAreas, bins: warehouseBins })}
                         warehouseAreas={warehouseAreas}
                         warehouseBins={warehouseBins}
+                        occupiedBinIds={occupiedBinIds}
+                        occupancyLoading={occupancyLoading}
                         areasLoading={areasLoading}
                         onUpdateSlot={(patch) => onUpdatePerLineSlot(key, patch)}
                         onResolveBin={(path) => onResolvePerLineBin(key, path)}
@@ -1655,6 +1876,8 @@ type PackagePanelProps = {
   damagedQty: number;
   warehouseAreas: WarehouseAreaDoc[];
   warehouseBins: WarehouseBinDoc[];
+  occupiedBinIds?: ReadonlySet<string>;
+  occupancyLoading?: boolean;
   areasLoading: boolean;
   perLine: Record<string, PutawayLineSlot>;
   onUpdatePerLineSlot: (lineId: string, patch: Partial<PutawayLineSlot>) => void;
@@ -1673,6 +1896,8 @@ function PackagePutawayPanel({
   damagedQty,
   warehouseAreas,
   warehouseBins,
+  occupiedBinIds,
+  occupancyLoading = false,
   areasLoading,
   perLine,
   onUpdatePerLineSlot,
@@ -1749,6 +1974,8 @@ function PackagePutawayPanel({
             slot={perLine[line.lineId] ?? emptyPutawayLineSlot(line, { areas: warehouseAreas, bins: warehouseBins })}
             warehouseAreas={warehouseAreas}
             warehouseBins={warehouseBins}
+            occupiedBinIds={occupiedBinIds}
+            occupancyLoading={occupancyLoading}
             areasLoading={areasLoading}
             onUpdateSlot={(patch) => onUpdatePerLineSlot(line.lineId, patch)}
             onResolveBin={(path) => onResolvePerLineBin(line.lineId, path)}
@@ -1793,6 +2020,8 @@ type PanelProps = {
   setMode: (m: Mode) => void;
   warehouseAreas: WarehouseAreaDoc[];
   warehouseBins: WarehouseBinDoc[];
+  occupiedBinIds?: ReadonlySet<string>;
+  occupancyLoading?: boolean;
   areasLoading: boolean;
   wholeSlot: PutawayLineSlot;
   onUpdateWholeSlot: (patch: Partial<PutawayLineSlot>) => void;
@@ -1823,6 +2052,8 @@ function CartonPutawayPanel({
   setMode,
   warehouseAreas,
   warehouseBins,
+  occupiedBinIds,
+  occupancyLoading = false,
   areasLoading,
   wholeSlot,
   onUpdateWholeSlot,
@@ -1844,6 +2075,9 @@ function CartonPutawayPanel({
 }: PanelProps) {
   const lineTotal = linesPending[0]?.quantity ?? 0;
   const splitQtyAssigned = qtySplits.reduce((s, r) => s + (parseInt(r.qty, 10) || 0), 0);
+  const splitEligibleBins = linesPending[0]
+    ? binsEligibleForPutawayLine(warehouseAreas, warehouseBins, linesPending[0])
+    : warehouseBins.filter((b) => b.active !== false);
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -1970,30 +2204,14 @@ function CartonPutawayPanel({
                     onChange={(e) => onQtySplitChange(row.id, e.target.value)}
                   />
                 </div>
-                <div className="flex-1 flex gap-2">
-                  <Input
-                    value={row.bin.binPath}
-                    onChange={(e) => onQtySplitBinChange(row.id, e.target.value)}
-                    placeholder="Scan bin"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") onResolveQtySplitBin(row.id);
-                    }}
-                  />
-                  <ScanCameraButton
-                    onScan={(text) => {
-                      onQtySplitBinChange(row.id, text);
-                      onResolveQtySplitBin(row.id, text);
-                    }}
-                    scannerTitle="Scan bin"
-                    scannerDescription="Scan destination bin for this quantity."
-                  />
-                  <Button
-                    onClick={() => onResolveQtySplitBin(row.id)}
-                    disabled={row.bin.loading}
-                  >
-                    {row.bin.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
-                  </Button>
-                </div>
+                <QtySplitBinEntry
+                  row={row}
+                  eligibleBins={splitEligibleBins}
+                  occupiedBinIds={occupiedBinIds}
+                  occupancyLoading={occupancyLoading}
+                  onBinPathChange={(value) => onQtySplitBinChange(row.id, value)}
+                  onResolveBin={(path) => onResolveQtySplitBin(row.id, path)}
+                />
                 {qtySplits.length > 1 ? (
                   <Button type="button" variant="ghost" size="sm" onClick={() => onRemoveQtySplitRow(row.id)}>
                     <Trash2 className="h-4 w-4" />
@@ -2018,9 +2236,9 @@ function CartonPutawayPanel({
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Destination</CardTitle>
             <CardDescription className="text-xs">
-              Scan the destination bin for this carton. Enter a qty less than the full line to
-              leave the rest for another putaway (same or different bin). Area is used only when
-              that zone has no bins set up yet (e.g. empty quarantine floor).
+              Choose Write to search bins (color + available/occupied), or Scan a bin label.
+              Enter a qty less than the full line to leave the rest for another putaway. Area is
+              used only when that zone has no bins set up yet.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -2030,6 +2248,8 @@ function CartonPutawayPanel({
                 slot={wholeSlot}
                 warehouseAreas={warehouseAreas}
                 warehouseBins={warehouseBins}
+                occupiedBinIds={occupiedBinIds}
+                occupancyLoading={occupancyLoading}
                 areasLoading={areasLoading}
                 onBinPathChange={(value) =>
                   onUpdateWholeSlot({ binPath: value, resolved: null, error: null })
@@ -2082,6 +2302,8 @@ function CartonPutawayPanel({
               slot={perLine[line.lineId] ?? emptyPutawayLineSlot(line, { areas: warehouseAreas, bins: warehouseBins })}
               warehouseAreas={warehouseAreas}
               warehouseBins={warehouseBins}
+              occupiedBinIds={occupiedBinIds}
+              occupancyLoading={occupancyLoading}
               areasLoading={areasLoading}
               damagedBadge="Damaged → Quarantine"
               onUpdateSlot={(patch) => onUpdatePerLineSlot(line.lineId, patch)}

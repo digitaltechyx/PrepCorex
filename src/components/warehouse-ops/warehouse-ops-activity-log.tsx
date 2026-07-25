@@ -78,6 +78,14 @@ const MODULE_COPY: Record<
   OpsLogModule,
   { title: string; description: string }
 > = {
+  overview: {
+    title: "Floor activity log",
+    description: "Receive, putaway, pick, pack, returns, moves, and counts — who did what, when.",
+  },
+  receive: {
+    title: "Receiving log",
+    description: "Dock receives and receive corrections.",
+  },
   putaway: {
     title: "Putaway log",
     description: "What was stowed, where, when, and by whom.",

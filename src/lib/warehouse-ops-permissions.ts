@@ -132,7 +132,7 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       description: "Where SKU lives — bin, area, pick, pack",
     },
     {
-      title: "Receiving",
+      title: "Inspection / Receiving",
       href: "/warehouse-ops/receiving",
       feature: "ops_receive",
     },

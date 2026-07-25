@@ -1,5 +1,6 @@
 import {
   buildCartonQtyByInventoryRequestId,
+  isApprovedAwaitingWarehouseReceive,
   isLegacyAdminFulfilledInboundRequest,
   type InboundRequestRow,
 } from "@/lib/warehouse-inbound-requests";
@@ -102,17 +103,33 @@ function normInboundStatus(status: unknown): string {
 }
 
 function isAwaitingDockReceive(
-  row: Pick<InventoryRequest, "status" | "remainingQty" | "inboundTrackings" | "cartonReceivedQty">,
+  row: Pick<InventoryRequest, "status" | "remainingQty" | "inboundTrackings" | "cartonReceivedQty" | "fulfillmentStatus">,
   legacyFulfilled: boolean
 ): boolean {
   const status = normInboundStatus(row.status);
   if (status === "rejected" || status === "cancelled") return false;
   // Pending always listed for dock review (match Notifications), even if qty is already 0.
-  if (status === "pending") return true;
-  if (status !== "approved") return false;
-  if (row.remainingQty <= 0) return false;
-  if (legacyFulfilled) return false;
-  return true;
+  if (status === "pending" || status === "pending_approval") return true;
+  return isApprovedAwaitingWarehouseReceive(row, legacyFulfilled);
+}
+
+function inboundRequestSortMs(row: Pick<InventoryRequest, "requestedAt" | "addDate" | "approvedAt" | "rejectedAt">): number {
+  const d =
+    dateFromFirestore(row.requestedAt) ||
+    dateFromFirestore(row.addDate) ||
+    dateFromFirestore(row.approvedAt) ||
+    dateFromFirestore(row.rejectedAt);
+  return d ? d.getTime() : 0;
+}
+
+function normalizeInventoryRequestStatus(
+  status: string
+): InventoryRequest["status"] {
+  if (status === "pending" || status === "pending_approval") return "pending";
+  if (status === "approved") return "approved";
+  if (status === "rejected") return "rejected";
+  if (status === "cancelled") return "cancelled";
+  return "pending";
 }
 
 function countInboundDockLive(input: {
@@ -131,9 +148,10 @@ function countInboundDockLive(input: {
     const invType = String(data.inventoryType ?? "")
       .trim()
       .toLowerCase();
-    if (invType && invType !== "product" && invType !== "container") continue;
+    // Include all inbound request types (product / box / pallet / container) to match admin.
+    if (invType && !["product", "box", "pallet", "container"].includes(invType)) continue;
     const status = normInboundStatus(data.status);
-    if (status !== "approved" && status !== "pending") continue;
+    if (status !== "approved" && status !== "pending" && status !== "pending_approval") continue;
 
     const clientUserId = userIdFromDocPath(doc.path);
     if (!clientUserId) continue;
@@ -431,9 +449,18 @@ export function buildInboundDockQueueLive(input: {
     const invType = String(data.inventoryType ?? "")
       .trim()
       .toLowerCase();
-    if (invType && invType !== "product" && invType !== "container") continue;
+    // Include all inbound request types (product / box / pallet / container) to match admin.
+    if (invType && !["product", "box", "pallet", "container"].includes(invType)) continue;
     const status = normInboundStatus(data.status);
-    if (status !== "approved" && status !== "pending") continue;
+    if (
+      status !== "approved" &&
+      status !== "pending" &&
+      status !== "pending_approval" &&
+      status !== "rejected" &&
+      status !== "cancelled"
+    ) {
+      continue;
+    }
 
     const clientUserId = userIdFromDocPath(doc.path);
     if (!clientUserId) continue;
@@ -455,7 +482,7 @@ export function buildInboundDockQueueLive(input: {
       ...data,
       id: doc.id,
       // Normalize so dock UI / approve filters match Firestore casing variants.
-      status: (status === "pending" ? "pending" : status === "approved" ? "approved" : data.status) as InventoryRequest["status"],
+      status: normalizeInventoryRequestStatus(status),
       userId: clientUserId,
       clientUserId,
       clientDisplayName: displayClient(clientById.get(clientUserId), clientUserId),
@@ -467,23 +494,26 @@ export function buildInboundDockQueueLive(input: {
       ),
     };
 
-    if (!isAwaitingDockReceive(row, legacyFulfilled)) continue;
-    if (data.fulfillmentStatus === "closed") continue;
-    if (status === "approved" && legacyFulfilled && cartonReceivedQty === 0) continue;
+    const isPending = status === "pending" || status === "pending_approval";
+    const isRejected = status === "rejected";
+    const isCancelled = status === "cancelled";
+    const awaitingReceive = isAwaitingDockReceive(row, legacyFulfilled);
+    const isCompleted =
+      !isPending &&
+      !isRejected &&
+      !isCancelled &&
+      (data.fulfillmentStatus === "closed" ||
+        legacyFulfilled ||
+        (status === "approved" && !awaitingReceive));
+
+    // Keep actionable + history tabs: pending, approved (open), rejected, completed, cancelled.
+    if (!isPending && !isRejected && !isCancelled && !awaitingReceive && !isCompleted) continue;
 
     rows.push(row);
   }
 
-  return rows.sort((a, b) => {
-    // Pending first so receivers see work to approve.
-    if (a.status === "pending" !== (b.status === "pending")) {
-      return a.status === "pending" ? -1 : 1;
-    }
-    if (a.remainingQty > 0 !== b.remainingQty > 0) {
-      return a.remainingQty > 0 ? -1 : 1;
-    }
-    return a.clientDisplayName.localeCompare(b.clientDisplayName);
-  });
+  // Newest first (requested / added / approved / rejected time).
+  return rows.sort((a, b) => inboundRequestSortMs(b) - inboundRequestSortMs(a));
 }
 
 export function buildReturnDockQueueLive(input: {

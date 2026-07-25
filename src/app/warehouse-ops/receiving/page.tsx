@@ -15,7 +15,7 @@ export default function WarehouseOpsReceivingPage() {
   if (!hasFeature(userProfile, "ops_receive")) {
     return (
       <div>
-        <WarehouseOpsHeader title="Receiving" />
+        <WarehouseOpsHeader title="Inspection / Receiving" />
         <p className="text-muted-foreground">You do not have receiving access.</p>
         <Button variant="outline" className="mt-4" asChild>
           <Link href="/warehouse-ops">Back</Link>
@@ -27,7 +27,7 @@ export default function WarehouseOpsReceivingPage() {
   if (!selectedWarehouse) {
     return (
       <div>
-        <WarehouseOpsHeader title="Receiving" />
+        <WarehouseOpsHeader title="Inspection / Receiving" />
         <p className="text-muted-foreground">Select a warehouse to continue.</p>
       </div>
     );
