@@ -1,5 +1,5 @@
 import type { UserFeature, UserProfile } from "@/types";
-import { hasFeature, hasAnyFeature } from "@/lib/permissions";
+import { hasFeature } from "@/lib/permissions";
 
 /** Live integration platforms that admins can grant per client. */
 export type IntegrationPlatformId =
@@ -96,14 +96,55 @@ function platformConfig(id: IntegrationPlatformId): IntegrationPlatformConfig {
   return cfg;
 }
 
+function platformFeatures(id: IntegrationPlatformId): UserFeature[] {
+  const { integrationFeature, ordersFeature } = platformConfig(id);
+  return [integrationFeature, ordersFeature];
+}
+
 /** Legacy umbrella feature — grants every platform. */
 export function hasAllIntegrationsAccess(userProfile: UserProfile | null | undefined): boolean {
   return hasFeature(userProfile, "integrations");
 }
 
-function platformFeatures(id: IntegrationPlatformId): UserFeature[] {
-  const { integrationFeature, ordersFeature } = platformConfig(id);
-  return [integrationFeature, ordersFeature];
+/** True when the user has any per-platform integration grant (not legacy all-access). */
+export function hasPerPlatformIntegrationGrants(
+  userProfile: UserProfile | null | undefined
+): boolean {
+  if (!userProfile) return false;
+  return INTEGRATION_PLATFORMS.some((p) => hasFeature(userProfile, p.integrationFeature));
+}
+
+const ALL_INTEGRATION_FEATURES: UserFeature[] = [
+  "integrations",
+  ...INTEGRATION_PLATFORMS.flatMap((p) => platformFeatures(p.id)),
+];
+
+/** Strip integration features so admin save can re-apply only selected platforms. */
+export function stripIntegrationFeatures(features: UserFeature[]): UserFeature[] {
+  const integrationSet = new Set<UserFeature>(ALL_INTEGRATION_FEATURES);
+  return features.filter((f) => !integrationSet.has(f));
+}
+
+/** Build the integration slice of a client feature list from admin toggles. */
+export function buildIntegrationFeaturesForSave(options: {
+  allIntegrations: boolean;
+  enabledPlatformIds: IntegrationPlatformId[];
+}): UserFeature[] {
+  if (options.allIntegrations) return ["integrations"];
+  return options.enabledPlatformIds.flatMap((id) => featuresForIntegrationPlatform(id));
+}
+
+/** True if user may see a platform card on the integrations hub. */
+export function canSeeIntegrationPlatformCard(
+  userProfile: UserProfile | null | undefined,
+  platformId: IntegrationPlatformId
+): boolean {
+  if (!userProfile) return false;
+  if (hasAllIntegrationsAccess(userProfile)) return true;
+  const { integrationFeature, ordersFeature } = platformConfig(platformId);
+  if (hasFeature(userProfile, integrationFeature)) return true;
+  if (hasPerPlatformIntegrationGrants(userProfile)) return false;
+  return hasFeature(userProfile, ordersFeature);
 }
 
 /** True if user may view the integrations hub or a specific platform card. */
@@ -111,10 +152,7 @@ export function canAccessIntegrationPlatform(
   userProfile: UserProfile | null | undefined,
   platformId: IntegrationPlatformId
 ): boolean {
-  if (!userProfile) return false;
-  if (hasAllIntegrationsAccess(userProfile)) return true;
-  const { integrationFeature, ordersFeature } = platformConfig(platformId);
-  return hasAnyFeature(userProfile, integrationFeature, ordersFeature);
+  return canSeeIntegrationPlatformCard(userProfile, platformId);
 }
 
 /** True if user may connect or manage connections for a platform. */
@@ -133,7 +171,13 @@ export function canViewIntegrationOrders(
   userProfile: UserProfile | null | undefined,
   platformId: IntegrationPlatformId
 ): boolean {
-  return canAccessIntegrationPlatform(userProfile, platformId);
+  if (!userProfile) return false;
+  if (hasAllIntegrationsAccess(userProfile)) return true;
+  const { integrationFeature, ordersFeature } = platformConfig(platformId);
+  if (hasFeature(userProfile, integrationFeature)) return true;
+  // When per-platform grants exist, ignore stale legacy order-only features on other platforms.
+  if (hasPerPlatformIntegrationGrants(userProfile)) return false;
+  return hasFeature(userProfile, ordersFeature);
 }
 
 /** True if user has at least one integration platform (or legacy all-access). */
@@ -142,7 +186,10 @@ export function hasAnyIntegrationPlatformAccess(
 ): boolean {
   if (!userProfile) return false;
   if (hasAllIntegrationsAccess(userProfile)) return true;
-  return INTEGRATION_PLATFORMS.some((p) => canAccessIntegrationPlatform(userProfile, p.id));
+  if (hasPerPlatformIntegrationGrants(userProfile)) {
+    return INTEGRATION_PLATFORMS.some((p) => canSeeIntegrationPlatformCard(userProfile, p.id));
+  }
+  return INTEGRATION_PLATFORMS.some((p) => canViewIntegrationOrders(userProfile, p.id));
 }
 
 /** Resolve platform from /dashboard/integrations/{segment}/... */

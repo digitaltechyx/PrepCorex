@@ -1,5 +1,7 @@
 /** Normalize Shopify Admin API order payloads for PrepCorex UI. */
 
+import { stripUndefined } from "@/lib/utils";
+
 export type ShopifyOrderLineItem = {
   id: string;
   title: string;
@@ -215,7 +217,7 @@ export function normalizeShopifyOrder(
 
 /** Convert normalized order to Firestore-safe document (snake_case legacy + normalized fields). */
 export function shopifyOrderToFirestoreDoc(order: ShopifyNormalizedOrder): Record<string, unknown> {
-  return {
+  return stripUndefined({
     id: order.id,
     order_number: order.orderNumber,
     name: order.name ?? undefined,
@@ -264,7 +266,7 @@ export function shopifyOrderToFirestoreDoc(order: ShopifyNormalizedOrder): Recor
     tracking_companies: order.trackingCompanies,
     shipping_lines: order.shippingLines,
     syncedAt: order.syncedAt ?? new Date().toISOString(),
-  };
+  });
 }
 
 /** Hydrate normalized order from a Firestore doc (webhook or prior sync). */

@@ -29,6 +29,8 @@ import { CSV_IMPORT_FEATURES_CONFIG } from "@/lib/csv-import-permissions";
 import {
   INTEGRATION_PLATFORMS,
   featuresForIntegrationPlatform,
+  stripIntegrationFeatures,
+  buildIntegrationFeaturesForSave,
   type IntegrationPlatformId,
 } from "@/lib/integration-permissions";
 import { getUserRoles, getDefaultFeaturesForRole } from "@/lib/permissions";
@@ -308,9 +310,22 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
   const handleSave = async () => {
     setIsLoading(true);
     try {
+      let featuresToSave = selectedFeatures;
+      if (selectedRoles.includes("user")) {
+        const enabledPlatformIds = INTEGRATION_PLATFORMS.filter((p) =>
+          selectedFeatures.includes(p.integrationFeature)
+        ).map((p) => p.id);
+        const base = stripIntegrationFeatures(selectedFeatures);
+        const integrationSlice = buildIntegrationFeaturesForSave({
+          allIntegrations: selectedFeatures.includes("integrations"),
+          enabledPlatformIds,
+        });
+        featuresToSave = [...base, ...integrationSlice];
+      }
+
       const updateData: any = {
         roles: selectedRoles,
-        features: selectedFeatures,
+        features: featuresToSave,
       };
 
       // Check if commission_agent role is being added (wasn't in current roles, but is in selected roles)
@@ -368,6 +383,7 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
       }
 
       await updateDoc(doc(db, "users", user.uid), updateData);
+      setSelectedFeatures(featuresToSave);
 
       // Commission agent: update referredByAgentId on assigned/unassigned users
       if (selectedRoles.includes("commission_agent")) {
@@ -391,7 +407,7 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
         targetUserLabels: [formatUserDisplayName(user, { showEmail: false })],
         metadata: {
           roles: selectedRoles,
-          features: selectedFeatures,
+          features: featuresToSave,
           locations: selectedRoles.includes("user") ? clientLocationIds : undefined,
         },
       });

@@ -52,6 +52,11 @@ import { useManagedUsers } from "@/hooks/use-managed-users";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hasRole, hasFeature } from "@/lib/permissions";
+import {
+  getOrderPlatformFromPath,
+  canViewIntegrationOrders,
+  hasAnyIntegrationPlatformAccess,
+} from "@/lib/integration-permissions";
 import { brandLogoSrc } from "@/components/logo";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -503,8 +508,15 @@ export function DashboardSidebar() {
 
     if (!hasRequiredRole) return false;
 
-    // User-role items: show all to clients so they can see and click; lack of feature shows blur overlay on page
+    // User-role items: hide integration pages the client was not granted
     if (item.requiredRole === "user") {
+      if (item.url === "/dashboard/integrations") {
+        return hasAnyIntegrationPlatformAccess(userProfile);
+      }
+      const orderPlatform = getOrderPlatformFromPath(item.url);
+      if (orderPlatform) {
+        return canViewIntegrationOrders(userProfile, orderPlatform);
+      }
       return true;
     }
 

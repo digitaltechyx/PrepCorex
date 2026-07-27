@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils";
 import { PlatformBrandLogo } from "@/components/integrations/platform-brand-logo";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
-  canAccessIntegrationPlatform,
+  canSeeIntegrationPlatformCard,
   INTEGRATION_PLATFORMS,
   type IntegrationPlatformId,
 } from "@/lib/integration-permissions";
@@ -350,7 +350,7 @@ export default function IntegrationsPage() {
     return PLATFORMS.filter((p) => {
       if (p.status === "coming_soon") return false;
       if (!isLiveIntegrationPlatform(p.id)) return false;
-      return canAccessIntegrationPlatform(userProfile, p.id);
+      return canSeeIntegrationPlatformCard(userProfile, p.id);
     });
   }, [userProfile]);
 
