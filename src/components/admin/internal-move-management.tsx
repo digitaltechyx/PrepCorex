@@ -59,11 +59,26 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type {
   InternalMoveRequest,
-  InternalMoveUserScope,
   InventoryItem,
   Location,
   WarehouseDoc,
 } from "@/types";
+
+/** Prefer site stock; if this item has no location breakdown, use sellable qty. */
+function availableQtyForMove(item: InventoryItem, fromLocationId: string): number {
+  const loc = String(fromLocationId || "").trim();
+  const map = item.locationQuantities;
+  const hasMap = Boolean(map && typeof map === "object" && Object.keys(map).length > 0);
+  if (hasMap || String(item.locationId || "").trim()) {
+    const atSite = qtyAtLocation(item, loc);
+    if (atSite > 0) return atSite;
+    // Mapped elsewhere / zero at this site — do not invent stock.
+    if (hasMap) return 0;
+    if (String(item.locationId || "").trim() && String(item.locationId).trim() !== loc) return 0;
+  }
+  const total = Math.max(0, Number(item.quantity) || 0);
+  return total;
+}
 
 function toMs(v: InternalMoveRequest["createdAt"]): number {
   if (!v) return 0;
@@ -122,15 +137,13 @@ export function InternalMoveManagement() {
   // Create form state
   const [fromLocationId, setFromLocationId] = useState("");
   const [toLocationId, setToLocationId] = useState("");
-  const [userScope, setUserScope] = useState<InternalMoveUserScope>("one");
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [userSearch, setUserSearch] = useState("");
   const [reason, setReason] = useState("");
   const [draftLines, setDraftLines] = useState<DraftLine[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  // Product picker
-  const [pickerUserId, setPickerUserId] = useState("");
+  // Product picker — shows inventory for all selected users
   const [inventoryByUser, setInventoryByUser] = useState<Record<string, InventoryItem[]>>({});
   const [loadingInventory, setLoadingInventory] = useState(false);
   const [productSearch, setProductSearch] = useState("");
@@ -162,10 +175,10 @@ export function InternalMoveManagement() {
       );
   }, [managedUsers]);
 
-  const resolvedUserIds = useMemo(() => {
-    if (userScope === "all") return selectableUsers.map((u) => u.uid);
-    return Array.from(selectedUserIds);
-  }, [userScope, selectedUserIds, selectableUsers]);
+  const selectedUserList = useMemo(
+    () => Array.from(selectedUserIds),
+    [selectedUserIds]
+  );
 
   const filteredUsers = useMemo(() => {
     const q = userSearch.trim().toLowerCase();
@@ -177,36 +190,26 @@ export function InternalMoveManagement() {
     });
   }, [selectableUsers, userSearch]);
 
+  // Load inventory whenever selected users or from-site change
   useEffect(() => {
-    if (!createOpen) return;
-    if (userScope === "one" && selectedUserIds.size > 1) {
-      const first = Array.from(selectedUserIds)[0];
-      setSelectedUserIds(new Set(first ? [first] : []));
+    if (!createOpen || selectedUserList.length === 0) {
+      setLoadingInventory(false);
+      return;
     }
-  }, [userScope, createOpen, selectedUserIds]);
-
-  useEffect(() => {
-    if (!pickerUserId && resolvedUserIds.length === 1) {
-      setPickerUserId(resolvedUserIds[0]);
-    }
-  }, [resolvedUserIds, pickerUserId]);
-
-  // Load inventory for selected users when from-site is set
-  useEffect(() => {
-    if (!createOpen || !fromLocationId || resolvedUserIds.length === 0) return;
     let cancelled = false;
     setLoadingInventory(true);
     void (async () => {
-      const next: Record<string, InventoryItem[]> = { ...inventoryByUser };
-      for (const uid of resolvedUserIds) {
-        if (next[uid]) continue;
-        try {
-          const snap = await getDocs(collection(db, `users/${uid}/inventory`));
-          next[uid] = snap.docs.map((d) => ({ id: d.id, ...d.data() } as InventoryItem));
-        } catch {
-          next[uid] = [];
-        }
-      }
+      const next: Record<string, InventoryItem[]> = {};
+      await Promise.all(
+        selectedUserList.map(async (uid) => {
+          try {
+            const snap = await getDocs(collection(db, `users/${uid}/inventory`));
+            next[uid] = snap.docs.map((d) => ({ id: d.id, ...d.data() } as InventoryItem));
+          } catch {
+            next[uid] = [];
+          }
+        })
+      );
       if (!cancelled) {
         setInventoryByUser(next);
         setLoadingInventory(false);
@@ -215,24 +218,76 @@ export function InternalMoveManagement() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createOpen, fromLocationId, resolvedUserIds.join("|")]);
+  }, [createOpen, selectedUserList]);
 
-  const pickerInventory = useMemo(() => {
-    if (!pickerUserId || !fromLocationId) return [];
-    const items = inventoryByUser[pickerUserId] || [];
+  // When From site changes, drop draft lines whose qty is no longer available there.
+  useEffect(() => {
+    if (!fromLocationId) return;
+    setDraftLines((prev) =>
+      prev
+        .map((line) => {
+          const items = inventoryByUser[line.userId] || [];
+          const item = items.find((i) => i.id === line.inventoryId);
+          if (!item) return null;
+          const maxQty = availableQtyForMove(item, fromLocationId);
+          if (maxQty < 1) return null;
+          return {
+            ...line,
+            maxQty,
+            quantity: Math.min(line.quantity, maxQty),
+          };
+        })
+        .filter((l): l is DraftLine => Boolean(l))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromLocationId]);
+
+  /** Flattened inventory rows for every selected user (with available qty). */
+  const inventoryRows = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
-    return items
-      .filter((item) => qtyAtLocation(item, fromLocationId) > 0)
-      .filter((item) => {
-        if (!q) return true;
-        return (
-          item.productName.toLowerCase().includes(q) ||
-          (item.sku || "").toLowerCase().includes(q)
-        );
-      })
-      .sort((a, b) => a.productName.localeCompare(b.productName));
-  }, [pickerUserId, fromLocationId, inventoryByUser, productSearch]);
+    const rows: Array<{
+      key: string;
+      userId: string;
+      userName: string;
+      item: InventoryItem;
+      available: number;
+    }> = [];
+
+    for (const uid of selectedUserList) {
+      const user = selectableUsers.find((u) => u.uid === uid);
+      const userName = formatUserDisplayName(user || { uid });
+      for (const item of inventoryByUser[uid] || []) {
+        const available = fromLocationId
+          ? availableQtyForMove(item, fromLocationId)
+          : Math.max(0, Number(item.quantity) || 0);
+        if (available < 1) continue;
+        if (q) {
+          const hay = `${item.productName} ${item.sku || ""} ${userName}`.toLowerCase();
+          if (!hay.includes(q)) continue;
+        }
+        rows.push({
+          key: `${uid}:${item.id}`,
+          userId: uid,
+          userName,
+          item,
+          available,
+        });
+      }
+    }
+
+    rows.sort(
+      (a, b) =>
+        a.userName.localeCompare(b.userName) ||
+        a.item.productName.localeCompare(b.item.productName)
+    );
+    return rows;
+  }, [
+    selectedUserList,
+    inventoryByUser,
+    fromLocationId,
+    productSearch,
+    selectableUsers,
+  ]);
 
   const sortedRequests = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -254,48 +309,59 @@ export function InternalMoveManagement() {
   const resetCreateForm = () => {
     setFromLocationId("");
     setToLocationId("");
-    setUserScope("one");
     setSelectedUserIds(new Set());
     setUserSearch("");
     setReason("");
     setDraftLines([]);
-    setPickerUserId("");
+    setInventoryByUser({});
     setProductSearch("");
     setPickQty("1");
   };
 
   const toggleUser = (uid: string) => {
+    const removing = selectedUserIds.has(uid);
     setSelectedUserIds((prev) => {
       const next = new Set(prev);
-      if (userScope === "one") {
-        return new Set([uid]);
-      }
-      if (next.has(uid)) next.delete(uid);
+      if (removing) next.delete(uid);
       else next.add(uid);
       return next;
     });
+    if (removing) {
+      setDraftLines((prev) => prev.filter((l) => l.userId !== uid));
+    }
   };
 
-  const addProductLine = (item: InventoryItem) => {
-    if (!pickerUserId || !fromLocationId) return;
-    const maxQty = qtyAtLocation(item, fromLocationId);
+  const addProductLine = (row: {
+    userId: string;
+    userName: string;
+    item: InventoryItem;
+    available: number;
+  }) => {
+    if (!fromLocationId) {
+      toast({
+        variant: "destructive",
+        title: "Select From site first",
+        description: "Choose the source site so available quantities are correct.",
+      });
+      return;
+    }
+    const maxQty = row.available;
     const qty = Math.min(maxQty, Math.max(1, parseInt(pickQty, 10) || 1));
     if (qty < 1 || maxQty < 1) {
       toast({
         variant: "destructive",
-        title: "No quantity at source",
-        description: "This product has no units at the selected from-site.",
+        title: "No quantity available",
+        description: "This product has no units available to move.",
       });
       return;
     }
-    const user = selectableUsers.find((u) => u.uid === pickerUserId);
-    const key = `${pickerUserId}:${item.id}`;
+    const key = `${row.userId}:${row.item.id}`;
     setDraftLines((prev) => {
       const existing = prev.find((l) => l.key === key);
       if (existing) {
         return prev.map((l) =>
           l.key === key
-            ? { ...l, quantity: Math.min(l.maxQty, l.quantity + qty) }
+            ? { ...l, quantity: Math.min(l.maxQty, l.quantity + qty), maxQty }
             : l
         );
       }
@@ -303,11 +369,11 @@ export function InternalMoveManagement() {
         ...prev,
         {
           key,
-          userId: pickerUserId,
-          userName: formatUserDisplayName(user || { uid: pickerUserId }),
-          inventoryId: item.id,
-          productName: item.productName,
-          sku: item.sku || "",
+          userId: row.userId,
+          userName: row.userName,
+          inventoryId: row.item.id,
+          productName: row.item.productName,
+          sku: row.item.sku || "",
           quantity: qty,
           maxQty,
         },
@@ -325,11 +391,11 @@ export function InternalMoveManagement() {
       });
       return;
     }
-    if (resolvedUserIds.length === 0) {
+    if (selectedUserList.length === 0) {
       toast({
         variant: "destructive",
         title: "Select users",
-        description: "Pick at least one user (or All).",
+        description: "Pick one or more users whose inventory you want to move.",
       });
       return;
     }
@@ -337,7 +403,7 @@ export function InternalMoveManagement() {
       toast({
         variant: "destructive",
         title: "Add products",
-        description: "Add at least one product line to move.",
+        description: "Select at least one inventory line to move.",
       });
       return;
     }
@@ -358,13 +424,14 @@ export function InternalMoveManagement() {
     try {
       const fromName = activeLocations.find((l) => l.id === fromLocationId)?.name || fromLocationId;
       const toName = activeLocations.find((l) => l.id === toLocationId)?.name || toLocationId;
+      const lineUserIds = [...new Set(draftLines.map((l) => l.userId))];
       await createInternalMoveRequest({
         fromLocationId,
         toLocationId,
         fromLocationName: fromName,
         toLocationName: toName,
-        userScope,
-        userIds: resolvedUserIds,
+        userScope: lineUserIds.length === 1 ? "one" : "some",
+        userIds: lineUserIds,
         lines: draftLines.map((l) => ({
           userId: l.userId,
           userName: l.userName,
@@ -642,30 +709,27 @@ export function InternalMoveManagement() {
             </div>
 
             <div className="space-y-2">
-              <Label>Users</Label>
-              <Select
-                value={userScope}
-                onValueChange={(v) => setUserScope(v as InternalMoveUserScope)}
-              >
-                <SelectTrigger className="w-full sm:w-[240px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="one">Specific user</SelectItem>
-                  <SelectItem value="some">Some users</SelectItem>
-                  <SelectItem value="all">All managed users</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {userScope !== "all" ? (
-                <div className="rounded-lg border p-3 space-y-2 max-h-48 overflow-y-auto">
-                  <Input
-                    value={userSearch}
-                    onChange={(e) => setUserSearch(e.target.value)}
-                    placeholder="Search users…"
-                    className="h-8"
-                  />
-                  {filteredUsers.map((u) => (
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <Label>Users</Label>
+                <span className="text-xs text-muted-foreground">
+                  {selectedUserList.length} selected
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Select one or more users — their inventory appears below so you can pick what to
+                move.
+              </p>
+              <div className="rounded-lg border p-3 space-y-2 max-h-48 overflow-y-auto">
+                <Input
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="Search users…"
+                  className="h-8"
+                />
+                {filteredUsers.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">No matching users.</p>
+                ) : (
+                  filteredUsers.map((u) => (
                     <label
                       key={u.uid}
                       className="flex items-center gap-2 text-sm cursor-pointer py-1"
@@ -674,53 +738,34 @@ export function InternalMoveManagement() {
                         checked={selectedUserIds.has(u.uid)}
                         onCheckedChange={() => toggleUser(u.uid)}
                       />
-                      <span className="truncate">{formatUserDisplayName(u)}</span>
+                      <span className="truncate font-medium">{formatUserDisplayName(u)}</span>
                       {u.email ? (
-                        <span className="text-xs text-muted-foreground truncate">
-                          {u.email}
-                        </span>
+                        <span className="text-xs text-muted-foreground truncate">{u.email}</span>
                       ) : null}
                     </label>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Will include {selectableUsers.length} managed user
-                  {selectableUsers.length === 1 ? "" : "s"} at create time.
-                </p>
-              )}
+                  ))
+                )}
+              </div>
             </div>
 
             <div className="space-y-2 border rounded-lg p-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <Label className="flex items-center gap-1">
-                  <Warehouse className="h-4 w-4" /> Add products at from-site
+                  <Warehouse className="h-4 w-4" /> Inventory to move
                 </Label>
-                {resolvedUserIds.length > 1 ? (
-                  <Select value={pickerUserId || undefined} onValueChange={setPickerUserId}>
-                    <SelectTrigger className="w-[200px] h-8">
-                      <SelectValue placeholder="User for products" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {resolvedUserIds.map((uid) => {
-                        const u = selectableUsers.find((x) => x.uid === uid);
-                        return (
-                          <SelectItem key={uid} value={uid}>
-                            {formatUserDisplayName(u || { uid, name: uid })}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
+                {fromLocationId && selectedUserList.length > 0 ? (
+                  <Badge variant="outline" className="text-[10px]">
+                    {inventoryRows.length} available
+                  </Badge>
                 ) : null}
               </div>
               <div className="flex gap-2 flex-wrap">
                 <Input
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
-                  placeholder="Search product / SKU…"
+                  placeholder="Search product / SKU / user…"
                   className="flex-1 min-w-[160px]"
-                  disabled={!fromLocationId || !pickerUserId}
+                  disabled={selectedUserList.length === 0}
                 />
                 <Input
                   type="number"
@@ -728,40 +773,46 @@ export function InternalMoveManagement() {
                   value={pickQty}
                   onChange={(e) => setPickQty(e.target.value)}
                   className="w-20"
-                  title="Qty to add"
+                  title="Qty to add when you click a product"
                 />
               </div>
-              {loadingInventory ? (
+              {!fromLocationId ? (
+                <p className="text-xs text-muted-foreground">Select a From site first.</p>
+              ) : selectedUserList.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Select one or more users to load their inventory.
+                </p>
+              ) : loadingInventory ? (
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <Loader2 className="h-3 w-3 animate-spin" /> Loading inventory…
                 </p>
               ) : (
-                <div className="max-h-40 overflow-y-auto space-y-1">
-                  {!fromLocationId || !pickerUserId ? (
+                <div className="max-h-56 overflow-y-auto space-y-1">
+                  {inventoryRows.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
-                      Select from-site and a user first.
-                    </p>
-                  ) : pickerInventory.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      No products with quantity at this site for the selected user.
+                      No products with available quantity for the selected users
+                      {fromLocationId ? " at this From site" : ""}.
                     </p>
                   ) : (
-                    pickerInventory.slice(0, 40).map((item) => {
-                      const avail = qtyAtLocation(item, fromLocationId);
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className="flex w-full items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-left text-sm hover:bg-accent"
-                          onClick={() => addProductLine(item)}
-                        >
-                          <span className="truncate font-medium">{item.productName}</span>
-                          <Badge variant="outline" className="text-[10px] shrink-0">
-                            {avail} at site
-                          </Badge>
-                        </button>
-                      );
-                    })
+                    inventoryRows.slice(0, 80).map((row) => (
+                      <button
+                        key={row.key}
+                        type="button"
+                        className="flex w-full items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-left text-sm hover:bg-accent"
+                        onClick={() => addProductLine(row)}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{row.item.productName}</p>
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            {row.userName}
+                            {row.item.sku ? ` · ${row.item.sku}` : ""}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] shrink-0">
+                          {row.available} avail
+                        </Badge>
+                      </button>
+                    ))
                   )}
                 </div>
               )}

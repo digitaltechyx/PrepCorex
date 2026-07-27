@@ -26,6 +26,11 @@ import { Input } from "@/components/ui/input";
 import type { UserProfile, UserRole, UserFeature, WarehouseDoc } from "@/types";
 import { OPS_FEATURES_CONFIG, OPS_FEATURE_PRESETS } from "@/lib/warehouse-ops-permissions";
 import { CSV_IMPORT_FEATURES_CONFIG } from "@/lib/csv-import-permissions";
+import {
+  INTEGRATION_PLATFORMS,
+  featuresForIntegrationPlatform,
+  type IntegrationPlatformId,
+} from "@/lib/integration-permissions";
 import { getUserRoles, getDefaultFeaturesForRole } from "@/lib/permissions";
 import { generateUniqueReferralCode } from "@/lib/commission-utils";
 import { generateClientId } from "@/lib/client-id";
@@ -64,11 +69,6 @@ const CLIENT_FEATURES: { value: UserFeature; label: string; description: string 
   { value: "disposed_inventory", label: "Disposed Inventory", description: "View disposed items and recycle bin" },
   { value: "quarantine_inventory", label: "Quarantine", description: "Request quarantine, release, or dispose of stock and view quarantined qty" },
   { value: "client_documents", label: "Documents", description: "Access to document requests" },
-  { value: "integrations", label: "Integrations", description: "Access to Shopify, eBay, ShipStation, WooCommerce, and TikTok Shop integrations" },
-  { value: "view_shopify_orders", label: "Shopify Orders", description: "View orders synced from connected Shopify stores" },
-  { value: "view_shipstation_orders", label: "ShipStation Orders", description: "View orders and purchased labels from ShipStation" },
-  { value: "view_woocommerce_orders", label: "WooCommerce Orders", description: "View orders synced from connected WooCommerce stores" },
-  { value: "view_tiktok_orders", label: "TikTok Shop Orders", description: "View orders from connected TikTok Shop stores" },
   { value: "affiliate_dashboard", label: "Affiliate Dashboard", description: "Access affiliate/commission dashboard" },
 ];
 
@@ -263,6 +263,45 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
       } else {
         return [...prev, feature];
       }
+    });
+  };
+
+  const handleAllIntegrationsToggle = () => {
+    setSelectedFeatures((prev) => {
+      if (prev.includes("integrations")) {
+        return prev.filter((f) => f !== "integrations");
+      }
+      return [...prev, "integrations"];
+    });
+  };
+
+  const isPlatformIntegrationEnabled = (platformId: IntegrationPlatformId): boolean => {
+    if (selectedFeatures.includes("integrations")) return true;
+    const platform = INTEGRATION_PLATFORMS.find((p) => p.id === platformId);
+    if (!platform) return false;
+    return selectedFeatures.includes(platform.integrationFeature);
+  };
+
+  const handleIntegrationPlatformToggle = (platformId: IntegrationPlatformId) => {
+    const platform = INTEGRATION_PLATFORMS.find((p) => p.id === platformId);
+    if (!platform) return;
+
+    setSelectedFeatures((prev) => {
+      const enabled = prev.includes("integrations") || prev.includes(platform.integrationFeature);
+      if (enabled && !prev.includes("integrations")) {
+        return prev.filter(
+          (f) => f !== platform.integrationFeature && f !== platform.ordersFeature
+        );
+      }
+      if (enabled) {
+        return prev;
+      }
+      const toAdd = featuresForIntegrationPlatform(platformId);
+      const next = [...prev];
+      for (const f of toAdd) {
+        if (!next.includes(f)) next.push(f);
+      }
+      return next;
     });
   };
 
@@ -821,6 +860,62 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                           {feature.label}
                         </Label>
                         <p className="text-xs text-muted-foreground">{feature.description}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {selectedRoles.some((r) => r === "user") && (
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold mb-1 text-muted-foreground">Integration Access</h4>
+              <p className="text-xs text-muted-foreground mb-3">
+                Choose which sales channels this client can connect and view orders for. Use &quot;All
+                integrations&quot; for full access, or pick individual platforms (e.g. Shopify + TikTok only).
+              </p>
+              <div className="mb-4 flex items-start space-x-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
+                <Checkbox
+                  id="feature-integrations-all"
+                  checked={selectedFeatures.includes("integrations")}
+                  onCheckedChange={handleAllIntegrationsToggle}
+                  className="mt-1"
+                />
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor="feature-integrations-all" className="cursor-pointer text-sm font-medium">
+                    All integrations
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Full access to every integration platform (Shopify, eBay, Amazon, TikTok, WooCommerce,
+                    ShipStation).
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {INTEGRATION_PLATFORMS.map((platform) => {
+                  const isSelected = isPlatformIntegrationEnabled(platform.id);
+                  const disabledByAll = selectedFeatures.includes("integrations");
+                  return (
+                    <div
+                      key={platform.id}
+                      className="flex items-start space-x-3 rounded-lg border p-4 transition-colors hover:bg-accent/50"
+                    >
+                      <Checkbox
+                        id={`integration-${platform.id}`}
+                        checked={isSelected}
+                        disabled={disabledByAll}
+                        onCheckedChange={() => handleIntegrationPlatformToggle(platform.id)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1 space-y-1">
+                        <Label
+                          htmlFor={`integration-${platform.id}`}
+                          className={`cursor-pointer text-sm font-medium ${disabledByAll ? "opacity-70" : ""}`}
+                        >
+                          {platform.label}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">{platform.description}</p>
                       </div>
                     </div>
                   );

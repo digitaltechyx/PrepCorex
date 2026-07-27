@@ -367,7 +367,7 @@ export function DashboardSidebar() {
       color: "text-fuchsia-600",
       badge: null,
       requiredRole: "user" as const,
-      requiredFeature: "integrations" as const,
+      requiredFeature: "view_tiktok_orders" as const,
     },
     {
       title: "ShipStation Orders",
@@ -376,7 +376,7 @@ export function DashboardSidebar() {
       color: "text-indigo-600",
       badge: null,
       requiredRole: "user" as const,
-      requiredFeature: "integrations" as const,
+      requiredFeature: "view_shipstation_orders" as const,
     },
     {
       title: "WooCommerce Orders",
@@ -385,7 +385,7 @@ export function DashboardSidebar() {
       color: "text-violet-600",
       badge: null,
       requiredRole: "user" as const,
-      requiredFeature: "integrations" as const,
+      requiredFeature: "view_woocommerce_orders" as const,
     },
     {
       title: "Product Returns",

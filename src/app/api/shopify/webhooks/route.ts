@@ -3,6 +3,10 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { adminDb } from "@/lib/firebase-admin";
 import { shopifyAdminRestUrl } from "@/lib/shopify-api";
 import { getValidShopifyAccessToken } from "@/lib/shopify-access-token";
+import {
+  normalizeShopifyOrder,
+  shopifyOrderToFirestoreDoc,
+} from "@/lib/shopify-order-normalize";
 
 export const dynamic = "force-dynamic";
 
@@ -244,50 +248,25 @@ export async function POST(request: NextRequest) {
         console.warn("[Shopify webhooks] orders no userId in shopToUser", { shop: shopNorm });
         return NextResponse.json({ received: true });
       }
-      const orderNumber = order.order_number != null ? Number(order.order_number) : 0;
-      const name = typeof order.name === "string" ? order.name : undefined;
-      const email = typeof order.email === "string" ? order.email : undefined;
-      const financialStatus = typeof order.financial_status === "string" ? order.financial_status : undefined;
-      const fulfillmentStatus = order.fulfillment_status != null ? String(order.fulfillment_status) : null;
-      const createdAt = order.created_at != null ? String(order.created_at) : undefined;
-      const updatedAt = order.updated_at != null ? String(order.updated_at) : undefined;
-      const note = typeof order.note === "string" ? order.note : undefined;
-      const lineItems = Array.isArray(order.line_items)
-        ? order.line_items.map((li: Record<string, unknown>) => ({
-            title: typeof li.title === "string" ? li.title : undefined,
-            quantity: typeof li.quantity === "number" ? li.quantity : undefined,
-            sku: typeof li.sku === "string" ? li.sku : undefined,
-            variant_id: typeof li.variant_id === "number" ? li.variant_id : undefined,
-            id: typeof li.id === "number" ? li.id : undefined,
-          }))
-        : undefined;
-      const shippingAddress = order.shipping_address && typeof order.shipping_address === "object"
-        ? (order.shipping_address as Record<string, unknown>)
-        : undefined;
-      const billingAddress = order.billing_address && typeof order.billing_address === "object"
-        ? (order.billing_address as Record<string, unknown>)
-        : undefined;
-      const customer = order.customer && typeof order.customer === "object"
-        ? (order.customer as Record<string, unknown>)
-        : undefined;
-      const orderDataRaw: Record<string, unknown> = {
-        id: orderId,
-        order_number: orderNumber,
-        name,
+      const connSnap = await db
+        .collection("users")
+        .doc(userId)
+        .collection("shopifyConnections")
+        .where("shop", "==", shopNorm)
+        .limit(1)
+        .get();
+      const connectionId = connSnap.empty ? null : connSnap.docs[0].id;
+      const shopName =
+        (connSnap.empty ? null : (connSnap.docs[0].data()?.shopName as string | undefined)) ||
+        shopNorm.replace(".myshopify.com", "");
+
+      const normalized = normalizeShopifyOrder(order, {
         shop: shopNorm,
-        email,
-        financial_status: financialStatus,
-        fulfillment_status: fulfillmentStatus,
-        created_at: createdAt,
-        updated_at: updatedAt,
-        note,
-        line_items: lineItems,
-        shipping_address: shippingAddress,
-        billing_address: billingAddress,
-        customer,
-      };
-      // Firestore does not accept undefined; strip undefined at all nesting levels
-      const orderData = stripUndefined(orderDataRaw) as Record<string, unknown>;
+        connectionId,
+        shopName,
+      });
+      normalized.syncedAt = new Date().toISOString();
+      const orderData = stripUndefined(shopifyOrderToFirestoreDoc(normalized)) as Record<string, unknown>;
       await db.collection("users").doc(userId).collection("shopifyOrders").doc(orderId).set(orderData, { merge: true });
       console.log("[Shopify webhooks] orders saved", { shop: shopNorm, orderId, userId });
     } catch (err: unknown) {

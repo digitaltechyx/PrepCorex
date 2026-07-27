@@ -90,7 +90,7 @@ export type ShopifyBillingAfterConnectResult =
 export async function ensureShopifyAppSubscriptionAfterConnect(params: {
   shop: string;
   accessToken: string;
-  /** HTTPS app origin, no trailing slash (e.g. https://dev.prepservicesfba.com) */
+  /** HTTPS app origin, no trailing slash (e.g. https://prepcorex.com) */
   appBaseUrl: string;
 }): Promise<ShopifyBillingAfterConnectResult> {
   if (process.env.SHOPIFY_BILLING_API === "false") {

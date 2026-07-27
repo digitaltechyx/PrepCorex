@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { hasRole, hasFeature, getDefaultFeaturesForRole } from "@/lib/permissions";
 import { getRequiredFeatureForPath } from "@/lib/dashboard-routes";
+import { canAccessIntegrationPath } from "@/lib/integration-permissions";
 import type { UserFeature } from "@/types";
 import { Lock } from "lucide-react";
 
@@ -81,6 +82,14 @@ export function ClientFeatureGate({ children }: { children: React.ReactNode }) {
       hasFeature(userProfile, "manage_tiktok_orders"))
   ) {
     return <>{children}</>;
+  }
+
+  const integrationAccess = canAccessIntegrationPath(userProfile, path);
+  if (integrationAccess !== null) {
+    if (integrationAccess) {
+      return <>{children}</>;
+    }
+    return <LockedOverlay />;
   }
 
   if (requiredFeature === "affiliate_dashboard") {

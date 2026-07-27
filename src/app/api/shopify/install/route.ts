@@ -13,12 +13,10 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { SHOPIFY_SCOPES } from "@/lib/shopify-scopes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const SHOPIFY_SCOPES =
-  "read_orders,read_products,write_products,write_fulfillments,read_inventory,read_locations,write_inventory,write_locations,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders";
 
 function isValidShopDomain(shop: string): boolean {
   return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop);

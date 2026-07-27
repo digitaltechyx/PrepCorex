@@ -1,17 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Loader2, ShieldAlert } from "lucide-react";
+import { Check, Loader2, Search, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +14,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -99,7 +90,7 @@ export function QuarantineRequestDialog({
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [reason, setReason] = useState("");
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -108,7 +99,7 @@ export function QuarantineRequestDialog({
     setProductId("");
     setQuantity("1");
     setReason("");
-    setPickerOpen(false);
+    setProductSearch("");
   }, [open, fixedKind]);
 
   const eligible = useMemo(
@@ -118,6 +109,14 @@ export function QuarantineRequestDialog({
         .sort((a, b) => (a.productName || "").localeCompare(b.productName || "")),
     [inventory, kind]
   );
+
+  const filteredEligible = useMemo(() => {
+    const q = productSearch.trim().toLowerCase();
+    if (!q) return eligible;
+    return eligible.filter((item) =>
+      `${item.productName} ${item.sku ?? ""}`.toLowerCase().includes(q)
+    );
+  }, [eligible, productSearch]);
 
   const selected = eligible.find((i) => i.id === productId) ?? null;
   const maxQty = selected ? availableQtyForKind(selected, kind) : 0;
@@ -209,79 +208,68 @@ export function QuarantineRequestDialog({
 
           <div className="space-y-1.5">
             <Label>Product</Label>
-            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={pickerOpen}
-                  disabled={eligible.length === 0}
-                  className={cn(
-                    "w-full justify-between font-normal",
-                    !selected && "text-muted-foreground"
+            {eligible.length === 0 ? (
+              <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                {kind === "quarantine" ? "No sellable stock available" : "Nothing in quarantine"}
+              </div>
+            ) : (
+              <div className="rounded-md border">
+                <div className="relative border-b">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="Search by name or SKU…"
+                    className="border-0 pl-9 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  />
+                </div>
+                <div className="max-h-56 overflow-y-auto p-1">
+                  {filteredEligible.length === 0 ? (
+                    <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+                      No matching products.
+                    </p>
+                  ) : (
+                    filteredEligible.map((item) => {
+                      const pending = openProductIds?.has(item.id) ?? false;
+                      const active = productId === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            setProductId(item.id);
+                            setQuantity(String(availableQtyForKind(item, kind)));
+                          }}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent",
+                            active && "bg-accent"
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{item.productName}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {copy.qtyLabel}: {availableQtyForKind(item, kind)}
+                              {item.sku ? ` · SKU ${item.sku}` : ""}
+                            </p>
+                          </div>
+                          {pending ? (
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 border-amber-300 bg-amber-50 text-[10px] text-amber-900"
+                            >
+                              In progress
+                            </Badge>
+                          ) : null}
+                          {active ? (
+                            <Check className="h-4 w-4 shrink-0 text-primary" />
+                          ) : null}
+                        </button>
+                      );
+                    })
                   )}
-                >
-                  <span className="truncate">
-                    {selected
-                      ? selected.productName
-                      : eligible.length === 0
-                        ? kind === "quarantine"
-                          ? "No sellable stock available"
-                          : "Nothing in quarantine"
-                        : "Search or select a product…"}
-                  </span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                className="w-[var(--radix-popover-trigger-width)] min-w-[280px] p-0"
-                align="start"
-              >
-                <Command>
-                  <CommandInput placeholder="Search by name or SKU…" />
-                  <CommandList>
-                    <CommandEmpty>No matching products.</CommandEmpty>
-                    <CommandGroup>
-                      {eligible.map((item) => {
-                        const pending = openProductIds?.has(item.id) ?? false;
-                        return (
-                          <CommandItem
-                            key={item.id}
-                            value={`${item.productName} ${item.sku ?? ""}`}
-                            onSelect={() => {
-                              setProductId(item.id);
-                              setQuantity(String(availableQtyForKind(item, kind)));
-                              setPickerOpen(false);
-                            }}
-                            className="gap-2"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium">{item.productName}</p>
-                              <p className="text-[11px] text-muted-foreground">
-                                {copy.qtyLabel}: {availableQtyForKind(item, kind)}
-                                {item.sku ? ` · SKU ${item.sku}` : ""}
-                              </p>
-                            </div>
-                            {pending ? (
-                              <Badge
-                                variant="outline"
-                                className="shrink-0 border-amber-300 bg-amber-50 text-[10px] text-amber-900"
-                              >
-                                In progress
-                              </Badge>
-                            ) : null}
-                            {productId === item.id ? (
-                              <Check className="h-4 w-4 shrink-0 text-primary" />
-                            ) : null}
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+                </div>
+              </div>
+            )}
             {alreadyOpen ? (
               <p className="text-xs text-amber-700">
                 This product already has a request the warehouse has not finished yet.

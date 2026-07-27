@@ -40,6 +40,7 @@ export const ROLE_DEFINITIONS: {
 
 export { OPS_FEATURES_CONFIG, OPS_FEATURE_PRESETS } from "@/lib/warehouse-ops-permissions";
 export { CSV_IMPORT_FEATURES_CONFIG } from "@/lib/csv-import-permissions";
+export { INTEGRATION_FEATURES_CONFIG } from "@/lib/integration-permissions";
 
 export const CLIENT_FEATURES_CONFIG: { value: UserFeature; label: string; description: string }[] = [
   { value: "view_dashboard", label: "Dashboard", description: "Access to client dashboard overview" },
@@ -58,11 +59,6 @@ export const CLIENT_FEATURES_CONFIG: { value: UserFeature; label: string; descri
   { value: "disposed_inventory", label: "Disposed Inventory", description: "View disposed items and recycle bin" },
   { value: "quarantine_inventory", label: "Quarantine", description: "Request quarantine, release, or dispose of stock and view quarantined qty" },
   { value: "client_documents", label: "Documents", description: "Access to document requests" },
-  { value: "integrations", label: "Integrations", description: "Access to Shopify, eBay, ShipStation, WooCommerce, and TikTok Shop integrations" },
-  { value: "view_shopify_orders", label: "Shopify Orders", description: "View orders synced from connected Shopify stores" },
-  { value: "view_shipstation_orders", label: "ShipStation Orders", description: "View orders and purchased labels from ShipStation" },
-  { value: "view_woocommerce_orders", label: "WooCommerce Orders", description: "View orders synced from connected WooCommerce stores" },
-  { value: "view_tiktok_orders", label: "TikTok Shop Orders", description: "View orders from connected TikTok Shop stores" },
   { value: "affiliate_dashboard", label: "Affiliate Dashboard", description: "Access affiliate/commission dashboard" },
 ];
 

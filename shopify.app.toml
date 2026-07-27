@@ -4,22 +4,22 @@
 
 client_id = "5a63d39e10be3002ced502b7a09eeedb"
 name = "PrepCorex"
-application_url = "https://dev.prepservicesfba.com/api/shopify/install"
+application_url = "https://prepcorex.com/api/shopify/install"
 embedded = false
 
 [webhooks]
-api_version = "2026-04"
+api_version = "2026-07"
 
   [[webhooks.subscriptions]]
-  uri = "https://dev.prepservicesfba.com/api/shopify/webhooks"
+  uri = "https://prepcorex.com/api/shopify/webhooks"
   compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
 
 [access_scopes]
-scopes = "read_inventory,read_locations,read_merchant_managed_fulfillment_orders,read_orders,read_products,write_fulfillments,write_inventory,write_locations,write_merchant_managed_fulfillment_orders,write_products"
+scopes = "read_inventory,read_locations,read_merchant_managed_fulfillment_orders,read_orders,read_products,write_fulfillments,write_inventory,write_locations,write_merchant_managed_fulfillment_orders,write_orders,write_products"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [
-  "https://dev.prepservicesfba.com/dashboard/integrations/shopify/callback"
+  "https://prepcorex.com/dashboard/integrations/shopify/callback"
 ]

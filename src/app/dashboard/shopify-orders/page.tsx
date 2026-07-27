@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -15,9 +14,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ExternalLink, Loader2, RefreshCw, ShoppingBag } from "lucide-react";
-import { format } from "date-fns";
-import type { ShopifyOrder } from "@/types";
+import { Loader2, RefreshCw, ShoppingBag } from "lucide-react";
+import type { ShopifyNormalizedOrder } from "@/lib/shopify-order-normalize";
+import { ShopifyOrderDetailBody } from "@/components/integrations/shopify-order-detail";
 
 type ShopifyConnectionSummary = {
   id: string;
@@ -25,48 +24,28 @@ type ShopifyConnectionSummary = {
   shopName: string;
 };
 
-function normalizeShop(shop: string | undefined): string {
-  if (!shop) return "";
-  const s = shop.trim().toLowerCase();
-  return s.endsWith(".myshopify.com") ? s : `${s}.myshopify.com`;
-}
-
-function formatOrderDate(raw: string | undefined) {
-  if (!raw) return "—";
-  try {
-    const d = new Date(raw);
-    return isNaN(d.getTime()) ? raw : format(d, "PPp");
-  } catch {
-    return raw;
-  }
-}
-
-function addressLine(a: ShopifyOrder["shipping_address"]) {
-  if (!a) return "—";
-  const parts = [a.address1, a.city, a.province, a.country, a.zip].filter(Boolean);
-  return parts.length ? parts.join(", ") : "—";
-}
-
-function shopifyAdminOrderUrl(order: ShopifyOrder & { id: string }) {
-  const shop = order.shop?.trim();
-  if (!shop) return null;
-  return `https://${shop}/admin/orders/${order.id}`;
-}
-
-export default function ShopifyOrdersPage() {
+function ShopifyOrdersContent() {
   const searchParams = useSearchParams();
-  const shopParam = searchParams.get("shop")?.trim() || undefined;
+  const shopParam = searchParams.get("shop")?.trim() || "";
+  const connectionParam = searchParams.get("connectionId")?.trim() || "";
   const { user } = useAuth();
   const { toast } = useToast();
-  const [orders, setOrders] = useState<Array<ShopifyOrder & { id: string }>>([]);
+  const [orders, setOrders] = useState<ShopifyNormalizedOrder[]>([]);
   const [connections, setConnections] = useState<ShopifyConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [storeFilter, setStoreFilter] = useState<string>("all");
 
   useEffect(() => {
-    if (shopParam) setStoreFilter(normalizeShop(shopParam));
-  }, [shopParam]);
+    if (connectionParam) setStoreFilter(connectionParam);
+    else if (shopParam) setStoreFilter(shopParam);
+  }, [shopParam, connectionParam]);
+
+  const normalizeShop = (shop: string | undefined) => {
+    if (!shop) return "";
+    const s = shop.trim().toLowerCase();
+    return s.endsWith(".myshopify.com") ? s : `${s}.myshopify.com`;
+  };
 
   const fetchConnections = useCallback(async () => {
     if (!user) return;
@@ -89,15 +68,27 @@ export default function ShopifyOrdersPage() {
     setLoading(true);
     try {
       const token = await user.getIdToken();
-      const res = await fetch("/api/shopify/orders", {
+      const params = new URLSearchParams({ userId: user.uid, source: "live" });
+      if (storeFilter !== "all") {
+        if (storeFilter.includes(".myshopify.com")) params.set("shop", storeFilter);
+        else params.set("connectionId", storeFilter);
+      }
+      const res = await fetch(`/api/shopify/orders?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error((data.error as string) || "Failed to load orders");
+        throw new Error(
+          [data.error, data.reconnect ? "Reconnect Shopify from Integrations." : null]
+            .filter(Boolean)
+            .join(" — ") || "Failed to load orders"
+        );
       }
       const data = await res.json();
       setOrders(Array.isArray(data.orders) ? data.orders : []);
+      if (Array.isArray(data.connections) && data.connections.length) {
+        setConnections((prev) => (prev.length ? prev : data.connections));
+      }
     } catch (e) {
       toast({
         variant: "destructive",
@@ -108,39 +99,51 @@ export default function ShopifyOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [user, toast]);
+  }, [user, toast, storeFilter]);
 
   useEffect(() => {
     if (!user) return;
-    fetchConnections();
-    fetchOrders();
-  }, [user, fetchConnections, fetchOrders]);
+    void fetchConnections();
+  }, [user, fetchConnections]);
+
+  useEffect(() => {
+    if (!user) return;
+    void fetchOrders();
+  }, [user, fetchOrders]);
 
   const handleRefresh = async () => {
     if (!user) return;
     setRefreshing(true);
     await fetchOrders();
     setRefreshing(false);
-    toast({ title: "Orders refreshed", description: "Showing the latest synced orders from your store(s)." });
+    toast({
+      title: "Orders refreshed",
+      description: "Pulled full order details from your connected Shopify store(s).",
+    });
   };
 
   const storeOptions = useMemo(() => {
-    const fromOrders = new Set(orders.map((o) => normalizeShop(o.shop)).filter(Boolean));
-    const fromConnections = connections.map((c) => normalizeShop(c.shop)).filter(Boolean);
-    const all = new Set([...fromOrders, ...fromConnections]);
-    return Array.from(all).sort();
-  }, [orders, connections]);
+    const fromConnections = connections.map((c) => ({
+      key: c.id,
+      label: c.shopName || c.shop.replace(".myshopify.com", ""),
+    }));
+    return fromConnections;
+  }, [connections]);
 
   const filteredOrders = useMemo(() => {
     if (storeFilter === "all") return orders;
+    if (connections.some((c) => c.id === storeFilter)) {
+      return orders.filter((o) => o.connectionId === storeFilter);
+    }
     const target = normalizeShop(storeFilter);
     return orders.filter((o) => normalizeShop(o.shop) === target);
-  }, [orders, storeFilter]);
+  }, [orders, storeFilter, connections]);
 
   const selectedStoreLabel = useMemo(() => {
     if (storeFilter === "all") return "All stores";
-    const conn = connections.find((c) => normalizeShop(c.shop) === normalizeShop(storeFilter));
-    return conn?.shopName || storeFilter.replace(".myshopify.com", "");
+    const conn = connections.find((c) => c.id === storeFilter);
+    if (conn) return conn.shopName || conn.shop.replace(".myshopify.com", "");
+    return storeFilter.replace(".myshopify.com", "");
   }, [storeFilter, connections]);
 
   return (
@@ -154,8 +157,8 @@ export default function ShopifyOrdersPage() {
                 Shopify Orders
               </CardTitle>
               <CardDescription className="mt-1">
-                Orders from your connected Shopify store(s). New and updated orders sync automatically via
-                Shopify webhooks.
+                Full order details from your connected Shopify store(s) — line items, shipping address,
+                totals, and tracking. Click Refresh to pull the latest from Shopify.
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -166,16 +169,15 @@ export default function ShopifyOrdersPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All stores</SelectItem>
-                    {storeOptions.map((shop) => (
-                      <SelectItem key={shop} value={shop}>
-                        {connections.find((c) => normalizeShop(c.shop) === shop)?.shopName ||
-                          shop.replace(".myshopify.com", "")}
+                    {storeOptions.map((opt) => (
+                      <SelectItem key={opt.key} value={opt.key}>
+                        {opt.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               )}
-              <Button onClick={handleRefresh} disabled={refreshing || !user || loading} variant="outline">
+              <Button onClick={() => void handleRefresh()} disabled={refreshing || !user || loading} variant="outline">
                 {refreshing || loading ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : (
@@ -210,76 +212,42 @@ export default function ShopifyOrdersPage() {
             </div>
           ) : filteredOrders.length === 0 ? (
             <div className="rounded-lg border border-dashed bg-muted/30 p-8 text-center">
-              <p className="text-sm text-muted-foreground">No Shopify orders yet{storeFilter !== "all" ? " for this store" : ""}.</p>
+              <p className="text-sm text-muted-foreground">
+                No Shopify orders yet{storeFilter !== "all" ? " for this store" : ""}.
+              </p>
               <p className="text-xs text-muted-foreground mt-1">
-                When customers place orders on your Shopify store, they will appear here after webhook sync. Try
-                Refresh if you just placed a test order.
+                When customers place orders on your Shopify store, they will appear here after you refresh.
               </p>
             </div>
           ) : (
             <ul className="space-y-4">
-              {filteredOrders.map((order) => {
-                const adminUrl = shopifyAdminOrderUrl(order);
-                const customerLabel =
-                  order.email ||
-                  [order.customer?.first_name, order.customer?.last_name].filter(Boolean).join(" ") ||
-                  "—";
-                const fulfilled = order.fulfillment_status === "fulfilled";
-
-                return (
-                  <li key={`${order.shop}-${order.id}`} className="rounded-xl border bg-card p-4 shadow-sm">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-semibold">{order.name || `#${order.order_number}`}</p>
-                          {order.shop && (
-                            <Badge variant="outline" className="text-[10px] font-normal">
-                              {order.shop.replace(".myshopify.com", "")}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-0.5">
-                          Placed {formatOrderDate(order.created_at)}
-                        </p>
-                        <p className="text-sm text-muted-foreground">Customer: {customerLabel}</p>
-                        <p className="text-sm text-muted-foreground truncate" title={addressLine(order.shipping_address)}>
-                          Ship to: {addressLine(order.shipping_address)}
-                        </p>
-                        {(order.line_items ?? []).length > 0 && (
-                          <ul className="mt-2 space-y-1 text-sm border-t pt-2">
-                            {(order.line_items ?? []).map((li, i) => (
-                              <li key={li.id ?? i}>
-                                {li.title ?? "Item"}
-                                {li.sku ? ` · ${li.sku}` : ""} × {li.quantity ?? 1}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {order.note && (
-                          <p className="mt-2 text-xs text-muted-foreground italic">Note: {order.note}</p>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
-                        <Badge variant={fulfilled ? "default" : "secondary"} className="capitalize">
-                          {order.fulfillment_status || "unfulfilled"}
-                        </Badge>
-                        {adminUrl && (
-                          <Button size="sm" variant="outline" asChild>
-                            <a href={adminUrl} target="_blank" rel="noopener noreferrer">
-                              <ExternalLink className="h-4 w-4 mr-1" />
-                              View in Shopify
-                            </a>
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
+              {filteredOrders.map((order) => (
+                <li
+                  key={`${order.shop}-${order.id}`}
+                  className="rounded-xl border bg-card p-4 shadow-sm"
+                >
+                  <ShopifyOrderDetailBody order={order} />
+                </li>
+              ))}
             </ul>
           )}
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function ShopifyOrdersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center gap-2 text-muted-foreground p-6">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Loading…
+        </div>
+      }
+    >
+      <ShopifyOrdersContent />
+    </Suspense>
   );
 }

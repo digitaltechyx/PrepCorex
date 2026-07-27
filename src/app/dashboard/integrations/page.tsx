@@ -35,6 +35,11 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { PlatformBrandLogo } from "@/components/integrations/platform-brand-logo";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  canAccessIntegrationPlatform,
+  INTEGRATION_PLATFORMS,
+  type IntegrationPlatformId,
+} from "@/lib/integration-permissions";
 
 type ShopifySelectedVariant = { variantId: string; productId: string; title: string; sku?: string };
 
@@ -201,6 +206,11 @@ const PLATFORMS: PlatformDef[] = [
   },
 ];
 
+const LIVE_INTEGRATION_IDS = new Set(INTEGRATION_PLATFORMS.map((p) => p.id));
+
+function isLiveIntegrationPlatform(id: string): id is IntegrationPlatformId {
+  return LIVE_INTEGRATION_IDS.has(id as IntegrationPlatformId);
+}
 const CATEGORY_OPTIONS: { id: "all" | PlatformCategory; label: string }[] = [
   { id: "all", label: "All categories" },
   { id: "marketplace", label: "Marketplaces" },
@@ -228,7 +238,7 @@ function connectionCountFor(
 }
 
 export default function IntegrationsPage() {
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const { toast } = useToast();
   const [shopifyConnections, setShopifyConnections] = useState<ShopifyConnectionSummary[]>([]);
   const [ebayConnections, setEbayConnections] = useState<EbayConnectionSummary[]>([]);
@@ -336,9 +346,17 @@ export default function IntegrationsPage() {
     amazonConnections.length > 0,
   ].filter(Boolean).length;
 
+  const grantedPlatforms = useMemo(() => {
+    return PLATFORMS.filter((p) => {
+      if (p.status === "coming_soon") return false;
+      if (!isLiveIntegrationPlatform(p.id)) return false;
+      return canAccessIntegrationPlatform(userProfile, p.id);
+    });
+  }, [userProfile]);
+
   const visiblePlatforms = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return PLATFORMS.filter((p) => {
+    return grantedPlatforms.filter((p) => {
       if (categoryFilter !== "all" && p.category !== categoryFilter) return false;
       if (q && !`${p.name} ${p.description} ${p.categoryLabel}`.toLowerCase().includes(q)) return false;
       const n = connectionCountFor(
@@ -365,6 +383,8 @@ export default function IntegrationsPage() {
     woocommerceConnections,
     tiktokConnections,
     amazonConnections,
+    grantedPlatforms,
+    userProfile,
   ]);
 
   const handleConnectTikTok = () => {
@@ -865,7 +885,7 @@ export default function IntegrationsPage() {
                 <span className="sm:hidden">Catalog</span>
                 <span className="hidden sm:inline">Catalog size</span>
               </p>
-              <p className="text-xl font-bold tabular-nums sm:text-2xl">{PLATFORMS.length}</p>
+              <p className="text-xl font-bold tabular-nums sm:text-2xl">{grantedPlatforms.length}</p>
             </div>
           </div>
         </div>
@@ -941,6 +961,17 @@ export default function IntegrationsPage() {
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="text-sm">Loading your connections…</p>
         </div>
+      ) : grantedPlatforms.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+            <Plug className="h-10 w-10 text-muted-foreground/50" />
+            <p className="font-medium">No integrations enabled</p>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Your account does not have access to any integration platforms yet. Contact your admin to
+              enable Shopify, TikTok, or other channels.
+            </p>
+          </CardContent>
+        </Card>
       ) : visiblePlatforms.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center gap-2 py-16 text-center">

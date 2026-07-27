@@ -34,11 +34,16 @@ import { ProductReturnsManagement } from "@/components/admin/product-returns-man
 import { DisposeRequestsManagement } from "@/components/admin/dispose-requests-management";
 import { DeleteRequestsManagement } from "@/components/admin/delete-requests-management";
 import { QuarantineRequestsManagement } from "@/components/admin/quarantine-requests-management";
+import { DeleteRequestDialog } from "@/components/inventory/delete-request-dialog";
+import {
+  deleteRequestsPath,
+  pendingDeleteProductIds,
+} from "@/lib/delete-request-ops";
 import { InventoryTable } from "@/components/dashboard/inventory-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
-import type { InventoryItem, ShippedItem, UserProfile, RestockHistory, RecycledShippedItem, RecycledRestockHistory, RecycledInventoryItem, DeleteLog, EditLog, Location, InventoryTransfer } from "@/types";
+import type { InventoryItem, ShippedItem, UserProfile, RestockHistory, RecycledShippedItem, RecycledRestockHistory, RecycledInventoryItem, DeleteLog, DeleteRequest, EditLog, Location, InventoryTransfer } from "@/types";
 import { arrayToCSV, downloadCSV, formatDateForCSV, type InventoryCSVRow, type ShippedCSVRow } from "@/lib/csv-utils";
 import { useAuth } from "@/hooks/use-auth";
 import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
@@ -422,6 +427,7 @@ export function AdminInventoryManagement({
   const [deleteLogsDateFilter, setDeleteLogsDateFilter] = useState<string>("all");
   const [editLogsDateFilter, setEditLogsDateFilter] = useState<string>("all");
   const [recycleDateFilter, setRecycleDateFilter] = useState<string>("all");
+  const [deleteRequestDialogOpen, setDeleteRequestDialogOpen] = useState(false);
   
   // Pagination states
   const [inventoryPage, setInventoryPage] = useState(1);
@@ -459,6 +465,14 @@ export function AdminInventoryManagement({
   // Fetch delete logs
   const { data: deleteLogs, loading: deleteLogsLoading } = useCollection<DeleteLog>(
     selectedUser ? `users/${selectedUser.uid}/deleteLogs` : ""
+  );
+
+  const { data: deleteRequests } = useCollection<DeleteRequest>(
+    selectedUser ? deleteRequestsPath(selectedUser.uid) : ""
+  );
+  const pendingDeleteIds = useMemo(
+    () => pendingDeleteProductIds(deleteRequests),
+    [deleteRequests]
   );
 
   // Fetch edit logs
@@ -1841,7 +1855,7 @@ export function AdminInventoryManagement({
                 onClick={() => setActiveSection("add-inventory")}
                 className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
                   activeSection === "add-inventory"
-                    ? "border-indigo-500 bg-gradient-to-br from-indigo-50 to-indigo-100 shadow-lg scale-105 ring-2 ring-indigo-200"
+                    ? "border-indigo-500 bg-gradient-to-br from-indigo-50 to-indigo-100 shadow-lg ring-2 ring-indigo-200"
                     : "border-gray-200 bg-white hover:border-indigo-300 hover:shadow-md"
                 }`}
               >
@@ -1869,7 +1883,7 @@ export function AdminInventoryManagement({
                 onClick={() => setActiveSection("ship-inventory")}
                 className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
                   activeSection === "ship-inventory"
-                    ? "border-cyan-500 bg-gradient-to-br from-cyan-50 to-cyan-100 shadow-lg scale-105 ring-2 ring-cyan-200"
+                    ? "border-cyan-500 bg-gradient-to-br from-cyan-50 to-cyan-100 shadow-lg ring-2 ring-cyan-200"
                     : "border-gray-200 bg-white hover:border-cyan-300 hover:shadow-md"
                 }`}
               >
@@ -1897,7 +1911,7 @@ export function AdminInventoryManagement({
                 onClick={() => setActiveSection("move-inventory")}
                 className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
                   activeSection === "move-inventory"
-                    ? "border-emerald-500 bg-gradient-to-br from-emerald-50 to-emerald-100 shadow-lg scale-105 ring-2 ring-emerald-200"
+                    ? "border-emerald-500 bg-gradient-to-br from-emerald-50 to-emerald-100 shadow-lg ring-2 ring-emerald-200"
                     : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-md"
                 }`}
               >
@@ -1925,7 +1939,7 @@ export function AdminInventoryManagement({
                 onClick={() => setActiveSection("current-inventory")}
                 className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
                   activeSection === "current-inventory"
-                    ? "border-violet-500 bg-gradient-to-br from-violet-50 to-violet-100 shadow-lg scale-105 ring-2 ring-violet-200"
+                    ? "border-violet-500 bg-gradient-to-br from-violet-50 to-violet-100 shadow-lg ring-2 ring-violet-200"
                     : "border-gray-200 bg-white hover:border-violet-300 hover:shadow-md"
                 }`}
               >
@@ -1953,7 +1967,7 @@ export function AdminInventoryManagement({
                 onClick={() => setActiveSection("shipped-orders")}
                 className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
                   activeSection === "shipped-orders"
-                    ? "border-blue-500 bg-gradient-to-br from-blue-50 to-blue-100 shadow-lg scale-105 ring-2 ring-blue-200"
+                    ? "border-blue-500 bg-gradient-to-br from-blue-50 to-blue-100 shadow-lg ring-2 ring-blue-200"
                     : "border-gray-200 bg-white hover:border-blue-300 hover:shadow-md"
                 }`}
               >
@@ -1981,7 +1995,7 @@ export function AdminInventoryManagement({
                 onClick={() => setActiveSection("restock-history")}
                 className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
                   activeSection === "restock-history"
-                    ? "border-green-500 bg-gradient-to-br from-green-50 to-green-100 shadow-lg scale-105 ring-2 ring-green-200"
+                    ? "border-green-500 bg-gradient-to-br from-green-50 to-green-100 shadow-lg ring-2 ring-green-200"
                     : "border-gray-200 bg-white hover:border-green-300 hover:shadow-md"
                 }`}
               >
@@ -2009,7 +2023,7 @@ export function AdminInventoryManagement({
                 onClick={() => setActiveSection("recycle-bin")}
                 className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
                   activeSection === "recycle-bin"
-                    ? "border-orange-500 bg-gradient-to-br from-orange-50 to-orange-100 shadow-lg scale-105 ring-2 ring-orange-200"
+                    ? "border-orange-500 bg-gradient-to-br from-orange-50 to-orange-100 shadow-lg ring-2 ring-orange-200"
                     : "border-gray-200 bg-white hover:border-orange-300 hover:shadow-md"
                 }`}
               >
@@ -2037,7 +2051,7 @@ export function AdminInventoryManagement({
                 onClick={() => setActiveSection("edit-log")}
                 className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
                   activeSection === "edit-log"
-                    ? "border-pink-500 bg-gradient-to-br from-pink-50 to-pink-100 shadow-lg scale-105 ring-2 ring-pink-200"
+                    ? "border-pink-500 bg-gradient-to-br from-pink-50 to-pink-100 shadow-lg ring-2 ring-pink-200"
                     : "border-gray-200 bg-white hover:border-pink-300 hover:shadow-md"
                 }`}
               >
@@ -2065,7 +2079,7 @@ export function AdminInventoryManagement({
                 onClick={() => setActiveSection("delete-log")}
                 className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
                   activeSection === "delete-log"
-                    ? "border-red-500 bg-gradient-to-br from-red-50 to-red-100 shadow-lg scale-105 ring-2 ring-red-200"
+                    ? "border-red-500 bg-gradient-to-br from-red-50 to-red-100 shadow-lg ring-2 ring-red-200"
                     : "border-gray-200 bg-white hover:border-red-300 hover:shadow-md"
                 }`}
               >
@@ -2093,7 +2107,7 @@ export function AdminInventoryManagement({
                 onClick={() => setActiveSection("user-requests")}
                 className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
                   activeSection === "user-requests"
-                    ? "border-amber-500 bg-gradient-to-br from-amber-50 to-amber-100 shadow-lg scale-105 ring-2 ring-amber-200"
+                    ? "border-amber-500 bg-gradient-to-br from-amber-50 to-amber-100 shadow-lg ring-2 ring-amber-200"
                     : "border-gray-200 bg-white hover:border-amber-300 hover:shadow-md"
                 }`}
               >
@@ -2110,7 +2124,7 @@ export function AdminInventoryManagement({
                       User Requests
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      Shipment · Inventory · Return · Dispose · Delete
+                      Shipment · Inventory · Return · Dispose · Delete · Quarantine
                     </p>
                   </div>
                 </div>
@@ -2126,7 +2140,8 @@ export function AdminInventoryManagement({
           <CardHeader>
             <CardTitle>User Requests — {selectedUser.name}</CardTitle>
             <CardDescription>
-              Process this user&apos;s shipment, inventory, return, dispose, and delete requests. Each tab shows only this user&apos;s requests.
+              Process this user&apos;s shipment, inventory, return, dispose, delete, and quarantine
+              requests. Each tab shows only this user&apos;s requests.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -3102,43 +3117,61 @@ export function AdminInventoryManagement({
 
       {/* Deleted Logs Section */}
       {activeSection === "delete-log" && (
-      <Card>
+      <Card className="relative z-10">
         <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <CardTitle className="text-red-600">Deleted Logs ({filteredDeleteLogs.length})</CardTitle>
-              <CardDescription>View permanently deleted products for {selectedUser.name}</CardDescription>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div>
+                <CardTitle className="text-red-600">Deleted Logs ({filteredDeleteLogs.length})</CardTitle>
+                <CardDescription>
+                  View permanently deleted products for {selectedUser.name}. Submit a delete request
+                  on their behalf from here or under User Requests → Delete.
+                </CardDescription>
+              </div>
+              <Button
+                className="shrink-0"
+                onClick={() => setDeleteRequestDialogOpen(true)}
+                disabled={!selectedUser || inventory.length === 0}
+              >
+                <Plus className="mr-1 h-4 w-4" />
+                Submit for user
+              </Button>
             </div>
-            <div className="sm:w-48">
-              <Select value={deleteLogsDateFilter} onValueChange={(value) => {
-                setDeleteLogsDateFilter(value);
-                resetDeleteLogsPagination();
-              }}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Filter by date" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Time</SelectItem>
-                  <SelectItem value="today">Today</SelectItem>
-                  <SelectItem value="week">This Week</SelectItem>
-                  <SelectItem value="month">This Month</SelectItem>
-                  <SelectItem value="year">This Year</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="w-full sm:w-[260px]">
-              <DateRangePicker
-                fromDate={deleteLogsFromDate}
-                toDate={deleteLogsToDate}
-                setFromDate={(d) => {
-                  setDeleteLogsFromDate(d);
-                  resetDeleteLogsPagination();
-                }}
-                setToDate={(d) => {
-                  setDeleteLogsToDate(d);
-                  resetDeleteLogsPagination();
-                }}
-              />
+            <div className="flex flex-col sm:flex-row gap-3 relative z-20">
+              <div className="sm:w-48">
+                <Select
+                  value={deleteLogsDateFilter}
+                  onValueChange={(value) => {
+                    setDeleteLogsDateFilter(value);
+                    resetDeleteLogsPagination();
+                  }}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue placeholder="Filter by date" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[100]">
+                    <SelectItem value="all">All Time</SelectItem>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="week">This Week</SelectItem>
+                    <SelectItem value="month">This Month</SelectItem>
+                    <SelectItem value="year">This Year</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full sm:w-[260px]">
+                <DateRangePicker
+                  fromDate={deleteLogsFromDate}
+                  toDate={deleteLogsToDate}
+                  setFromDate={(d) => {
+                    setDeleteLogsFromDate(d);
+                    resetDeleteLogsPagination();
+                  }}
+                  setToDate={(d) => {
+                    setDeleteLogsToDate(d);
+                    resetDeleteLogsPagination();
+                  }}
+                />
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -3253,6 +3286,20 @@ export function AdminInventoryManagement({
         </CardContent>
       </Card>
       )}
+
+      {selectedUser && adminUser ? (
+        <DeleteRequestDialog
+          open={deleteRequestDialogOpen}
+          onOpenChange={setDeleteRequestDialogOpen}
+          userId={selectedUser.uid}
+          inventory={inventory}
+          submitterUid={adminUser.uid}
+          submitterName={adminUser.name || "Admin"}
+          onBehalf
+          ownerName={selectedUser.name || undefined}
+          pendingProductIds={pendingDeleteIds}
+        />
+      ) : null}
 
       {/* Modification Logs Section */}
       {activeSection === "edit-log" && (

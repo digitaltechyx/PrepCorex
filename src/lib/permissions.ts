@@ -1,4 +1,5 @@
 import type { UserProfile, UserRole, UserFeature } from "@/types";
+import { canAccessIntegrationPath } from "@/lib/integration-permissions";
 import { getRequiredFeatureForPath } from "@/lib/dashboard-routes";
 
 /**
@@ -232,9 +233,15 @@ export function canAccessDashboardPath(
 ): boolean {
   if (!userProfile) return false;
   const path = (pathname ?? "").replace(/\/$/, "") || "/";
+  if (hasRole(userProfile, "admin")) return true;
+
+  const integrationAccess = canAccessIntegrationPath(userProfile, path);
+  if (integrationAccess !== null) {
+    return integrationAccess;
+  }
+
   const required = getRequiredFeatureForPath(path);
   if (!required) return true;
-  if (hasRole(userProfile, "admin")) return true;
   if (required === "affiliate_dashboard") return hasFeature(userProfile, "affiliate_dashboard");
   return hasFeature(userProfile, required);
 }

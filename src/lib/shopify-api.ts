@@ -4,7 +4,7 @@
  */
 export const SHOPIFY_API_VERSION =
   (typeof process.env.SHOPIFY_API_VERSION === "string" && process.env.SHOPIFY_API_VERSION.trim()) ||
-  "2026-04";
+  "2026-07";
 
 export function shopifyAdminRestUrl(shop: string, path: string): string {
   const shopNorm = shop.includes(".myshopify.com") ? shop : `${shop}.myshopify.com`;
