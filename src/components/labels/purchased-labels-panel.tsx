@@ -155,49 +155,69 @@ export function PurchasedLabelsPanel({
   const safeLabels = labels || [];
 
   const filteredLabels = useMemo(() => {
-    if (!startDate && !endDate) return safeLabels;
-
-    return safeLabels.filter((label) => {
-      if (!label.createdAt) return false;
-
-      let labelDate: Date;
+    const getCreatedAtMs = (label: LabelPurchase): number => {
+      if (!label.createdAt) return 0;
       try {
         if (typeof label.createdAt === "string") {
-          labelDate = new Date(label.createdAt);
-        } else if (label.createdAt && typeof label.createdAt === "object" && "seconds" in label.createdAt) {
-          labelDate = new Date((label.createdAt as { seconds: number }).seconds * 1000);
-        } else {
-          return false;
+          const ms = new Date(label.createdAt).getTime();
+          return Number.isFinite(ms) ? ms : 0;
+        }
+        if (typeof label.createdAt === "object" && "seconds" in label.createdAt) {
+          return (label.createdAt as { seconds: number }).seconds * 1000;
         }
       } catch {
-        return false;
+        return 0;
       }
+      return 0;
+    };
 
-      const labelDateOnly = new Date(
-        labelDate.getFullYear(),
-        labelDate.getMonth(),
-        labelDate.getDate()
-      );
+    let list = safeLabels;
 
-      if (startDate && endDate) {
-        const fromDate = new Date(startDate);
-        const toDate = new Date(endDate);
-        const fromDateOnly = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
-        const toDateOnly = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
-        return labelDateOnly >= fromDateOnly && labelDateOnly <= toDateOnly;
-      }
-      if (startDate) {
-        const fromDate = new Date(startDate);
-        const fromDateOnly = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
-        return labelDateOnly >= fromDateOnly;
-      }
-      if (endDate) {
-        const toDate = new Date(endDate);
-        const toDateOnly = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
-        return labelDateOnly <= toDateOnly;
-      }
-      return true;
-    });
+    if (startDate || endDate) {
+      list = safeLabels.filter((label) => {
+        if (!label.createdAt) return false;
+
+        let labelDate: Date;
+        try {
+          if (typeof label.createdAt === "string") {
+            labelDate = new Date(label.createdAt);
+          } else if (label.createdAt && typeof label.createdAt === "object" && "seconds" in label.createdAt) {
+            labelDate = new Date((label.createdAt as { seconds: number }).seconds * 1000);
+          } else {
+            return false;
+          }
+        } catch {
+          return false;
+        }
+
+        const labelDateOnly = new Date(
+          labelDate.getFullYear(),
+          labelDate.getMonth(),
+          labelDate.getDate()
+        );
+
+        if (startDate && endDate) {
+          const fromDate = new Date(startDate);
+          const toDate = new Date(endDate);
+          const fromDateOnly = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+          const toDateOnly = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
+          return labelDateOnly >= fromDateOnly && labelDateOnly <= toDateOnly;
+        }
+        if (startDate) {
+          const fromDate = new Date(startDate);
+          const fromDateOnly = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+          return labelDateOnly >= fromDateOnly;
+        }
+        if (endDate) {
+          const toDate = new Date(endDate);
+          const toDateOnly = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
+          return labelDateOnly <= toDateOnly;
+        }
+        return true;
+      });
+    }
+
+    return [...list].sort((a, b) => getCreatedAtMs(b) - getCreatedAtMs(a));
   }, [safeLabels, startDate, endDate]);
 
   if (!userId) {

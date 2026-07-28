@@ -324,11 +324,6 @@ export function validateBuyLabelsBulkRows(
       return;
     }
 
-    if (!isValidBuyLabelsPhone(toAddress.phone)) {
-      errors.push({ rowNumber, message: "To Phone is required (include country code if outside the US)." });
-      return;
-    }
-
     const length = parsePositiveNumber(row.Length);
     const width = parsePositiveNumber(row.Width);
     const height = parsePositiveNumber(row.Height);

@@ -104,7 +104,7 @@ const CANADIAN_PROVINCES = [
   { value: "YT", label: "Yukon" },
 ];
 
-const addressSchema = z.object({
+const addressBaseSchema = z.object({
   name: z.string().min(1, "Name is required"),
   street1: z.string().min(1, "Street address is required"),
   street2: z.string().optional(),
@@ -112,11 +112,18 @@ const addressSchema = z.object({
   state: z.string().min(1, "State is required"),
   zip: z.string().min(5, "ZIP code is required"),
   country: z.string().min(1, "Country is required"),
+  email: z.string().email("Invalid email").optional().or(z.literal("")),
+});
+
+const fromAddressSchema = addressBaseSchema.extend({
   phone: z
     .string()
     .trim()
     .min(5, "Phone number is required (include country code if outside the US)"),
-  email: z.string().email("Invalid email").optional().or(z.literal("")),
+});
+
+const toAddressSchema = addressBaseSchema.extend({
+  phone: z.string().trim().optional().or(z.literal("")),
 });
 
 const parcelSchema = z.object({
@@ -136,8 +143,8 @@ const parcelSchema = z.object({
 });
 
 const formSchema = z.object({
-  fromAddress: addressSchema,
-  toAddress: addressSchema,
+  fromAddress: fromAddressSchema,
+  toAddress: toAddressSchema,
   parcel: parcelSchema,
 });
 
@@ -900,9 +907,9 @@ export function BuyLabelsForm({
                     name="toAddress.phone"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Phone *</FormLabel>
+                        <FormLabel>Phone</FormLabel>
                         <FormControl>
-                          <Input placeholder="+1 555 123 4567 or your country format" {...field} />
+                          <Input placeholder="+1 555 123 4567 or your country format (optional)" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
