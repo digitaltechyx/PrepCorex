@@ -217,7 +217,14 @@ const DEFAULT_PARCEL: FormValues["parcel"] = {
   distanceUnit: "in",
 };
 
-export function BuyLabelsForm() {
+type BuyLabelsFormProps = {
+  /** Where to send the user after a successful purchase. Defaults to client purchased-labels page. */
+  successRedirect?: string;
+};
+
+export function BuyLabelsForm({
+  successRedirect = "/dashboard/purchased-labels",
+}: BuyLabelsFormProps = {}) {
   const { userProfile, user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
@@ -579,7 +586,7 @@ export function BuyLabelsForm() {
     setCheckoutMode(null);
     
     // Redirect to purchased labels page
-    router.push("/dashboard/purchased-labels");
+    router.push(successRedirect);
   };
 
   return (
