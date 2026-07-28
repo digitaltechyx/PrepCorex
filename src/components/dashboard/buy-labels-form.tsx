@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +21,7 @@ import {
   BuyLabelsBulkImportDialog,
   type BuyLabelCartImportItem,
 } from "@/components/dashboard/buy-labels-bulk-import-dialog";
-import { BUY_LABELS_FROM_NAME } from "@/lib/buy-labels-bulk-import";
+import { BUY_LABELS_FROM_NAME, BUY_LABELS_DEFAULT_FROM_PHONE } from "@/lib/buy-labels-bulk-import";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import { getStripePublishableKey } from "@/lib/stripe";
@@ -111,7 +112,10 @@ const addressSchema = z.object({
   state: z.string().min(1, "State is required"),
   zip: z.string().min(5, "ZIP code is required"),
   country: z.string().min(1, "Country is required"),
-  phone: z.string().optional(),
+  phone: z
+    .string()
+    .trim()
+    .min(5, "Phone number is required (include country code if outside the US)"),
   email: z.string().email("Invalid email").optional().or(z.literal("")),
 });
 
@@ -208,6 +212,8 @@ const EMPTY_TO_ADDRESS: FormValues["toAddress"] = {
   email: "",
 };
 
+const DEFAULT_FROM_PHONE = BUY_LABELS_DEFAULT_FROM_PHONE;
+
 const DEFAULT_PARCEL: FormValues["parcel"] = {
   length: 15,
   width: 4,
@@ -220,10 +226,16 @@ const DEFAULT_PARCEL: FormValues["parcel"] = {
 type BuyLabelsFormProps = {
   /** Where to send the user after a successful purchase. Defaults to client purchased-labels page. */
   successRedirect?: string;
+  /** Pre-fill ship-to address (e.g. from a Shopify order). */
+  initialToAddress?: ShippingAddress | null;
+  /** Short banner shown when the form was opened with pre-filled order data. */
+  shopifyPrefillBanner?: string | null;
 };
 
 export function BuyLabelsForm({
   successRedirect = "/dashboard/purchased-labels",
+  initialToAddress = null,
+  shopifyPrefillBanner = null,
 }: BuyLabelsFormProps = {}) {
   const { userProfile, user } = useAuth();
   const { toast } = useToast();
@@ -245,6 +257,7 @@ export function BuyLabelsForm({
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [labelProvider, setLabelProvider] = useState<LabelProvider>("shippo");
   const canImportBuyLabels = canUseCsvImport(userProfile, "buy_labels");
+  const appliedInitialToRef = useRef(false);
 
   const assignedLocationIds = userProfile?.locations ?? [];
   const activeLocations = locationDocs.filter((loc) => loc.active !== false);
@@ -266,7 +279,7 @@ export function BuyLabelsForm({
     defaultValues: {
       fromAddress: {
         name: "",
-        phone: "",
+        phone: DEFAULT_FROM_PHONE,
         street1: "",
         street2: "",
         country: "US",
@@ -285,7 +298,7 @@ export function BuyLabelsForm({
   const buildFromAddressForLocation = (location: LocationDoc) =>
     locationToFromShippingAddress(location, {
       shipperName: defaultFromName,
-      phone: userProfile?.phone || "",
+      phone: DEFAULT_FROM_PHONE,
       email: userProfile?.email || "",
     });
 
@@ -322,6 +335,26 @@ export function BuyLabelsForm({
     if (!selectedFromLocation) return;
     applyFromAddressFromLocation(selectedFromLocation);
   }, [selectedFromLocationId, selectedFromLocation?.id]);
+
+  useEffect(() => {
+    if (!initialToAddress || appliedInitialToRef.current) return;
+    appliedInitialToRef.current = true;
+    form.setValue(
+      "toAddress",
+      {
+        name: initialToAddress.name,
+        street1: initialToAddress.street1,
+        street2: initialToAddress.street2 || "",
+        city: initialToAddress.city,
+        state: initialToAddress.state,
+        zip: initialToAddress.zip,
+        country: initialToAddress.country,
+        phone: initialToAddress.phone || "",
+        email: initialToAddress.email || "",
+      },
+      { shouldDirty: true, shouldValidate: false }
+    );
+  }, [initialToAddress, form]);
 
   const fromAddressLocked = Boolean(selectedFromLocation);
 
@@ -591,6 +624,16 @@ export function BuyLabelsForm({
 
   return (
     <div className="space-y-6">
+      {shopifyPrefillBanner ? (
+        <Alert>
+          <Package className="h-4 w-4" />
+          <AlertTitle>Pre-filled from Shopify order</AlertTitle>
+          <AlertDescription>
+            {shopifyPrefillBanner}. From and ship-to addresses are filled in — add package dimensions,
+            get rates, and purchase.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {stripePromise && clientSecret && (
         <Elements stripe={stripePromise}>
           <PaymentDialog
@@ -609,7 +652,7 @@ export function BuyLabelsForm({
           onOpenChange={setBulkImportOpen}
           locationOptions={locationOptions}
           defaultFromName={defaultFromName}
-          defaultFromPhone={userProfile?.phone || ""}
+          defaultFromPhone={DEFAULT_FROM_PHONE}
           onAddToCart={handleBulkImportAddToCart}
         />
       ) : null}
@@ -713,9 +756,9 @@ export function BuyLabelsForm({
                     name="fromAddress.phone"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Phone</FormLabel>
+                        <FormLabel>Phone *</FormLabel>
                         <FormControl>
-                          <Input placeholder="+1 (555) 123-4567" {...field} />
+                          <Input placeholder="+1 347 661 3010 or your country format" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -857,9 +900,9 @@ export function BuyLabelsForm({
                     name="toAddress.phone"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Phone</FormLabel>
+                        <FormLabel>Phone *</FormLabel>
                         <FormControl>
-                          <Input placeholder="+1 (555) 987-6543" {...field} />
+                          <Input placeholder="+1 555 123 4567 or your country format" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

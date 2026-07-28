@@ -7,6 +7,11 @@ import { AdminPurchasedLabelsSection } from "@/components/admin/admin-purchased-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Package, Tag } from "lucide-react";
+import {
+  clearBuyLabelPrefillFromSession,
+  loadBuyLabelPrefillFromSession,
+  type BuyLabelShopifyPrefill,
+} from "@/lib/shopify-order-buy-label-prefill";
 
 type LabelsTab = "buy" | "purchased";
 
@@ -14,18 +19,37 @@ export default function AdminBuyLabelsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
+  const fromShopify = searchParams.get("from") === "shopify";
   const [activeTab, setActiveTab] = useState<LabelsTab>(
     tabParam === "purchased" ? "purchased" : "buy"
   );
+  const [shopifyPrefill, setShopifyPrefill] = useState<BuyLabelShopifyPrefill | null>(null);
 
   useEffect(() => {
     setActiveTab(tabParam === "purchased" ? "purchased" : "buy");
   }, [tabParam]);
 
+  useEffect(() => {
+    if (!fromShopify) {
+      setShopifyPrefill(null);
+      return;
+    }
+    const prefill = loadBuyLabelPrefillFromSession();
+    if (prefill) {
+      setShopifyPrefill(prefill);
+      clearBuyLabelPrefillFromSession();
+    }
+  }, [fromShopify]);
+
   const handleTabChange = (value: string) => {
     const tab = value as LabelsTab;
     setActiveTab(tab);
-    const url = tab === "purchased" ? "/admin/dashboard/buy-labels?tab=purchased" : "/admin/dashboard/buy-labels";
+    const url =
+      tab === "purchased"
+        ? "/admin/dashboard/buy-labels?tab=purchased"
+        : fromShopify
+          ? "/admin/dashboard/buy-labels?from=shopify"
+          : "/admin/dashboard/buy-labels";
     router.replace(url, { scroll: false });
   };
 
@@ -69,7 +93,15 @@ export default function AdminBuyLabelsPageContent() {
               </div>
             </CardHeader>
             <CardContent className="p-6">
-              <BuyLabelsForm successRedirect="/admin/dashboard/buy-labels?tab=purchased" />
+              <BuyLabelsForm
+                successRedirect="/admin/dashboard/buy-labels?tab=purchased"
+                initialToAddress={shopifyPrefill?.toAddress ?? null}
+                shopifyPrefillBanner={
+                  shopifyPrefill
+                    ? `${shopifyPrefill.orderName} · ${shopifyPrefill.ownerName}`
+                    : null
+                }
+              />
             </CardContent>
           </Card>
         </TabsContent>

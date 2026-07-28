@@ -1,21 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Package } from "lucide-react";
+import { Check, Package, Search } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
 import { PurchasedLabelsPanel } from "@/components/labels/purchased-labels-panel";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatUserDisplayName } from "@/lib/format-user-display";
@@ -28,7 +19,7 @@ export function AdminPurchasedLabelsSection() {
   const { managedUsers, loading: usersLoading } = useManagedUsers();
   const [viewMode, setViewMode] = useState<ViewMode>("mine");
   const [selectedUserId, setSelectedUserId] = useState("");
-  const [userPickerOpen, setUserPickerOpen] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
 
   const approvedUsers = useMemo(
     () =>
@@ -41,6 +32,17 @@ export function AdminPurchasedLabelsSection() {
         ),
     [managedUsers]
   );
+
+  const filteredUsers = useMemo(() => {
+    const q = clientSearch.trim().toLowerCase();
+    if (!q) return approvedUsers;
+    return approvedUsers.filter(
+      (user) =>
+        formatUserDisplayName(user, { showEmail: true }).toLowerCase().includes(q) ||
+        (user.email ?? "").toLowerCase().includes(q) ||
+        (user.clientId ?? "").toLowerCase().includes(q)
+    );
+  }, [approvedUsers, clientSearch]);
 
   const selectedUser = approvedUsers.find((u) => u.uid === selectedUserId) || null;
   const activeUserId = viewMode === "mine" ? userProfile?.uid : selectedUser?.uid;
@@ -64,55 +66,61 @@ export function AdminPurchasedLabelsSection() {
           </Tabs>
 
           {viewMode === "client" && (
-            <Popover open={userPickerOpen} onOpenChange={setUserPickerOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={userPickerOpen}
-                  className="w-full justify-between sm:max-w-md"
+            <div className="space-y-3 sm:max-w-md">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search clients…"
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  className="pl-9"
                   disabled={usersLoading}
-                >
-                  {selectedUser
-                    ? formatUserDisplayName(selectedUser, { showEmail: true })
-                    : "Select client…"}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[min(100vw-2rem,28rem)] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search clients…" />
-                  <CommandList>
-                    <CommandEmpty>No client found.</CommandEmpty>
-                    <CommandGroup>
-                      {approvedUsers.map((user) => (
-                        <CommandItem
-                          key={user.uid}
-                          value={`${formatUserDisplayName(user, { showEmail: true })} ${user.uid}`}
-                          onSelect={() => {
-                            setSelectedUserId(user.uid);
-                            setUserPickerOpen(false);
-                          }}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              selectedUserId === user.uid ? "opacity-100" : "opacity-0"
-                            )}
-                          />
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">
-                              {formatUserDisplayName(user, { showEmail: false })}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-                          </div>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+                />
+              </div>
+              <div className="max-h-64 overflow-y-auto rounded-md border bg-background">
+                {usersLoading ? (
+                  <p className="px-3 py-4 text-sm text-muted-foreground">Loading clients…</p>
+                ) : filteredUsers.length === 0 ? (
+                  <p className="px-3 py-4 text-sm text-muted-foreground">No client found.</p>
+                ) : (
+                  filteredUsers.map((user) => {
+                    const isSelected = selectedUserId === user.uid;
+                    return (
+                      <button
+                        key={user.uid}
+                        type="button"
+                        onClick={() => setSelectedUserId(user.uid)}
+                        className={cn(
+                          "flex w-full items-start gap-2 border-b px-3 py-2.5 text-left text-sm transition-colors last:border-b-0 hover:bg-accent",
+                          isSelected && "bg-accent"
+                        )}
+                      >
+                        <Check
+                          className={cn(
+                            "mt-0.5 h-4 w-4 shrink-0",
+                            isSelected ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">
+                            {formatUserDisplayName(user, { showEmail: false })}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              {selectedUser ? (
+                <p className="text-xs text-muted-foreground">
+                  Showing labels for{" "}
+                  <span className="font-medium text-foreground">
+                    {formatUserDisplayName(selectedUser, { showEmail: true })}
+                  </span>
+                </p>
+              ) : null}
+            </div>
           )}
         </CardContent>
       </Card>

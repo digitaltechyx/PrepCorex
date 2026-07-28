@@ -34,6 +34,8 @@ import {
 } from "@/components/ui/dialog";
 import { ShopifyOrderDetailBody } from "@/components/integrations/shopify-order-detail";
 import { ShopifyCreateLabelDialog } from "@/components/admin/shopify-create-label-dialog";
+import { ShopifyLabelSourceDialog } from "@/components/admin/shopify-label-source-dialog";
+import { saveBuyLabelPrefillFromShopifyOrder } from "@/lib/shopify-order-buy-label-prefill";
 import {
   ChevronsUpDown,
   Eye,
@@ -110,7 +112,8 @@ export function ShopifyOrdersPanel() {
   const [notifyCustomer, setNotifyCustomer] = useState(true);
   const [fulfilling, setFulfilling] = useState(false);
 
-  const [labelDialogOpen, setLabelDialogOpen] = useState(false);
+  const [labelSourceDialogOpen, setLabelSourceDialogOpen] = useState(false);
+  const [shopifyLabelDialogOpen, setShopifyLabelDialogOpen] = useState(false);
   const [labelOrder, setLabelOrder] = useState<AdminShopifyOrder | null>(null);
 
   const selectableUsers = useMemo(
@@ -326,6 +329,30 @@ export function ShopifyOrdersPanel() {
     setTrackingCompany(order.trackingCompanies[0] || "");
     setNotifyCustomer(true);
     setFulfillDialogOpen(true);
+  };
+
+  const openLabelFlow = (order: AdminShopifyOrder) => {
+    setLabelOrder(order);
+    setLabelSourceDialogOpen(true);
+  };
+
+  const handleChooseShopifyLabel = () => {
+    setLabelSourceDialogOpen(false);
+    setShopifyLabelDialogOpen(true);
+  };
+
+  const handleChoosePrepCorexLabel = () => {
+    if (!labelOrder) return;
+    const saved = saveBuyLabelPrefillFromShopifyOrder(labelOrder);
+    setLabelSourceDialogOpen(false);
+    if (!saved) {
+      toast({
+        variant: "destructive",
+        title: "Missing shipping address",
+        description: "This order has no shipping address to pre-fill. Add the address manually on Buy Labels.",
+      });
+    }
+    router.push("/admin/dashboard/buy-labels?from=shopify");
   };
 
   const submitFulfill = async () => {
@@ -664,10 +691,7 @@ export function ShopifyOrdersPanel() {
                                 variant="outline"
                                 size="sm"
                                 className="h-8"
-                                onClick={() => {
-                                  setLabelOrder(order);
-                                  setLabelDialogOpen(true);
-                                }}
+                                onClick={() => openLabelFlow(order)}
                               >
                                 <Tag className="mr-1.5 h-3.5 w-3.5" />
                                 Label
@@ -705,14 +729,7 @@ export function ShopifyOrdersPanel() {
                       <Truck className="h-4 w-4 mr-1" />
                       Mark fulfilled
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setLabelOrder(detailsOrder);
-                        setLabelDialogOpen(true);
-                      }}
-                    >
+                    <Button size="sm" variant="outline" onClick={() => openLabelFlow(detailsOrder)}>
                       <Tag className="h-4 w-4 mr-1" />
                       Create label
                     </Button>
@@ -767,10 +784,18 @@ export function ShopifyOrdersPanel() {
         </DialogContent>
       </Dialog>
 
+      <ShopifyLabelSourceDialog
+        open={labelSourceDialogOpen}
+        onOpenChange={setLabelSourceDialogOpen}
+        order={labelOrder}
+        onChooseShopify={handleChooseShopifyLabel}
+        onChoosePrepCorex={handleChoosePrepCorexLabel}
+      />
+
       {labelOrder ? (
         <ShopifyCreateLabelDialog
-          open={labelDialogOpen}
-          onOpenChange={setLabelDialogOpen}
+          open={shopifyLabelDialogOpen}
+          onOpenChange={setShopifyLabelDialogOpen}
           order={labelOrder}
           userId={labelOrder.ownerUserId}
           getAuthToken={() => user!.getIdToken()}

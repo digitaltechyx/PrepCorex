@@ -94,10 +94,10 @@ function getStatusDetail(label: LabelPurchase): {
   if (status === "label_failed") {
     return {
       tone: "error",
-      title: "Issue on our side",
+      title: "Label not created",
       message:
         sanitizedError ||
-        "We ran into an issue generating this label. Please try again in a moment or contact support.",
+        "Payment went through but the carrier could not generate the label. Check phone numbers and addresses, then buy again or contact support for a refund.",
     };
   }
 

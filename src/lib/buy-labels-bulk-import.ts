@@ -10,6 +10,14 @@ import type { ParcelDetails, ShippingAddress, ShippingRate } from "@/types";
 /** Fixed shipper name on Buy Labels from address (warehouse sender). */
 export const BUY_LABELS_FROM_NAME = "Prep Services FBA";
 
+/** Default warehouse phone for Buy Labels from address. */
+export const BUY_LABELS_DEFAULT_FROM_PHONE = "+1 347 661 3010";
+
+/** Minimum trimmed length — accepts international formats as entered by the user. */
+export function isValidBuyLabelsPhone(phone: string | undefined | null): boolean {
+  return (phone ?? "").trim().length >= 5;
+}
+
 /** CSV columns mirror the Buy Labels form field labels (no extra metadata columns). */
 export const BUY_LABELS_BULK_CSV_HEADERS = [
   "From Name",
@@ -99,11 +107,11 @@ function escapeCsvCell(v: string): string {
 export function locationToFromAddress(
   location: BuyLabelLocationInput,
   fromName: string,
-  fromPhone = ""
+  fromPhone = BUY_LABELS_DEFAULT_FROM_PHONE
 ): ShippingAddress {
   return locationToFromShippingAddress(location, {
     shipperName: fromName.trim() || BUY_LABELS_FROM_NAME,
-    phone: fromPhone,
+    phone: fromPhone.trim() || BUY_LABELS_DEFAULT_FROM_PHONE,
   });
 }
 
@@ -281,11 +289,17 @@ export function validateBuyLabelsBulkRows(
       return;
     }
 
+    const fromPhone = row["From Phone"].trim() || options.defaultFromPhone || BUY_LABELS_DEFAULT_FROM_PHONE;
     const canonicalFrom = locationToFromAddress(
       matchedLocation,
       BUY_LABELS_FROM_NAME,
-      row["From Phone"].trim() || options.defaultFromPhone
+      fromPhone
     );
+
+    if (!isValidBuyLabelsPhone(canonicalFrom.phone)) {
+      errors.push({ rowNumber, message: "From Phone is required (include country code if outside the US)." });
+      return;
+    }
 
     if (row["From Name"].trim() && row["From Name"].trim() !== BUY_LABELS_FROM_NAME) {
       warnings.push({
@@ -307,6 +321,11 @@ export function validateBuyLabelsBulkRows(
         rowNumber,
         message: "To address is incomplete (Name, Street Address, City, State, ZIP Code required).",
       });
+      return;
+    }
+
+    if (!isValidBuyLabelsPhone(toAddress.phone)) {
+      errors.push({ rowNumber, message: "To Phone is required (include country code if outside the US)." });
       return;
     }
 
@@ -379,7 +398,7 @@ export function downloadBuyLabelsBulkTemplate(
   const from = locationToFromAddress(
     location,
     options?.fromName?.trim() || BUY_LABELS_FROM_NAME,
-    options?.fromPhone?.trim() || ""
+    options?.fromPhone?.trim() || BUY_LABELS_DEFAULT_FROM_PHONE
   );
   const sampleCount = Math.max(1, options?.sampleRows ?? 5);
 
