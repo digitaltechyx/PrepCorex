@@ -12,6 +12,12 @@ import {
 import { recordInboundReceiveBatch } from "@/lib/warehouse-inbound-receive";
 import { applyPutawayAssignments } from "@/lib/warehouse-putaway";
 import {
+  findBinByPath,
+  inspectBinContents,
+  validateLineToArea,
+  validateLineToBin,
+} from "@/lib/warehouse-putaway";
+import {
   fallbackAreas,
   listWarehouseAreas,
 } from "@/lib/warehouse-putaway-disposition";
@@ -57,6 +63,8 @@ export type AdminInboundCompleteInput = {
   warehouseId: string;
   /** Area code for putaway (e.g. storage zone). Required when not using a bin. */
   stagingArea?: string | null;
+  /** Searchable bin destination; area is used only when the zone has no bins. */
+  binPath?: string | null;
   quantity?: number;
   unitType?: "loose" | "carton" | "pallet";
   packageCount?: number;
@@ -76,6 +84,7 @@ export type AdminInboundCompleteResult = {
   palletCode: string | null;
   quantityReceived: number;
   stagingArea: string;
+  putawayDestination: string;
   cartons: WarehouseCartonDoc[];
   pallets: WarehousePalletDoc[];
 };
@@ -123,12 +132,20 @@ export async function adminCompleteInboundReceiveAndPutaway(
 
   const areas = await listWarehouseAreas(input.warehouseId);
   const eligible = fallbackAreas(areas);
+  const requestedBinPath = input.binPath?.trim() || "";
+  const destinationBin = requestedBinPath
+    ? await findBinByPath(input.warehouseId, requestedBinPath)
+    : null;
+  if (requestedBinPath && !destinationBin) {
+    throw new Error("Selected putaway bin was not found.");
+  }
   const stagingArea =
+    destinationBin?.area?.trim() ||
     input.stagingArea?.trim() ||
     eligible.find((a) => a.code.trim())?.code.trim() ||
     "";
   if (!stagingArea) {
-    throw new Error("No warehouse area configured. Add an area in Warehouses setup.");
+    throw new Error("Select a putaway bin or storage area.");
   }
 
   const expiryRaw = (request as InventoryRequest & { expiryDate?: unknown }).expiryDate;
@@ -144,6 +161,36 @@ export async function adminCompleteInboundReceiveAndPutaway(
       : Math.min(qty, Math.max(1, Math.floor(input.packageCount ?? 1)));
   const baseQty = Math.floor(qty / packageCount);
   const extraQty = qty % packageCount;
+  const validationLine = {
+    lineId: "L1",
+    sku,
+    productTitle: request.productName?.trim() || null,
+    quantity: Math.max(1, baseQty + (extraQty > 0 ? 1 : 0)),
+    lot: input.lot?.trim() || null,
+    expiry,
+    condition: "good" as const,
+    binId: null,
+    allocationStatus: "allocated" as const,
+    clientId: input.clientUserId,
+    inventoryRequestId: input.requestId,
+  };
+  if (destinationBin) {
+    const contents = await inspectBinContents(input.warehouseId, destinationBin.id);
+    const validation = validateLineToBin(
+      validationLine,
+      destinationBin,
+      contents,
+      areas
+    );
+    if (!validation.ok) throw new Error(validation.reason);
+  } else {
+    const destinationArea = areas.find(
+      (area) => area.code.trim().toUpperCase() === stagingArea.toUpperCase()
+    );
+    if (!destinationArea) throw new Error("Selected putaway area was not found.");
+    const validation = validateLineToArea(validationLine, destinationArea);
+    if (!validation.ok) throw new Error(validation.reason);
+  }
   const cartons = Array.from({ length: packageCount }, (_, index) => ({
     copies: 1,
     clientId: input.clientUserId,
@@ -222,7 +269,16 @@ export async function adminCompleteInboundReceiveAndPutaway(
       input.warehouseId,
       carton.id,
       carton,
-      [{ lineId: line.lineId, stagingArea, quantity: line.quantity }],
+      [
+        destinationBin
+          ? {
+              lineId: line.lineId,
+              binId: destinationBin.id,
+              binPath: destinationBin.path,
+              quantity: line.quantity,
+            }
+          : { lineId: line.lineId, stagingArea, quantity: line.quantity },
+      ],
       { operatorId: input.operatorId ?? null, warehouseAreas: areas }
     );
   }
@@ -275,6 +331,7 @@ export async function adminCompleteInboundReceiveAndPutaway(
     palletCode: receivedPallet?.palletCode ?? null,
     quantityReceived: qty,
     stagingArea,
+    putawayDestination: destinationBin?.path || stagingArea,
     cartons: putawayCartons,
     pallets: receivedPallet ? [receivedPallet] : [],
   };

@@ -23,13 +23,30 @@ import {
   type AdminInboundCompleteResult,
   hasAdminWarehouseOverride,
 } from "@/lib/admin-warehouse-override";
+import { listWarehouseAreas } from "@/lib/warehouse-putaway-disposition";
+import { listActiveWarehouseBins } from "@/lib/warehouse-cycle-count";
 import {
-  fallbackAreas,
-  listWarehouseAreas,
-} from "@/lib/warehouse-putaway-disposition";
+  findBinByPath,
+  inspectBinContents,
+  loadOccupiedBinIds,
+} from "@/lib/warehouse-putaway";
+import {
+  PutawayDestinationFields,
+  emptyPutawayLineSlot,
+  isPutawayLineSlotReady,
+  type PutawayLineSlot,
+} from "@/components/warehouse-ops/putaway-destination-fields";
 import { completeDispatchHandoff } from "@/lib/warehouse-pack";
 import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
-import type { InventoryRequest, ShipmentRequest, UserProfile, WarehouseAreaDoc, WarehouseDoc } from "@/types";
+import type {
+  InventoryRequest,
+  ShipmentRequest,
+  UserProfile,
+  WarehouseAreaDoc,
+  WarehouseBinDoc,
+  WarehouseCartonLine,
+  WarehouseDoc,
+} from "@/types";
 
 type InboundProps = {
   mode: "inbound";
@@ -71,8 +88,13 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   );
 
   const [warehouseId, setWarehouseId] = useState("");
-  const [stagingArea, setStagingArea] = useState("");
   const [areas, setAreas] = useState<WarehouseAreaDoc[]>([]);
+  const [bins, setBins] = useState<WarehouseBinDoc[]>([]);
+  const [occupiedBinIds, setOccupiedBinIds] = useState<Set<string>>(new Set());
+  const [destinationsLoading, setDestinationsLoading] = useState(false);
+  const [destinationSlot, setDestinationSlot] = useState<PutawayLineSlot>(
+    emptyPutawayLineSlot()
+  );
   const [qty, setQty] = useState(0);
   const [unitType, setUnitType] = useState<"loose" | "carton" | "pallet">("carton");
   const [packageCount, setPackageCount] = useState(1);
@@ -85,6 +107,23 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     useState<AdminInboundCompleteResult | null>(null);
   const [trackingScan, setTrackingScan] = useState("");
   const [busy, setBusy] = useState(false);
+  const inboundRequest = props.mode === "inbound" ? props.request : null;
+  const destinationLine = useMemo<WarehouseCartonLine>(
+    () => ({
+      lineId: "ADMIN-PREVIEW",
+      sku: String(inboundRequest?.sku ?? "").trim(),
+      productTitle: inboundRequest?.productName?.trim() || null,
+      quantity: Math.max(1, qty),
+      lot: lot.trim() || null,
+      expiry: expiry.trim() || null,
+      condition: "good",
+      binId: null,
+      allocationStatus: "allocated",
+      clientId: props.mode === "inbound" ? props.clientUserId : null,
+      inventoryRequestId: inboundRequest?.id ?? null,
+    }),
+    [expiry, inboundRequest, lot, props, qty]
+  );
 
   useEffect(() => {
     if (!warehouseId && activeWarehouses.length > 0) {
@@ -95,34 +134,51 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   useEffect(() => {
     if (!warehouseId) {
       setAreas([]);
-      setStagingArea("");
+      setBins([]);
+      setOccupiedBinIds(new Set());
+      setDestinationSlot(emptyPutawayLineSlot());
       return;
     }
     let cancelled = false;
-    void listWarehouseAreas(warehouseId).then((loaded) => {
-      if (cancelled) return;
-      setAreas(loaded);
-      const eligible = fallbackAreas(loaded);
-      if (eligible.length > 0) {
-        setStagingArea((prev) => prev || eligible[0].code);
-      }
-    });
+    setDestinationsLoading(true);
+    void Promise.all([
+      listWarehouseAreas(warehouseId),
+      listActiveWarehouseBins(warehouseId),
+      loadOccupiedBinIds(warehouseId),
+    ])
+      .then(([loadedAreas, loadedBins, occupied]) => {
+        if (cancelled) return;
+        setAreas(loadedAreas);
+        setBins(loadedBins);
+        setOccupiedBinIds(occupied);
+        setDestinationSlot(emptyPutawayLineSlot());
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        toast({
+          variant: "destructive",
+          title: "Could not load putaway destinations",
+          description: error instanceof Error ? error.message : "Try selecting the warehouse again.",
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setDestinationsLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [warehouseId]);
+  }, [toast, warehouseId]);
 
   useEffect(() => {
     if (props.mode === "inbound") {
       setQty(remainingInboundQty(props.request));
       setPackageCount(1);
       setLastInboundResult(null);
+      setDestinationSlot(emptyPutawayLineSlot());
     }
   }, [props]);
 
   if (!canOverride) return null;
-
-  const eligibleAreas = fallbackAreas(areas);
 
   if (props.mode === "inbound") {
     const { request, clientUserId, clientDisplayName, onComplete } = props;
@@ -133,14 +189,50 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     const remaining = remainingInboundQty(request);
 
     if (!isProduct || !isApproved || !isOpen || remaining <= 0) return null;
+    const destinationReady = isPutawayLineSlotReady(
+      destinationLine,
+      destinationSlot,
+      { areas, bins }
+    );
+
+    const resolveDestinationBin = async (pathOverride?: string) => {
+      const path = (pathOverride ?? destinationSlot.binPath).trim();
+      if (!warehouseId || !path) return;
+      setDestinationSlot((previous) => ({
+        ...previous,
+        binPath: path,
+        resolved: null,
+        loading: true,
+        error: null,
+      }));
+      try {
+        const bin = await findBinByPath(warehouseId, path);
+        if (!bin) throw new Error("Bin not found. Search and select a valid warehouse bin.");
+        const contents = await inspectBinContents(warehouseId, bin.id);
+        setDestinationSlot((previous) => ({
+          ...previous,
+          binPath: bin.path,
+          resolved: { bin, contents },
+          loading: false,
+          error: null,
+        }));
+      } catch (error: unknown) {
+        setDestinationSlot((previous) => ({
+          ...previous,
+          resolved: null,
+          loading: false,
+          error: error instanceof Error ? error.message : "Could not validate bin.",
+        }));
+      }
+    };
 
     const handleReceive = async () => {
       if (!warehouseId) {
         toast({ variant: "destructive", title: "Select a warehouse" });
         return;
       }
-      if (!stagingArea.trim()) {
-        toast({ variant: "destructive", title: "Select a putaway area" });
+      if (!destinationReady) {
+        toast({ variant: "destructive", title: "Select and validate a putaway destination" });
         return;
       }
       setBusy(true);
@@ -149,7 +241,8 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           clientUserId,
           requestId: request.id,
           warehouseId,
-          stagingArea,
+          stagingArea: destinationSlot.areaCode || null,
+          binPath: destinationSlot.resolved?.bin.path || null,
           quantity: qty,
           unitType,
           packageCount,
@@ -164,7 +257,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         setLastInboundResult(result);
         toast({
           title: "Stock added to client inventory",
-          description: `${result.quantityReceived} unit(s) received in ${result.cartonCodes.length} carton(s) → ${result.stagingArea}.`,
+          description: `${result.quantityReceived} unit(s) received in ${result.cartonCodes.length} carton(s) → ${result.putawayDestination}.`,
         });
         const selectedWarehouse = activeWarehouses.find(
           (warehouse) => warehouse.id === warehouseId
@@ -242,21 +335,6 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Putaway area</Label>
-            <Select value={stagingArea} onValueChange={setStagingArea}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select area" />
-              </SelectTrigger>
-              <SelectContent>
-                {eligibleAreas.map((a) => (
-                  <SelectItem key={a.id} value={a.code}>
-                    {a.name ? `${a.code} — ${a.name}` : a.code}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
             <Label>Quantity to receive</Label>
             <Input
               type="number"
@@ -282,6 +360,38 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               />
             </div>
           ) : null}
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Putaway destination</Label>
+            <p className="text-xs text-muted-foreground">
+              Search and click a storage bin, or select an area when that zone has no bins.
+            </p>
+            <PutawayDestinationFields
+              line={destinationLine}
+              slot={destinationSlot}
+              warehouseAreas={areas}
+              warehouseBins={bins}
+              occupiedBinIds={occupiedBinIds}
+              occupancyLoading={destinationsLoading}
+              areasLoading={destinationsLoading}
+              onBinPathChange={(value) =>
+                setDestinationSlot((previous) => ({
+                  ...previous,
+                  binPath: value,
+                  resolved: null,
+                  error: null,
+                }))
+              }
+              onResolveBin={(path) => void resolveDestinationBin(path)}
+              onAreaChange={(areaCode) =>
+                setDestinationSlot((previous) => ({
+                  ...previous,
+                  areaCode,
+                  resolved: null,
+                  error: null,
+                }))
+              }
+            />
+          </div>
           <div className="space-y-1.5">
             <Label>Lot (optional)</Label>
             <Input value={lot} onChange={(e) => setLot(e.target.value)} placeholder="Lot number" />
@@ -312,7 +422,11 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" disabled={busy || !warehouseId || !stagingArea} onClick={() => void handleReceive()}>
+          <Button
+            type="button"
+            disabled={busy || !warehouseId || destinationsLoading || !destinationReady}
+            onClick={() => void handleReceive()}
+          >
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}
             Receive &amp; put away
           </Button>
