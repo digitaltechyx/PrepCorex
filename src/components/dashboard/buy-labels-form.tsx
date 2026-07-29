@@ -171,7 +171,7 @@ function toPaymentSelectedRate(
     currency: rate.currency,
     provider: rate.provider,
     serviceLevel: rate.servicelevel.name,
-    shipmentId: shipmentId || rate.shipment,
+    shipmentId: rate.shipment || shipmentId || undefined,
     labelProvider: rate.labelProvider || (rate.object_id.startsWith("shipbest:") ? "shipbest" : "shippo"),
     logisticsProductId: rate.logisticsProductId,
     logisticsProductCode: rate.logisticsProductCode || rate.servicelevel.token,
@@ -262,7 +262,6 @@ export function BuyLabelsForm({
   const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
   const [selectedFromLocationId, setSelectedFromLocationId] = useState("");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
-  const [labelProvider, setLabelProvider] = useState<LabelProvider>("shippo");
   const canImportBuyLabels = canUseCsvImport(userProfile, "buy_labels");
   const appliedInitialToRef = useRef(false);
 
@@ -302,12 +301,19 @@ export function BuyLabelsForm({
 
   const defaultFromName = BUY_LABELS_FROM_NAME;
 
-  const buildFromAddressForLocation = (location: LocationDoc) =>
-    locationToFromShippingAddress(location, {
+  const buildFromAddressForLocation = (
+    location: LocationDoc
+  ): FormValues["fromAddress"] => {
+    const address = locationToFromShippingAddress(location, {
       shipperName: defaultFromName,
       phone: DEFAULT_FROM_PHONE,
       email: userProfile?.email || "",
     });
+    return {
+      ...address,
+      phone: address.phone || DEFAULT_FROM_PHONE,
+    };
+  };
 
   const applyFromAddressFromLocation = (location: LocationDoc) => {
     const fromAddress = buildFromAddressForLocation(location);
@@ -388,36 +394,79 @@ export function BuyLabelsForm({
         weightUnit: "lb" as const,
       };
 
-      const ratesUrl =
-        labelProvider === "shipbest" ? "/api/shipbest/rates" : "/api/shippo/rates";
-
-      const response = await fetch(ratesUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          fromAddress: data.fromAddress,
-          toAddress: data.toAddress,
-          parcel: parcelData,
-        }),
+      const requestBody = JSON.stringify({
+        fromAddress: data.fromAddress,
+        toAddress: data.toAddress,
+        parcel: parcelData,
       });
 
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        const message = [error.error, error.details].filter(Boolean).join(" — ") || "Failed to get rates";
-        throw new Error(message);
-      }
+      const providerRequests = [
+        { name: "Shippo", url: "/api/shippo/rates" },
+        { name: "ShipBest", url: "/api/shipbest/rates" },
+      ];
 
-      const ratesData = await response.json();
-      setRates(ratesData.rates || []);
-      setShipmentId(ratesData.shipment_id || null);
+      const providerResults = await Promise.all(
+        providerRequests.map(async ({ name, url }) => {
+          try {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: requestBody,
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              const message =
+                [result.error, result.details].filter(Boolean).join(" — ") ||
+                `Failed to get ${name} rates`;
+              return { name, rates: [] as ShippingRate[], shipmentId: null, error: message };
+            }
+            return {
+              name,
+              rates: Array.isArray(result.rates) ? (result.rates as ShippingRate[]) : [],
+              shipmentId: typeof result.shipment_id === "string" ? result.shipment_id : null,
+              error: null,
+            };
+          } catch (error: unknown) {
+            return {
+              name,
+              rates: [] as ShippingRate[],
+              shipmentId: null,
+              error: error instanceof Error ? error.message : `Failed to get ${name} rates`,
+            };
+          }
+        })
+      );
+
+      const combinedRates = providerResults
+        .flatMap((result) => result.rates)
+        .sort((a, b) => Number(a.amount) - Number(b.amount));
+      const shippoShipmentId =
+        providerResults.find((result) => result.name === "Shippo")?.shipmentId || null;
+
+      setRates(combinedRates);
+      setSelectedRate(null);
+      setShipmentId(shippoShipmentId);
+
+      const failedProviders = providerResults.filter((result) => result.error);
+      if (combinedRates.length === 0 && failedProviders.length > 0) {
+        throw new Error(
+          failedProviders.map((result) => `${result.name}: ${result.error}`).join(" | ")
+        );
+      }
       
-      if (ratesData.rates && ratesData.rates.length > 0) {
+      if (combinedRates.length > 0) {
         toast({
           title: "Rates Retrieved",
-          description: `Found ${ratesData.rates.length} shipping options.`,
+          description: `Found ${combinedRates.length} shipping options from Shippo and ShipBest.`,
         });
+        if (failedProviders.length > 0) {
+          toast({
+            title: "Some rates unavailable",
+            description: failedProviders
+              .map((result) => `${result.name}: ${result.error}`)
+              .join(" | "),
+          });
+        }
       } else {
         toast({
           variant: "destructive",
@@ -493,7 +542,7 @@ export function BuyLabelsForm({
       toAddress: formData.toAddress,
       parcel: parcelData,
       selectedRate,
-      shipmentId: shipmentId || (selectedRate as any).shipment || null,
+      shipmentId: selectedRate.shipment || shipmentId || null,
     };
   };
 
@@ -674,7 +723,7 @@ export function BuyLabelsForm({
               </CardTitle>
               <CardDescription>
                 Enter shipment details to get shipping rates and purchase a label, or import multiple
-                labels from CSV. Choose Shippo or ShipBest (GOFO) as the label provider.
+                labels from CSV. Rates from Shippo and ShipBest are compared automatically.
               </CardDescription>
             </div>
             {canImportBuyLabels ? (
@@ -688,26 +737,6 @@ export function BuyLabelsForm({
                 Import
               </Button>
             ) : null}
-          </div>
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <Label className="text-sm font-medium">Label provider</Label>
-            <Select
-              value={labelProvider}
-              onValueChange={(value: LabelProvider) => {
-                setLabelProvider(value);
-                setRates([]);
-                setSelectedRate(null);
-                setShipmentId(null);
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-[260px]">
-                <SelectValue placeholder="Select provider" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="shippo">Shippo</SelectItem>
-                <SelectItem value="shipbest">ShipBest (GOFO)</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </CardHeader>
         <CardContent>
@@ -1273,7 +1302,7 @@ export function BuyLabelsForm({
             <div className="mt-6 space-y-4 pt-6 border-t">
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <CreditCard className="h-5 w-5" />
-                Select Shipping Rate
+                PrepCorex Shipping Rates
               </h3>
               <div className="space-y-2">
                 {rates.map((rate) => (
@@ -1293,11 +1322,20 @@ export function BuyLabelsForm({
                           <p className="text-sm text-muted-foreground">
                             {rate.servicelevel.name}
                           </p>
-                          {rate.estimated_days && (
+                          {rate.serviceDescription ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {rate.serviceDescription}
+                            </p>
+                          ) : null}
+                          {rate.deliveryEstimate ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Est. {rate.deliveryEstimate}
+                            </p>
+                          ) : rate.estimated_days ? (
                             <p className="text-xs text-muted-foreground mt-1">
                               Est. {rate.estimated_days} days
                             </p>
-                          )}
+                          ) : null}
                         </div>
                         <div className="text-right">
                           <p className="font-bold text-lg">

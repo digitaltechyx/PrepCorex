@@ -39,12 +39,16 @@ export type ShipBestSku = {
 export type ShipBestProduct = {
   code: string;
   name: string;
+  description?: string;
 };
 
 export type ShipBestFeeQuote = {
   logisticsProductId: number;
   logisticsProductName: string;
   logisticsProductCode?: string;
+  serviceDescription?: string;
+  estimatedDays?: number;
+  deliveryEstimate?: string;
   totalShippingFee: number;
   totalDiscountShippingFee: number;
   currency: string;
@@ -227,6 +231,15 @@ export async function shipbestTrialOrderPrice(input: {
       logisticsProductId?: number;
       logisticsProductName?: string;
       logisticsProductCode?: string;
+      logisticsProductDesc?: string;
+      serviceDescription?: string;
+      estimatedDays?: number | string;
+      estimatedDeliveryDays?: number | string;
+      deliveryDays?: number | string;
+      transitDays?: number | string;
+      minDeliveryDays?: number | string;
+      maxDeliveryDays?: number | string;
+      deliveryTime?: string;
       totalShippingFee?: number;
       totalDiscountShippingFee?: number;
       currency?: string;
@@ -234,15 +247,38 @@ export async function shipbestTrialOrderPrice(input: {
   }>("/api/logistics/trialOrderPrice", body);
 
   const list = Array.isArray(data?.orderFeeCalcVos) ? data.orderFeeCalcVos : [];
-  return list.map((row) => ({
-    logisticsProductId: Number(row.logisticsProductId) || 0,
-    logisticsProductName: String(row.logisticsProductName || "ShipBest"),
-    logisticsProductCode: row.logisticsProductCode || input.logisticsProductCode,
-    totalShippingFee: Number(row.totalShippingFee) || 0,
-    totalDiscountShippingFee:
-      Number(row.totalDiscountShippingFee) || Number(row.totalShippingFee) || 0,
-    currency: String(row.currency || "USD"),
-  }));
+  return list.map((row) => {
+    const estimatedDaysValue =
+      row.estimatedDays ??
+      row.estimatedDeliveryDays ??
+      row.deliveryDays ??
+      row.transitDays;
+    const estimatedDays = Number(estimatedDaysValue);
+    const minDays = Number(row.minDeliveryDays);
+    const maxDays = Number(row.maxDeliveryDays);
+    const deliveryEstimate =
+      (row.deliveryTime || "").trim() ||
+      (Number.isFinite(minDays) && Number.isFinite(maxDays)
+        ? `${minDays}-${maxDays} days`
+        : undefined);
+
+    return {
+      logisticsProductId: Number(row.logisticsProductId) || 0,
+      logisticsProductName: String(row.logisticsProductName || ""),
+      logisticsProductCode: row.logisticsProductCode || input.logisticsProductCode,
+      serviceDescription: String(
+        row.serviceDescription || row.logisticsProductDesc || ""
+      ).trim() || undefined,
+      estimatedDays: Number.isFinite(estimatedDays) && estimatedDays > 0
+        ? estimatedDays
+        : undefined,
+      deliveryEstimate,
+      totalShippingFee: Number(row.totalShippingFee) || 0,
+      totalDiscountShippingFee:
+        Number(row.totalDiscountShippingFee) || Number(row.totalShippingFee) || 0,
+      currency: String(row.currency || "USD"),
+    };
+  });
 }
 
 export async function shipbestCreateOrder(input: {

@@ -55,6 +55,11 @@ export function shouldShowApprovedInboundRequestRow(
     (item) => String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId ?? "") === req.id
   );
 
+  // Legacy admin approvals created inventory immediately and predate the
+  // Warehouse Ops fulfillmentStatus field. Keep the real linked inventory row
+  // (In Stock / Out of Stock) and hide the synthetic Awaiting Receiving row.
+  if (req.fulfillmentStatus !== "open" && linked) return false;
+
   if (good >= expected && expected > 0 && linked) return false;
   return true;
 }

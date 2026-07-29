@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, PackageCheck, Truck, Warehouse } from "lucide-react";
+import { Download, Loader2, PackageCheck, Truck, Warehouse } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -19,6 +20,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import {
   adminCompleteInboundReceiveAndPutaway,
+  type AdminInboundCompleteResult,
   hasAdminWarehouseOverride,
 } from "@/lib/admin-warehouse-override";
 import {
@@ -26,6 +28,7 @@ import {
   listWarehouseAreas,
 } from "@/lib/warehouse-putaway-disposition";
 import { completeDispatchHandoff } from "@/lib/warehouse-pack";
+import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
 import type { InventoryRequest, ShipmentRequest, UserProfile, WarehouseAreaDoc, WarehouseDoc } from "@/types";
 
 type InboundProps = {
@@ -71,6 +74,15 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   const [stagingArea, setStagingArea] = useState("");
   const [areas, setAreas] = useState<WarehouseAreaDoc[]>([]);
   const [qty, setQty] = useState(0);
+  const [unitType, setUnitType] = useState<"loose" | "carton" | "pallet">("carton");
+  const [packageCount, setPackageCount] = useState(1);
+  const [lot, setLot] = useState("");
+  const [expiry, setExpiry] = useState("");
+  const [carrier, setCarrier] = useState("");
+  const [inboundTracking, setInboundTracking] = useState("");
+  const [inboundNotes, setInboundNotes] = useState("");
+  const [lastInboundResult, setLastInboundResult] =
+    useState<AdminInboundCompleteResult | null>(null);
   const [trackingScan, setTrackingScan] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -103,6 +115,8 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   useEffect(() => {
     if (props.mode === "inbound") {
       setQty(remainingInboundQty(props.request));
+      setPackageCount(1);
+      setLastInboundResult(null);
     }
   }, [props]);
 
@@ -114,7 +128,8 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     const { request, clientUserId, clientDisplayName, onComplete } = props;
     const isProduct = request.inventoryType === "product";
     const isApproved = request.status === "approved";
-    const isOpen = String(request.fulfillmentStatus ?? "").toLowerCase() !== "closed";
+    // Exact "open" only — missing status means legacy admin-fulfilled, not Warehouse Ops.
+    const isOpen = String(request.fulfillmentStatus ?? "").trim().toLowerCase() === "open";
     const remaining = remainingInboundQty(request);
 
     if (!isProduct || !isApproved || !isOpen || remaining <= 0) return null;
@@ -136,13 +151,40 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           warehouseId,
           stagingArea,
           quantity: qty,
+          unitType,
+          packageCount,
+          lot,
+          expiry,
+          carrier,
+          trackingNumber: inboundTracking,
+          notes: inboundNotes,
           operatorId: userProfile?.uid ?? null,
           clientDisplayName,
         });
+        setLastInboundResult(result);
         toast({
           title: "Stock added to client inventory",
-          description: `${result.quantityReceived} unit(s) received on ${result.cartonCode} → ${result.stagingArea}.`,
+          description: `${result.quantityReceived} unit(s) received in ${result.cartonCodes.length} carton(s) → ${result.stagingArea}.`,
         });
+        const selectedWarehouse = activeWarehouses.find(
+          (warehouse) => warehouse.id === warehouseId
+        );
+        try {
+          await downloadReceiveLabels({
+            warehouseCode:
+              selectedWarehouse?.code || selectedWarehouse?.name || warehouseId,
+            cartons: result.cartons,
+            pallets: result.pallets,
+          });
+        } catch (labelError: unknown) {
+          toast({
+            title: "Receive complete — labels need reprint",
+            description:
+              labelError instanceof Error
+                ? labelError.message
+                : "Use the warehouse receive log to reprint labels.",
+          });
+        }
         onComplete?.();
       } catch (error: unknown) {
         toast({
@@ -159,11 +201,11 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
       <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Warehouse className="h-4 w-4 text-primary" />
-          Admin warehouse override — receive &amp; add stock
+          Admin inbound processing
         </div>
         <p className="text-xs text-muted-foreground">
-          Complete receiving and putaway from here. No need to open Warehouse Ops. {remaining} unit(s)
-          remaining on this request.
+          Uses the same receive, warehouse-label, putaway, and inventory sync as Warehouse Ops in one
+          faster form. {remaining} unit(s) remain on this request.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -182,6 +224,24 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
             </Select>
           </div>
           <div className="space-y-1.5">
+            <Label>Receiving unit</Label>
+            <Select
+              value={unitType}
+              onValueChange={(value) =>
+                setUnitType(value as "loose" | "carton" | "pallet")
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="carton">Carton</SelectItem>
+                <SelectItem value="pallet">Pallet</SelectItem>
+                <SelectItem value="loose">Loose units</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
             <Label>Putaway area</Label>
             <Select value={stagingArea} onValueChange={setStagingArea}>
               <SelectTrigger>
@@ -196,7 +256,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5 sm:col-span-2">
+          <div className="space-y-1.5">
             <Label>Quantity to receive</Label>
             <Input
               type="number"
@@ -206,11 +266,82 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               onChange={(e) => setQty(Math.max(1, Math.min(remaining, parseInt(e.target.value, 10) || 0)))}
             />
           </div>
+          {unitType !== "loose" ? (
+            <div className="space-y-1.5">
+              <Label>{unitType === "pallet" ? "Cartons on pallet" : "Number of cartons"}</Label>
+              <Input
+                type="number"
+                min={1}
+                max={Math.max(1, qty)}
+                value={packageCount}
+                onChange={(e) =>
+                  setPackageCount(
+                    Math.max(1, Math.min(Math.max(1, qty), parseInt(e.target.value, 10) || 1))
+                  )
+                }
+              />
+            </div>
+          ) : null}
+          <div className="space-y-1.5">
+            <Label>Lot (optional)</Label>
+            <Input value={lot} onChange={(e) => setLot(e.target.value)} placeholder="Lot number" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Expiry (optional)</Label>
+            <Input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Carrier (optional)</Label>
+            <Input value={carrier} onChange={(e) => setCarrier(e.target.value)} placeholder="UPS, FedEx, USPS…" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Inbound tracking (optional)</Label>
+            <Input
+              value={inboundTracking}
+              onChange={(e) => setInboundTracking(e.target.value)}
+              placeholder="Tracking number"
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Receiving notes (optional)</Label>
+            <Textarea
+              value={inboundNotes}
+              onChange={(e) => setInboundNotes(e.target.value)}
+              placeholder="Condition, package details, or admin notes"
+            />
+          </div>
         </div>
-        <Button type="button" disabled={busy || !warehouseId || !stagingArea} onClick={() => void handleReceive()}>
-          {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}
-          Receive &amp; add to client inventory
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" disabled={busy || !warehouseId || !stagingArea} onClick={() => void handleReceive()}>
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}
+            Receive &amp; put away
+          </Button>
+          {lastInboundResult ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={async () => {
+                const warehouse = activeWarehouses.find((item) => item.id === warehouseId);
+                try {
+                  await downloadReceiveLabels({
+                    warehouseCode: warehouse?.code || warehouse?.name || warehouseId,
+                    cartons: lastInboundResult.cartons,
+                    pallets: lastInboundResult.pallets,
+                  });
+                } catch (error: unknown) {
+                  toast({
+                    variant: "destructive",
+                    title: "Label download failed",
+                    description: error instanceof Error ? error.message : "Could not create labels.",
+                  });
+                }
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Download warehouse labels
+            </Button>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -225,19 +356,42 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   const pickStatus = String((request as unknown as Record<string, unknown>).warehousePickStatus ?? "")
     .trim()
     .toLowerCase();
+  const requestWarehouseId = String(
+    (request as unknown as Record<string, unknown>).warehouseId ?? ""
+  ).trim();
   const status = String(request.status ?? "").trim().toLowerCase();
   const readyToDispatch = packStatus === "ready_to_dispatch" && dispatchStatus !== "dispatched";
-  const isConfirmed = status === "confirmed" || pickStatus === "ready" || pickStatus === "in_progress" || pickStatus === "picked";
+  const isDispatched = dispatchStatus === "dispatched";
+  const isPicked = pickStatus === "picked";
+  const needsPick =
+    status === "confirmed" &&
+    !isDispatched &&
+    !readyToDispatch &&
+    !isPicked &&
+    pickStatus !== "skipped";
+  const needsPack = status === "confirmed" && isPicked && !readyToDispatch && !isDispatched;
+  const focusQuery = `userId=${encodeURIComponent(clientUserId)}&requestId=${encodeURIComponent(request.id)}`;
+  const primaryHref = readyToDispatch
+    ? `/warehouse-ops/dispatch?${focusQuery}`
+    : needsPack
+      ? `/warehouse-ops/pack?${focusQuery}`
+      : `/warehouse-ops/pick?tab=ready&${focusQuery}`;
+  const primaryLabel = readyToDispatch
+    ? "Open focused dispatch"
+    : needsPack
+      ? "Open focused pack"
+      : "Open focused pick";
+  const preferredWarehouseId = requestWarehouseId || warehouseId || activeWarehouses[0]?.id || "";
 
   return (
     <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
       <div className="flex items-center gap-2 text-sm font-medium">
         <Truck className="h-4 w-4 text-primary" />
-        Admin warehouse override — outbound
+        Admin outbound fulfillment
       </div>
       <p className="text-xs text-muted-foreground">
-        Pick and pack still use scan workflows. Dispatch ready orders here, or open Warehouse Ops for
-        pick/pack.
+        Continue this order in Warehouse Ops using the shared pick, pack, and dispatch engine. Prefer
+        the focused link for this request.
       </p>
       <div className="flex flex-wrap gap-2 text-xs">
         <span className="rounded-md border bg-background px-2 py-1">Status: {status || "—"}</span>
@@ -246,19 +400,24 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         <span className="rounded-md border bg-background px-2 py-1">Dispatch: {dispatchStatus || "—"}</span>
       </div>
       <div className="flex flex-wrap gap-2">
-        {isConfirmed && !readyToDispatch ? (
+        {!isDispatched ? (
+          <Button type="button" size="sm" asChild>
+            <Link href={primaryHref}>{primaryLabel}</Link>
+          </Button>
+        ) : null}
+        {needsPick || needsPack || readyToDispatch ? (
           <>
             <Button type="button" variant="outline" size="sm" asChild>
-              <Link href="/warehouse-ops/pick">Open pick</Link>
+              <Link href={`/warehouse-ops/pick?tab=ready&${focusQuery}`}>Pick queue</Link>
             </Button>
             <Button type="button" variant="outline" size="sm" asChild>
-              <Link href="/warehouse-ops/pack">Open pack</Link>
+              <Link href={`/warehouse-ops/pack?${focusQuery}`}>Pack queue</Link>
+            </Button>
+            <Button type="button" variant="outline" size="sm" asChild>
+              <Link href={`/warehouse-ops/dispatch?${focusQuery}`}>Dispatch queue</Link>
             </Button>
           </>
         ) : null}
-        <Button type="button" variant="outline" size="sm" asChild>
-          <Link href="/warehouse-ops/dispatch">Open dispatch queue</Link>
-        </Button>
       </div>
       {readyToDispatch ? (
         <div className="space-y-2 border-t pt-3">
@@ -273,10 +432,9 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
             <Button
               type="button"
               size="sm"
-              disabled={busy || !trackingScan.trim() || !warehouseId}
+              disabled={busy || !trackingScan.trim() || !preferredWarehouseId}
               onClick={async () => {
-                if (!warehouseId && activeWarehouses[0]) setWarehouseId(activeWarehouses[0].id);
-                const wh = warehouseId || activeWarehouses[0]?.id;
+                const wh = preferredWarehouseId;
                 if (!wh) {
                   toast({ variant: "destructive", title: "No warehouse configured" });
                   return;
@@ -309,7 +467,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               Confirm dispatch
             </Button>
           </div>
-          {activeWarehouses.length > 1 ? (
+          {activeWarehouses.length > 1 && !requestWarehouseId ? (
             <div className="space-y-1.5">
               <Label className="text-xs">Warehouse (for activity log)</Label>
               <Select value={warehouseId} onValueChange={setWarehouseId}>

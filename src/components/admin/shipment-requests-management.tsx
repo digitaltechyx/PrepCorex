@@ -857,11 +857,18 @@ export function ShipmentRequestsManagement({
                           <Eye className="h-4 w-4 mr-1" />
                           Review
                         </Button>
+                      ) : request.status === "confirmed" ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedRequest(request)}
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          Continue fulfillment
+                        </Button>
                       ) : (
                         <span className="text-muted-foreground text-sm">
-                          {request.status === "confirmed"
-                            ? `Confirmed ${request.confirmedAt ? formatDate(request.confirmedAt) : ""}`
-                            : request.status === "cancelled"
+                          {request.status === "cancelled"
                             ? `Cancelled ${(request as any).cancelledAt ? formatDate((request as any).cancelledAt) : ""}${
                                 (request as any).cancellationReason
                                   ? ` — ${(request as any).cancellationReason}`

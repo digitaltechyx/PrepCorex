@@ -760,6 +760,14 @@ export interface InventoryRequest {
   inboundTrackings?: InboundTrackingEntry[];
   /** Warehouse inbound v2: open until fully received or manually closed. */
   fulfillmentStatus?: "open" | "closed";
+  /** Where approval entered the shared warehouse workflow. */
+  approvalSource?: "admin_dashboard" | "warehouse_ops";
+  /** Which interface completed the shared receive/putaway operation. */
+  warehouseProcessedVia?: "admin_dashboard" | "warehouse_ops";
+  warehouseProcessedBy?: string | null;
+  warehouseProcessedAt?: { seconds: number; nanoseconds: number } | string;
+  /** Marks requests created after the shared warehouse inbound workflow. */
+  inboundWorkflowVersion?: number;
   /** Good units put away to warehouse (client sellable stock source). */
   warehouseGoodReceivedQty?: number;
   /** Damaged units put away to quarantine / hold. */
@@ -1745,6 +1753,8 @@ export interface ShippingRate {
     token: string;
   };
   estimated_days?: number;
+  deliveryEstimate?: string;
+  serviceDescription?: string;
   shipment?: string; // Shipment ID from Shippo
   originalAmount?: string;
   labelProvider?: "shippo" | "shipbest";

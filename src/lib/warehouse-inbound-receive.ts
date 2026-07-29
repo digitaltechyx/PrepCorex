@@ -259,12 +259,14 @@ export async function approveInboundRequestAtDock(input: {
     status: "approved",
     approvedBy: input.approvedBy,
     approvedAt: serverTimestamp(),
+    approvalSource: "warehouse_ops",
     receivingDate: serverTimestamp(),
     requestedQuantity: typeof data.requestedQuantity === "number" ? data.requestedQuantity : qty,
     receivedQuantity: qty,
     fulfillmentStatus: "open",
     warehouseGoodReceivedQty: 0,
     warehouseDamagedReceivedQty: 0,
+    inboundWorkflowVersion: 2,
     updatedAt: serverTimestamp(),
   });
 

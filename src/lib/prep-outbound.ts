@@ -44,7 +44,9 @@ export function isSelectablePrepInbound(
 ): boolean {
   if (req.status === "cancelled" || req.status === "rejected") return false;
   if (req.status !== "pending" && req.status !== "approved") return false;
-  if (req.status === "approved" && req.fulfillmentStatus === "closed") return false;
+  // Approved requests without an explicit open status were fulfilled by the
+  // legacy admin workflow and must not re-enter Warehouse Ops.
+  if (req.status === "approved" && req.fulfillmentStatus !== "open") return false;
   if (inboundUnitsAvailableForPrep(req) < 1) return false;
 
   const t = req.inventoryType;
@@ -96,6 +98,11 @@ export function prepOutboundWaitingOnInbound(input: {
     if (!inboundId) continue;
     const inbound = input.inboundById.get(inboundId);
     if (!inbound) return true;
+    // Legacy admin-fulfilled inbound: its linked inventory is the source of
+    // truth, not Warehouse Ops receiving counters.
+    if (inbound.status === "approved" && inbound.fulfillmentStatus !== "open") {
+      continue;
+    }
     const needed = shipmentUnits(input.shipmentData, shipment, i);
     if (warehouseGoodReceivedQty(inbound) < needed) return true;
   }
@@ -182,10 +189,12 @@ export async function resolvePrepOutboundShipmentsForConfirm(input: {
         `Linked inbound request not found for ${String(shipment.productName || inboundId)}.`
       );
     }
-    const inbound = { id: inboundSnap.id, ...(inboundSnap.data() as InventoryRequest) };
+    const inbound = { ...(inboundSnap.data() as InventoryRequest), id: inboundSnap.id };
     const needed = shipmentUnits(input.requestData, shipment, index);
     const good = warehouseGoodReceivedQty(inbound);
-    if (good < needed) {
+    const legacyAdminFulfilled =
+      inbound.status === "approved" && inbound.fulfillmentStatus !== "open";
+    if (!legacyAdminFulfilled && good < needed) {
       const name = String(shipment.productName || inbound.productName || inboundId);
       throw new Error(
         `Receive inbound first for "${name}" before processing this pre outbound. Received ${good} of ${needed} units needed.`
@@ -198,7 +207,9 @@ export async function resolvePrepOutboundShipmentsForConfirm(input: {
     }
     if (!productId) {
       throw new Error(
-        `Inbound for "${inbound.productName}" is received but inventory is not ready yet. Finish putaway, then approve.`
+        legacyAdminFulfilled
+          ? `Legacy inventory for "${inbound.productName}" could not be found. Review it in the admin inventory history.`
+          : `Inbound for "${inbound.productName}" is received but inventory is not ready yet. Finish putaway, then approve.`
       );
     }
 

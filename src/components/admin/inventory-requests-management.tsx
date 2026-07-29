@@ -453,6 +453,7 @@ export function InventoryRequestsManagement({
           status: "approved",
           approvedBy: adminProfile.uid,
           approvedAt,
+          approvalSource: "admin_dashboard",
           receivingDate: receivingDateTimestamp,
           remarks: remarksToSave,
           imageUrls: finalImageUrls,
@@ -472,6 +473,7 @@ export function InventoryRequestsManagement({
           requestUpdateData.fulfillmentStatus = "open";
           requestUpdateData.warehouseGoodReceivedQty = 0;
           requestUpdateData.warehouseDamagedReceivedQty = 0;
+          requestUpdateData.inboundWorkflowVersion = 2;
         }
         
         // Update request status (single update with all changes)
@@ -1153,7 +1155,7 @@ export function InventoryRequestsManagement({
                             </Button>
                             {request.status === "approved" &&
                             request.inventoryType === "product" &&
-                            (request as any).fulfillmentStatus !== "closed" ? (
+                            (request as any).fulfillmentStatus === "open" ? (
                               <Button
                                 variant="outline"
                                 size="sm"

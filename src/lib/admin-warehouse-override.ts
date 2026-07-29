@@ -1,11 +1,13 @@
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { hasRole } from "@/lib/permissions";
 import { hasWarehouseOpsAccess } from "@/lib/warehouse-ops-permissions";
 import {
   createReceiveBatch,
   parseWarehouseCartonDoc,
+  parseWarehousePalletDoc,
   warehouseCartonDocRef,
+  warehousePalletDocRef,
 } from "@/lib/warehouse-carton-firestore";
 import { recordInboundReceiveBatch } from "@/lib/warehouse-inbound-receive";
 import { applyPutawayAssignments } from "@/lib/warehouse-putaway";
@@ -15,7 +17,12 @@ import {
 } from "@/lib/warehouse-putaway-disposition";
 import { formatExpiryForInput } from "@/lib/warehouse-inbound-requests";
 import { disposeQuarantineLine, listQuarantineHolds, releaseQuarantineLineToStorage } from "@/lib/warehouse-quarantine";
-import type { InventoryRequest, UserProfile } from "@/types";
+import type {
+  InventoryRequest,
+  UserProfile,
+  WarehouseCartonDoc,
+  WarehousePalletDoc,
+} from "@/types";
 
 export type { QuarantineHoldRow } from "@/lib/warehouse-quarantine";
 
@@ -51,15 +58,26 @@ export type AdminInboundCompleteInput = {
   /** Area code for putaway (e.g. storage zone). Required when not using a bin. */
   stagingArea?: string | null;
   quantity?: number;
+  unitType?: "loose" | "carton" | "pallet";
+  packageCount?: number;
+  lot?: string | null;
+  expiry?: string | null;
+  trackingNumber?: string | null;
+  carrier?: string | null;
+  notes?: string | null;
   operatorId?: string | null;
   clientDisplayName?: string | null;
 };
 
 export type AdminInboundCompleteResult = {
-  cartonId: string;
-  cartonCode: string;
+  cartonIds: string[];
+  cartonCodes: string[];
+  palletId: string | null;
+  palletCode: string | null;
   quantityReceived: number;
   stagingArea: string;
+  cartons: WarehouseCartonDoc[];
+  pallets: WarehousePalletDoc[];
 };
 
 /**
@@ -85,8 +103,10 @@ export async function adminCompleteInboundReceiveAndPutaway(
   if (request.inventoryType !== "product") {
     throw new Error("Admin receive override applies to product inbound only.");
   }
-  if (String(request.fulfillmentStatus ?? "").toLowerCase() === "closed") {
-    throw new Error("This inbound request is already closed.");
+  if (String(request.fulfillmentStatus ?? "").trim().toLowerCase() !== "open") {
+    throw new Error(
+      "Only Warehouse Ops open inbounds can be received here. Legacy admin-fulfilled requests stay out of this flow."
+    );
   }
 
   const remaining = remainingInboundQty(request);
@@ -113,73 +133,150 @@ export async function adminCompleteInboundReceiveAndPutaway(
 
   const expiryRaw = (request as InventoryRequest & { expiryDate?: unknown }).expiryDate;
   const expiry =
-    expiryRaw != null && expiryRaw !== ""
+    input.expiry?.trim() ||
+    (expiryRaw != null && expiryRaw !== ""
       ? formatExpiryForInput(expiryRaw as Parameters<typeof formatExpiryForInput>[0])
-      : null;
+      : null);
+  const unitType = input.unitType ?? "loose";
+  const packageCount =
+    unitType === "loose"
+      ? 1
+      : Math.min(qty, Math.max(1, Math.floor(input.packageCount ?? 1)));
+  const baseQty = Math.floor(qty / packageCount);
+  const extraQty = qty % packageCount;
+  const cartons = Array.from({ length: packageCount }, (_, index) => ({
+    copies: 1,
+    clientId: input.clientUserId,
+    clientDisplayName: input.clientDisplayName ?? null,
+    inventoryRequestId: input.requestId,
+    trackingNumber: input.trackingNumber?.trim() || null,
+    carrier: input.carrier?.trim() || null,
+    notes: input.notes?.trim() || null,
+    lines: [
+      {
+        sku,
+        productTitle: request.productName?.trim() || null,
+        quantity: baseQty + (index < extraQty ? 1 : 0),
+        lot: input.lot?.trim() || null,
+        expiry,
+        inventoryRequestId: input.requestId,
+        clientId: input.clientUserId,
+      },
+    ],
+  }));
 
-  const { cartonIds } = await createReceiveBatch({
+  const { palletId, cartonIds } = await createReceiveBatch({
     warehouseId: input.warehouseId,
     receivedBy: input.operatorId ?? null,
     stagingArea,
-    isLoose: true,
-    cartons: [
-      {
-        copies: 1,
-        clientId: input.clientUserId,
-        clientDisplayName: input.clientDisplayName ?? null,
-        inventoryRequestId: input.requestId,
-        lines: [
-          {
-            sku,
-            productTitle: request.productName?.trim() || null,
-            quantity: qty,
-            expiry,
-            inventoryRequestId: input.requestId,
-            clientId: input.clientUserId,
-          },
-        ],
-      },
-    ],
+    isLoose: unitType === "loose",
+    pallet:
+      unitType === "pallet"
+        ? {
+            trackingNumber: input.trackingNumber?.trim() || null,
+            carrier: input.carrier?.trim() || null,
+            notes: input.notes?.trim() || null,
+          }
+        : undefined,
+    cartons,
   });
 
-  const cartonId = cartonIds[0];
-  if (!cartonId) throw new Error("Receive failed — no carton created.");
+  if (cartonIds.length === 0) throw new Error("Receive failed — no carton created.");
 
-  const cartonSnap = await getDoc(warehouseCartonDocRef(input.warehouseId, cartonId));
-  if (!cartonSnap.exists()) throw new Error("Received carton not found.");
-  const carton = parseWarehouseCartonDoc(cartonSnap.id, cartonSnap.data() as Record<string, unknown>);
-  const line = carton.lines?.[0];
-  if (!line?.lineId) throw new Error("Received carton has no line.");
+  const receivedCartons = (
+    await Promise.all(
+      cartonIds.map(async (cartonId) => {
+        const cartonSnap = await getDoc(
+          warehouseCartonDocRef(input.warehouseId, cartonId)
+        );
+        if (!cartonSnap.exists()) return null;
+        return parseWarehouseCartonDoc(
+          cartonSnap.id,
+          cartonSnap.data() as Record<string, unknown>
+        );
+      })
+    )
+  ).filter((carton): carton is WarehouseCartonDoc => carton !== null);
+  if (receivedCartons.length !== cartonIds.length) {
+    throw new Error("One or more received cartons could not be loaded.");
+  }
 
   await recordInboundReceiveBatch({
     warehouseId: input.warehouseId,
-    entries: [
-      {
+    entries: receivedCartons.map((carton) => ({
         clientUserId: input.clientUserId,
         inventoryRequestId: input.requestId,
         productName: request.productName ?? null,
-        cartonId,
+        cartonId: carton.id,
         cartonCode: carton.cartonCode,
         sku,
-        quantity: qty,
-      },
-    ],
+        quantity: carton.lines?.[0]?.quantity ?? carton.quantity,
+      })),
     operatorId: input.operatorId ?? null,
   });
 
-  await applyPutawayAssignments(
-    input.warehouseId,
-    cartonId,
-    carton,
-    [{ lineId: line.lineId, stagingArea, quantity: qty }],
-    { operatorId: input.operatorId ?? null, warehouseAreas: areas }
-  );
+  for (const carton of receivedCartons) {
+    const line = carton.lines?.[0];
+    if (!line?.lineId) throw new Error(`Received carton ${carton.cartonCode} has no line.`);
+    await applyPutawayAssignments(
+      input.warehouseId,
+      carton.id,
+      carton,
+      [{ lineId: line.lineId, stagingArea, quantity: line.quantity }],
+      { operatorId: input.operatorId ?? null, warehouseAreas: areas }
+    );
+  }
+
+  let receivedPallet: WarehousePalletDoc | null = null;
+  if (palletId) {
+    await updateDoc(warehousePalletDocRef(input.warehouseId, palletId), {
+      status: "available",
+      stagingArea,
+      updatedAt: serverTimestamp(),
+    });
+    const palletSnap = await getDoc(
+      warehousePalletDocRef(input.warehouseId, palletId)
+    );
+    if (palletSnap.exists()) {
+      receivedPallet = parseWarehousePalletDoc(
+        palletSnap.id,
+        palletSnap.data() as Record<string, unknown>
+      );
+    }
+  }
+
+  const putawayCartons = (
+    await Promise.all(
+      cartonIds.map(async (cartonId) => {
+        const cartonSnap = await getDoc(
+          warehouseCartonDocRef(input.warehouseId, cartonId)
+        );
+        return cartonSnap.exists()
+          ? parseWarehouseCartonDoc(
+              cartonSnap.id,
+              cartonSnap.data() as Record<string, unknown>
+            )
+          : null;
+      })
+    )
+  ).filter((carton): carton is WarehouseCartonDoc => carton !== null);
+
+  await updateDoc(requestRef, {
+    warehouseProcessedVia: "admin_dashboard",
+    warehouseProcessedBy: input.operatorId ?? null,
+    warehouseProcessedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
 
   return {
-    cartonId,
-    cartonCode: carton.cartonCode,
+    cartonIds,
+    cartonCodes: putawayCartons.map((carton) => carton.cartonCode),
+    palletId,
+    palletCode: receivedPallet?.palletCode ?? null,
     quantityReceived: qty,
     stagingArea,
+    cartons: putawayCartons,
+    pallets: receivedPallet ? [receivedPallet] : [],
   };
 }
 
