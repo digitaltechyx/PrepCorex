@@ -119,7 +119,7 @@ export function DeleteRequestDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] min-w-0 max-w-lg overflow-x-hidden overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Trash2 className="h-5 w-5 text-red-600" />
@@ -132,15 +132,15 @@ export function DeleteRequestDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-1.5">
+        <div className="min-w-0 space-y-4">
+          <div className="min-w-0 space-y-1.5">
             <Label>Product</Label>
             {sortedInventory.length === 0 ? (
               <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
                 No inventory available
               </div>
             ) : (
-              <div className="rounded-md border">
+              <div className="min-w-0 overflow-hidden rounded-md border">
                 <div className="relative border-b">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -165,13 +165,13 @@ export function DeleteRequestDialog({
                           type="button"
                           onClick={() => setProductId(item.id)}
                           className={cn(
-                            "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent",
+                            "flex min-w-0 w-full items-center gap-2 overflow-hidden rounded-sm px-2 py-1.5 text-left hover:bg-accent",
                             active && "bg-accent"
                           )}
                         >
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">{item.productName}</p>
-                            <p className="text-[11px] text-muted-foreground">
+                            <p className="truncate text-[11px] text-muted-foreground">
                               {item.quantity} units
                               {item.sku ? ` · SKU ${item.sku}` : ""}
                             </p>
