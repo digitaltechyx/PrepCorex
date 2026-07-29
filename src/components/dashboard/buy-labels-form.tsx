@@ -161,6 +161,21 @@ type LabelCartItem = {
 
 type LabelProvider = "shippo" | "shipbest";
 
+function getRateDisplay(rate: ShippingRate): { provider: string; service: string } {
+  const isGofo = /gofo/i.test(`${rate.provider} ${rate.servicelevel.name}`);
+  if (!isGofo) {
+    return { provider: rate.provider, service: rate.servicelevel.name };
+  }
+
+  const service =
+    rate.servicelevel.name
+      .replace(/shipbest/gi, "")
+      .replace(/gofo/gi, "Gofo")
+      .replace(/\s+/g, " ")
+      .trim() || "Gofo";
+  return { provider: "PrepCorex", service };
+}
+
 function toPaymentSelectedRate(
   rate: ShippingRate,
   shipmentId: string | null
@@ -561,9 +576,10 @@ export function BuyLabelsForm({
     setRates([]);
     setSelectedRate(null);
     setShipmentId(null);
+    const displayRate = getRateDisplay(item.selectedRate);
     toast({
       title: "Added to cart",
-      description: `${item.selectedRate.provider} ${item.selectedRate.servicelevel.name} added.`,
+      description: `${displayRate.provider} ${displayRate.service} added.`,
     });
   };
 
@@ -1318,9 +1334,9 @@ export function BuyLabelsForm({
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-semibold">{rate.provider}</p>
+                          <p className="font-semibold">{getRateDisplay(rate).provider}</p>
                           <p className="text-sm text-muted-foreground">
-                            {rate.servicelevel.name}
+                            {getRateDisplay(rate).service}
                           </p>
                           {rate.serviceDescription ? (
                             <p className="mt-1 text-xs text-muted-foreground">
@@ -1404,7 +1420,8 @@ export function BuyLabelsForm({
                   <div key={item.id} className="rounded-md border p-3 text-sm">
                     <div className="flex items-center justify-between">
                       <p className="font-medium">
-                        {idx + 1}. {item.selectedRate.provider} - {item.selectedRate.servicelevel.name}
+                        {idx + 1}. {getRateDisplay(item.selectedRate).provider} -{" "}
+                        {getRateDisplay(item.selectedRate).service}
                       </p>
                       <p className="font-semibold">${parseFloat(item.selectedRate.amount).toFixed(2)}</p>
                     </div>
