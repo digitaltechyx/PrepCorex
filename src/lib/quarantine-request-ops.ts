@@ -511,12 +511,16 @@ async function shiftClientQuantities(input: {
   const nextGood = Math.max(0, Number(data.quantity ?? 0) + input.goodDelta);
   const nextDamaged = Math.max(0, Number(data.damagedQuantity ?? 0) + input.damagedDelta);
 
-  await updateDoc(ref, {
+  const patch: Record<string, unknown> = {
     quantity: nextGood,
     damagedQuantity: nextDamaged,
     status: nextGood > 0 ? "In Stock" : "Out of Stock",
     updatedAt: serverTimestamp(),
-  });
+  };
+  if (input.damagedDelta > 0) {
+    patch.quarantineAt = serverTimestamp();
+  }
+  await updateDoc(ref, patch);
 }
 
 /**

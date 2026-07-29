@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   ShoppingCart,
   Truck,
+  XCircle,
 } from "lucide-react";
 
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
@@ -27,6 +28,7 @@ import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { hasFeature } from "@/lib/permissions";
 import { buildPutawayQueueLabels } from "@/lib/warehouse-putaway-queue";
 import { listPendingInternalMovesForSourceWarehouse } from "@/lib/internal-move-ops";
+import { rejectInboundRequestAtDock } from "@/lib/warehouse-inbound-receive";
 import {
   listOpenQuarantineRequests,
   quarantineRequestKindLabel,
@@ -37,8 +39,21 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 import type {
   InternalMoveRequest,
   QuarantineRequest,
@@ -73,6 +88,8 @@ type OpsNotificationRow = {
   createdAtMs: number;
   processHref: string;
   processLabel: string;
+  clientUserId?: string;
+  requestId?: string;
 };
 
 function normStatus(status: unknown): string {
@@ -166,6 +183,7 @@ function matchesFilter(kind: NotifKind, filter: NotifFilter): boolean {
 
 export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseDoc }) {
   const { userProfile } = useAuth();
+  const { toast } = useToast();
   const {
     inboundDockQueue,
     pendingOutboundQueue,
@@ -190,6 +208,9 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
 
   const [filter, setFilter] = useState<NotifFilter>("all");
   const [search, setSearch] = useState("");
+  const [rejectingRow, setRejectingRow] = useState<OpsNotificationRow | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [isRejecting, setIsRejecting] = useState(false);
 
   const canReceive = hasFeature(userProfile, "ops_receive");
   const canPutaway = hasFeature(userProfile, "ops_putaway");
@@ -278,6 +299,8 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
             createdAtMs,
             processHref: `/warehouse-ops/receiving?tab=pending&userId=${encodeURIComponent(r.clientUserId)}&requestId=${encodeURIComponent(r.id)}`,
             processLabel: "Approve at dock",
+            clientUserId: r.clientUserId,
+            requestId: r.id,
           });
         } else if (
           isApprovedInbound(r.status) &&
@@ -524,6 +547,33 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
   const loading =
     liveLoading || outboundLoading || returnsLoading || siteMovesLoading || quarantineLoading;
 
+  const handleRejectInbound = async () => {
+    if (!rejectingRow?.clientUserId || !rejectingRow.requestId || !userProfile?.uid) return;
+    setIsRejecting(true);
+    try {
+      await rejectInboundRequestAtDock({
+        clientUserId: rejectingRow.clientUserId,
+        requestId: rejectingRow.requestId,
+        rejectedBy: userProfile.uid,
+        reason: rejectionReason,
+      });
+      toast({
+        title: "Inbound request rejected",
+        description: `"${rejectingRow.title}" was removed from the receiving queue.`,
+      });
+      setRejectingRow(null);
+      setRejectionReason("");
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Could not reject request",
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsRejecting(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-3xl space-y-4">
       <WarehouseOpsHeader title="Notifications" />
@@ -615,12 +665,27 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
                           ) : null}
                         </div>
                       </div>
-                      <Button asChild className="w-full shrink-0 sm:w-auto">
-                        <Link href={row.processHref}>
-                          {row.processLabel}
-                          <ArrowRight className="ml-1.5 h-4 w-4" />
-                        </Link>
-                      </Button>
+                      <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
+                        {row.kind === "inbound_pending" ? (
+                          <Button
+                            variant="destructive"
+                            className="w-full sm:w-auto"
+                            onClick={() => {
+                              setRejectionReason("");
+                              setRejectingRow(row);
+                            }}
+                          >
+                            <XCircle className="mr-1.5 h-4 w-4" />
+                            Reject
+                          </Button>
+                        ) : null}
+                        <Button asChild className="w-full shrink-0 sm:w-auto">
+                          <Link href={row.processHref}>
+                            {row.processLabel}
+                            <ArrowRight className="ml-1.5 h-4 w-4" />
+                          </Link>
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 );
@@ -633,6 +698,49 @@ export function WarehouseOpsNotifications({ warehouse }: { warehouse: WarehouseD
           <WarehouseOpsActivityLog warehouse={warehouse} module="overview" />
         </TabsContent>
       </Tabs>
+
+      <AlertDialog
+        open={Boolean(rejectingRow)}
+        onOpenChange={(open) => {
+          if (!open && !isRejecting) {
+            setRejectingRow(null);
+            setRejectionReason("");
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reject inbound request?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes &quot;{rejectingRow?.title}&quot; from the warehouse receiving queue.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="inbound-rejection-reason">Reason</Label>
+            <Textarea
+              id="inbound-rejection-reason"
+              value={rejectionReason}
+              onChange={(event) => setRejectionReason(event.target.value)}
+              placeholder="Enter the reason for rejection"
+              disabled={isRejecting}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRejecting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleRejectInbound();
+              }}
+              disabled={isRejecting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isRejecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Reject request
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

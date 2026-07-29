@@ -61,6 +61,20 @@ function formatWhen(value: QuarantineRequest["requestedAt"]): string {
   return format(new Date(ms), "MMM dd, yyyy · h:mm a");
 }
 
+function formatInventoryWhen(
+  value: InventoryItem["quarantineAt"] | InventoryItem["receivingDate"] | InventoryItem["dateAdded"]
+): string {
+  if (!value) return "—";
+  const ms =
+    value instanceof Date
+      ? value.getTime()
+      : typeof value === "string"
+        ? new Date(value).getTime()
+        : (value.seconds ?? 0) * 1000;
+  if (!ms || Number.isNaN(ms)) return "—";
+  return format(new Date(ms), "MMM dd, yyyy · h:mm a");
+}
+
 export default function QuarantinePage() {
   const { userProfile } = useAuth();
   const { toast } = useToast();
@@ -208,6 +222,7 @@ export default function QuarantinePage() {
                         <TableHead className="min-w-[140px]">SKU</TableHead>
                         <TableHead className="min-w-[140px]">In quarantine</TableHead>
                         <TableHead className="min-w-[140px]">Sellable</TableHead>
+                        <TableHead className="min-w-[210px]">Date &amp; time</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -223,6 +238,11 @@ export default function QuarantinePage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-slate-700">{item.quantity}</TableCell>
+                          <TableCell className="text-slate-700 whitespace-nowrap">
+                            {formatInventoryWhen(
+                              item.quarantineAt ?? item.receivingDate ?? item.dateAdded
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

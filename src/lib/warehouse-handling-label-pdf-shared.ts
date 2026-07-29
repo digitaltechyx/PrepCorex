@@ -4,7 +4,10 @@ import QRCode from "qrcode";
 import { sanitizePdfWinAnsi } from "@/lib/warehouse-bin-label-pdf";
 
 export function pdfText(text: string): string {
-  return sanitizePdfWinAnsi(text);
+  // Dynamic warehouse values occasionally contain line breaks or pasted tabs.
+  // Label fields are laid out as single rows, so control whitespace would make
+  // pdf-lib render extra lines on top of the following fields.
+  return sanitizePdfWinAnsi(String(text ?? "").replace(/\s+/g, " ").trim());
 }
 
 export const ink = rgb(0.06, 0.09, 0.14);

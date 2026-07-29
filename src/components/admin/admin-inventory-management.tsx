@@ -23,7 +23,7 @@ import { db, storage } from "@/lib/firebase";
 import imageCompression from "browser-image-compression";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff, ArrowRight, ChevronsUpDown, Loader2, ImageIcon, Upload } from "lucide-react";
+import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff, ArrowRight, ChevronsUpDown, Loader2, ImageIcon, Upload, ShieldAlert } from "lucide-react";
 import { AddInventoryForm } from "@/components/admin/add-inventory-form";
 import { AddInventoryRequestForm } from "@/components/dashboard/add-inventory-request-form";
 import { ShipInventoryForm } from "@/components/admin/ship-inventory-form";
@@ -1849,7 +1849,7 @@ export function AdminInventoryManagement({
             </div>
             
             {/* Section Navigation Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-10 gap-3 mt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-11 gap-3 mt-2">
               {/* Add Inventory Card */}
               <div
                 onClick={() => setActiveSection("add-inventory")}
@@ -2102,6 +2102,34 @@ export function AdminInventoryManagement({
                 </div>
               </div>
 
+              {/* Quarantine Logs Card */}
+              <div
+                onClick={() => setActiveSection("quarantine-logs")}
+                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                  activeSection === "quarantine-logs"
+                    ? "border-amber-500 bg-gradient-to-br from-amber-50 to-orange-100 shadow-lg ring-2 ring-amber-200"
+                    : "border-gray-200 bg-white hover:border-amber-300 hover:shadow-md"
+                }`}
+              >
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <div className={`p-3 rounded-lg ${
+                    activeSection === "quarantine-logs" ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-600"
+                  } transition-colors`}>
+                    <ShieldAlert className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className={`font-semibold text-xs ${
+                      activeSection === "quarantine-logs" ? "text-amber-900" : "text-gray-700"
+                    }`}>
+                      Quarantine
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      View logs
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* User Requests (Notifications) Card */}
               <div
                 onClick={() => setActiveSection("user-requests")}
@@ -2133,6 +2161,15 @@ export function AdminInventoryManagement({
           </div>
         </CardHeader>
       </Card>
+
+      {/* Quarantine Logs */}
+      {activeSection === "quarantine-logs" && (
+        <QuarantineRequestsManagement
+          selectedUser={selectedUser}
+          inventory={inventory}
+          defaultStatusFilter="all"
+        />
+      )}
 
       {/* User Requests (per-user notifications) */}
       {activeSection === "user-requests" && (

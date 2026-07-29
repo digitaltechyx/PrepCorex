@@ -61,25 +61,27 @@ function formatDate(date: QuarantineRequest["requestedAt"]) {
   if (!date) return "N/A";
   const ms = typeof date === "string" ? new Date(date).getTime() : (date.seconds ?? 0) * 1000;
   if (!ms || Number.isNaN(ms)) return "N/A";
-  return format(new Date(ms), "PPP");
+  return format(new Date(ms), "PPP · p");
 }
 
 type Props = {
   selectedUser: UserProfile | null;
   inventory: InventoryItem[];
   initialRequestId?: string;
+  defaultStatusFilter?: QuarantineRequest["status"] | "all";
 };
 
 export function QuarantineRequestsManagement({
   selectedUser,
   inventory,
   initialRequestId,
+  defaultStatusFilter = "pending",
 }: Props) {
   const { toast } = useToast();
   const { userProfile: adminProfile } = useAuth();
   const [selectedRequest, setSelectedRequest] = useState<QuarantineRequest | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>("pending");
+  const [statusFilter, setStatusFilter] = useState<string>(defaultStatusFilter);
   const [requestSearch, setRequestSearch] = useState("");
   const [rejectFeedback, setRejectFeedback] = useState("");
   const [behalfDialogOpen, setBehalfDialogOpen] = useState(false);

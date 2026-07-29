@@ -284,6 +284,9 @@ async function syncPutawayLine(input: {
       // Warehouse putaway is the moment stock is received into client inventory.
       receivingDate: serverTimestamp(),
     };
+    if (damagedQty > 0) {
+      invPatch.quarantineAt = serverTimestamp();
+    }
 
     if (!invSnap.exists()) {
       invPatch.productName = productName;

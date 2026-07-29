@@ -723,7 +723,7 @@ export function BuyLabelsForm({
               </CardTitle>
               <CardDescription>
                 Enter shipment details to get shipping rates and purchase a label, or import multiple
-                labels from CSV. Rates from Shippo and ShipBest are compared automatically.
+                labels from CSV.
               </CardDescription>
             </div>
             {canImportBuyLabels ? (

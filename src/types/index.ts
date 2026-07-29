@@ -616,6 +616,8 @@ export interface InventoryItem {
   remarksImageUrls?: string[];
   /** When warehouse putaway first added this stock to the client inventory. */
   receivingDate?: { seconds: number; nanoseconds: number } | string | Date;
+  /** Most recent time units were added to this item's quarantine balance. */
+  quarantineAt?: { seconds: number; nanoseconds: number } | string | Date;
   /** Inbound inventory request that created/restocked this item. */
   sourceRequestId?: string;
   remarks?: string;
