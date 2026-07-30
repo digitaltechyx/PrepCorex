@@ -100,6 +100,10 @@ function lineInputToFirestore(
   if (line.containerSize) doc.containerSize = line.containerSize;
   if (line.retailIdentifier) doc.retailIdentifier = line.retailIdentifier;
   if (line.expiryDate) doc.expiryDate = line.expiryDate;
+  if (line.unitLengthIn != null) doc.unitLengthIn = line.unitLengthIn;
+  if (line.unitWidthIn != null) doc.unitWidthIn = line.unitWidthIn;
+  if (line.unitHeightIn != null) doc.unitHeightIn = line.unitHeightIn;
+  if (line.unitWeightLb != null) doc.unitWeightLb = line.unitWeightLb;
   if (line.remarks) doc.remarks = line.remarks;
   if (line.trackingNumber) doc.trackingNumber = line.trackingNumber;
   if (line.carrier) doc.carrier = line.carrier;
@@ -169,6 +173,10 @@ export async function submitSingleInboundRequest(input: {
   if (line.containerSize) payload.containerSize = line.containerSize;
   if (line.retailIdentifier) payload.retailIdentifier = line.retailIdentifier;
   if (line.expiryDate) payload.expiryDate = line.expiryDate;
+  if (line.unitLengthIn != null) payload.unitLengthIn = line.unitLengthIn;
+  if (line.unitWidthIn != null) payload.unitWidthIn = line.unitWidthIn;
+  if (line.unitHeightIn != null) payload.unitHeightIn = line.unitHeightIn;
+  if (line.unitWeightLb != null) payload.unitWeightLb = line.unitWeightLb;
   if (line.remarks) payload.remarks = line.remarks;
   if (line.imageUrls?.length) {
     payload.imageUrls = line.imageUrls;
@@ -290,6 +298,10 @@ export async function submitInboundBatch(input: {
       sku: lineInput.sku,
       retailIdentifier: lineInput.retailIdentifier,
       expiryDate: lineInput.expiryDate,
+      unitLengthIn: lineInput.unitLengthIn,
+      unitWidthIn: lineInput.unitWidthIn,
+      unitHeightIn: lineInput.unitHeightIn,
+      unitWeightLb: lineInput.unitWeightLb,
       productSubType: lineInput.productSubType,
       productId: lineInput.productId,
       productEntryMode: lineInput.productEntryMode,
@@ -352,6 +364,10 @@ export function batchLineToInventoryRequest(
     sku: line.sku,
     retailIdentifier: line.retailIdentifier,
     expiryDate: line.expiryDate,
+    unitLengthIn: line.unitLengthIn,
+    unitWidthIn: line.unitWidthIn,
+    unitHeightIn: line.unitHeightIn,
+    unitWeightLb: line.unitWeightLb,
     productSubType: line.productSubType,
     productId: line.productId,
     productEntryMode: line.productEntryMode,
@@ -428,6 +444,10 @@ export async function ensureInventoryRequestForBatchLine(
     sku: line.sku ?? null,
     retailIdentifier: line.retailIdentifier ?? null,
     expiryDate: line.expiryDate ?? null,
+    unitLengthIn: line.unitLengthIn ?? null,
+    unitWidthIn: line.unitWidthIn ?? null,
+    unitHeightIn: line.unitHeightIn ?? null,
+    unitWeightLb: line.unitWeightLb ?? null,
     productSubType: line.productSubType ?? null,
     productId: line.productId ?? null,
     productEntryMode: line.productEntryMode ?? null,

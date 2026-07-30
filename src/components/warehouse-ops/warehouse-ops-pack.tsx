@@ -48,6 +48,10 @@ import { formatOutboundLineLabel } from "@/lib/warehouse-outbound-lines";
 import { FbaMasterCaseForm } from "@/components/warehouse-ops/fba-master-case-form";
 import type { FbaMasterCase } from "@/types";
 import type { WarehouseDoc } from "@/types";
+import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
+import { readProductUnitMeasurements, type BoxSuggestionLine } from "@/lib/box-suggestion";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -121,6 +125,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const [selectedOrder, setSelectedOrder] = useState<OutboundPackOrder | null>(null);
   const [plan, setPlan] = useState<PackPlan | null>(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
+  const [boxSuggestionLines, setBoxSuggestionLines] = useState<BoxSuggestionLine[]>([]);
 
   const [labelScan, setLabelScan] = useState("");
   const [courierScan, setCourierScan] = useState("");
@@ -224,6 +229,26 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     try {
       const p = await buildPackPlan(warehouse, order);
       setPlan(p);
+      try {
+        const invSnap = await getDocs(collection(db, `users/${order.clientUserId}/inventory`));
+        const byId = new Map(
+          invSnap.docs.map((d) => [d.id, d.data() as Record<string, unknown>])
+        );
+        setBoxSuggestionLines(
+          order.lines.map((line) => {
+            const inv = byId.get(line.productId);
+            return {
+              productId: line.productId,
+              productName: line.productName,
+              sku: line.sku,
+              quantity: line.quantityUnits,
+              measurements: readProductUnitMeasurements(inv),
+            };
+          })
+        );
+      } catch {
+        setBoxSuggestionLines([]);
+      }
     } catch (e) {
       toast({
         title: "Could not load pack plan",
@@ -231,6 +256,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
         variant: "destructive",
       });
       setPlan(null);
+      setBoxSuggestionLines([]);
     } finally {
       setLoadingPlan(false);
     }
@@ -260,6 +286,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   function resetToQueue() {
     setSelectedOrder(null);
     setPlan(null);
+    setBoxSuggestionLines([]);
     setLabelScan("");
     setCourierScan("");
     setCourierPreview(null);
@@ -1036,6 +1063,9 @@ export function WarehouseOpsPack({ warehouse }: Props) {
         </Card>
       ) : plan ? (
         <>
+          {boxSuggestionLines.length > 0 ? (
+            <BoxSuggestionCard lines={boxSuggestionLines} hideWhenUnavailable />
+          ) : null}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">

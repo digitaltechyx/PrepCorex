@@ -610,6 +610,12 @@ export interface InventoryItem {
   sku?: string;
   retailIdentifier?: string;
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
+  /** Optional per-unit packaged dimensions (inches) for outbound box suggestions. */
+  unitLengthIn?: number;
+  unitWidthIn?: number;
+  unitHeightIn?: number;
+  /** Optional per-unit weight (lb) for outbound box suggestions. */
+  unitWeightLb?: number;
   imageUrl?: string;
   imageUrls?: string[];
   /** Warehouse receive / dock photos — shown under Remarks, not the product thumbnail. */
@@ -732,6 +738,12 @@ export interface InventoryRequest {
   retailIdentifier?: string;
   /** Calendar expiry when applicable (stored as Firestore Timestamp on write). */
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
+  /** Optional per-unit packaged dimensions (inches) for outbound box suggestions. */
+  unitLengthIn?: number;
+  unitWidthIn?: number;
+  unitHeightIn?: number;
+  /** Optional per-unit weight (lb) for outbound box suggestions. */
+  unitWeightLb?: number;
   productSubType?: "new" | "restock";
   productId?: string;
   productEntryMode?: "single" | "variants";
@@ -864,6 +876,10 @@ export interface InboundBatchLine {
   sku?: string;
   retailIdentifier?: string;
   expiryDate?: InventoryRequest["expiryDate"];
+  unitLengthIn?: number;
+  unitWidthIn?: number;
+  unitHeightIn?: number;
+  unitWeightLb?: number;
   productSubType?: InventoryRequest["productSubType"];
   productId?: string;
   productEntryMode?: InventoryRequest["productEntryMode"];

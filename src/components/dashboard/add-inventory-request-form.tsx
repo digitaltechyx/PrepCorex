@@ -60,6 +60,12 @@ import {
   InboundTrackingFields,
   type InboundTrackingInput,
 } from "@/components/inventory/inbound-tracking-fields";
+import {
+  EMPTY_UNIT_MEASUREMENTS,
+  ProductUnitMeasurementsFields,
+  type ProductUnitMeasurementDraft,
+} from "@/components/inventory/product-unit-measurements-fields";
+import { measurementFieldsForWrite } from "@/lib/box-suggestion";
 import { addInboundTrackingToRequests } from "@/lib/inbound-tracking-client";
 
 type VariantRowState = {
@@ -85,6 +91,7 @@ type NewProductRowState = {
   trackingNumber: string;
   carrier: string;
   expiryDate?: Date;
+  measurements: ProductUnitMeasurementDraft;
   imageFile?: File;
   imagePreviewUrl?: string;
 };
@@ -99,7 +106,19 @@ function createEmptyNewProductRow(): NewProductRowState {
     remarks: "",
     trackingNumber: "",
     carrier: "usps",
+    measurements: { ...EMPTY_UNIT_MEASUREMENTS },
   };
+}
+
+function applyMeasurementsToLine(
+  line: InboundBatchLineInput,
+  draft: ProductUnitMeasurementDraft
+): void {
+  const fields = measurementFieldsForWrite(draft);
+  if (fields.unitLengthIn != null) line.unitLengthIn = fields.unitLengthIn;
+  if (fields.unitWidthIn != null) line.unitWidthIn = fields.unitWidthIn;
+  if (fields.unitHeightIn != null) line.unitHeightIn = fields.unitHeightIn;
+  if (fields.unitWeightLb != null) line.unitWeightLb = fields.unitWeightLb;
 }
 
 function optionalExpiryTimestampFromParts(
@@ -235,6 +254,9 @@ export function AddInventoryRequestForm({
   const [variantRows, setVariantRows] = useState<VariantRowState[]>([]);
   const [newProductRows, setNewProductRows] = useState<NewProductRowState[]>([createEmptyNewProductRow()]);
   const [singleExpiryDate, setSingleExpiryDate] = useState<Date | undefined>(undefined);
+  const [singleUnitMeasurements, setSingleUnitMeasurements] = useState<ProductUnitMeasurementDraft>({
+    ...EMPTY_UNIT_MEASUREMENTS,
+  });
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [bulkRestockImportOpen, setBulkRestockImportOpen] = useState(false);
   const [shipmentType, setShipmentType] = useState<InboundShipmentType | "">("");
@@ -921,6 +943,7 @@ export function AddInventoryRequestForm({
           }
           const productExpiry = optionalExpiryTimestampFromParts(undefined, singleExpiryDate);
           if (productExpiry) line.expiryDate = productExpiry;
+          applyMeasurementsToLine(line, singleUnitMeasurements);
           if (row.imageFile) {
             const urls = await uploadInventoryImageFile(ownerId, row.imageFile);
             line.imageUrls = urls;
@@ -997,6 +1020,7 @@ export function AddInventoryRequestForm({
           if (row.retailIdentifier?.trim()) line.retailIdentifier = row.retailIdentifier.trim();
           if (row.remarks?.trim()) line.remarks = row.remarks.trim();
           if (rowExpiry) line.expiryDate = rowExpiry;
+          applyMeasurementsToLine(line, row.measurements);
           if (rowImageUrls.length > 0) {
             line.imageUrls = rowImageUrls;
             line.imageUrl = rowImageUrls[0];
@@ -1034,6 +1058,30 @@ export function AddInventoryRequestForm({
         if (values.containerSize) line.containerSize = values.containerSize;
         const singleEx = optionalExpiryTimestampFromParts(undefined, singleExpiryDate);
         if (singleEx) line.expiryDate = singleEx;
+        if (values.inventoryType === "product") {
+          const draftFields = measurementFieldsForWrite(singleUnitMeasurements);
+          const hasDraft = Object.keys(draftFields).length > 0;
+          if (hasDraft) {
+            applyMeasurementsToLine(line, singleUnitMeasurements);
+          } else if (
+            values.productSubType === "restock" &&
+            values.productId
+          ) {
+            const selectedProduct = availableProductsForRestock.find((p) => p.id === values.productId);
+            if (selectedProduct) {
+              applyMeasurementsToLine(line, {
+                unitLengthIn:
+                  selectedProduct.unitLengthIn != null ? String(selectedProduct.unitLengthIn) : "",
+                unitWidthIn:
+                  selectedProduct.unitWidthIn != null ? String(selectedProduct.unitWidthIn) : "",
+                unitHeightIn:
+                  selectedProduct.unitHeightIn != null ? String(selectedProduct.unitHeightIn) : "",
+                unitWeightLb:
+                  selectedProduct.unitWeightLb != null ? String(selectedProduct.unitWeightLb) : "",
+              });
+            }
+          }
+        }
         if (finalImageUrls.length > 0) {
           line.imageUrls = finalImageUrls;
           line.imageUrl = finalImageUrls[0];
@@ -1106,6 +1154,7 @@ export function AddInventoryRequestForm({
       clearAllVariantRows();
       clearAllNewProductRows();
       setSingleExpiryDate(undefined);
+      setSingleUnitMeasurements({ ...EMPTY_UNIT_MEASUREMENTS });
       setShipmentType("");
       setLoadContents("");
       setProductNotes("");
@@ -1489,6 +1538,24 @@ export function AddInventoryRequestForm({
                           form.setValue("productName", selectedProduct.productName);
                           form.setValue("sku", (selectedProduct as any).sku || "");
                           setRestockImageUrls(extractImageUrls(selectedProduct as any));
+                          setSingleUnitMeasurements({
+                            unitLengthIn:
+                              selectedProduct.unitLengthIn != null
+                                ? String(selectedProduct.unitLengthIn)
+                                : "",
+                            unitWidthIn:
+                              selectedProduct.unitWidthIn != null
+                                ? String(selectedProduct.unitWidthIn)
+                                : "",
+                            unitHeightIn:
+                              selectedProduct.unitHeightIn != null
+                                ? String(selectedProduct.unitHeightIn)
+                                : "",
+                            unitWeightLb:
+                              selectedProduct.unitWeightLb != null
+                                ? String(selectedProduct.unitWeightLb)
+                                : "",
+                          });
                         }
                       }}
                       value={field.value}
@@ -1515,6 +1582,14 @@ export function AddInventoryRequestForm({
                     <FormMessage />
                   </FormItem>
                 )}
+              />
+            )}
+
+            {inventoryType === "product" && productSubType === "restock" && (
+              <ProductUnitMeasurementsFields
+                idPrefix="restock-m"
+                value={singleUnitMeasurements}
+                onChange={setSingleUnitMeasurements}
               />
             )}
 
@@ -1678,6 +1753,14 @@ export function AddInventoryRequestForm({
                             setDate={(date) => updateNewProductRow(row.id, { expiryDate: date })}
                           />
                         </div>
+                        <div className="sm:col-span-2">
+                          <ProductUnitMeasurementsFields
+                            compact
+                            idPrefix={`np-m-${row.id}`}
+                            value={row.measurements}
+                            onChange={(measurements) => updateNewProductRow(row.id, { measurements })}
+                          />
+                        </div>
                         <div className="space-y-1 sm:col-span-2">
                           <Label className="text-xs text-muted-foreground">Remarks (optional)</Label>
                           <Textarea
@@ -1773,6 +1856,11 @@ export function AddInventoryRequestForm({
                       : "Use when the product has a shelf life or lot expiry."}
                   </p>
                 </div>
+                <ProductUnitMeasurementsFields
+                  idPrefix="variant-or-single-m"
+                  value={singleUnitMeasurements}
+                  onChange={setSingleUnitMeasurements}
+                />
               </>
             )}
 

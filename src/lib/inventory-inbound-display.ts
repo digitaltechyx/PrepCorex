@@ -43,6 +43,12 @@ export function shouldShowApprovedInboundRequestRow(
   req: InventoryRequest,
   inventory: InventoryItem[]
 ): boolean {
+  // Approved records created before Warehouse Inbound v2 were completed
+  // immediately by the admin workflow. They must never re-enter the Warehouse
+  // Ops receiving queue, even when their old inventory row is now out of stock
+  // or cannot be linked back by sourceRequestId.
+  if (Number(req.inboundWorkflowVersion ?? 0) < 2) return false;
+
   if (!isOpenProductInboundRequest(req)) return false;
 
   if (req.inventoryType === "container") {

@@ -296,6 +296,10 @@ async function syncPutawayLine(input: {
       if (requestId) invPatch.sourceRequestId = requestId;
       if (requestData?.retailIdentifier) invPatch.retailIdentifier = requestData.retailIdentifier;
       if (requestData?.expiryDate) invPatch.expiryDate = requestData.expiryDate;
+      if (requestData?.unitLengthIn != null) invPatch.unitLengthIn = Number(requestData.unitLengthIn);
+      if (requestData?.unitWidthIn != null) invPatch.unitWidthIn = Number(requestData.unitWidthIn);
+      if (requestData?.unitHeightIn != null) invPatch.unitHeightIn = Number(requestData.unitHeightIn);
+      if (requestData?.unitWeightLb != null) invPatch.unitWeightLb = Number(requestData.unitWeightLb);
       if (Array.isArray(requestData?.inboundTrackings) && requestData.inboundTrackings.length > 0) {
         invPatch.inboundTrackings = requestData.inboundTrackings;
       }
@@ -332,6 +336,11 @@ async function syncPutawayLine(input: {
       if (requestId && !invSnap.data()?.sourceRequestId) {
         invPatch.sourceRequestId = requestId;
       }
+      // Prefer inbound-request measurements (client or warehouse may set/correct them).
+      if (requestData?.unitLengthIn != null) invPatch.unitLengthIn = Number(requestData.unitLengthIn);
+      if (requestData?.unitWidthIn != null) invPatch.unitWidthIn = Number(requestData.unitWidthIn);
+      if (requestData?.unitHeightIn != null) invPatch.unitHeightIn = Number(requestData.unitHeightIn);
+      if (requestData?.unitWeightLb != null) invPatch.unitWeightLb = Number(requestData.unitWeightLb);
       // Don't overwrite an earlier receiving date on restock — only set if missing.
       if (invSnap.data()?.receivingDate) {
         delete invPatch.receivingDate;

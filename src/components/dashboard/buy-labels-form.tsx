@@ -415,9 +415,12 @@ export function BuyLabelsForm({
         parcel: parcelData,
       });
 
+      const hasRecipientPhone = Boolean(data.toAddress.phone?.trim());
       const providerRequests = [
         { name: "Shippo", url: "/api/shippo/rates" },
-        { name: "ShipBest", url: "/api/shipbest/rates" },
+        ...(hasRecipientPhone
+          ? [{ name: "ShipBest", url: "/api/shipbest/rates" }]
+          : []),
       ];
 
       const providerResults = await Promise.all(
@@ -472,13 +475,23 @@ export function BuyLabelsForm({
       if (combinedRates.length > 0) {
         toast({
           title: "Rates Retrieved",
-          description: `Found ${combinedRates.length} shipping options from Shippo and ShipBest.`,
+          description: `Found ${combinedRates.length} shipping options.`,
         });
+        if (!hasRecipientPhone) {
+          toast({
+            title: "PrepCorex Gofo rates unavailable",
+            description: "Add the recipient phone number to view PrepCorex Gofo rates.",
+          });
+        }
         if (failedProviders.length > 0) {
           toast({
             title: "Some rates unavailable",
             description: failedProviders
-              .map((result) => `${result.name}: ${result.error}`)
+              .map((result) =>
+                result.name === "ShipBest"
+                  ? "PrepCorex Gofo could not return rates. Verify the recipient address and phone."
+                  : `${result.name}: ${result.error}`
+              )
               .join(" | "),
           });
         }

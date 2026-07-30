@@ -33,6 +33,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useCollection } from "@/hooks/use-collection";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
 import { getUserPricingProfilePaths } from "@/lib/pricing-profiles";
+import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
+import { readProductUnitMeasurements } from "@/lib/box-suggestion";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -926,6 +928,24 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
               </div>
             ) : (
               <div className="space-y-4">
+                {shipmentType === "product" ? (
+                  <BoxSuggestionCard
+                    lines={fields.map((field, index) => {
+                      const productMeta = inventory.find((item) => item.id === field.productId);
+                      const quantity = form.watch(`shipments.${index}.quantity`) || 0;
+                      const packOf = form.watch(`shipments.${index}.packOf`) || 1;
+                      return {
+                        productId: field.productId,
+                        productName: productMeta?.productName,
+                        sku: productMeta?.sku,
+                        quantity: quantity * packOf,
+                        measurements: readProductUnitMeasurements(
+                          productMeta as Record<string, unknown> | undefined
+                        ),
+                      };
+                    })}
+                  />
+                ) : null}
                 {fields.map((field, index) => {
                   const productMeta = inventory.find((item) => item.id === field.productId);
                   return (

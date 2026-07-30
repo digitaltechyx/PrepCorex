@@ -48,6 +48,13 @@ import { arrayToCSV, downloadCSV, formatDateForCSV, type InventoryCSVRow, type S
 import { useAuth } from "@/hooks/use-auth";
 import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
 import { useCollection } from "@/hooks/use-collection";
+import {
+  draftFromMeasurementSource,
+  EMPTY_UNIT_MEASUREMENTS,
+  ProductUnitMeasurementsFields,
+  type ProductUnitMeasurementDraft,
+} from "@/components/inventory/product-unit-measurements-fields";
+import { measurementFieldsForWrite } from "@/lib/box-suggestion";
 
 interface AdminInventoryManagementProps {
   selectedUser: UserProfile | null;
@@ -374,6 +381,9 @@ export function AdminInventoryManagement({
   console.log("Inventory:", inventory);
   console.log("Loading:", loading);
   const [editingProduct, setEditingProduct] = useState<InventoryItem | null>(null);
+  const [editUnitMeasurements, setEditUnitMeasurements] = useState<ProductUnitMeasurementDraft>({
+    ...EMPTY_UNIT_MEASUREMENTS,
+  });
   const [restockingProduct, setRestockingProduct] = useState<InventoryItem | null>(null);
   const [recyclingProduct, setRecyclingProduct] = useState<InventoryItem | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<InventoryItem | null>(null);
@@ -583,6 +593,7 @@ export function AdminInventoryManagement({
     setEditingProduct(product);
     editForm.setValue("productName", product.productName);
     editForm.setValue("quantity", product.quantity);
+    setEditUnitMeasurements(draftFromMeasurementSource(product as unknown as Record<string, unknown>));
   };
 
   const handleRestockProduct = (product: InventoryItem) => {
@@ -871,10 +882,15 @@ export function AdminInventoryManagement({
 
     try {
       const productRef = doc(db, `users/${selectedUser.uid}/inventory`, editingProduct.id);
+      const measurementPatch = measurementFieldsForWrite(editUnitMeasurements);
       await updateDoc(productRef, {
         productName: values.productName,
         quantity: values.quantity,
         status: values.quantity > 0 ? "In Stock" : "Out of Stock",
+        unitLengthIn: measurementPatch.unitLengthIn ?? null,
+        unitWidthIn: measurementPatch.unitWidthIn ?? null,
+        unitHeightIn: measurementPatch.unitHeightIn ?? null,
+        unitWeightLb: measurementPatch.unitWeightLb ?? null,
       });
       await syncExternalInventoryIfNeeded(editingProduct as any, values.quantity, selectedUser.uid);
       if (values.productName && (editingProduct as any).productName !== values.productName) {
@@ -886,6 +902,7 @@ export function AdminInventoryManagement({
         description: "Product updated successfully!",
       });
       setEditingProduct(null);
+      setEditUnitMeasurements({ ...EMPTY_UNIT_MEASUREMENTS });
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -3509,8 +3526,16 @@ export function AdminInventoryManagement({
       )}
 
       {/* Edit Product Dialog */}
-      <Dialog open={!!editingProduct} onOpenChange={() => setEditingProduct(null)}>
-        <DialogContent>
+      <Dialog
+        open={!!editingProduct}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingProduct(null);
+            setEditUnitMeasurements({ ...EMPTY_UNIT_MEASUREMENTS });
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Product</DialogTitle>
             <DialogDescription>Update product details</DialogDescription>
@@ -3548,9 +3573,22 @@ export function AdminInventoryManagement({
                   </FormItem>
                 )}
               />
+              <ProductUnitMeasurementsFields
+                compact
+                idPrefix="admin-edit-m"
+                value={editUnitMeasurements}
+                onChange={setEditUnitMeasurements}
+              />
               <div className="flex gap-2">
                 <Button type="submit" className="flex-1">Update Product</Button>
-                <Button type="button" variant="outline" onClick={() => setEditingProduct(null)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setEditingProduct(null);
+                    setEditUnitMeasurements({ ...EMPTY_UNIT_MEASUREMENTS });
+                  }}
+                >
                   Cancel
                 </Button>
               </div>

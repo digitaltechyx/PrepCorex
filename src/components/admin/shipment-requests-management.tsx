@@ -48,6 +48,8 @@ import { format } from "date-fns";
 import { Check, X, Eye, Loader2, FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DatePicker } from "@/components/ui/date-picker";
+import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
+import { readProductUnitMeasurements } from "@/lib/box-suggestion";
 import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
 import { AdminWarehouseActionsPanel } from "@/components/admin/admin-warehouse-actions-panel";
 
@@ -1555,6 +1557,28 @@ function ReviewShipmentDialog({
           {/* Shipment Items */}
           <div>
             <label className="text-sm font-medium mb-2 block">Products to Ship</label>
+            {request.shipmentType === "product" || !request.shipmentType ? (
+              <div className="mb-3">
+                <BoxSuggestionCard
+                  hideWhenUnavailable
+                  lines={request.shipments.map((shipment: any, index: number) => {
+                    const product = inventory.find((item) => item.id === shipment.productId);
+                    const effectivePackOf = isCustomProduct
+                      ? (customProductPricing[index]?.packOf || shipment.packOf || 1)
+                      : shipment.packOf || 1;
+                    return {
+                      productId: shipment.productId,
+                      productName: product?.productName,
+                      sku: product?.sku,
+                      quantity: (shipment.quantity || 0) * (effectivePackOf || 1),
+                      measurements: readProductUnitMeasurements(
+                        product as unknown as Record<string, unknown> | undefined
+                      ),
+                    };
+                  })}
+                />
+              </div>
+            ) : null}
             <div className="space-y-4 border rounded-lg p-4">
               {request.shipments.map((shipment: any, index: number) => {
                 const product = inventory.find(item => item.id === shipment.productId);

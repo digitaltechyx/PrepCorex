@@ -107,6 +107,9 @@ import { generateCrossdockReceiveLot } from "@/lib/warehouse-crossdock";
 import { CrossdockClientCombobox } from "@/components/warehouse-ops/crossdock-client-combobox";
 import { WarehouseOpsDockIntake } from "@/components/warehouse-ops/warehouse-ops-dock-intake";
 import {
+  ProductUnitMeasurementsFields,
+} from "@/components/inventory/product-unit-measurements-fields";
+import {
   inboundRequestPrefill,
   recordInboundReceiveBatch,
   reloadInboundRequestRow,
@@ -157,6 +160,11 @@ type LineDraft = {
   inventoryRequestId?: string;
   clientId?: string;
   clientLabel?: string;
+  /** Optional unit measurements for box suggestions (inches / lb). */
+  unitLengthIn?: string;
+  unitWidthIn?: string;
+  unitHeightIn?: string;
+  unitWeightLb?: string;
 };
 
 type CartonDraft = {
@@ -191,6 +199,30 @@ function newLine(): LineDraft {
     damagedQty: "0",
     lot: "",
     expiry: "",
+    unitLengthIn: "",
+    unitWidthIn: "",
+    unitHeightIn: "",
+    unitWeightLb: "",
+  };
+}
+
+function parseOptionalPositive(raw?: string): number | null {
+  const n = Number(String(raw ?? "").trim());
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function measurementsFromRequestRow(row: {
+  unitLengthIn?: number;
+  unitWidthIn?: number;
+  unitHeightIn?: number;
+  unitWeightLb?: number;
+}): Pick<LineDraft, "unitLengthIn" | "unitWidthIn" | "unitHeightIn" | "unitWeightLb"> {
+  return {
+    unitLengthIn: row.unitLengthIn != null ? String(row.unitLengthIn) : "",
+    unitWidthIn: row.unitWidthIn != null ? String(row.unitWidthIn) : "",
+    unitHeightIn: row.unitHeightIn != null ? String(row.unitHeightIn) : "",
+    unitWeightLb: row.unitWeightLb != null ? String(row.unitWeightLb) : "",
   };
 }
 
@@ -234,6 +266,7 @@ function cartonsFromInboundRequests(rows: InboundRequestRow[], crossdock: boolea
             clientId: row.clientUserId,
             clientLabel: row.clientDisplayName,
             inventoryRequestId: row.id,
+            ...measurementsFromRequestRow(row),
           },
         ],
       },
@@ -264,6 +297,7 @@ function cartonsFromInboundRequests(rows: InboundRequestRow[], crossdock: boolea
           inventoryRequestId: pre.inventoryRequestId,
           clientId: pre.clientUserId,
           clientLabel: pre.clientDisplayName,
+          ...measurementsFromRequestRow(row),
         };
       }),
     },
@@ -1172,6 +1206,7 @@ function ReceiveForm({
               inventoryRequestId: link.inventoryRequestId,
               clientId: link.clientId,
               clientLabel: link.clientLabel,
+              ...measurementsFromRequestRow(row),
             },
           ],
         };
@@ -1185,6 +1220,11 @@ function ReceiveForm({
   }
 
   function applyLineInboundLink(cartonId: string, lineId: string, link: ReturnType<typeof inboundLineLinkFromRow> | null) {
+    const row = link
+      ? inboundQueue.find(
+          (r) => r.id === link.inventoryRequestId && r.clientUserId === link.clientId
+        )
+      : null;
     updateLine(cartonId, lineId, link
       ? {
           inventoryRequestId: link.inventoryRequestId,
@@ -1194,11 +1234,16 @@ function ReceiveForm({
           productTitle: link.productTitle,
           goodQty: link.goodQty,
           expiry: link.expiry,
+          ...(row ? measurementsFromRequestRow(row) : {}),
         }
       : {
           inventoryRequestId: "",
           clientId: "",
           clientLabel: "",
+          unitLengthIn: "",
+          unitWidthIn: "",
+          unitHeightIn: "",
+          unitWeightLb: "",
         });
   }
 
@@ -1707,6 +1752,31 @@ function ReceiveForm({
         cartons: created,
       });
 
+      const draftMeasurementsByRequest = new Map<
+        string,
+        {
+          unitLengthIn: number | null;
+          unitWidthIn: number | null;
+          unitHeightIn: number | null;
+          unitWeightLb: number | null;
+        }
+      >();
+      for (const c of cartons) {
+        for (const l of c.lines) {
+          const rid = l.inventoryRequestId?.trim();
+          const cid = l.clientId?.trim();
+          if (!rid || !cid) continue;
+          const key = `${cid}:${rid}`;
+          if (draftMeasurementsByRequest.has(key)) continue;
+          draftMeasurementsByRequest.set(key, {
+            unitLengthIn: parseOptionalPositive(l.unitLengthIn),
+            unitWidthIn: parseOptionalPositive(l.unitWidthIn),
+            unitHeightIn: parseOptionalPositive(l.unitHeightIn),
+            unitWeightLb: parseOptionalPositive(l.unitWeightLb),
+          });
+        }
+      }
+
       const receiveEntries: Array<{
         clientUserId: string;
         inventoryRequestId: string;
@@ -1715,6 +1785,10 @@ function ReceiveForm({
         cartonCode: string;
         sku: string;
         quantity: number;
+        unitLengthIn?: number | null;
+        unitWidthIn?: number | null;
+        unitHeightIn?: number | null;
+        unitWeightLb?: number | null;
       }> = [];
 
       for (const c of created) {
@@ -1722,6 +1796,7 @@ function ReceiveForm({
           const rid = line.inventoryRequestId?.trim();
           const cid = line.clientId?.trim();
           if (!rid || !cid) continue;
+          const m = draftMeasurementsByRequest.get(`${cid}:${rid}`);
           receiveEntries.push({
             clientUserId: cid,
             inventoryRequestId: rid,
@@ -1730,6 +1805,10 @@ function ReceiveForm({
             cartonCode: c.cartonCode,
             sku: line.sku,
             quantity: line.quantity,
+            unitLengthIn: m?.unitLengthIn ?? null,
+            unitWidthIn: m?.unitWidthIn ?? null,
+            unitHeightIn: m?.unitHeightIn ?? null,
+            unitWeightLb: m?.unitWeightLb ?? null,
           });
         }
       }
@@ -2446,6 +2525,19 @@ function ReceiveForm({
                           />
                         </div>
                       </div>
+                      {line.inventoryRequestId ? (
+                        <ProductUnitMeasurementsFields
+                          compact
+                          idPrefix={`recv-m-${line.id}`}
+                          value={{
+                            unitLengthIn: line.unitLengthIn ?? "",
+                            unitWidthIn: line.unitWidthIn ?? "",
+                            unitHeightIn: line.unitHeightIn ?? "",
+                            unitWeightLb: line.unitWeightLb ?? "",
+                          }}
+                          onChange={(next) => updateLine(c.id, line.id, next)}
+                        />
+                      ) : null}
                       <p className="text-[10px] text-muted-foreground">
                         Lot: enter your own, or leave blank —{" "}
                         <span className="font-mono">{describeReceiveLotPattern()}</span>.{" "}

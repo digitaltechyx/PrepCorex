@@ -27,6 +27,7 @@ import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, Histo
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { InventoryHistoryDialog } from "@/components/inventory/inventory-history-dialog";
+import { InventoryFefoTable } from "@/components/inventory/inventory-fefo-table";
 import { AddInboundTrackingDialog } from "@/components/inventory/add-inbound-tracking-dialog";
 import { InboundTrackingDetailDialog } from "@/components/inventory/inbound-tracking-detail-dialog";
 import { InboundTrackingStatusCell } from "@/components/inventory/inbound-tracking-status-cell";
@@ -57,6 +58,7 @@ import { doc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { uploadInventoryProductImage } from "@/lib/inventory-product-images";
 import { cn } from "@/lib/utils";
+import type { ClientFefoStockRow } from "@/lib/client-fefo-stock";
 import { formatInboundQuantityDisplay, getRequestedQuantity } from "@/lib/inventory-qty-display";
 import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath, inboundBatchLinesPath, mirrorUnlinkedPendingBatchLines } from "@/lib/inbound-batch";
 import { resolveInboundTrackings } from "@/lib/inbound-tracking";
@@ -73,6 +75,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  draftFromMeasurementSource,
+  EMPTY_UNIT_MEASUREMENTS,
+  ProductUnitMeasurementsFields,
+  type ProductUnitMeasurementDraft,
+} from "@/components/inventory/product-unit-measurements-fields";
+import {
+  formatUnitDimensions,
+  formatUnitWeight,
+  measurementFieldsForWrite,
+} from "@/lib/box-suggestion";
 
 function formatRowQuantity(item: {
   quantity?: number;
@@ -542,7 +555,47 @@ export function InventoryTable({
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [inventoryView, setInventoryView] = useState<"inventory" | "fefo">("inventory");
+  const [fefoRows, setFefoRows] = useState<ClientFefoStockRow[]>([]);
+  const [fefoLoading, setFefoLoading] = useState(false);
+  const [fefoError, setFefoError] = useState<string | null>(null);
   const [openAddInventorySignal, setOpenAddInventorySignal] = useState(0);
+
+  useEffect(() => {
+    if (inventoryView !== "fefo" || !effectiveUserId || !user) return;
+    const controller = new AbortController();
+    setFefoRows([]);
+    setFefoLoading(true);
+    setFefoError(null);
+
+    void user
+      .getIdToken()
+      .then((token) =>
+        fetch(`/api/inventory/fefo?userId=${encodeURIComponent(effectiveUserId)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+          cache: "no-store",
+        })
+      )
+      .then(async (response) => {
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(
+            typeof result.error === "string" ? result.error : "Could not load FEFO inventory."
+          );
+        }
+        setFefoRows(Array.isArray(result.rows) ? result.rows : []);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setFefoRows([]);
+        setFefoError(error instanceof Error ? error.message : "Could not load FEFO inventory.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setFefoLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [effectiveUserId, inventoryView, user]);
 
   useEffect(() => {
     if (searchParams.get("status") === LOW_STOCK_STATUS_VALUE) {
@@ -871,6 +924,7 @@ export function InventoryTable({
     setEditRetailIdentifier((request as any).retailIdentifier || "");
     setEditExpiryDate(toDateInputValue((request as any).expiryDate));
     setEditRemarks(String(request.remarks || "").trim());
+    setEditUnitMeasurements(draftFromMeasurementSource(request as unknown as Record<string, unknown>));
     setEditImageUrls(getImageUrls(request as any));
     setEditImageFile(null);
     setEditImagePreview(null);
@@ -1007,6 +1061,9 @@ export function InventoryTable({
   const [editSku, setEditSku] = useState("");
   const [editRetailIdentifier, setEditRetailIdentifier] = useState("");
   const [editExpiryDate, setEditExpiryDate] = useState("");
+  const [editUnitMeasurements, setEditUnitMeasurements] = useState<ProductUnitMeasurementDraft>({
+    ...EMPTY_UNIT_MEASUREMENTS,
+  });
 
   const handleCancelRequest = async () => {
     if (!cancellingRequest?.id || !effectiveUserId) return;
@@ -1120,6 +1177,11 @@ export function InventoryTable({
       } else {
         updatePayload.expiryDate = null;
       }
+      const measurementPatch = measurementFieldsForWrite(editUnitMeasurements);
+      updatePayload.unitLengthIn = measurementPatch.unitLengthIn ?? null;
+      updatePayload.unitWidthIn = measurementPatch.unitWidthIn ?? null;
+      updatePayload.unitHeightIn = measurementPatch.unitHeightIn ?? null;
+      updatePayload.unitWeightLb = measurementPatch.unitWeightLb ?? null;
       updatePayload.imageUrls = nextImageUrls;
       updatePayload.imageUrl = nextImageUrls[0] ?? null;
       await updateDoc(requestRef, updatePayload);
@@ -1138,6 +1200,10 @@ export function InventoryTable({
           retailIdentifier: editRetailIdentifier.trim(),
           remarks: remarksValue || null,
           expiryDate: updatePayload.expiryDate ?? null,
+          unitLengthIn: updatePayload.unitLengthIn,
+          unitWidthIn: updatePayload.unitWidthIn,
+          unitHeightIn: updatePayload.unitHeightIn,
+          unitWeightLb: updatePayload.unitWeightLb,
           imageUrls: nextImageUrls,
           imageUrl: nextImageUrls[0] ?? null,
         });
@@ -1269,6 +1335,10 @@ export function InventoryTable({
         productEntryMode: (req as any).productEntryMode,
         retailIdentifier: (req as any).retailIdentifier,
         expiryDate: (req as any).expiryDate,
+        unitLengthIn: (req as any).unitLengthIn,
+        unitWidthIn: (req as any).unitWidthIn,
+        unitHeightIn: (req as any).unitHeightIn,
+        unitWeightLb: (req as any).unitWeightLb,
         quantity: req.quantity,
         dateAdded: req.addDate,
         receivingDate: undefined,
@@ -1299,6 +1369,10 @@ export function InventoryTable({
         productEntryMode: (req as any).productEntryMode,
         retailIdentifier: (req as any).retailIdentifier,
         expiryDate: (req as any).expiryDate,
+        unitLengthIn: (req as any).unitLengthIn,
+        unitWidthIn: (req as any).unitWidthIn,
+        unitHeightIn: (req as any).unitHeightIn,
+        unitWeightLb: (req as any).unitWeightLb,
         quantity: expectedApprovedInboundQty(req),
         requestedQuantity: (req as any).requestedQuantity ?? req.quantity,
         receivedQuantity: (req as any).receivedQuantity,
@@ -1376,6 +1450,10 @@ export function InventoryTable({
         receivingDate,
         retailIdentifier: (item as any).retailIdentifier || (matchingRequest as any)?.retailIdentifier,
         expiryDate: (item as any).expiryDate || (matchingRequest as any)?.expiryDate,
+        unitLengthIn: (item as any).unitLengthIn ?? (matchingRequest as any)?.unitLengthIn,
+        unitWidthIn: (item as any).unitWidthIn ?? (matchingRequest as any)?.unitWidthIn,
+        unitHeightIn: (item as any).unitHeightIn ?? (matchingRequest as any)?.unitHeightIn,
+        unitWeightLb: (item as any).unitWeightLb ?? (matchingRequest as any)?.unitWeightLb,
         variantLabel: (item as any).variantLabel || (matchingRequest as any)?.variantLabel,
         color: (item as any).color || (matchingRequest as any)?.color,
         size: (item as any).size || (matchingRequest as any)?.size,
@@ -1400,9 +1478,9 @@ export function InventoryTable({
     );
     return {
       combined: [...pendingBatchItems, ...pendingItems, ...awaitingInboundItems, ...activeInventoryItems],
-      outOfStockItems: inventoryItems.filter(
-        (item) => item.status === "Out of Stock" && !isMarketplaceLinked(item)
-      ),
+      // The OOS side panel is the complete cross-source view. Marketplace rows
+      // also remain in the main table so linked catalog SKUs stay visible.
+      outOfStockItems: inventoryItems.filter((item) => item.status === "Out of Stock"),
     };
   }, [data, inventoryRequests, inboundBatches]);
 
@@ -1426,29 +1504,9 @@ export function InventoryTable({
     [combinedInventory.outOfStockItems]
   );
 
-  const fefoCount = useMemo(
-    () =>
-      combinedData.filter(
-        (item) =>
-          !item.isRequest &&
-          Number(item.quantity) > 0 &&
-          getTimestampMs((item as { expiryDate?: unknown }).expiryDate) > 0
-      ).length,
-    [combinedData]
-  );
-
-  // Standard view is newest first. FEFO includes expiring stock only and sorts
-  // from the earliest expiry date to the latest expiry date.
+  // Filtered and sorted aggregate inventory data (newest first).
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
-      if (
-        inventoryView === "fefo" &&
-        (item.isRequest ||
-          Number(item.quantity) <= 0 ||
-          getTimestampMs((item as { expiryDate?: unknown }).expiryDate) <= 0)
-      ) {
-        return false;
-      }
       const query = searchTerm.toLowerCase();
       const productName = (item.productName || "").toLowerCase();
       const sku = (((item as any).sku as string) || "").toLowerCase();
@@ -1470,17 +1528,8 @@ export function InventoryTable({
       return matchesSearch && matchesStatus && matchesSource;
     });
 
-    if (inventoryView === "fefo") {
-      return filtered.sort((a, b) => {
-        const expiryDifference =
-          getTimestampMs((a as { expiryDate?: unknown }).expiryDate) -
-          getTimestampMs((b as { expiryDate?: unknown }).expiryDate);
-        return expiryDifference || (a.productName || "").localeCompare(b.productName || "");
-      });
-    }
-
     return filtered.sort((a, b) => getTimestampMs(b.dateAdded) - getTimestampMs(a.dateAdded));
-  }, [combinedData, inventoryView, searchTerm, statusFilter, sourceFilter]);
+  }, [combinedData, searchTerm, statusFilter, sourceFilter]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
@@ -1498,7 +1547,11 @@ export function InventoryTable({
       <CardHeader className="pb-2 sm:pb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <CardTitle className="text-base sm:text-lg lg:text-xl">Your Inventory ({filteredData.length})</CardTitle>
+            <CardTitle className="text-base sm:text-lg lg:text-xl">
+              {inventoryView === "fefo"
+                ? "FEFO Inventory"
+                : `Your Inventory (${filteredData.length})`}
+            </CardTitle>
             <CardDescription className="text-xs sm:text-sm">
               {inventoryView === "fefo"
                 ? "First-expiring inventory is listed first."
@@ -1565,19 +1618,21 @@ export function InventoryTable({
         </div>
       </CardHeader>
       <CardContent className="p-0 sm:p-6">
-        {!adminActions ? (
-          <div className="mb-4 px-6 sm:px-0">
-            <Tabs
-              value={inventoryView}
-              onValueChange={(value) => setInventoryView(value as "inventory" | "fefo")}
-            >
-              <TabsList>
-                <TabsTrigger value="inventory">Inventory</TabsTrigger>
-                <TabsTrigger value="fefo">FEFO ({fefoCount})</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
+        <div className="mb-4 px-6 sm:px-0">
+          <Tabs
+            value={inventoryView}
+            onValueChange={(value) => setInventoryView(value as "inventory" | "fefo")}
+          >
+            <TabsList>
+              <TabsTrigger value="inventory">Inventory</TabsTrigger>
+              <TabsTrigger value="fefo">FEFO</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+        {inventoryView === "fefo" ? (
+          <InventoryFefoTable rows={fefoRows} loading={fefoLoading} error={fefoError} />
         ) : null}
+        <div className={inventoryView === "fefo" ? "hidden" : undefined}>
         <InboundImportProgress userId={effectiveUserId} />
         {/* Search and Filter Controls */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6 px-6">
@@ -1717,6 +1772,13 @@ export function InventoryTable({
                     {(item as any).expiryDate && (
                       <div className="text-xs text-muted-foreground mt-0.5">
                         Expiry: {formatOptionalDate((item as any).expiryDate)}
+                      </div>
+                    )}
+                    {(formatUnitDimensions(item as any) || formatUnitWeight(item as any)) && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        Unit: {[formatUnitDimensions(item as any), formatUnitWeight(item as any)]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </div>
                     )}
                     <div className="text-xs text-muted-foreground mt-1">Added: {formatDate(item.dateAdded)}</div>
@@ -1870,6 +1932,7 @@ export function InventoryTable({
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">SKU</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden lg:table-cell">Identifier</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden xl:table-cell">Expiry</TableHead>
+                <TableHead className="text-xs sm:text-sm hidden xl:table-cell">Unit size</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Quantity</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Date Added</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">Receiving Date</TableHead>
@@ -1980,6 +2043,18 @@ export function InventoryTable({
                     </TableCell>
                     <TableCell className="hidden xl:table-cell whitespace-nowrap">
                       {(item as any).expiryDate ? formatOptionalDate((item as any).expiryDate) : "N/A"}
+                    </TableCell>
+                    <TableCell className="hidden xl:table-cell whitespace-nowrap text-xs">
+                      {formatUnitDimensions(item as any) || formatUnitWeight(item as any)
+                        ? (
+                            <>
+                              <div>{formatUnitDimensions(item as any) || "—"}</div>
+                              {formatUnitWeight(item as any) ? (
+                                <div className="text-muted-foreground">{formatUnitWeight(item as any)}</div>
+                              ) : null}
+                            </>
+                          )
+                        : "N/A"}
                     </TableCell>
                     <TableCell
                       className={cn(
@@ -2133,7 +2208,7 @@ export function InventoryTable({
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={hasAdminActions ? 11 : 10} className="text-center py-8">
+                  <TableCell colSpan={hasAdminActions ? 12 : 11} className="text-center py-8">
                     <div className="text-xs sm:text-sm text-gray-500">
                       {combinedData.length === 0 ? "No inventory items or requests found." : "No items match your search criteria."}
                     </div>
@@ -2173,6 +2248,7 @@ export function InventoryTable({
             </div>
           </div>
         )}
+        </div>
       </CardContent>
 
       {/* Remarks Dialog */}
@@ -2346,6 +2422,12 @@ export function InventoryTable({
                 className="mt-1"
               />
             </div>
+            <ProductUnitMeasurementsFields
+              compact
+              idPrefix="edit-req-m"
+              value={editUnitMeasurements}
+              onChange={setEditUnitMeasurements}
+            />
             <div>
               <label htmlFor="edit-remarks" className="text-sm font-medium">Remarks (optional)</label>
               <Textarea

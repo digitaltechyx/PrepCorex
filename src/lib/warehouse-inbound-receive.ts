@@ -60,6 +60,10 @@ export async function recordInboundReceiveBatch(input: {
     cartonCode: string;
     sku: string;
     quantity: number;
+    unitLengthIn?: number | null;
+    unitWidthIn?: number | null;
+    unitHeightIn?: number | null;
+    unitWeightLb?: number | null;
   }>;
   trackingNumber?: string | null;
   operatorId?: string | null;
@@ -72,6 +76,10 @@ export async function recordInboundReceiveBatch(input: {
       clientUserId: string;
       inventoryRequestId: string;
       productName?: string | null;
+      unitLengthIn?: number | null;
+      unitWidthIn?: number | null;
+      unitHeightIn?: number | null;
+      unitWeightLb?: number | null;
       lines: typeof input.entries;
     }
   >();
@@ -82,8 +90,17 @@ export async function recordInboundReceiveBatch(input: {
       clientUserId: entry.clientUserId,
       inventoryRequestId: entry.inventoryRequestId,
       productName: entry.productName,
+      unitLengthIn: entry.unitLengthIn ?? null,
+      unitWidthIn: entry.unitWidthIn ?? null,
+      unitHeightIn: entry.unitHeightIn ?? null,
+      unitWeightLb: entry.unitWeightLb ?? null,
       lines: [],
     };
+    // Keep first non-empty measurement set for this request.
+    if (bucket.unitLengthIn == null && entry.unitLengthIn != null) bucket.unitLengthIn = entry.unitLengthIn;
+    if (bucket.unitWidthIn == null && entry.unitWidthIn != null) bucket.unitWidthIn = entry.unitWidthIn;
+    if (bucket.unitHeightIn == null && entry.unitHeightIn != null) bucket.unitHeightIn = entry.unitHeightIn;
+    if (bucket.unitWeightLb == null && entry.unitWeightLb != null) bucket.unitWeightLb = entry.unitWeightLb;
     bucket.lines.push(entry);
     byRequest.set(key, bucket);
   }
@@ -102,6 +119,10 @@ export async function recordInboundReceiveBatch(input: {
       })),
       trackingNumber: input.trackingNumber,
       operatorId: input.operatorId,
+      unitLengthIn: bucket.unitLengthIn,
+      unitWidthIn: bucket.unitWidthIn,
+      unitHeightIn: bucket.unitHeightIn,
+      unitWeightLb: bucket.unitWeightLb,
     });
   }
 }
@@ -174,6 +195,11 @@ export async function recordInboundReceiveEvents(input: {
   entries: Array<{ cartonId: string; cartonCode: string; sku: string; quantity: number }>;
   trackingNumber?: string | null;
   operatorId?: string | null;
+  /** Optional unit measurements captured at receive (inches / lb). */
+  unitLengthIn?: number | null;
+  unitWidthIn?: number | null;
+  unitHeightIn?: number | null;
+  unitWeightLb?: number | null;
 }): Promise<void> {
   if (input.entries.length === 0) return;
 
@@ -184,10 +210,15 @@ export async function recordInboundReceiveEvents(input: {
     "inventoryRequests",
     input.inventoryRequestId
   );
-  await updateDoc(requestRef, {
+  const patch: Record<string, unknown> = {
     receivingDate: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  };
+  if (input.unitLengthIn != null && input.unitLengthIn > 0) patch.unitLengthIn = input.unitLengthIn;
+  if (input.unitWidthIn != null && input.unitWidthIn > 0) patch.unitWidthIn = input.unitWidthIn;
+  if (input.unitHeightIn != null && input.unitHeightIn > 0) patch.unitHeightIn = input.unitHeightIn;
+  if (input.unitWeightLb != null && input.unitWeightLb > 0) patch.unitWeightLb = input.unitWeightLb;
+  await updateDoc(requestRef, patch);
 
   const eventsRef = collection(db, "warehouses", input.warehouseId, "movementEvents");
   for (const entry of input.entries) {
