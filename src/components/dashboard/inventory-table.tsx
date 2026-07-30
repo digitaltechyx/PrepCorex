@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History, PackageX, Upload, Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -310,6 +311,10 @@ function InventoryAvatar({
 
 function getTimestampMs(date: unknown): number {
   if (!date) return 0;
+  if (date instanceof Date) {
+    const ms = date.getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
   if (typeof date === "string") {
     const ms = new Date(date).getTime();
     return Number.isFinite(ms) ? ms : 0;
@@ -536,6 +541,7 @@ export function InventoryTable({
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [inventoryView, setInventoryView] = useState<"inventory" | "fefo">("inventory");
   const [openAddInventorySignal, setOpenAddInventorySignal] = useState(0);
 
   useEffect(() => {
@@ -1420,9 +1426,29 @@ export function InventoryTable({
     [combinedInventory.outOfStockItems]
   );
 
-  // Filtered and sorted inventory data (newest first)
+  const fefoCount = useMemo(
+    () =>
+      combinedData.filter(
+        (item) =>
+          !item.isRequest &&
+          Number(item.quantity) > 0 &&
+          getTimestampMs((item as { expiryDate?: unknown }).expiryDate) > 0
+      ).length,
+    [combinedData]
+  );
+
+  // Standard view is newest first. FEFO includes expiring stock only and sorts
+  // from the earliest expiry date to the latest expiry date.
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
+      if (
+        inventoryView === "fefo" &&
+        (item.isRequest ||
+          Number(item.quantity) <= 0 ||
+          getTimestampMs((item as { expiryDate?: unknown }).expiryDate) <= 0)
+      ) {
+        return false;
+      }
       const query = searchTerm.toLowerCase();
       const productName = (item.productName || "").toLowerCase();
       const sku = (((item as any).sku as string) || "").toLowerCase();
@@ -1443,10 +1469,18 @@ export function InventoryTable({
         sourceFilter === "all" || inventorySourceKey(row) === sourceFilter;
       return matchesSearch && matchesStatus && matchesSource;
     });
-    
-    // Sort by dateAdded (newest first)
+
+    if (inventoryView === "fefo") {
+      return filtered.sort((a, b) => {
+        const expiryDifference =
+          getTimestampMs((a as { expiryDate?: unknown }).expiryDate) -
+          getTimestampMs((b as { expiryDate?: unknown }).expiryDate);
+        return expiryDifference || (a.productName || "").localeCompare(b.productName || "");
+      });
+    }
+
     return filtered.sort((a, b) => getTimestampMs(b.dateAdded) - getTimestampMs(a.dateAdded));
-  }, [combinedData, searchTerm, statusFilter, sourceFilter]);
+  }, [combinedData, inventoryView, searchTerm, statusFilter, sourceFilter]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
@@ -1456,7 +1490,7 @@ export function InventoryTable({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, sourceFilter]);
+  }, [inventoryView, searchTerm, statusFilter, sourceFilter]);
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -1466,7 +1500,9 @@ export function InventoryTable({
           <div>
             <CardTitle className="text-base sm:text-lg lg:text-xl">Your Inventory ({filteredData.length})</CardTitle>
             <CardDescription className="text-xs sm:text-sm">
-              A list of products currently in your inventory.
+              {inventoryView === "fefo"
+                ? "First-expiring inventory is listed first."
+                : "A list of products currently in your inventory."}
             </CardDescription>
           </div>
           <div className="flex items-center gap-3">
@@ -1529,6 +1565,19 @@ export function InventoryTable({
         </div>
       </CardHeader>
       <CardContent className="p-0 sm:p-6">
+        {!adminActions ? (
+          <div className="mb-4 px-6 sm:px-0">
+            <Tabs
+              value={inventoryView}
+              onValueChange={(value) => setInventoryView(value as "inventory" | "fefo")}
+            >
+              <TabsList>
+                <TabsTrigger value="inventory">Inventory</TabsTrigger>
+                <TabsTrigger value="fefo">FEFO ({fefoCount})</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        ) : null}
         <InboundImportProgress userId={effectiveUserId} />
         {/* Search and Filter Controls */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6 px-6">
