@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -27,7 +26,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -35,6 +33,7 @@ import {
 import { ShopifyOrderDetailBody } from "@/components/integrations/shopify-order-detail";
 import { ShopifyCreateLabelDialog } from "@/components/admin/shopify-create-label-dialog";
 import { ShopifyLabelSourceDialog } from "@/components/admin/shopify-label-source-dialog";
+import { ShopifyQuickFulfillDialog } from "@/components/admin/shopify-quick-fulfill-dialog";
 import { saveBuyLabelPrefillFromShopifyOrder } from "@/lib/shopify-order-buy-label-prefill";
 import {
   ChevronsUpDown,
@@ -107,10 +106,6 @@ export function ShopifyOrdersPanel() {
 
   const [fulfillDialogOpen, setFulfillDialogOpen] = useState(false);
   const [fulfillOrder, setFulfillOrder] = useState<AdminShopifyOrder | null>(null);
-  const [trackingNumber, setTrackingNumber] = useState("");
-  const [trackingCompany, setTrackingCompany] = useState("");
-  const [notifyCustomer, setNotifyCustomer] = useState(true);
-  const [fulfilling, setFulfilling] = useState(false);
 
   const [labelSourceDialogOpen, setLabelSourceDialogOpen] = useState(false);
   const [shopifyLabelDialogOpen, setShopifyLabelDialogOpen] = useState(false);
@@ -325,9 +320,6 @@ export function ShopifyOrdersPanel() {
 
   const openFulfillDialog = (order: AdminShopifyOrder) => {
     setFulfillOrder(order);
-    setTrackingNumber(order.trackingNumbers[0] || "");
-    setTrackingCompany(order.trackingCompanies[0] || "");
-    setNotifyCustomer(true);
     setFulfillDialogOpen(true);
   };
 
@@ -353,41 +345,6 @@ export function ShopifyOrdersPanel() {
       });
     }
     router.push("/admin/dashboard/buy-labels?from=shopify");
-  };
-
-  const submitFulfill = async () => {
-    if (!fulfillOrder || !user) return;
-    setFulfilling(true);
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch("/api/shopify/fulfill", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          userId: fulfillOrder.ownerUserId,
-          shop: fulfillOrder.shop,
-          orderId: fulfillOrder.id,
-          tracking_number: trackingNumber || undefined,
-          tracking_company: trackingCompany || undefined,
-          notify_customer: notifyCustomer,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        toast({ title: "Order marked as fulfilled" });
-        setFulfillDialogOpen(false);
-        setFulfillOrder(null);
-        await fetchOrders("cache");
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Fulfillment failed",
-          description: typeof data.error === "string" ? data.error : "Unknown error",
-        });
-      }
-    } finally {
-      setFulfilling(false);
-    }
   };
 
   return (
@@ -685,7 +642,7 @@ export function ShopifyOrdersPanel() {
                                 onClick={() => openFulfillDialog(order)}
                               >
                                 <Truck className="mr-1.5 h-3.5 w-3.5" />
-                                Fulfill
+                                Quick Fulfill
                               </Button>
                               <Button
                                 variant="outline"
@@ -727,7 +684,7 @@ export function ShopifyOrdersPanel() {
                   <>
                     <Button size="sm" variant="outline" onClick={() => openFulfillDialog(detailsOrder)}>
                       <Truck className="h-4 w-4 mr-1" />
-                      Mark fulfilled
+                      Quick Fulfill
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => openLabelFlow(detailsOrder)}>
                       <Tag className="h-4 w-4 mr-1" />
@@ -741,48 +698,16 @@ export function ShopifyOrdersPanel() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={fulfillDialogOpen} onOpenChange={setFulfillDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Mark order as fulfilled</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label>Tracking number (optional)</Label>
-              <Input
-                value={trackingNumber}
-                onChange={(e) => setTrackingNumber(e.target.value)}
-                placeholder="1Z999..."
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Carrier (optional)</Label>
-              <Input
-                value={trackingCompany}
-                onChange={(e) => setTrackingCompany(e.target.value)}
-                placeholder="USPS, FedEx, UPS..."
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="shopify-admin-notify"
-                checked={notifyCustomer}
-                onCheckedChange={(v) => setNotifyCustomer(v === true)}
-              />
-              <Label htmlFor="shopify-admin-notify">Notify customer by email</Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFulfillDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => void submitFulfill()} disabled={fulfilling}>
-              {fulfilling ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Fulfill
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ShopifyQuickFulfillDialog
+        open={fulfillDialogOpen}
+        onOpenChange={(open) => {
+          setFulfillDialogOpen(open);
+          if (!open) setFulfillOrder(null);
+        }}
+        order={fulfillOrder}
+        getAuthToken={() => user!.getIdToken()}
+        onCompleted={() => void fetchOrders("cache")}
+      />
 
       <ShopifyLabelSourceDialog
         open={labelSourceDialogOpen}

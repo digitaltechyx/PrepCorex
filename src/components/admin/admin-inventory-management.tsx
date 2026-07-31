@@ -2745,8 +2745,20 @@ export function AdminInventoryManagement({
                       return (
                         <TableRow key={item.id}>
                           <TableCell className="font-medium">
-                            <span className="truncate block max-w-[180px]" title={item.productName}>{item.productName}</span>
-                            {itemsCount > 1 && <span className="text-xs text-muted-foreground">({itemsCount} items)</span>}
+                            <div className="flex flex-col gap-1">
+                              <span className="truncate block max-w-[180px]" title={item.productName}>{item.productName}</span>
+                              <div className="flex flex-wrap items-center gap-1">
+                                {itemsCount > 1 && <span className="text-xs text-muted-foreground">({itemsCount} items)</span>}
+                                {(item.source === "shopify" || item.quickFulfill || item.service === "Shopify") && (
+                                  <Badge
+                                    variant="outline"
+                                    className="w-fit border-emerald-300 bg-emerald-50 text-[10px] text-emerald-900"
+                                  >
+                                    Shopify
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
                           </TableCell>
                           <TableCell className="text-muted-foreground text-sm">
                             <span className="truncate block max-w-[160px]" title={svc}>{svc || "—"}</span>

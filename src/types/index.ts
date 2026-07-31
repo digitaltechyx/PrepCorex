@@ -1132,6 +1132,14 @@ export interface ShippedItem {
     pricePerLabel?: number;
     total?: number;
   };
+  /** Origin channel for this shipped entry (e.g. Shopify quick fulfill). */
+  source?: "shopify" | string;
+  shopifyOrderId?: string;
+  shopifyOrderName?: string;
+  shopifyShop?: string;
+  trackingNumber?: string;
+  trackingCompany?: string;
+  quickFulfill?: boolean;
 }
 
 export interface RestockHistory {
