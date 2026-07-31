@@ -49,6 +49,7 @@ import {
   type OpenInventoryRequest,
   type UnallocatedLine,
 } from "@/lib/warehouse-allocate";
+import { pushShopifyInventoryHints } from "@/lib/shopify-inventory-sync";
 import { isCrossdockClosedSku } from "@/lib/warehouse-crossdock";
 import {
   areasForPacking,
@@ -475,6 +476,25 @@ export function WarehouseAllocate({ warehouse }: Props) {
         lines: payload,
         operatorId,
       });
+      if (user && result.shopifyPushHints?.length) {
+        try {
+          const token = await user.getIdToken();
+          const sync = await pushShopifyInventoryHints(token, result.shopifyPushHints);
+          if (sync.errors.length > 0) {
+            toast({
+              variant: "destructive",
+              title: "PrepCorex updated; Shopify did not update",
+              description: sync.errors[0],
+            });
+          }
+        } catch (e) {
+          toast({
+            variant: "destructive",
+            title: "PrepCorex updated; Shopify did not update",
+            description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
+          });
+        }
+      }
       toast({
         title: "Open receive complete",
         description: result.synced

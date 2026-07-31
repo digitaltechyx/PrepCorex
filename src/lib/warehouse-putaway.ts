@@ -41,7 +41,10 @@ import type {
   WarehouseCartonDoc,
   WarehouseCartonLine,
 } from "@/types";
-import { syncClientInventoryFromPutaway } from "@/lib/client-inventory-inbound-sync";
+import {
+  syncClientInventoryFromPutaway,
+  type ShopifyInventoryPushHint,
+} from "@/lib/client-inventory-inbound-sync";
 
 const WAREHOUSES = "warehouses";
 
@@ -475,7 +478,12 @@ export async function applyPutawayAssignments(
   carton: WarehouseCartonDoc,
   assignments: PutawayLineAssignment[],
   options?: { operatorId?: string | null; warehouseAreas?: WarehouseAreaDoc[] }
-): Promise<{ status: WarehouseCartonDoc["status"]; allStowed: boolean; splitAcrossBins: boolean }> {
+): Promise<{
+  status: WarehouseCartonDoc["status"];
+  allStowed: boolean;
+  splitAcrossBins: boolean;
+  shopifyPushHints: ShopifyInventoryPushHint[];
+}> {
   if (!carton.lines || carton.lines.length === 0) {
     throw new Error("This carton has no lines — cannot putaway.");
   }
@@ -588,7 +596,7 @@ export async function applyPutawayAssignments(
     cartonForSync.lines = nextLines;
   }
 
-  await syncClientInventoryFromPutaway({
+  const shopifyPushHints = await syncClientInventoryFromPutaway({
     warehouseId,
     cartonId,
     carton: cartonForSync,
@@ -612,6 +620,7 @@ export async function applyPutawayAssignments(
     status: nextStatus as WarehouseCartonDoc["status"],
     allStowed,
     splitAcrossBins,
+    shopifyPushHints,
   };
 }
 

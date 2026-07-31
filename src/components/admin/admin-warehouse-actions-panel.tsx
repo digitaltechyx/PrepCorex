@@ -38,6 +38,7 @@ import {
 } from "@/components/warehouse-ops/putaway-destination-fields";
 import { completeDispatchHandoff } from "@/lib/warehouse-pack";
 import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
+import { pushShopifyInventoryHints } from "@/lib/shopify-inventory-sync";
 import type {
   InventoryRequest,
   ShipmentRequest,
@@ -77,7 +78,7 @@ function remainingInboundQty(req: InventoryRequest): number {
 }
 
 export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProps) {
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
   const { toast } = useToast();
   const canOverride = hasAdminWarehouseOverride(userProfile);
   const { data: warehouses } = useCollection<WarehouseDoc>("warehouses");
@@ -255,6 +256,25 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           clientDisplayName,
         });
         setLastInboundResult(result);
+        if (user && result.shopifyPushHints?.length) {
+          try {
+            const token = await user.getIdToken();
+            const sync = await pushShopifyInventoryHints(token, result.shopifyPushHints);
+            if (sync.errors.length > 0) {
+              toast({
+                variant: "destructive",
+                title: "PrepCorex updated; Shopify did not update",
+                description: sync.errors[0],
+              });
+            }
+          } catch (e) {
+            toast({
+              variant: "destructive",
+              title: "PrepCorex updated; Shopify did not update",
+              description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
+            });
+          }
+        }
         toast({
           title: "Stock added to client inventory",
           description: `${result.quantityReceived} unit(s) received in ${result.cartonCodes.length} carton(s) → ${result.putawayDestination}.`,

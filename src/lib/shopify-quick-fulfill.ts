@@ -7,6 +7,7 @@ import type { Firestore } from "firebase-admin/firestore";
 import { FieldValue } from "firebase-admin/firestore";
 import { shopifyAdminRestUrl } from "@/lib/shopify-api";
 import { getShopifyAccessTokenForUserShop } from "@/lib/shopify-access-token";
+import { deductWarehouseStockForQuickFulfill } from "@/lib/warehouse-quick-fulfill-deduct";
 
 export type QuickFulfillLineInput = {
   /** Shopify order line item id (string). */
@@ -28,6 +29,8 @@ export type QuickFulfillResult = {
   shippedId: string;
   alreadyProcessed: boolean;
   shopifySyncHints: ShopifyInventorySyncHint[];
+  warehouseDeducted: number;
+  warehouseShortfall: number;
 };
 
 function normalizeShop(shop: string): string {
@@ -196,6 +199,8 @@ export async function executeShopifyQuickFulfill(input: {
       shippedId: String(data.shippedId || ""),
       alreadyProcessed: true,
       shopifySyncHints: [],
+      warehouseDeducted: Number(data.warehouseDeducted) || 0,
+      warehouseShortfall: Number(data.warehouseShortfall) || 0,
     };
   }
 
@@ -245,7 +250,6 @@ export async function executeShopifyQuickFulfill(input: {
     `Shipped for Shopify order ${orderName}`,
     `Store: ${shop.replace(/\.myshopify\.com$/i, "")}`,
     trackingParts ? `Tracking: ${trackingParts}` : null,
-    "Quick fulfill (no pick/pack/dispatch)",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -408,9 +412,58 @@ export async function executeShopifyQuickFulfill(input: {
     }
   });
 
+  // Physical warehouse cartons/bins (Warehouse Ops inventory) — separate from client inventory docs.
+  let warehouseDeducted = 0;
+  let warehouseShortfall = 0;
+  for (const row of inventorySnaps) {
+    const sku = row.data.sku != null ? String(row.data.sku) : null;
+    const productName = row.data.productName != null ? String(row.data.productName) : null;
+    try {
+      const wh = await deductWarehouseStockForQuickFulfill({
+        db: input.db,
+        clientUserId: ownerUserId,
+        sku,
+        productName,
+        quantity: row.needed,
+        operatorId: input.fulfilledBy,
+        shopifyOrderId: orderId,
+        shopifyOrderName: orderName,
+      });
+      warehouseDeducted += wh.deducted;
+      warehouseShortfall += wh.shortfall;
+      if (wh.shortfall > 0) {
+        console.warn("[shopify-quick-fulfill] warehouse bin shortfall", {
+          inventoryId: row.inventoryId,
+          sku,
+          needed: row.needed,
+          deducted: wh.deducted,
+          shortfall: wh.shortfall,
+        });
+      }
+    } catch (err) {
+      console.error("[shopify-quick-fulfill] warehouse deduct failed", err);
+      warehouseShortfall += row.needed;
+    }
+  }
+
+  try {
+    await logRef.set(
+      {
+        warehouseDeducted,
+        warehouseShortfall,
+        warehouseDeductedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch {
+    // non-fatal
+  }
+
   return {
     shippedId: shippedRef.id,
     alreadyProcessed: false,
     shopifySyncHints,
+    warehouseDeducted,
+    warehouseShortfall,
   };
 }

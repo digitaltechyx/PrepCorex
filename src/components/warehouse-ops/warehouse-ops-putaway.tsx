@@ -54,6 +54,8 @@ import {
   validateLineToBin,
   type PutawayLineAssignment,
 } from "@/lib/warehouse-putaway";
+import { pushShopifyInventoryHints } from "@/lib/shopify-inventory-sync";
+import type { ShopifyInventoryPushHint } from "@/lib/client-inventory-inbound-sync";
 import {
   applyCrossdockAreaPutaway,
   areasForDisposition,
@@ -291,6 +293,27 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
   const { user, userProfile } = useAuth();
   const operatorId = user?.uid ?? null;
   const operatorName = userProfile?.name || userProfile?.email || null;
+
+  async function syncShopifyAfterPutaway(hints: ShopifyInventoryPushHint[]) {
+    if (!hints.length || !user) return;
+    try {
+      const token = await user.getIdToken();
+      const result = await pushShopifyInventoryHints(token, hints);
+      if (result.errors.length > 0) {
+        toast({
+          variant: "destructive",
+          title: "PrepCorex updated; Shopify did not update",
+          description: result.errors[0],
+        });
+      }
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "PrepCorex updated; Shopify did not update",
+        description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
+      });
+    }
+  }
 
   const [cartonScan, setCartonScan] = useState("");
   const [labelEntryMode, setLabelEntryMode] = useState<BinEntryMode>("write");
@@ -1104,6 +1127,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
 
     setSaving(true);
     try {
+      const allHints: ShopifyInventoryPushHint[] = [];
       for (const [cartonId, assigns] of assignmentsByCarton) {
         const meta = palletCartons.find((c) => c.id === cartonId);
         if (!meta) continue;
@@ -1111,11 +1135,13 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         if (!fresh?.lines?.length) {
           throw new Error(`Carton ${meta.cartonCode} could not be reloaded.`);
         }
-        await applyPutawayAssignments(warehouse.id, cartonId, fresh, assigns, {
+        const putResult = await applyPutawayAssignments(warehouse.id, cartonId, fresh, assigns, {
           operatorId: operatorId ?? operatorName,
           warehouseAreas,
         });
+        allHints.push(...(putResult.shopifyPushHints ?? []));
       }
+      await syncShopifyAfterPutaway(allHints);
 
       const refreshed = await listCartonsByPalletId(warehouse.id, pallet.id);
       const stillPending = pendingManifestLines(refreshed);
@@ -1243,6 +1269,7 @@ export function WarehouseOpsPutaway({ warehouse }: Props) {
         assignments,
         { operatorId: operatorId ?? operatorName, warehouseAreas }
       );
+      await syncShopifyAfterPutaway(result.shopifyPushHints ?? []);
       const placedUnits = assignments.reduce((s, a) => s + (a.quantity ?? 0), 0);
       const fresh = await findCartonByCode(warehouse.id, carton.cartonCode);
       const stillPending = (fresh?.lines ?? []).filter((l) => !isLinePutawayPlaced(l));

@@ -11,6 +11,7 @@ import {
 } from "@/lib/warehouse-carton-firestore";
 import { recordInboundReceiveBatch } from "@/lib/warehouse-inbound-receive";
 import { applyPutawayAssignments } from "@/lib/warehouse-putaway";
+import type { ShopifyInventoryPushHint } from "@/lib/client-inventory-inbound-sync";
 import {
   findBinByPath,
   inspectBinContents,
@@ -87,6 +88,7 @@ export type AdminInboundCompleteResult = {
   putawayDestination: string;
   cartons: WarehouseCartonDoc[];
   pallets: WarehousePalletDoc[];
+  shopifyPushHints: ShopifyInventoryPushHint[];
 };
 
 /**
@@ -262,10 +264,11 @@ export async function adminCompleteInboundReceiveAndPutaway(
     operatorId: input.operatorId ?? null,
   });
 
+  const shopifyPushHints: ShopifyInventoryPushHint[] = [];
   for (const carton of receivedCartons) {
     const line = carton.lines?.[0];
     if (!line?.lineId) throw new Error(`Received carton ${carton.cartonCode} has no line.`);
-    await applyPutawayAssignments(
+    const putResult = await applyPutawayAssignments(
       input.warehouseId,
       carton.id,
       carton,
@@ -281,6 +284,7 @@ export async function adminCompleteInboundReceiveAndPutaway(
       ],
       { operatorId: input.operatorId ?? null, warehouseAreas: areas }
     );
+    shopifyPushHints.push(...(putResult.shopifyPushHints ?? []));
   }
 
   let receivedPallet: WarehousePalletDoc | null = null;
@@ -334,6 +338,7 @@ export async function adminCompleteInboundReceiveAndPutaway(
     putawayDestination: destinationBin?.path || stagingArea,
     cartons: putawayCartons,
     pallets: receivedPallet ? [receivedPallet] : [],
+    shopifyPushHints,
   };
 }
 

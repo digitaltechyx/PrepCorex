@@ -134,7 +134,11 @@ export default function ShopifyProductsPage() {
       if (!res.ok) {
         throw new Error(typeof data.error === "string" ? data.error : "Failed to save");
       }
-      toast({ title: "Saved", description: `${selectedVariants.length} product(s) will be fulfilled by PrepCorex.` });
+      toast({
+        title: "Saved",
+        description: `${selectedVariants.length} product(s) linked. New items were added with their Shopify quantity; ongoing qty syncs both ways after this.`,
+      });
+      await fetchProducts();
     } catch (e) {
       toast({ variant: "destructive", title: "Error", description: e instanceof Error ? e.message : "Failed to save." });
     } finally {
@@ -180,9 +184,9 @@ export default function ShopifyProductsPage() {
 
       <Card className="border-amber-200 dark:border-amber-900/50 bg-amber-50/50 dark:bg-amber-950/20">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Two-way sync — no re-selection needed</CardTitle>
+          <CardTitle className="text-base">After selection — quantities stay in sync</CardTitle>
           <CardDescription>
-            Once you save your selection, these products stay linked. Changes in PrepCorex (edit, restock, delete, dispose, ship) update Shopify automatically. Changes on Shopify for these products update PrepCorex in real time via webhook. You do not need to select products again after making changes.
+            Saving selection only adds/links products (new items get their current Shopify qty). After that, qty stays synced both ways: Shopify changes update PrepCorex via webhook; PrepCorex changes (putaway, restock, edit, ship, dispose) update Shopify. You do not need to re-select products after stock changes.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -190,7 +194,11 @@ export default function ShopifyProductsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Select products</CardTitle>
-          <CardDescription>Only orders containing at least one selected variant will be fulfilled through PrepCorex. Quantities sync both ways in real time; no need to re-select after changes. Out-of-stock items can still be selected (e.g. if you are restocking).</CardDescription>
+          <CardDescription>
+            Only orders containing at least one selected variant will be fulfilled through PrepCorex.
+            Selection adds products with their actual Shopify quantity. After linking, stock stays synced both ways.
+            Out-of-stock items can still be selected (e.g. if you are restocking).
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (

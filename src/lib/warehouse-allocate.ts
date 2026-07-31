@@ -508,7 +508,12 @@ export async function assignClientAndOpenClosedCarton(input: {
   clientDisplayName?: string | null;
   lines: OpenCrossdockLineInput[];
   operatorId?: string | null;
-}): Promise<{ synced: boolean; cartonCode: string; lineCount: number }> {
+}): Promise<{
+  synced: boolean;
+  cartonCode: string;
+  lineCount: number;
+  shopifyPushHints: Awaited<ReturnType<typeof syncClientInventoryFromPutaway>>;
+}> {
   const clientId = input.clientId.trim();
   if (!clientId) throw new Error("Select a registered client.");
 
@@ -545,8 +550,9 @@ export async function assignClientAndOpenClosedCarton(input: {
     Boolean(stagingArea) || lines.some((l) => Boolean(l.binId?.trim() || l.stagingArea?.trim()));
 
   let synced = false;
+  let shopifyPushHints: Awaited<ReturnType<typeof syncClientInventoryFromPutaway>> = [];
   if (hasPlacement && lines.length > 0) {
-    await syncClientInventoryFromPutaway({
+    shopifyPushHints = await syncClientInventoryFromPutaway({
       warehouseId: input.warehouseId,
       cartonId: input.cartonId,
       carton: opened,
@@ -565,6 +571,7 @@ export async function assignClientAndOpenClosedCarton(input: {
     synced,
     cartonCode: opened.cartonCode,
     lineCount: lines.length,
+    shopifyPushHints,
   };
 }
 

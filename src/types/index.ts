@@ -943,7 +943,7 @@ export interface InventoryChangeLog {
   inventoryId: string;
   productName: string;
   sku?: string | null;
-  eventType: "outbound_dispatch" | "outbound_shipped" | "admin_ship" | "edit" | "dispose";
+  eventType: "outbound_dispatch" | "outbound_shipped" | "admin_ship" | "edit" | "dispose" | "shopify_quick_fulfill";
   qtyBefore: number;
   qtyAfter: number;
   qtyChange: number;

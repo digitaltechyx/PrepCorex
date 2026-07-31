@@ -15,6 +15,7 @@ import { db } from "@/lib/firebase";
 import { isCrossdockClosedCarton } from "@/lib/warehouse-crossdock";
 import { creditReturnInventory } from "@/lib/product-return-ops";
 import type { InventoryRequest, WarehouseCartonDoc, WarehouseCartonLine } from "@/types";
+import type { ShopifyInventoryPushHint } from "@/lib/shopify-inventory-sync";
 
 export type PutawaySyncAssignment = {
   lineId: string;
@@ -23,6 +24,8 @@ export type PutawaySyncAssignment = {
   binPath?: string | null;
   stagingArea?: string | null;
 };
+
+export type { ShopifyInventoryPushHint };
 
 function norm(value: string | undefined | null): string {
   return (value ?? "").trim().toLowerCase();
@@ -107,14 +110,15 @@ export async function syncClientInventoryFromPutaway(input: {
   carton: WarehouseCartonDoc;
   applied: PutawaySyncAssignment[];
   operatorId?: string | null;
-}): Promise<void> {
+}): Promise<ShopifyInventoryPushHint[]> {
+  const shopifyHints: ShopifyInventoryPushHint[] = [];
   // Closed cross-dock (placeholder SKU only) never updates client inventory.
   // Opened / convert-to-open-receive cartons do sync once real SKUs exist.
   if (
     input.carton.receiveMode === "crossdock" &&
     (isCrossdockClosedCarton(input.carton) || input.carton.isClosedCrossdock === true)
   ) {
-    return;
+    return shopifyHints;
   }
 
   for (const assignment of input.applied) {
@@ -150,7 +154,7 @@ export async function syncClientInventoryFromPutaway(input: {
       continue;
     }
 
-    await syncPutawayLine({
+    const hint = await syncPutawayLine({
       warehouseId: input.warehouseId,
       cartonId: input.cartonId,
       carton: input.carton,
@@ -161,7 +165,9 @@ export async function syncClientInventoryFromPutaway(input: {
       stagingArea: assignment.stagingArea ?? null,
       operatorId: input.operatorId ?? null,
     });
+    if (hint) shopifyHints.push(hint);
   }
+  return shopifyHints;
 }
 
 async function syncPutawayLine(input: {
@@ -174,7 +180,7 @@ async function syncPutawayLine(input: {
   binPath: string | null;
   stagingArea: string | null;
   operatorId: string | null;
-}): Promise<void> {
+}): Promise<ShopifyInventoryPushHint | null> {
   const clientUserId = input.line.clientId!.trim();
   const syncKey = buildSyncKey({
     warehouseId: input.warehouseId,
@@ -202,10 +208,10 @@ async function syncPutawayLine(input: {
   // Already synced qty — still backfill missing product photos / receiving date / remarks photos when possible.
   if (existingLog.exists()) {
     const inventoryId = String(existingLog.data()?.inventoryId ?? "").trim();
-    if (!inventoryId) return;
+    if (!inventoryId) return null;
     const invRef = doc(db, "users", clientUserId, "inventory", inventoryId);
     const invSnap = await getDoc(invRef);
-    if (!invSnap.exists()) return;
+    if (!invSnap.exists()) return null;
     const patch: Record<string, unknown> = {};
     const rawProductUrls = Array.isArray(invSnap.data()?.imageUrls)
       ? (invSnap.data()?.imageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
@@ -231,16 +237,16 @@ async function syncPutawayLine(input: {
     if (!invSnap.data()?.receivingDate) {
       patch.receivingDate = serverTimestamp();
     }
-    if (Object.keys(patch).length === 0) return;
+    if (Object.keys(patch).length === 0) return null;
     patch.updatedAt = serverTimestamp();
     await updateDoc(invRef, patch);
-    return;
+    return null;
   }
 
   const isDamaged = input.line.condition === "damaged";
   const goodQty = isDamaged ? 0 : Math.max(0, Math.floor(input.putawayQty));
   const damagedQty = isDamaged ? Math.max(0, Math.floor(input.putawayQty)) : 0;
-  if (goodQty === 0 && damagedQty === 0) return;
+  if (goodQty === 0 && damagedQty === 0) return null;
 
   const productName =
     input.line.productTitle?.trim() ||
@@ -411,6 +417,24 @@ async function syncPutawayLine(input: {
       tx.update(reqRef, reqPatch);
     }
   });
+
+  if (goodQty <= 0) return null;
+  const invAfter = await getDoc(inventoryRef);
+  if (!invAfter.exists()) return null;
+  const data = invAfter.data() || {};
+  if (data.source !== "shopify") return null;
+  const shop = typeof data.shop === "string" ? data.shop.trim() : "";
+  const shopifyVariantId =
+    data.shopifyVariantId != null ? String(data.shopifyVariantId).trim() : "";
+  if (!shop || !shopifyVariantId) return null;
+  return {
+    userId: clientUserId,
+    shop,
+    shopifyVariantId,
+    shopifyInventoryItemId:
+      data.shopifyInventoryItemId != null ? String(data.shopifyInventoryItemId) : null,
+    newQuantity: Math.max(0, Math.floor(Number(data.quantity) || 0)),
+  };
 }
 
 async function findInventoryDocRef(

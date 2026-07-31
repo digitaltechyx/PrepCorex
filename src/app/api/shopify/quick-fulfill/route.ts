@@ -124,6 +124,8 @@ export async function POST(request: NextRequest) {
       success: true,
       shippedId: result.shippedId,
       alreadyProcessed: result.alreadyProcessed,
+      warehouseDeducted: result.warehouseDeducted,
+      warehouseShortfall: result.warehouseShortfall,
       syncErrors: syncErrors.length ? syncErrors : undefined,
     });
   } catch (err: unknown) {

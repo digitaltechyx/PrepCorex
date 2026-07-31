@@ -264,7 +264,9 @@ export function buildInventoryHistory(
           ? "Outbound shipped"
           : log.eventType === "dispose"
             ? "Disposed"
-            : "Stock removed";
+            : log.eventType === "shopify_quick_fulfill"
+              ? "Shopify quick fulfill"
+              : "Stock removed";
     raw.push({
       timestamp: toTimestamp(log.at),
       event: eventLabel,
@@ -285,7 +287,16 @@ export function buildInventoryHistory(
     });
   }
 
+  const shippedIdsFromChangeLogs = new Set(
+    (sources.inventoryChangeLogs ?? [])
+      .map((log) => (log.shippedId != null ? String(log.shippedId).trim() : ""))
+      .filter(Boolean)
+  );
+
   for (const s of sources.shipped) {
+    // Avoid double-counting when inventoryChangeLogs already recorded this shipment.
+    if (s.id && shippedIdsFromChangeLogs.has(s.id)) continue;
+    if ((s as ShippedItem & { quickFulfill?: boolean }).quickFulfill === true) continue;
     const lines: Array<{ name: string; qty: number; packOf?: number }> = [];
     if (s.items?.length) {
       for (const line of s.items) {

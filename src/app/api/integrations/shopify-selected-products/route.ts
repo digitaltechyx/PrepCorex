@@ -21,7 +21,7 @@ type ShopifyProduct = {
   variants: ShopifyVariant[];
 };
 
-/** PUT: Save selected variants for a connected store and sync them into user inventory. */
+/** PUT: Save selected variants — add new products with Shopify qty; keep existing PrepCorex qty; rebuild lookups. No Shopify qty push. */
 export async function PUT(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
@@ -107,7 +107,10 @@ export async function PUT(request: NextRequest) {
           },
         }
       );
-      const variantQtyMap: Record<string, { quantity: number; sku: string | null; inventoryItemId: string | null }> = {};
+      const variantQtyMap: Record<
+        string,
+        { quantity: number; sku: string | null; inventoryItemId: string | null }
+      > = {};
       if (productsRes.ok) {
         const data = (await productsRes.json()) as { products?: ShopifyProduct[] };
         for (const p of data.products ?? []) {
@@ -123,35 +126,58 @@ export async function PUT(request: NextRequest) {
 
       const productPathsMap: Record<string, { paths: string[]; lookupIds: string[] }> = {};
       for (const v of selectedVariants) {
-        const info = variantQtyMap[v.variantId] ?? { quantity: 0, sku: null, inventoryItemId: null };
-        const quantity = info.quantity;
-        const status = quantity > 0 ? "In Stock" : "Out of Stock";
+        const info = variantQtyMap[v.variantId] ?? {
+          quantity: 0,
+          sku: null,
+          inventoryItemId: null,
+        };
         const docId = `shopify_${shop.replace(/\./g, "_")}_${v.variantId}`;
         const inventoryPath = `users/${uid}/inventory/${docId}`;
+        const existingSnap = await invRef.doc(docId).get();
+        const existing = existingSnap.exists ? existingSnap.data() || {} : null;
+
+        // Selection save is Shopify → PrepCorex only for NEW products.
+        // Already-linked products keep PrepCorex qty (ongoing two-way sync is webhook + inventory actions).
+        // Never push PrepCorex qty to Shopify from this endpoint.
+        const quantity = existing
+          ? Math.max(0, Math.floor(Number(existing.quantity) || 0))
+          : info.quantity;
+        const status = quantity > 0 ? "In Stock" : "Out of Stock";
+
         const docData: Record<string, unknown> = {
           productName: v.title,
-          quantity,
-          status,
-          dateAdded: FieldValue.serverTimestamp(),
           source: "shopify",
           shopifyVariantId: v.variantId,
           shopifyProductId: v.productId,
           shop,
         };
-        if (info.inventoryItemId) docData.shopifyInventoryItemId = info.inventoryItemId;
+        if (!existing) {
+          docData.quantity = quantity;
+          docData.status = status;
+          docData.dateAdded = FieldValue.serverTimestamp();
+        }
+        const inventoryItemId =
+          (existing?.shopifyInventoryItemId != null
+            ? String(existing.shopifyInventoryItemId)
+            : null) || info.inventoryItemId;
+        if (inventoryItemId) docData.shopifyInventoryItemId = inventoryItemId;
         if (v.sku != null && v.sku !== "") docData.sku = v.sku;
+        else if (existing?.sku) docData.sku = existing.sku;
         else if (info.sku) docData.sku = info.sku;
+
         await invRef.doc(docId).set(docData, { merge: true });
-        // Lookup for inventory_levels webhook
-        if (info.inventoryItemId) {
-          const lookupId = `${shop.replace(/\./g, "_")}_${info.inventoryItemId}`;
-          await lookupRef.doc(lookupId).set({
-            userId: uid,
-            inventoryPath,
-            shop,
-            shopifyInventoryItemId: info.inventoryItemId,
-          }, { merge: true });
-          // Product-level lookup for products/delete webhook
+
+        if (inventoryItemId) {
+          const lookupId = `${shop.replace(/\./g, "_")}_${inventoryItemId}`;
+          await lookupRef.doc(lookupId).set(
+            {
+              userId: uid,
+              inventoryPath,
+              shop,
+              shopifyInventoryItemId: inventoryItemId,
+            },
+            { merge: true }
+          );
           const pid = String(v.productId);
           if (!productPathsMap[pid]) productPathsMap[pid] = { paths: [], lookupIds: [] };
           productPathsMap[pid].paths.push(inventoryPath);
@@ -188,19 +214,22 @@ export async function PUT(request: NextRequest) {
             const removedLookupId = invItemId ? `${shop.replace(/\./g, "_")}_${invItemId}` : "";
             const newLookupIds = lookupIds.filter((id) => id !== removedLookupId);
             if (newPaths.length === 0) await productLookupRef.doc(plId).delete();
-            else await productLookupRef.doc(plId).set({ paths: newPaths, lookupIds: newLookupIds }, { merge: true });
+            else
+              await productLookupRef
+                .doc(plId)
+                .set({ paths: newPaths, lookupIds: newLookupIds }, { merge: true });
           }
         }
       }
     }
 
-    return NextResponse.json({ success: true, count: selectedVariants.length });
+    return NextResponse.json({
+      success: true,
+      count: selectedVariants.length,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     console.error("[shopify-selected-products PUT]", err);
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

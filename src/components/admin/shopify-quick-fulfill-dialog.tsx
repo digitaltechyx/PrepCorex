@@ -257,6 +257,13 @@ export function ShopifyQuickFulfillDialog({
           description: data.syncErrors.slice(0, 2).join("; "),
         });
       }
+      if (Number(data.warehouseShortfall) > 0) {
+        toast({
+          variant: "destructive",
+          title: "Client inventory updated; some bin qty was not found",
+          description: `Could not deduct ${data.warehouseShortfall} unit(s) from Warehouse Ops bins (SKU/bin mismatch). Check inventory search and adjust the carton qty.`,
+        });
+      }
       onOpenChange(false);
       onCompleted();
     } catch (error) {
