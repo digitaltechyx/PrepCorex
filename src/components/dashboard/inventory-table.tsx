@@ -621,6 +621,15 @@ export function InventoryTable({
   const previewImageInputRef = useRef<HTMLInputElement>(null);
   const [editingRequest, setEditingRequest] = useState<InventoryRequest | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingInventoryMetadata, setEditingInventoryMetadata] = useState<InventoryItem | null>(
+    null
+  );
+  const [inventoryMetadataExpiryDate, setInventoryMetadataExpiryDate] = useState("");
+  const [inventoryMetadataMeasurements, setInventoryMetadataMeasurements] =
+    useState<ProductUnitMeasurementDraft>({
+      ...EMPTY_UNIT_MEASUREMENTS,
+    });
+  const [isUpdatingInventoryMetadata, setIsUpdatingInventoryMetadata] = useState(false);
   const [editProductName, setEditProductName] = useState("");
   const [editQuantity, setEditQuantity] = useState(0);
   const [editRemarks, setEditRemarks] = useState("");
@@ -929,6 +938,65 @@ export function InventoryTable({
     setEditImageFile(null);
     setEditImagePreview(null);
     setIsEditDialogOpen(true);
+  };
+
+  const handleInventoryMetadataEdit = (item: InventoryItem) => {
+    setEditingInventoryMetadata(item);
+    setInventoryMetadataExpiryDate(toDateInputValue(item.expiryDate));
+    setInventoryMetadataMeasurements(
+      draftFromMeasurementSource(item as unknown as Record<string, unknown>)
+    );
+  };
+
+  const handleInventoryMetadataUpdate = async () => {
+    if (!editingInventoryMetadata?.id || !effectiveUserId) return;
+
+    setIsUpdatingInventoryMetadata(true);
+    try {
+      const measurementPatch = measurementFieldsForWrite(inventoryMetadataMeasurements);
+      const updatePayload: Record<string, unknown> = {
+        unitLengthIn: measurementPatch.unitLengthIn ?? null,
+        unitWidthIn: measurementPatch.unitWidthIn ?? null,
+        unitHeightIn: measurementPatch.unitHeightIn ?? null,
+        unitWeightLb: measurementPatch.unitWeightLb ?? null,
+        updatedAt: Timestamp.now(),
+      };
+      if (inventoryMetadataExpiryDate.trim()) {
+        const expiry = new Date(`${inventoryMetadataExpiryDate.trim()}T12:00:00`);
+        updatePayload.expiryDate = Number.isNaN(expiry.getTime())
+          ? null
+          : Timestamp.fromDate(expiry);
+      } else {
+        updatePayload.expiryDate = null;
+      }
+
+      await updateDoc(
+        doc(db, `users/${effectiveUserId}/inventory`, editingInventoryMetadata.id),
+        updatePayload
+      );
+
+      const sourceRequestId = String(editingInventoryMetadata.sourceRequestId || "").trim();
+      if (sourceRequestId) {
+        await updateDoc(
+          doc(db, `users/${effectiveUserId}/inventoryRequests`, sourceRequestId),
+          updatePayload
+        );
+      }
+
+      toast({
+        title: "Product details updated",
+        description: "Expiry and unit measurements are now available for box suggestions.",
+      });
+      setEditingInventoryMetadata(null);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Update failed",
+        description: error?.message || "Could not update product details.",
+      });
+    } finally {
+      setIsUpdatingInventoryMetadata(false);
+    }
   };
 
   const clearEditImageSelection = () => {
@@ -1743,6 +1811,17 @@ export function InventoryTable({
                           </Button>
                         </div>
                       )}
+                      {!hasAdminActions && !(item as any).isRequest && !(item as any).isBatch && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto shrink-0 p-1"
+                          onClick={() => handleInventoryMetadataEdit(item as InventoryItem)}
+                          title="Edit expiry and unit measurements"
+                        >
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                      )}
                       {(item as any).isBatch && (item as any).batchData && (
                         <Button
                           variant="ghost"
@@ -2042,7 +2121,42 @@ export function InventoryTable({
                       {(item as any).retailIdentifier || "N/A"}
                     </TableCell>
                     <TableCell className="hidden xl:table-cell whitespace-nowrap">
-                      {(item as any).expiryDate ? formatOptionalDate((item as any).expiryDate) : "N/A"}
+                      <div className="flex items-center gap-1">
+                        <span>
+                          {(item as any).expiryDate
+                            ? formatOptionalDate((item as any).expiryDate)
+                            : "N/A"}
+                        </span>
+                        {!hasAdminActions &&
+                          !(item as any).isRequest &&
+                          !(item as any).isBatch && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() =>
+                                handleInventoryMetadataEdit(item as InventoryItem)
+                              }
+                              title="Edit expiry and unit measurements"
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          )}
+                        {hasAdminActions &&
+                          adminActions?.onEdit &&
+                          !(item as any).isRequest &&
+                          !(item as any).isBatch && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => adminActions.onEdit?.(item as InventoryItem)}
+                              title="Edit product details"
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          )}
+                      </div>
                     </TableCell>
                     <TableCell className="hidden xl:table-cell whitespace-nowrap text-xs">
                       {formatUnitDimensions(item as any) || formatUnitWeight(item as any)
@@ -2345,6 +2459,71 @@ export function InventoryTable({
             >
               {isCancelling ? "Cancelling..." : "Cancel request"}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit completed inventory metadata */}
+      <Dialog
+        open={!!editingInventoryMetadata}
+        onOpenChange={(open) => {
+          if (!open && !isUpdatingInventoryMetadata) setEditingInventoryMetadata(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Product Details</DialogTitle>
+            <DialogDescription>
+              Add or update expiry and per-unit measurements for{" "}
+              {editingInventoryMetadata?.productName || "this product"}. These details are used for
+              box suggestions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="inventory-metadata-expiry">Expiry date (optional)</Label>
+              <Input
+                id="inventory-metadata-expiry"
+                type="date"
+                value={inventoryMetadataExpiryDate}
+                onChange={(event) => setInventoryMetadataExpiryDate(event.target.value)}
+                className="mt-1"
+              />
+            </div>
+            <ProductUnitMeasurementsFields
+              compact
+              idPrefix="inventory-metadata"
+              value={inventoryMetadataMeasurements}
+              onChange={setInventoryMetadataMeasurements}
+            />
+            <p className="text-xs text-muted-foreground">
+              Shopify does not provide expiry or package dimensions. Values entered here stay in
+              PrepCorex and are preserved during normal Shopify synchronization.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isUpdatingInventoryMetadata}
+                onClick={() => setEditingInventoryMetadata(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={isUpdatingInventoryMetadata}
+                onClick={() => void handleInventoryMetadataUpdate()}
+              >
+                {isUpdatingInventoryMetadata ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save details"
+                )}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

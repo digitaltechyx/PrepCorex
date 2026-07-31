@@ -17,7 +17,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { doc, updateDoc, deleteDoc, addDoc, collection, getDoc } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, addDoc, collection, getDoc, Timestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import imageCompression from "browser-image-compression";
@@ -75,6 +75,22 @@ const editProductSchema = z.object({
   productName: z.string().min(1, "Product name is required"),
   quantity: z.number().min(0, "Quantity must be non-negative"),
 });
+
+function toDateInputValue(value: unknown): string {
+  if (!value) return "";
+  const date =
+    value instanceof Date
+      ? value
+      : typeof (value as { toDate?: unknown })?.toDate === "function"
+        ? (value as { toDate: () => Date }).toDate()
+        : typeof value === "string" || typeof value === "number"
+          ? new Date(value)
+          : typeof (value as { seconds?: unknown })?.seconds === "number"
+            ? new Date(Number((value as { seconds: number }).seconds) * 1000)
+            : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return format(date, "yyyy-MM-dd");
+}
 
 const restockSchema = z.object({
   quantity: z.number().min(1, "Quantity must be at least 1"),
@@ -384,6 +400,7 @@ export function AdminInventoryManagement({
   const [editUnitMeasurements, setEditUnitMeasurements] = useState<ProductUnitMeasurementDraft>({
     ...EMPTY_UNIT_MEASUREMENTS,
   });
+  const [editExpiryDate, setEditExpiryDate] = useState("");
   const [restockingProduct, setRestockingProduct] = useState<InventoryItem | null>(null);
   const [recyclingProduct, setRecyclingProduct] = useState<InventoryItem | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<InventoryItem | null>(null);
@@ -594,6 +611,7 @@ export function AdminInventoryManagement({
     editForm.setValue("productName", product.productName);
     editForm.setValue("quantity", product.quantity);
     setEditUnitMeasurements(draftFromMeasurementSource(product as unknown as Record<string, unknown>));
+    setEditExpiryDate(toDateInputValue(product.expiryDate));
   };
 
   const handleRestockProduct = (product: InventoryItem) => {
@@ -739,7 +757,15 @@ export function AdminInventoryManagement({
 
   const handleEditProductWithLog = (product: InventoryItem) => {
     setEditingProductWithLog(product);
-    editLogForm.setValue("reason", "");
+    editForm.reset({
+      productName: product.productName,
+      quantity: product.quantity,
+    });
+    setEditUnitMeasurements(
+      draftFromMeasurementSource(product as unknown as Record<string, unknown>)
+    );
+    setEditExpiryDate(toDateInputValue(product.expiryDate));
+    editLogForm.reset({ reason: "" });
   };
 
   const handleRemarksClick = (remarks: string) => {
@@ -883,10 +909,14 @@ export function AdminInventoryManagement({
     try {
       const productRef = doc(db, `users/${selectedUser.uid}/inventory`, editingProduct.id);
       const measurementPatch = measurementFieldsForWrite(editUnitMeasurements);
+      const expiryDate = editExpiryDate.trim()
+        ? Timestamp.fromDate(new Date(`${editExpiryDate.trim()}T12:00:00`))
+        : null;
       await updateDoc(productRef, {
         productName: values.productName,
         quantity: values.quantity,
         status: values.quantity > 0 ? "In Stock" : "Out of Stock",
+        expiryDate,
         unitLengthIn: measurementPatch.unitLengthIn ?? null,
         unitWidthIn: measurementPatch.unitWidthIn ?? null,
         unitHeightIn: measurementPatch.unitHeightIn ?? null,
@@ -1035,11 +1065,30 @@ export function AdminInventoryManagement({
       // Update the product
       const newQty = editForm.getValues("quantity");
       const newStatus = newQty > 0 ? "In Stock" : "Out of Stock";
+      const measurementPatch = measurementFieldsForWrite(editUnitMeasurements);
+      const expiryDate = editExpiryDate.trim()
+        ? Timestamp.fromDate(new Date(`${editExpiryDate.trim()}T12:00:00`))
+        : null;
+      const metadataPatch = {
+        expiryDate,
+        unitLengthIn: measurementPatch.unitLengthIn ?? null,
+        unitWidthIn: measurementPatch.unitWidthIn ?? null,
+        unitHeightIn: measurementPatch.unitHeightIn ?? null,
+        unitWeightLb: measurementPatch.unitWeightLb ?? null,
+      };
       await updateDoc(productRef, {
         productName: editForm.getValues("productName"),
         quantity: newQty,
         status: newStatus,
+        ...metadataPatch,
       });
+      const sourceRequestId = String(currentData.sourceRequestId || "").trim();
+      if (sourceRequestId) {
+        await updateDoc(
+          doc(db, `users/${selectedUser.uid}/inventoryRequests`, sourceRequestId),
+          metadataPatch
+        );
+      }
       await syncExternalInventoryIfNeeded(editingProductWithLog as any, newQty, selectedUser.uid);
       if (previousProductName !== editForm.getValues("productName")) {
         await syncShopifyProductTitleIfNeeded(editingProductWithLog as any, editForm.getValues("productName"), selectedUser.uid);
@@ -1057,6 +1106,20 @@ export function AdminInventoryManagement({
         editedAt: new Date(),
         editedBy: adminUser.name || "Admin",
         reason: values.reason,
+        previousExpiryDate: currentData.expiryDate ?? null,
+        newExpiryDate: expiryDate,
+        previousUnitMeasurements: {
+          unitLengthIn: currentData.unitLengthIn ?? null,
+          unitWidthIn: currentData.unitWidthIn ?? null,
+          unitHeightIn: currentData.unitHeightIn ?? null,
+          unitWeightLb: currentData.unitWeightLb ?? null,
+        },
+        newUnitMeasurements: {
+          unitLengthIn: metadataPatch.unitLengthIn,
+          unitWidthIn: metadataPatch.unitWidthIn,
+          unitHeightIn: metadataPatch.unitHeightIn,
+          unitWeightLb: metadataPatch.unitWeightLb,
+        },
       };
 
       // Only include previousProductName if it actually changed
@@ -1071,6 +1134,8 @@ export function AdminInventoryManagement({
         description: `Product "${editForm.getValues("productName")}" updated successfully!`,
       });
       setEditingProductWithLog(null);
+      setEditExpiryDate("");
+      setEditUnitMeasurements({ ...EMPTY_UNIT_MEASUREMENTS });
       editLogForm.reset();
       editForm.reset();
     } catch (error: any) {
@@ -3573,6 +3638,16 @@ export function AdminInventoryManagement({
                   </FormItem>
                 )}
               />
+              <div>
+                <Label htmlFor="admin-edit-expiry">Expiry date (optional)</Label>
+                <Input
+                  id="admin-edit-expiry"
+                  type="date"
+                  value={editExpiryDate}
+                  onChange={(event) => setEditExpiryDate(event.target.value)}
+                  className="mt-1"
+                />
+              </div>
               <ProductUnitMeasurementsFields
                 compact
                 idPrefix="admin-edit-m"
@@ -3932,7 +4007,7 @@ export function AdminInventoryManagement({
 
       {/* Edit Product with Log Dialog */}
       <Dialog open={!!editingProductWithLog} onOpenChange={() => setEditingProductWithLog(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Product with Log</DialogTitle>
             <DialogDescription>Update product details and provide reason for changes</DialogDescription>
@@ -3989,6 +4064,29 @@ export function AdminInventoryManagement({
                     )}
                   />
                 </div>
+
+                <div>
+                  <Label htmlFor="admin-edit-log-expiry">Expiry date (optional)</Label>
+                  <Input
+                    id="admin-edit-log-expiry"
+                    type="date"
+                    value={editExpiryDate}
+                    onChange={(event) => setEditExpiryDate(event.target.value)}
+                    className="mt-1"
+                  />
+                  {editingProductWithLog?.source === "shopify" ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      This expiry is stored in PrepCorex and preserved during normal Shopify sync.
+                    </p>
+                  ) : null}
+                </div>
+
+                <ProductUnitMeasurementsFields
+                  compact
+                  idPrefix="admin-edit-log-m"
+                  value={editUnitMeasurements}
+                  onChange={setEditUnitMeasurements}
+                />
 
                 {/* Reason for Edit */}
                 <FormField
