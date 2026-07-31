@@ -16,6 +16,11 @@
 import { Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
+import {
+  DEFAULT_PALLET_TIER_RATES,
+  formatTierRatesLabel,
+  tierRatesFromStoragePricingDoc,
+} from "@/lib/pallet-storage-billing";
 import { CONTAINER_SIZE_OPTIONS, DTC_FBM_SERVICE, isDtcFbmService, type ContainerSize } from "@/types";
 
  type PricingRuleDoc = {
@@ -246,6 +251,28 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
   }, [pricingList]);
 
   const latestStorage = useMemo(() => pickLatest(storagePricingList), [storagePricingList]);
+  const storageTier = useMemo(
+    () =>
+      tierRatesFromStoragePricingDoc(
+        latestStorage
+          ? {
+              price: latestStorage.price,
+              month1Rate: latestStorage.month1Rate,
+              month2to6Rate: latestStorage.month2to6Rate,
+              month6PlusRate: latestStorage.month6PlusRate,
+            }
+          : null
+      ),
+    [latestStorage]
+  );
+  const storageTypeLabel =
+    latestStorage?.storageType ||
+    (userProfile as { storageType?: string | null } | null)?.storageType ||
+    "pallet_base";
+  const pendingStorageCartons = Math.max(
+    0,
+    Math.floor(Number((userProfile as { pendingStorageCartons?: number } | null)?.pendingStorageCartons) || 0)
+  );
   const latestBox = useMemo(() => pickLatest(boxForwardingPricingList), [boxForwardingPricingList]);
   const latestPallet = useMemo(() => pickLatest(palletForwardingPricingList), [palletForwardingPricingList]);
   const latestAdditional = useMemo(() => pickLatest(additionalServicesPricingList), [additionalServicesPricingList]);
@@ -540,92 +567,75 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
             <CardTitle className="text-sm">Storage Pricing</CardTitle>
            </CardHeader>
           <CardContent className="max-w-md space-y-1.5 pt-0 text-sm">
-             {latestStorage ? (
-               <>
-                <PricingDefinitionRow label="Storage Type">
-                  <span className="font-medium">
-                    {latestStorage.storageType || (userProfile as any)?.storageType || "pallet_base"}
-                  </span>
-                </PricingDefinitionRow>
-                <PricingDefinitionRow label="Month 1">
-                  <span className="font-semibold tabular-nums">
-                    {money(latestStorage.month1Rate ?? latestStorage.price)}
-                  </span>
-                </PricingDefinitionRow>
-                <PricingDefinitionRow label="Months 2–6">
-                  <span className="font-semibold tabular-nums">
-                    {money(latestStorage.month2to6Rate ?? 50)}
-                  </span>
-                </PricingDefinitionRow>
-                <PricingDefinitionRow label="6+ months">
-                  <span className="font-semibold tabular-nums">
-                    {money(latestStorage.month6PlusRate ?? 70)}
-                  </span>
-                </PricingDefinitionRow>
-                 {(latestStorage.storageType === "pallet_base" ||
-                   (userProfile as any)?.storageType === "pallet_base" ||
-                   !latestStorage.storageType) && (
-                  <PricingDefinitionRow label="Active pallets">
-                    <span className="font-medium tabular-nums">
-                      {activePalletCount || latestStorage.palletCount || 0}
+            <PricingDefinitionRow label="Storage Type">
+              <span className="font-medium">{storageTypeLabel}</span>
+            </PricingDefinitionRow>
+            <PricingDefinitionRow label="Month 1">
+              <span className="font-semibold tabular-nums">{money(storageTier.month1Rate)}</span>
+              <span className="text-muted-foreground text-xs ml-1">/ pallet / 30 days</span>
+            </PricingDefinitionRow>
+            <PricingDefinitionRow label="Months 2–6">
+              <span className="font-semibold tabular-nums">{money(storageTier.month2to6Rate)}</span>
+              <span className="text-muted-foreground text-xs ml-1">/ pallet / 30 days</span>
+            </PricingDefinitionRow>
+            <PricingDefinitionRow label="6+ months">
+              <span className="font-semibold tabular-nums">{money(storageTiers.month6PlusRate)}</span>
+              <span className="text-muted-foreground text-xs ml-1">/ pallet / 30 days</span>
+            </PricingDefinitionRow>
+            <div className="text-[11px] text-muted-foreground pt-1">
+              First 7 days free, then billed in 30-day cycles. {formatTierRatesLabel(storageTiers)}
+              {!latestStorage ? ` · Defaults until admin saves custom rates ($${DEFAULT_PALLET_TIER_RATES.month1Rate}/$${DEFAULT_PALLET_TIER_RATES.month2to6Rate}/$${DEFAULT_PALLET_TIER_RATES.month6PlusRate}).` : ""}
+            </div>
+            <PricingDefinitionRow label="Active pallets">
+              <span className="font-medium tabular-nums">
+                {activePalletCount || latestStorage?.palletCount || 0}
+              </span>
+            </PricingDefinitionRow>
+            {pendingStorageCartons > 0 && (
+              <PricingDefinitionRow label="Pending cartons">
+                <span className="font-medium tabular-nums">
+                  {pendingStorageCartons}/10 toward next pallet
+                </span>
+              </PricingDefinitionRow>
+            )}
+            {adminManualPalletCount > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                {adminManualPalletCount} admin-assigned pallet
+                {adminManualPalletCount === 1 ? "" : "s"}; the rest follow receive billing.
+              </div>
+            )}
+            {sortedPalletCycles.length > 0 ? (
+              <div className="pt-2 mt-1 border-t space-y-1.5">
+                <div className="text-xs font-medium text-muted-foreground">Billing cycles</div>
+                {sortedPalletCycles.slice(0, 8).map((cycle) => (
+                  <div
+                    key={cycle.id}
+                    className="text-xs text-muted-foreground flex flex-wrap items-baseline gap-x-2"
+                  >
+                    <span className="font-medium text-foreground">
+                      {cycle.status === "closed" ? "Closed" : "Active"}
                     </span>
-                  </PricingDefinitionRow>
-                 )}
-                 {typeof (userProfile as any)?.pendingStorageCartons === "number" &&
-                   (userProfile as any).pendingStorageCartons > 0 && (
-                  <PricingDefinitionRow label="Pending cartons">
-                    <span className="font-medium tabular-nums">
-                      {(userProfile as any).pendingStorageCartons}/10 toward next pallet
+                    <span className="rounded bg-muted px-1.5 py-0 text-[10px] uppercase tracking-wide">
+                      {String((cycle as PalletStorageCycleDoc).source || "") === "admin_manual"
+                        ? "Admin"
+                        : "Receive"}
                     </span>
-                  </PricingDefinitionRow>
-                 )}
-                 {(latestStorage.storageType === "pallet_base" || (userProfile as any)?.storageType === "pallet_base") &&
-                   adminManualPalletCount > 0 && (
-                    <div className="text-[11px] text-muted-foreground">
-                      {adminManualPalletCount} admin-assigned pallet{adminManualPalletCount === 1 ? "" : "s"}; the rest follow inventory.
-                    </div>
-                  )}
-                 {(latestStorage.storageType === "pallet_base" ||
-                   (userProfile as any)?.storageType === "pallet_base" ||
-                   !latestStorage.storageType) &&
-                   sortedPalletCycles.length > 0 && (
-                  <div className="pt-2 mt-1 border-t space-y-1.5">
-                    <div className="text-xs font-medium text-muted-foreground">Recent Pallet Logs</div>
-                    {sortedPalletCycles.slice(0, 5).map((cycle) => (
-                      <div key={cycle.id} className="text-xs text-muted-foreground flex flex-wrap items-baseline gap-x-2">
-                        <span className="font-medium text-foreground">{cycle.status === "closed" ? "Closed" : "Active"}</span>
-                        <span className="rounded bg-muted px-1.5 py-0 text-[10px] uppercase tracking-wide">
-                          {String((cycle as PalletStorageCycleDoc).source || "") === "admin_manual" ? "Admin" : "Receive"}
-                        </span>
-                        <span>Added: {formatUpdated(cycle.assignedAt) || "-"}</span>
-                        <span>Next invoice: {formatUpdated(cycle.nextInvoiceDate) || "-"}</span>
-                      </div>
-                    ))}
+                    <span>Added: {formatUpdated(cycle.assignedAt) || "-"}</span>
+                    <span>Next invoice: {formatUpdated(cycle.nextInvoiceDate) || "-"}</span>
                   </div>
-                 )}
-                 {formatUpdated(latestStorage.updatedAt || latestStorage.createdAt) && (
-                  <div className="text-xs text-muted-foreground pt-2 mt-1 border-t">
-                     Last updated: {formatUpdated(latestStorage.updatedAt || latestStorage.createdAt)}
-                   </div>
-                 )}
-               </>
-             ) : (
-               <div className="space-y-2">
-                 <div className="text-muted-foreground">
-                   Storage pricing is not configured yet.
-                 </div>
-                 <div className="text-xs text-muted-foreground">
-                   Your admin will set this based on your assigned storage type.
-                 </div>
-                 {(userProfile as any)?.storageType && (
-                   <div className="text-xs">
-                     <PricingDefinitionRow label="Assigned Type">
-                       <span className="font-medium">{(userProfile as any).storageType}</span>
-                     </PricingDefinitionRow>
-                   </div>
-                 )}
-               </div>
-             )}
+                ))}
+              </div>
+            ) : (
+              <div className="text-[11px] text-muted-foreground pt-2 mt-1 border-t">
+                No storage billing cycles yet. Cycles appear after warehouse receives inventory as
+                pallet or carton.
+              </div>
+            )}
+            {latestStorage && formatUpdated(latestStorage.updatedAt || latestStorage.createdAt) && (
+              <div className="text-xs text-muted-foreground pt-2 mt-1 border-t">
+                Last updated: {formatUpdated(latestStorage.updatedAt || latestStorage.createdAt)}
+              </div>
+            )}
            </CardContent>
          </Card>
        </TabsContent>
