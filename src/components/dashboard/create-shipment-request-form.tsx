@@ -230,14 +230,14 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
           return;
         }
         
-        if (!service || !productType || pricingRules.length === 0) return;
+        if (!service || !productType) return;
         
         const packOf = shipment.packOf || 1;
         const totalUnits = quantity * packOf;
 
         if (totalUnits > 0 && service && (service === "FBA/WFS/TFS" || isDtcFbmService(service))) {
           const calculatedPrice = calculatePrepUnitPrice(
-            pricingRules,
+            pricingRules || [],
             service as ServiceType,
             productType,
             totalUnits
@@ -1115,7 +1115,12 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                                     const unitPrice = form.watch(`shipments.${index}.unitPrice`) || 0;
                                     
                                     const hasPricing = shipmentType === "product" 
-                                      ? (service && productType && totalUnits > 0 && pricingRules.length > 0)
+                                      ? Boolean(
+                                          service &&
+                                            productType &&
+                                            totalUnits > 0 &&
+                                            (service === "FBA/WFS/TFS" || isDtcFbmService(service))
+                                        )
                                       : (shipmentType === "box" && boxForwardingPricing && boxForwardingPricing.length > 0) ||
                                         (shipmentType === "pallet" && palletSubType === "forwarding" && palletForwardingPricing && palletForwardingPricing.length > 0) ||
                                         (shipmentType === "pallet" && palletSubType === "existing_inventory" && palletExistingInventoryPricing && palletExistingInventoryPricing.length > 0);

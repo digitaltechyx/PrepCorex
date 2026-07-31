@@ -294,14 +294,11 @@ export function CreateShipmentWithLabelsForm({
         } else if (
           shipmentType === "product" &&
           (service === "FBA/WFS/TFS" || isDtcFbmService(service)) &&
-          lineProductType &&
-          effectivePricingRules &&
-          effectivePricingRules.length > 0
+          lineProductType
         ) {
-          // Use quantity (not totalUnits) to determine unit price
-          // This ensures unit price stays consistent regardless of packOf value
+          // Always calculate — empty profile rules still fall back to built-in default rates.
           const calculatedPrice = calculatePrepUnitPrice(
-            effectivePricingRules,
+            effectivePricingRules || [],
             service,
             lineProductType,
             quantity
@@ -1407,11 +1404,14 @@ export function CreateShipmentWithLabelsForm({
                                               // Product lines default to Standard; pricing follows per-line type via useEffect
                                               if (
                                                 shipmentType === "product" &&
-                                                (group?.service === "FBA/WFS/TFS" || isDtcFbmService(group?.service)) &&
-                                                effectivePricingRules &&
-                                                effectivePricingRules.length > 0
+                                                (group?.service === "FBA/WFS/TFS" || isDtcFbmService(group?.service))
                                               ) {
-                                                const calculated = calculatePrepUnitPrice(effectivePricingRules, group.service, "Standard", 1);
+                                                const calculated = calculatePrepUnitPrice(
+                                                  effectivePricingRules || [],
+                                                  group.service,
+                                                  "Standard",
+                                                  1
+                                                );
                                                 if (calculated?.rate != null && !Number.isNaN(calculated.rate) && calculated.rate > 0) {
                                                   initialUnitPrice = calculated.rate;
                                                   initialTotalPrice = calculated.rate;
@@ -2107,13 +2107,12 @@ export function CreateShipmentWithLabelsForm({
                                     if (
                                       groupShipmentType === "product" &&
                                       groupService &&
+                                      (groupService === "FBA/WFS/TFS" || isDtcFbmService(groupService)) &&
                                       lineProductType &&
-                                      effectivePricingRules &&
-                                      effectivePricingRules.length > 0 &&
                                       lineQuantity > 0
                                     ) {
                                       const calculatedPrice = calculatePrepUnitPrice(
-                                        effectivePricingRules,
+                                        effectivePricingRules || [],
                                         groupService,
                                         lineProductType,
                                         lineQuantity
