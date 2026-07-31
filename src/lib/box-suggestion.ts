@@ -54,6 +54,23 @@ export type BoxSuggestionResult =
       status: "empty";
     };
 
+export type ParcelBoxSuggestionResult =
+  | {
+      status: "recommended";
+      box: BoxMasterEntry;
+      parcelVolumeIn3: number;
+      grossWeightLb: number;
+      usableVolumeIn3: number;
+    }
+  | {
+      status: "no_fit";
+      parcelVolumeIn3: number;
+      grossWeightLb: number;
+    }
+  | {
+      status: "empty";
+    };
+
 /** PrepCorex approved shipping boxes (from Box Master spreadsheet). */
 export const BOX_MASTER: BoxMasterEntry[] = [
   {
@@ -259,6 +276,54 @@ export function unitFitsInBox(unit: ProductUnitMeasurements, box: BoxMasterEntry
   const u = sortedDims(unit.unitLengthIn, unit.unitWidthIn, unit.unitHeightIn);
   const b = sortedDims(box.internalLengthIn, box.internalWidthIn, box.internalHeightIn);
   return u[0] <= b[0] && u[1] <= b[1] && u[2] <= b[2];
+}
+
+/**
+ * Suggest a standard carton from Buy Labels parcel inputs.
+ * Entered package weight already includes packaging, so carton tare is not added again.
+ */
+export function suggestBoxForParcel(input: {
+  lengthIn: unknown;
+  widthIn: unknown;
+  heightIn: unknown;
+  grossWeightLb: unknown;
+}): ParcelBoxSuggestionResult {
+  const lengthIn = parsePositiveMeasurement(input.lengthIn);
+  const widthIn = parsePositiveMeasurement(input.widthIn);
+  const heightIn = parsePositiveMeasurement(input.heightIn);
+  const grossWeightLb = parsePositiveMeasurement(input.grossWeightLb);
+  if (
+    lengthIn == null ||
+    widthIn == null ||
+    heightIn == null ||
+    grossWeightLb == null
+  ) {
+    return { status: "empty" };
+  }
+
+  const parcelVolumeIn3 = lengthIn * widthIn * heightIn;
+  const parcelMeasurements: ProductUnitMeasurements = {
+    unitLengthIn: lengthIn,
+    unitWidthIn: widthIn,
+    unitHeightIn: heightIn,
+    unitWeightLb: grossWeightLb,
+  };
+
+  for (const box of BOX_MASTER) {
+    const usable = usableVolumeIn3(box);
+    if (!unitFitsInBox(parcelMeasurements, box)) continue;
+    if (parcelVolumeIn3 > usable) continue;
+    if (grossWeightLb > box.maxSafePackedWeightLb) continue;
+    return {
+      status: "recommended",
+      box,
+      parcelVolumeIn3,
+      grossWeightLb,
+      usableVolumeIn3: usable,
+    };
+  }
+
+  return { status: "no_fit", parcelVolumeIn3, grossWeightLb };
 }
 
 export function suggestBox(lines: BoxSuggestionLine[]): BoxSuggestionResult {

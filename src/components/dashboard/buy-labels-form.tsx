@@ -21,6 +21,7 @@ import {
   BuyLabelsBulkImportDialog,
   type BuyLabelCartImportItem,
 } from "@/components/dashboard/buy-labels-bulk-import-dialog";
+import { ParcelBoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import { BUY_LABELS_FROM_NAME, BUY_LABELS_DEFAULT_FROM_PHONE } from "@/lib/buy-labels-bulk-import";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
@@ -245,6 +246,16 @@ const DEFAULT_PARCEL: FormValues["parcel"] = {
   distanceUnit: "in",
 };
 
+function distanceToInches(value: number, unit: FormValues["parcel"]["distanceUnit"]): number {
+  const factors: Record<FormValues["parcel"]["distanceUnit"], number> = {
+    in: 1,
+    ft: 12,
+    cm: 1 / 2.54,
+    m: 100 / 2.54,
+  };
+  return value * factors[unit];
+}
+
 type BuyLabelsFormProps = {
   /** Where to send the user after a successful purchase. Defaults to client purchased-labels page. */
   successRedirect?: string;
@@ -313,6 +324,9 @@ export function BuyLabelsForm({
       parcel: DEFAULT_PARCEL,
     },
   });
+  const watchedParcel = form.watch("parcel");
+  const watchedGrossWeightLb =
+    ((watchedParcel.weightPounds || 0) * 16 + (watchedParcel.weightOunces || 0)) / 16;
 
   const defaultFromName = BUY_LABELS_FROM_NAME;
 
@@ -1311,6 +1325,21 @@ export function BuyLabelsForm({
                       </div>
                     </div>
                   </div>
+                  <ParcelBoxSuggestionCard
+                    lengthIn={distanceToInches(
+                      watchedParcel.length || 0,
+                      watchedParcel.distanceUnit
+                    )}
+                    widthIn={distanceToInches(
+                      watchedParcel.width || 0,
+                      watchedParcel.distanceUnit
+                    )}
+                    heightIn={distanceToInches(
+                      watchedParcel.height || 0,
+                      watchedParcel.distanceUnit
+                    )}
+                    grossWeightLb={watchedGrossWeightLb}
+                  />
               </div>
 
               <Button type="submit" disabled={loadingRates} className="w-full">

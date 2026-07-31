@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   formatUnitDimensions,
   suggestBox,
+  suggestBoxForParcel,
   type BoxSuggestionLine,
   type BoxSuggestionResult,
 } from "@/lib/box-suggestion";
@@ -88,6 +89,67 @@ export function BoxSuggestionCard({ lines, className, hideWhenUnavailable }: Pro
           {result.usableVolumeIn3.toFixed(1)} in³ at 65%) · product wt{" "}
           {result.productWeightLb.toFixed(2)} lb. Divide products safely between cartons and verify
           packed weights. Recommendation only — does not block packing.
+        </p>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+type ParcelBoxSuggestionCardProps = {
+  lengthIn: number;
+  widthIn: number;
+  heightIn: number;
+  grossWeightLb: number;
+  className?: string;
+};
+
+export function ParcelBoxSuggestionCard({
+  lengthIn,
+  widthIn,
+  heightIn,
+  grossWeightLb,
+  className,
+}: ParcelBoxSuggestionCardProps) {
+  const result = suggestBoxForParcel({
+    lengthIn,
+    widthIn,
+    heightIn,
+    grossWeightLb,
+  });
+
+  if (result.status === "empty") return null;
+
+  if (result.status === "no_fit") {
+    return (
+      <Alert className={cn("border-amber-300/70 bg-amber-50/50 dark:bg-amber-950/20", className)}>
+        <Package className="h-4 w-4" />
+        <AlertTitle className="text-sm">No standard box fits these package details</AlertTitle>
+        <AlertDescription className="text-xs">
+          Check the entered dimensions and weight, or use a custom carton. This recommendation does
+          not block label purchase.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  const boxDimensions = formatUnitDimensions({
+    unitLengthIn: result.box.externalLengthIn,
+    unitWidthIn: result.box.externalWidthIn,
+    unitHeightIn: result.box.externalHeightIn,
+  });
+
+  return (
+    <Alert className={cn("border-emerald-300/70 bg-emerald-50/40 dark:bg-emerald-950/20", className)}>
+      <Package className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+      <AlertTitle className="text-sm">Suggested box: {result.box.code}</AlertTitle>
+      <AlertDescription className="text-xs space-y-1">
+        <p>
+          {result.box.code} · {boxDimensions} · entered package weight{" "}
+          {result.grossWeightLb.toFixed(2)} lb
+        </p>
+        <p className="text-muted-foreground">
+          Based on the package dimensions and weight entered above (usable volume at 65%).
+          Recommendation only — verify the packed carton before buying the label.
         </p>
       </AlertDescription>
     </Alert>
