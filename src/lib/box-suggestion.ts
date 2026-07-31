@@ -35,6 +35,7 @@ export type BoxSuggestionResult =
   | {
       status: "recommended";
       box: BoxMasterEntry;
+      boxCount: number;
       requiredVolumeIn3: number;
       productWeightLb: number;
       grossWeightLb: number;
@@ -297,10 +298,56 @@ export function suggestBox(lines: BoxSuggestionLine[]): BoxSuggestionResult {
     return {
       status: "recommended",
       box,
+      boxCount: 1,
       requiredVolumeIn3,
       productWeightLb,
       grossWeightLb: gross,
       usableVolumeIn3: usable,
+    };
+  }
+
+  // When one carton cannot hold the order, recommend repeated approved cartons.
+  // Prefer the fewest cartons, then the least total unused capacity.
+  const multiBoxOptions = BOX_MASTER.flatMap((box) => {
+    const allUnitsFit = active.every(
+      (line) => line.measurements && unitFitsInBox(line.measurements, box)
+    );
+    if (!allUnitsFit) return [];
+
+    const usable = usableVolumeIn3(box);
+    const productWeightCapacity = box.maxSafePackedWeightLb - box.emptyWeightLb;
+    if (usable <= 0 || productWeightCapacity <= 0) return [];
+
+    const boxesForVolume = Math.ceil(requiredVolumeIn3 / usable);
+    const boxesForWeight = Math.ceil(productWeightLb / productWeightCapacity);
+    const boxCount = Math.max(2, boxesForVolume, boxesForWeight);
+
+    return [
+      {
+        box,
+        boxCount,
+        usable,
+        totalUsableVolumeIn3: usable * boxCount,
+        grossWeightLb: productWeightLb + box.emptyWeightLb * boxCount,
+      },
+    ];
+  }).sort(
+    (a, b) =>
+      a.boxCount - b.boxCount ||
+      a.totalUsableVolumeIn3 - b.totalUsableVolumeIn3 ||
+      a.grossWeightLb - b.grossWeightLb
+  );
+
+  const bestMultiBox = multiBoxOptions[0];
+  if (bestMultiBox) {
+    return {
+      status: "recommended",
+      box: bestMultiBox.box,
+      boxCount: bestMultiBox.boxCount,
+      requiredVolumeIn3,
+      productWeightLb,
+      grossWeightLb: bestMultiBox.grossWeightLb,
+      usableVolumeIn3: bestMultiBox.totalUsableVolumeIn3,
     };
   }
 

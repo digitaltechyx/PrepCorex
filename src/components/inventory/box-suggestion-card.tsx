@@ -24,7 +24,11 @@ function recommendCopy(result: Extract<BoxSuggestionResult, { status: "recommend
     unitWidthIn: box.externalWidthIn,
     unitHeightIn: box.externalHeightIn,
   });
-  return `${box.code} · ${dims} · est. ${result.grossWeightLb.toFixed(2)} lb gross`;
+  const cartonLabel =
+    result.boxCount > 1 ? `${result.boxCount} × ${box.code}` : box.code;
+  const dimensionLabel = result.boxCount > 1 ? `${dims} each` : dims;
+  const weightLabel = result.boxCount > 1 ? "total gross" : "gross";
+  return `${cartonLabel} · ${dimensionLabel} · est. ${result.grossWeightLb.toFixed(2)} lb ${weightLabel}`;
 }
 
 export function BoxSuggestionCard({ lines, className, hideWhenUnavailable }: Props) {
@@ -62,9 +66,8 @@ export function BoxSuggestionCard({ lines, className, hideWhenUnavailable }: Pro
         <Package className="h-4 w-4" />
         <AlertTitle className="text-sm">No standard box fits</AlertTitle>
         <AlertDescription className="text-xs">
-          Required volume ~{result.requiredVolumeIn3.toFixed(1)} in³ / product weight ~
-          {result.productWeightLb.toFixed(2)} lb exceeds approved boxes. Use a custom carton if needed.
-          This is only a recommendation — packing can continue as usual.
+          At least one unit is too large for every approved box orientation. Use a custom carton if
+          needed. This is only a recommendation — packing can continue as usual.
         </AlertDescription>
       </Alert>
     );
@@ -73,13 +76,18 @@ export function BoxSuggestionCard({ lines, className, hideWhenUnavailable }: Pro
   return (
     <Alert className={cn("border-emerald-300/70 bg-emerald-50/40 dark:bg-emerald-950/20", className)}>
       <Package className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
-      <AlertTitle className="text-sm">Suggested box: {result.box.code}</AlertTitle>
+      <AlertTitle className="text-sm">
+        Suggested {result.boxCount === 1 ? "box" : "boxes"}:{" "}
+        {result.boxCount > 1 ? `${result.boxCount} × ` : ""}
+        {result.box.code}
+      </AlertTitle>
       <AlertDescription className="text-xs space-y-1">
         <p>{recommendCopy(result)}</p>
         <p className="text-muted-foreground">
-          Product vol ~{result.requiredVolumeIn3.toFixed(1)} in³ (usable {result.usableVolumeIn3.toFixed(1)} in³
-          at 65%) · product wt {result.productWeightLb.toFixed(2)} lb. Recommendation only — does not block
-          packing.
+          Product vol ~{result.requiredVolumeIn3.toFixed(1)} in³ (combined usable{" "}
+          {result.usableVolumeIn3.toFixed(1)} in³ at 65%) · product wt{" "}
+          {result.productWeightLb.toFixed(2)} lb. Divide products safely between cartons and verify
+          packed weights. Recommendation only — does not block packing.
         </p>
       </AlertDescription>
     </Alert>
