@@ -559,6 +559,66 @@ export function InventoryTable({
   const [fefoLoading, setFefoLoading] = useState(false);
   const [fefoError, setFefoError] = useState<string | null>(null);
   const [openAddInventorySignal, setOpenAddInventorySignal] = useState(0);
+  const shopifyQtyPullRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    shopifyQtyPullRef.current = null;
+  }, [effectiveUserId]);
+
+  // Keep Shopify-linked inventory qty in sync when opening Inventory (same as Manage products pull).
+  useEffect(() => {
+    if (!user || !effectiveUserId || data.length === 0) return;
+    const shopifyItems = data.filter(
+      (item) =>
+        item.source === "shopify" &&
+        String((item as InventoryItem & { shopifyVariantId?: string }).shopifyVariantId || "").trim() &&
+        String((item as InventoryItem & { shop?: string }).shop || "").trim()
+    );
+    if (shopifyItems.length === 0) return;
+
+    const byShop: Record<string, string[]> = {};
+    for (const item of shopifyItems) {
+      const shop = String((item as InventoryItem & { shop?: string }).shop || "").trim();
+      const variantId = String(
+        (item as InventoryItem & { shopifyVariantId?: string }).shopifyVariantId || ""
+      ).trim();
+      if (!shop || !variantId) continue;
+      if (!byShop[shop]) byShop[shop] = [];
+      if (!byShop[shop].includes(variantId)) byShop[shop].push(variantId);
+    }
+    const signature = `${effectiveUserId}:${Object.keys(byShop)
+      .sort()
+      .map((s) => `${s}:${byShop[s].slice().sort().join(",")}`)
+      .join("|")}`;
+    if (shopifyQtyPullRef.current === signature) return;
+    shopifyQtyPullRef.current = signature;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/shopify/pull-inventory", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            userId: effectiveUserId,
+            byShop,
+          }),
+        });
+        if (!res.ok || cancelled) return;
+        // Firestore live listeners will refresh the table after docs update.
+      } catch {
+        // non-fatal — webhook / Manage products refresh remain available
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, effectiveUserId, data]);
 
   useEffect(() => {
     if (inventoryView !== "fefo" || !effectiveUserId || !user) return;
