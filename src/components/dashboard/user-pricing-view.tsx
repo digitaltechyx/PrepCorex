@@ -18,7 +18,6 @@ import { Badge } from "@/components/ui/badge";
 import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
 import {
   DEFAULT_PALLET_TIER_RATES,
-  formatTierRatesLabel,
   tierRatesFromStoragePricingDoc,
 } from "@/lib/pallet-storage-billing";
 import { CONTAINER_SIZE_OPTIONS, DTC_FBM_SERVICE, isDtcFbmService, type ContainerSize } from "@/types";
@@ -251,28 +250,6 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
   }, [pricingList]);
 
   const latestStorage = useMemo(() => pickLatest(storagePricingList), [storagePricingList]);
-  const storageTier = useMemo(
-    () =>
-      tierRatesFromStoragePricingDoc(
-        latestStorage
-          ? {
-              price: latestStorage.price,
-              month1Rate: latestStorage.month1Rate,
-              month2to6Rate: latestStorage.month2to6Rate,
-              month6PlusRate: latestStorage.month6PlusRate,
-            }
-          : null
-      ),
-    [latestStorage]
-  );
-  const storageTypeLabel =
-    latestStorage?.storageType ||
-    (userProfile as { storageType?: string | null } | null)?.storageType ||
-    "pallet_base";
-  const pendingStorageCartons = Math.max(
-    0,
-    Math.floor(Number((userProfile as { pendingStorageCartons?: number } | null)?.pendingStorageCartons) || 0)
-  );
   const latestBox = useMemo(() => pickLatest(boxForwardingPricingList), [boxForwardingPricingList]);
   const latestPallet = useMemo(() => pickLatest(palletForwardingPricingList), [palletForwardingPricingList]);
   const latestAdditional = useMemo(() => pickLatest(additionalServicesPricingList), [additionalServicesPricingList]);
@@ -289,23 +266,75 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
      }
      return m;
   }, [containerHandlingPricingList]);
-  const sortedPalletCycles = useMemo(
+  const sortedPalletCycles = useMemo(() => {
+    const rows = Array.isArray(palletStorageCycles) ? palletStorageCycles : [];
+    return [...rows].sort(
+      (a, b) => toMs(b.assignedAt || b.createdAt) - toMs(a.assignedAt || a.createdAt)
+    );
+  }, [palletStorageCycles]);
+  const activePalletCount = useMemo(() => {
+    const rows = Array.isArray(palletStorageCycles) ? palletStorageCycles : [];
+    return rows.filter((c) => c.status !== "closed").length;
+  }, [palletStorageCycles]);
+  const adminManualPalletCount = useMemo(() => {
+    const rows = Array.isArray(palletStorageCycles) ? palletStorageCycles : [];
+    return rows.filter(
+      (c) => c.status !== "closed" && String((c as { source?: string }).source || "") === "admin_manual"
+    ).length;
+  }, [palletStorageCycles]);
+
+  const month1StorageRate = useMemo(() => {
+    return tierRatesFromStoragePricingDoc(
+      latestStorage
+        ? {
+            price: latestStorage.price,
+            month1Rate: latestStorage.month1Rate,
+            month2to6Rate: latestStorage.month2to6Rate,
+            month6PlusRate: latestStorage.month6PlusRate,
+          }
+        : null
+    ).month1Rate;
+  }, [latestStorage]);
+  const month2to6StorageRate = useMemo(() => {
+    return tierRatesFromStoragePricingDoc(
+      latestStorage
+        ? {
+            price: latestStorage.price,
+            month1Rate: latestStorage.month1Rate,
+            month2to6Rate: latestStorage.month2to6Rate,
+            month6PlusRate: latestStorage.month6PlusRate,
+          }
+        : null
+    ).month2to6Rate;
+  }, [latestStorage]);
+  const month6PlusStorageRate = useMemo(() => {
+    return tierRatesFromStoragePricingDoc(
+      latestStorage
+        ? {
+            price: latestStorage.price,
+            month1Rate: latestStorage.month1Rate,
+            month2to6Rate: latestStorage.month2to6Rate,
+            month6PlusRate: latestStorage.month6PlusRate,
+          }
+        : null
+    ).month6PlusRate;
+  }, [latestStorage]);
+  const storageTypeLabel = useMemo(
     () =>
-      [...(palletStorageCycles || [])].sort(
-        (a, b) => toMs(b.assignedAt || b.createdAt) - toMs(a.assignedAt || a.createdAt)
+      latestStorage?.storageType ||
+      (userProfile as { storageType?: string | null } | null)?.storageType ||
+      "pallet_base",
+    [latestStorage, userProfile]
+  );
+  const pendingStorageCartons = useMemo(
+    () =>
+      Math.max(
+        0,
+        Math.floor(
+          Number((userProfile as { pendingStorageCartons?: number } | null)?.pendingStorageCartons) || 0
+        )
       ),
-    [palletStorageCycles]
-  );
-  const activePalletCount = useMemo(
-    () => (palletStorageCycles || []).filter((c) => c.status !== "closed").length,
-    [palletStorageCycles]
-  );
-  const adminManualPalletCount = useMemo(
-    () =>
-      (palletStorageCycles || []).filter(
-        (c) => c.status !== "closed" && String((c as { source?: string }).source || "") === "admin_manual"
-      ).length,
-    [palletStorageCycles]
+    [userProfile]
   );
 
    if (!uid) {
@@ -571,20 +600,24 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
               <span className="font-medium">{storageTypeLabel}</span>
             </PricingDefinitionRow>
             <PricingDefinitionRow label="Month 1">
-              <span className="font-semibold tabular-nums">{money(storageTier.month1Rate)}</span>
+              <span className="font-semibold tabular-nums">{money(month1StorageRate)}</span>
               <span className="text-muted-foreground text-xs ml-1">/ pallet / 30 days</span>
             </PricingDefinitionRow>
             <PricingDefinitionRow label="Months 2–6">
-              <span className="font-semibold tabular-nums">{money(storageTier.month2to6Rate)}</span>
+              <span className="font-semibold tabular-nums">{money(month2to6StorageRate)}</span>
               <span className="text-muted-foreground text-xs ml-1">/ pallet / 30 days</span>
             </PricingDefinitionRow>
             <PricingDefinitionRow label="6+ months">
-              <span className="font-semibold tabular-nums">{money(storageTiers.month6PlusRate)}</span>
+              <span className="font-semibold tabular-nums">{money(month6PlusStorageRate)}</span>
               <span className="text-muted-foreground text-xs ml-1">/ pallet / 30 days</span>
             </PricingDefinitionRow>
             <div className="text-[11px] text-muted-foreground pt-1">
-              First 7 days free, then billed in 30-day cycles. {formatTierRatesLabel(storageTiers)}
-              {!latestStorage ? ` · Defaults until admin saves custom rates ($${DEFAULT_PALLET_TIER_RATES.month1Rate}/$${DEFAULT_PALLET_TIER_RATES.month2to6Rate}/$${DEFAULT_PALLET_TIER_RATES.month6PlusRate}).` : ""}
+              First 7 days free, then billed in 30-day cycles at $
+              {month1StorageRate} / ${month2to6StorageRate} / $
+              {month6PlusStorageRate} per pallet (mo 1 / mo 2–6 / 6+).
+              {!latestStorage
+                ? ` Defaults until admin saves custom rates ($${DEFAULT_PALLET_TIER_RATES.month1Rate}/$${DEFAULT_PALLET_TIER_RATES.month2to6Rate}/$${DEFAULT_PALLET_TIER_RATES.month6PlusRate}).`
+                : ""}
             </div>
             <PricingDefinitionRow label="Active pallets">
               <span className="font-medium tabular-nums">
@@ -684,7 +717,7 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
                </div>
              )}
              <div className="text-xs text-muted-foreground">
-               Pallet “Existing Inventory” pricing is handled manually at approval.
+               Pallet &quot;Existing Inventory&quot; pricing is handled manually at approval.
              </div>
             {latestPallet && formatUpdated(latestPallet.updatedAt || latestPallet.createdAt) && (
               <div className="text-xs text-muted-foreground pt-2 mt-1 border-t">

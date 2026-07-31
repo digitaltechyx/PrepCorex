@@ -149,6 +149,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const [isSavingStorageType, setIsSavingStorageType] = useState(false);
   const [manualAssignQty, setManualAssignQty] = useState("1");
   const [manualRemoveQty, setManualRemoveQty] = useState("1");
+  const [palletSetCount, setPalletSetCount] = useState("0");
+  const [palletManageUserId, setPalletManageUserId] = useState("");
   const [isMutatingPallets, setIsMutatingPallets] = useState(false);
   
   // Box Forwarding Pricing
@@ -256,8 +258,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
   const targetAdditionalPricingPath = effectiveProfileId
     ? getPricingProfileCollectionPath(effectiveProfileId, "additionalServices")
     : "";
-  const palletStorageCyclesPath =
-    editingCustomProfile && customUserId ? `users/${customUserId}/palletStorageCycles` : "";
+  const palletStorageCyclesPath = palletManageUserId
+    ? `users/${palletManageUserId}/palletStorageCycles`
+    : "";
 
   // Fetch pricing for selected user
   const { data: pricingList, loading: pricingLoading } = useCollection<UserPricing>(
@@ -300,6 +303,27 @@ export function PricingManagement({ users }: PricingManagementProps) {
       fromInventory: active.length - manual,
     };
   }, [palletStorageCycles]);
+
+  /** Deduped users for Select — duplicate/empty uids cause React key + Radix value warnings. */
+  const palletManageUserOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return users.filter((u) => {
+      const id = typeof u?.uid === "string" ? u.uid.trim() : "";
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [users]);
+
+  useEffect(() => {
+    if (editingCustomProfile && customUserId) {
+      setPalletManageUserId(customUserId);
+    }
+  }, [editingCustomProfile, customUserId]);
+
+  useEffect(() => {
+    setPalletSetCount(String(palletStats.total));
+  }, [palletManageUserId, palletStats.total]);
   
   // Get the most recent storage pricing document
   const latestStoragePricing = useMemo(() => {
@@ -964,11 +988,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleAssignManualPallets = async () => {
-    if (!editingCustomProfile || !customUserId || !adminUserProfile?.uid) {
+    if (!palletManageUserId || !adminUserProfile?.uid) {
       toast({
         variant: "destructive",
-        title: "Not available",
-        description: "Select Custom profile and a user to assign pallets.",
+        title: "Select a user",
+        description: "Choose a client under Storage to assign pallets.",
       });
       return;
     }
@@ -984,7 +1008,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
     setIsMutatingPallets(true);
     try {
-      const uid = customUserId;
+      const uid = palletManageUserId;
       const nowDate = new Date();
       const now = Timestamp.fromDate(nowDate);
       const freeUntil = Timestamp.fromDate(computeFreeUntil(nowDate));
@@ -1006,8 +1030,14 @@ export function PricingManagement({ users }: PricingManagementProps) {
         });
       }
 
+      await setDoc(
+        doc(db, "users", uid),
+        { storageType: "pallet_base", updatedAt: now },
+        { merge: true }
+      );
+
       const newTotal = palletStats.total + n;
-      if (storagePricingId && targetStoragePricingPath) {
+      if (storagePricingId && targetStoragePricingPath && editingCustomProfile && customUserId === uid) {
         await updateDoc(doc(db, targetStoragePricingPath, storagePricingId), {
           palletCount: newTotal,
           updatedAt: now,
@@ -1031,11 +1061,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
   };
 
   const handleRemoveManualPallets = async () => {
-    if (!editingCustomProfile || !customUserId) {
+    if (!palletManageUserId) {
       toast({
         variant: "destructive",
-        title: "Not available",
-        description: "Select Custom profile and a user to remove manual pallets.",
+        title: "Select a user",
+        description: "Choose a client under Storage to remove manual pallets.",
       });
       return;
     }
@@ -1065,7 +1095,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
     const removeCount = Math.min(n, activeManual.length);
     setIsMutatingPallets(true);
     try {
-      const uid = customUserId;
+      const uid = palletManageUserId;
       const now = Timestamp.now();
       for (let i = 0; i < removeCount; i += 1) {
         const c = activeManual[i];
@@ -1078,7 +1108,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
       }
 
       const newTotal = Math.max(0, palletStats.total - removeCount);
-      if (storagePricingId && targetStoragePricingPath) {
+      if (storagePricingId && targetStoragePricingPath && editingCustomProfile && customUserId === uid) {
         await updateDoc(doc(db, targetStoragePricingPath, storagePricingId), {
           palletCount: newTotal,
           updatedAt: now,
@@ -1095,6 +1125,116 @@ export function PricingManagement({ users }: PricingManagementProps) {
         variant: "destructive",
         title: "Error",
         description: error?.message || "Failed to remove pallets.",
+      });
+    } finally {
+      setIsMutatingPallets(false);
+    }
+  };
+
+  const handleSetActivePalletCount = async () => {
+    if (!palletManageUserId || !adminUserProfile?.uid) {
+      toast({
+        variant: "destructive",
+        title: "Select a user",
+        description: "Choose a client under Storage to change pallet count.",
+      });
+      return;
+    }
+    const target = parseInt(palletSetCount, 10);
+    if (!Number.isFinite(target) || target < 0 || target > 500) {
+      toast({
+        variant: "destructive",
+        title: "Invalid count",
+        description: "Enter a whole number between 0 and 500.",
+      });
+      return;
+    }
+
+    const active = (palletStorageCycles || []).filter((c) => c.status !== "closed");
+    const current = active.length;
+    const diff = target - current;
+    if (diff === 0) {
+      toast({
+        title: "No change",
+        description: `This user already has ${current} active pallet${current === 1 ? "" : "s"}.`,
+      });
+      return;
+    }
+
+    setIsMutatingPallets(true);
+    try {
+      const uid = palletManageUserId;
+      const nowDate = new Date();
+      const now = Timestamp.fromDate(nowDate);
+
+      if (diff > 0) {
+        const freeUntil = Timestamp.fromDate(computeFreeUntil(nowDate));
+        const nextInvoice = Timestamp.fromDate(computeFirstInvoiceDate(nowDate));
+        const col = collection(db, `users/${uid}/palletStorageCycles`);
+        for (let i = 0; i < diff; i += 1) {
+          await addDoc(col, {
+            status: "active",
+            source: "admin_manual",
+            assignedAt: now,
+            freeUntil,
+            nextInvoiceDate: nextInvoice,
+            paidCycleCount: 0,
+            createdAt: now,
+            updatedAt: now,
+            assignedBy: adminUserProfile.uid,
+            note: "Admin set pallet count",
+          });
+        }
+      } else {
+        const closeCount = Math.abs(diff);
+        const manualNewest = active
+          .filter((c) => String(c.source || "") === "admin_manual")
+          .sort(
+            (a, b) =>
+              cycleTimeMs(b.assignedAt || b.createdAt) - cycleTimeMs(a.assignedAt || a.createdAt)
+          );
+        const otherNewest = active
+          .filter((c) => String(c.source || "") !== "admin_manual")
+          .sort(
+            (a, b) =>
+              cycleTimeMs(b.assignedAt || b.createdAt) - cycleTimeMs(a.assignedAt || a.createdAt)
+          );
+        const toClose = [...manualNewest, ...otherNewest].slice(0, closeCount);
+        for (const c of toClose) {
+          await updateDoc(doc(db, `users/${uid}/palletStorageCycles`, c.id), {
+            status: "closed",
+            closedAt: now,
+            closeReason: "admin_set_count",
+            updatedAt: now,
+          });
+        }
+      }
+
+      await setDoc(
+        doc(db, "users", uid),
+        { storageType: "pallet_base", updatedAt: now },
+        { merge: true }
+      );
+
+      if (storagePricingId && targetStoragePricingPath && editingCustomProfile && customUserId === uid) {
+        await updateDoc(doc(db, targetStoragePricingPath, storagePricingId), {
+          palletCount: target,
+          updatedAt: now,
+        });
+      }
+
+      toast({
+        title: "Pallet count updated",
+        description:
+          diff > 0
+            ? `Set to ${target} active pallets (+${diff} admin-assigned).`
+            : `Set to ${target} active pallets (closed ${Math.abs(diff)} cycle${Math.abs(diff) === 1 ? "" : "s"}).`,
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error?.message || "Failed to update pallet count.",
       });
     } finally {
       setIsMutatingPallets(false);
@@ -1755,77 +1895,148 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                   />
                                 </div>
                               </div>
-                              {editingCustomProfile && customUserId && (
-                                <div className="pt-2 border-t space-y-3">
-                                  <div className="text-sm">
-                                    <span className="font-medium">Active pallet cycles: </span>
-                                    <span className="tabular-nums">{palletStats.total}</span>
-                                    <span className="text-muted-foreground"> · </span>
-                                    <span className="text-muted-foreground">
-                                      {palletStats.fromInventory} from inventory
-                                    </span>
-                                    <span className="text-muted-foreground"> · </span>
-                                    <span className="text-muted-foreground">
-                                      {palletStats.manual} admin-assigned
-                                    </span>
-                                  </div>
-                                  <div className="flex flex-wrap items-end gap-2">
-                                    <div className="space-y-1">
-                                      <Label className="text-xs text-muted-foreground">Add manual pallets</Label>
-                                      <Input
-                                        type="number"
-                                        min={1}
-                                        max={500}
-                                        value={manualAssignQty}
-                                        onChange={(e) => setManualAssignQty(e.target.value)}
-                                        className="w-24 h-9"
-                                      />
-                                    </div>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      onClick={handleAssignManualPallets}
-                                      disabled={isMutatingPallets || !adminUserProfile?.uid}
-                                    >
-                                      {isMutatingPallets ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                      ) : (
-                                        "Assign pallets"
-                                      )}
-                                    </Button>
-                                  </div>
-                                  <div className="flex flex-wrap items-end gap-2">
-                                    <div className="space-y-1">
-                                      <Label className="text-xs text-muted-foreground">
-                                        Remove admin-assigned (newest first)
-                                      </Label>
-                                      <Input
-                                        type="number"
-                                        min={1}
-                                        value={manualRemoveQty}
-                                        onChange={(e) => setManualRemoveQty(e.target.value)}
-                                        className="w-24 h-9"
-                                      />
-                                    </div>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={handleRemoveManualPallets}
-                                      disabled={isMutatingPallets}
-                                    >
-                                      {isMutatingPallets ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                      ) : (
-                                        "Remove manual"
-                                      )}
-                                    </Button>
-                                  </div>
-                                  <p className="text-xs text-muted-foreground">
-                                    Manual pallets stay until you remove them or mark cycles closed; inventory sync only adjusts non-manual cycles to match in-stock pallet quantity.
+                              <div className="pt-2 border-t space-y-3">
+                                <div>
+                                  <Label className="text-sm font-medium mb-2 block">
+                                    Manage user pallet count
+                                  </Label>
+                                  <p className="text-xs text-muted-foreground mb-2">
+                                    Select any client to view active cycles, set an exact count, or add/remove admin-assigned pallets.
                                   </p>
+                                  <Select
+                                    value={palletManageUserId || undefined}
+                                    onValueChange={(v) => setPalletManageUserId(v)}
+                                  >
+                                    <SelectTrigger className="max-w-md">
+                                      <SelectValue placeholder="Select a user…" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {palletManageUserOptions.map((user) => (
+                                        <SelectItem key={user.uid} value={user.uid}>
+                                          {formatUserDisplayName(user, { showEmail: true })}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
                                 </div>
-                              )}
+
+                                {!palletManageUserId ? (
+                                  <p className="text-sm text-muted-foreground">
+                                    Select a user to manage their pallet count.
+                                  </p>
+                                ) : (
+                                  <>
+                                    <div className="text-sm">
+                                      <span className="font-medium">Active pallet cycles: </span>
+                                      <span className="tabular-nums">{palletStats.total}</span>
+                                      <span className="text-muted-foreground"> · </span>
+                                      <span className="text-muted-foreground">
+                                        {palletStats.fromInventory} from inventory / receive
+                                      </span>
+                                      <span className="text-muted-foreground"> · </span>
+                                      <span className="text-muted-foreground">
+                                        {palletStats.manual} admin-assigned
+                                      </span>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-end gap-2">
+                                      <div className="space-y-1">
+                                        <Label className="text-xs text-muted-foreground">
+                                          Set active pallet count
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          min={0}
+                                          max={500}
+                                          value={palletSetCount}
+                                          onChange={(e) => setPalletSetCount(e.target.value)}
+                                          className="w-24 h-9"
+                                        />
+                                      </div>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => void handleSetActivePalletCount()}
+                                        disabled={
+                                          isMutatingPallets ||
+                                          !adminUserProfile?.uid ||
+                                          parseInt(palletSetCount, 10) === palletStats.total
+                                        }
+                                      >
+                                        {isMutatingPallets ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          "Apply count"
+                                        )}
+                                      </Button>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Sets the exact number of active pallets. Increasing adds admin_manual
+                                      cycles; decreasing closes newest manual cycles first, then others.
+                                    </p>
+
+                                    <div className="flex flex-wrap items-end gap-2">
+                                      <div className="space-y-1">
+                                        <Label className="text-xs text-muted-foreground">
+                                          Add manual pallets
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          min={1}
+                                          max={500}
+                                          value={manualAssignQty}
+                                          onChange={(e) => setManualAssignQty(e.target.value)}
+                                          className="w-24 h-9"
+                                        />
+                                      </div>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => void handleAssignManualPallets()}
+                                        disabled={isMutatingPallets || !adminUserProfile?.uid}
+                                      >
+                                        {isMutatingPallets ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          "Assign pallets"
+                                        )}
+                                      </Button>
+                                    </div>
+                                    <div className="flex flex-wrap items-end gap-2">
+                                      <div className="space-y-1">
+                                        <Label className="text-xs text-muted-foreground">
+                                          Remove admin-assigned (newest first)
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          min={1}
+                                          value={manualRemoveQty}
+                                          onChange={(e) => setManualRemoveQty(e.target.value)}
+                                          className="w-24 h-9"
+                                        />
+                                      </div>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => void handleRemoveManualPallets()}
+                                        disabled={isMutatingPallets || palletStats.manual === 0}
+                                      >
+                                        {isMutatingPallets ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          "Remove manual"
+                                        )}
+                                      </Button>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Manual pallets stay until you remove them or mark cycles closed;
+                                      inventory sync only adjusts non-manual cycles to match in-stock
+                                      pallet quantity.
+                                    </p>
+                                  </>
+                                )}
+                              </div>
                               <Button 
                                 onClick={handleSaveStorage} 
                                 disabled={isSaving || storagePricingLoading}

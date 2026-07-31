@@ -9,7 +9,6 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { InventoryItem } from "@/types";
-import { closeBillingPalletsForOutOfStockInventory } from "@/lib/pallet-storage-receive-billing";
 
 export type ClientInventoryDeductionTiming = "confirm" | "dispatch";
 
@@ -430,6 +429,9 @@ export async function applyClientInventoryOnDispatch(input: {
 
   for (const inventoryId of [...new Set(oosInventoryIds)]) {
     try {
+      const { closeBillingPalletsForOutOfStockInventory } = await import(
+        "@/lib/pallet-storage-receive-billing"
+      );
       await closeBillingPalletsForOutOfStockInventory({
         userId: input.clientUserId,
         inventoryId,

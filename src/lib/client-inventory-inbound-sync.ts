@@ -14,7 +14,6 @@ import {
 import { db } from "@/lib/firebase";
 import { isCrossdockClosedCarton } from "@/lib/warehouse-crossdock";
 import { creditReturnInventory } from "@/lib/product-return-ops";
-import { linkInventoryToBillingCycles } from "@/lib/pallet-storage-receive-billing";
 import type { InventoryRequest, WarehouseCartonDoc, WarehouseCartonLine } from "@/types";
 import type { ShopifyInventoryPushHint } from "@/lib/shopify-inventory-sync";
 
@@ -420,6 +419,7 @@ async function syncPutawayLine(input: {
   });
 
   try {
+    const { linkInventoryToBillingCycles } = await import("@/lib/pallet-storage-receive-billing");
     await linkInventoryToBillingCycles({
       userId: clientUserId,
       inventoryId: inventoryRef.id,
