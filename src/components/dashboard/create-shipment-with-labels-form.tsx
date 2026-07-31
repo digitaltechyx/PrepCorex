@@ -41,6 +41,11 @@ import {
   prepInboundIdsFromShipments,
   prepOutboundProductId,
 } from "@/lib/prep-outbound";
+import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
+import {
+  readProductUnitMeasurements,
+  type BoxSuggestionLine,
+} from "@/lib/box-suggestion";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -1123,6 +1128,47 @@ export function CreateShipmentWithLabelsForm({
                 : [];
 
             const availableInventory = [...stockItems, ...pendingInboundItems];
+            const boxSuggestionLines: BoxSuggestionLine[] = (groupShipments || []).map(
+              (shipment) => {
+                const inboundId =
+                  String(shipment.sourceInventoryRequestId ?? "").trim() ||
+                  parsePrepOutboundRequestId(shipment.productId) ||
+                  "";
+                const inventoryItem = !inboundId
+                  ? inventory.find((item) => item.id === shipment.productId)
+                  : undefined;
+                const linkedInbound =
+                  (inboundId ? inboundById.get(inboundId) : undefined) ||
+                  (inventoryItem?.sourceRequestId
+                    ? inboundById.get(inventoryItem.sourceRequestId)
+                    : undefined) ||
+                  inboundRequests.find(
+                    (req) =>
+                      Boolean(inventoryItem?.sku) &&
+                      req.sku?.trim().toLowerCase() === inventoryItem?.sku?.trim().toLowerCase()
+                  );
+                const measurementSource =
+                  readProductUnitMeasurements(
+                    inventoryItem as unknown as Record<string, unknown> | undefined
+                  ) ||
+                  readProductUnitMeasurements(
+                    linkedInbound as unknown as Record<string, unknown> | undefined
+                  );
+
+                return {
+                  productId: shipment.productId,
+                  productName:
+                    inventoryItem?.productName ||
+                    linkedInbound?.productName ||
+                    "Selected product",
+                  sku: inventoryItem?.sku || linkedInbound?.sku,
+                  quantity:
+                    Math.max(0, Number(shipment.quantity) || 0) *
+                    Math.max(1, Number(shipment.packOf) || 1),
+                  measurements: measurementSource,
+                };
+              }
+            );
             const popupKey = group.id;
 
             return (
@@ -1786,6 +1832,10 @@ export function CreateShipmentWithLabelsForm({
                         </div>
                       </div>
                     </div>
+
+                  {groupShipmentType === "product" && groupShipments.length > 0 ? (
+                    <BoxSuggestionCard lines={boxSuggestionLines} className="mt-3" />
+                  ) : null}
 
                   {/* Selected Products Details */}
                   {groupShipments.length > 0 ? (

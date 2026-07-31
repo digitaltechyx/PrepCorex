@@ -1560,7 +1560,6 @@ function ReviewShipmentDialog({
             {request.shipmentType === "product" || !request.shipmentType ? (
               <div className="mb-3">
                 <BoxSuggestionCard
-                  hideWhenUnavailable
                   lines={request.shipments.map((shipment: any, index: number) => {
                     const product = inventory.find((item) => item.id === shipment.productId);
                     const effectivePackOf = isCustomProduct

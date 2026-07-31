@@ -230,24 +230,54 @@ export function WarehouseOpsPack({ warehouse }: Props) {
       const p = await buildPackPlan(warehouse, order);
       setPlan(p);
       try {
-        const invSnap = await getDocs(collection(db, `users/${order.clientUserId}/inventory`));
+        const [invSnap, reqSnap] = await Promise.all([
+          getDocs(collection(db, `users/${order.clientUserId}/inventory`)),
+          getDocs(collection(db, `users/${order.clientUserId}/inventoryRequests`)),
+        ]);
         const byId = new Map(
           invSnap.docs.map((d) => [d.id, d.data() as Record<string, unknown>])
         );
+        const requestById = new Map(
+          reqSnap.docs.map((d) => [d.id, d.data() as Record<string, unknown>])
+        );
+        const measuredRequestBySku = new Map<string, Record<string, unknown>>();
+        for (const requestDoc of reqSnap.docs) {
+          const requestData = requestDoc.data() as Record<string, unknown>;
+          const sku = String(requestData.sku ?? "").trim().toLowerCase();
+          if (!sku || !readProductUnitMeasurements(requestData)) continue;
+          measuredRequestBySku.set(sku, requestData);
+        }
         setBoxSuggestionLines(
           order.lines.map((line) => {
             const inv = byId.get(line.productId);
+            const sourceRequestId = String(inv?.sourceRequestId ?? "").trim();
+            const linkedRequest = sourceRequestId
+              ? requestById.get(sourceRequestId)
+              : undefined;
+            const skuRequest = measuredRequestBySku.get(line.sku.trim().toLowerCase());
             return {
               productId: line.productId,
               productName: line.productName,
               sku: line.sku,
               quantity: line.quantityUnits,
-              measurements: readProductUnitMeasurements(inv),
+              measurements:
+                readProductUnitMeasurements(inv) ||
+                readProductUnitMeasurements(linkedRequest) ||
+                readProductUnitMeasurements(skuRequest),
             };
           })
         );
       } catch {
-        setBoxSuggestionLines([]);
+        // Keep the advisory visible even when measurement lookup fails.
+        setBoxSuggestionLines(
+          order.lines.map((line) => ({
+            productId: line.productId,
+            productName: line.productName,
+            sku: line.sku,
+            quantity: line.quantityUnits,
+            measurements: null,
+          }))
+        );
       }
     } catch (e) {
       toast({
@@ -1064,7 +1094,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
       ) : plan ? (
         <>
           {boxSuggestionLines.length > 0 ? (
-            <BoxSuggestionCard lines={boxSuggestionLines} hideWhenUnavailable />
+            <BoxSuggestionCard lines={boxSuggestionLines} />
           ) : null}
           <Card>
             <CardHeader className="pb-2">
