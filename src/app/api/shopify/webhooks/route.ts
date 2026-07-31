@@ -7,6 +7,12 @@ import {
   normalizeShopifyOrder,
   shopifyOrderToFirestoreDoc,
 } from "@/lib/shopify-order-normalize";
+import {
+  applyShopifyAvailableToPaths,
+  pullShopifyVariantQuantities,
+  resolveShopifyInventoryPaths,
+  shopifyShopKey,
+} from "@/lib/shopify-inventory-pull";
 
 export const dynamic = "force-dynamic";
 
@@ -110,71 +116,63 @@ export async function POST(request: NextRequest) {
 
     try {
       const db = adminDb();
-      // Use total available across ALL locations so PrepCorex shows correct qty (e.g. "My Custom Location" has 25, others 0 → show 25, not 0)
+      // Use total available across ALL locations so PrepCorex shows correct qty
       let available = availableFromWebhook;
-      const shopKey = shopNorm.replace(/\./g, "_");
+      const shopKey = shopifyShopKey(shopNorm);
       const shopToUserSnap = await db.collection("shopifyShopToUser").doc(shopKey).get();
-      if (shopToUserSnap.exists) {
-        const userId = shopToUserSnap.data()?.userId as string | undefined;
-        if (userId) {
-          const connSnap = await db.collection("users").doc(userId).collection("shopifyConnections").where("shop", "==", shopNorm).limit(1).get();
-          if (!connSnap.empty) {
-            const connDoc = connSnap.docs[0];
-            let accessToken: string;
-            try {
-              accessToken = await getValidShopifyAccessToken(connDoc.ref, connDoc.data(), shopNorm);
-            } catch (e) {
-              console.warn("[Shopify webhooks] Could not refresh access token for inventory_levels/update", e);
-              accessToken = "";
-            }
-            if (accessToken) {
-              const levelsRes = await fetch(
-                `${shopifyAdminRestUrl(shopNorm, "/inventory_levels.json")}?inventory_item_ids=${encodeURIComponent(idStr)}&limit=250`,
-                { headers: { "X-Shopify-Access-Token": accessToken } }
+      const userId = shopToUserSnap.exists
+        ? (shopToUserSnap.data()?.userId as string | undefined)
+        : undefined;
+
+      if (userId) {
+        const connSnap = await db
+          .collection("users")
+          .doc(userId)
+          .collection("shopifyConnections")
+          .where("shop", "==", shopNorm)
+          .limit(1)
+          .get();
+        if (!connSnap.empty) {
+          const connDoc = connSnap.docs[0];
+          let accessToken = "";
+          try {
+            accessToken = await getValidShopifyAccessToken(connDoc.ref, connDoc.data(), shopNorm);
+          } catch (e) {
+            console.warn("[Shopify webhooks] Could not refresh access token for inventory_levels/update", e);
+          }
+          if (accessToken) {
+            const levelsRes = await fetch(
+              `${shopifyAdminRestUrl(shopNorm, "/inventory_levels.json")}?inventory_item_ids=${encodeURIComponent(idStr)}&limit=250`,
+              { headers: { "X-Shopify-Access-Token": accessToken } }
+            );
+            if (levelsRes.ok) {
+              const levelsData = (await levelsRes.json()) as {
+                inventory_levels?: Array<{ available?: number }>;
+              };
+              const levels = levelsData.inventory_levels ?? [];
+              available = levels.reduce(
+                (sum, l) => sum + (l.available != null ? Number(l.available) : 0),
+                0
               );
-              if (levelsRes.ok) {
-                const levelsData = (await levelsRes.json()) as { inventory_levels?: Array<{ available?: number }> };
-                const levels = levelsData.inventory_levels ?? [];
-                const total = levels.reduce((sum, l) => sum + (l.available != null ? Number(l.available) : 0), 0);
-                available = total;
-              }
             }
           }
         }
       }
 
-      const lookupRef = db.collection("shopifyInventoryLookup");
-      const status = available > 0 ? "In Stock" : "Out of Stock";
-
-      const lookupId = `${shopKey}_${idStr}`;
-      let lookupSnap = await lookupRef.doc(lookupId).get();
-      if (!lookupSnap.exists) {
-        const roundedId = String(Number(idStr));
-        if (roundedId !== idStr) {
-          const altLookupId = `${shopKey}_${roundedId}`;
-          lookupSnap = await lookupRef.doc(altLookupId).get();
-        }
-      }
-
-      if (!lookupSnap.exists) {
-        console.warn("[Shopify webhooks] inventory_levels/update no lookup doc — re-save product selection in Integrations → Manage products", {
+      const paths = await resolveShopifyInventoryPaths(db, shopNorm, idStr, userId);
+      if (paths.length === 0) {
+        console.warn(
+          "[Shopify webhooks] inventory_levels/update no inventory path — re-save product selection in Integrations → Manage products",
+          { shop: shopNorm, shopifyInventoryItemId: idStr, available }
+        );
+      } else {
+        const updated = await applyShopifyAvailableToPaths(db, paths, available);
+        console.log("[Shopify webhooks] inventory_levels/update OK", {
           shop: shopNorm,
           shopifyInventoryItemId: idStr,
           available,
+          updated,
         });
-      } else {
-        const lookup = lookupSnap.data()!;
-        const path = lookup.inventoryPath as string;
-        if (path) {
-          await db.doc(path).update({ quantity: available, status });
-          console.log("[Shopify webhooks] inventory_levels/update OK", {
-            shop: shopNorm,
-            shopifyInventoryItemId: idStr,
-            available,
-          });
-        } else {
-          console.warn("[Shopify webhooks] lookup doc missing inventoryPath", { lookupId });
-        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -269,6 +267,37 @@ export async function POST(request: NextRequest) {
       const orderData = stripUndefined(shopifyOrderToFirestoreDoc(normalized)) as Record<string, unknown>;
       await db.collection("users").doc(userId).collection("shopifyOrders").doc(orderId).set(orderData, { merge: true });
       console.log("[Shopify webhooks] orders saved", { shop: shopNorm, orderId, userId });
+
+      // Backup Shopify → PrepCorex qty sync when inventory_levels webhook is missing/late.
+      const lineItems = Array.isArray(order.line_items)
+        ? (order.line_items as Array<Record<string, unknown>>)
+        : [];
+      const variantIds = lineItems
+        .map((li) => (li.variant_id != null ? String(li.variant_id) : ""))
+        .filter(Boolean);
+      if (variantIds.length > 0 && !connSnap.empty) {
+        try {
+          const accessToken = await getValidShopifyAccessToken(
+            connSnap.docs[0].ref,
+            connSnap.docs[0].data(),
+            shopNorm
+          );
+          const pull = await pullShopifyVariantQuantities({
+            db,
+            userId,
+            shop: shopNorm,
+            accessToken,
+            variantIds,
+          });
+          console.log("[Shopify webhooks] orders qty pull", {
+            shop: shopNorm,
+            orderId,
+            updated: pull.updated,
+          });
+        } catch (e) {
+          console.warn("[Shopify webhooks] orders qty pull failed", e);
+        }
+      }
     } catch (err: unknown) {
       console.error("[Shopify webhooks orders]", err);
       return NextResponse.json({ error: "Update failed" }, { status: 500 });
@@ -284,7 +313,6 @@ export async function POST(request: NextRequest) {
       console.warn("[Shopify webhooks] products/update missing product id", { shop: shopNorm });
       return NextResponse.json({ received: true });
     }
-    if (!title) return NextResponse.json({ received: true });
     try {
       const db = adminDb();
       const productLookupRef = db.collection("shopifyProductLookup");
@@ -296,14 +324,59 @@ export async function POST(request: NextRequest) {
       }
       const pl = plSnap.data()!;
       const paths = (pl.paths as string[]) || [];
-      for (const path of paths) {
-        try {
-          await db.doc(path).update({ productName: title });
-        } catch (e) {
-          console.warn("[Shopify webhooks] products/update could not update doc", path, e);
+      const userId = typeof pl.userId === "string" ? pl.userId : "";
+
+      if (title) {
+        for (const path of paths) {
+          try {
+            await db.doc(path).update({ productName: title });
+          } catch (e) {
+            console.warn("[Shopify webhooks] products/update could not update title", path, e);
+          }
         }
       }
-      console.log("[Shopify webhooks] products/update OK", { shop: shopNorm, productId, title, updated: paths.length });
+
+      // Also pull live variant qtys when Shopify sends inventory on the product payload.
+      const variants = Array.isArray(product.variants)
+        ? (product.variants as Array<Record<string, unknown>>)
+        : [];
+      const variantIds = variants
+        .map((v) => (v.id != null ? String(v.id) : ""))
+        .filter(Boolean);
+      if (userId && variantIds.length > 0) {
+        const connSnap = await db
+          .collection("users")
+          .doc(userId)
+          .collection("shopifyConnections")
+          .where("shop", "==", shopNorm)
+          .limit(1)
+          .get();
+        if (!connSnap.empty) {
+          try {
+            const accessToken = await getValidShopifyAccessToken(
+              connSnap.docs[0].ref,
+              connSnap.docs[0].data(),
+              shopNorm
+            );
+            await pullShopifyVariantQuantities({
+              db,
+              userId,
+              shop: shopNorm,
+              accessToken,
+              variantIds,
+            });
+          } catch (e) {
+            console.warn("[Shopify webhooks] products/update qty pull failed", e);
+          }
+        }
+      }
+
+      console.log("[Shopify webhooks] products/update OK", {
+        shop: shopNorm,
+        productId,
+        title,
+        updated: paths.length,
+      });
     } catch (err: unknown) {
       console.error("[Shopify webhooks products/update]", err);
       return NextResponse.json({ error: "Update failed" }, { status: 500 });

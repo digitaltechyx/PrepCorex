@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Loader2, Package, Save } from "lucide-react";
+import { ArrowLeft, Loader2, Package, RefreshCw, Save } from "lucide-react";
 
 type VariantRow = {
   variantId: string;
@@ -35,8 +35,29 @@ export default function ShopifyProductsPage() {
   }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [syncingQty, setSyncingQty] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
+
+  const pullLinkedQuantities = useCallback(
+    async (variantIds: string[]) => {
+      if (!user || !shop || variantIds.length === 0) return;
+      try {
+        const token = await user.getIdToken();
+        await fetch("/api/shopify/pull-inventory", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ shop, variantIds }),
+        });
+      } catch {
+        // non-fatal — webhook/order sync is primary
+      }
+    },
+    [user, shop]
+  );
 
   const fetchProducts = useCallback(async () => {
     if (!user || !shop) return;
@@ -62,27 +83,37 @@ export default function ShopifyProductsPage() {
   }, [user, shop, toast]);
 
   const fetchSelection = useCallback(async () => {
-    if (!user) return;
+    if (!user) return [] as string[];
     try {
       const token = await user.getIdToken();
       const res = await fetch("/api/integrations/shopify-connections", { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) return;
+      if (!res.ok) return [];
       const data = await res.json();
       const shopNorm = shop.includes(".myshopify.com") ? shop : `${shop}.myshopify.com`;
       const conn = (data.connections ?? []).find((c: { shop: string }) => c.shop === shopNorm);
       const variants = (conn?.selectedVariants ?? []) as ShopifySelectedVariant[];
-      setSelectedIds(new Set(variants.map((v) => v.variantId)));
+      const ids = variants.map((v) => v.variantId);
+      setSelectedIds(new Set(ids));
+      return ids;
     } catch {
-      // ignore
+      return [];
     }
   }, [user, shop]);
 
   useEffect(() => {
-    if (shop && user) {
-      fetchProducts();
-      fetchSelection();
-    }
-  }, [shop, user, fetchProducts, fetchSelection]);
+    if (!shop || !user) return;
+    let cancelled = false;
+    (async () => {
+      await fetchProducts();
+      const ids = await fetchSelection();
+      if (!cancelled && ids.length > 0) {
+        await pullLinkedQuantities(ids);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [shop, user, fetchProducts, fetchSelection, pullLinkedQuantities]);
 
   const flatVariants: VariantRow[] = products.flatMap((p) =>
     p.variants.map((v) => ({
@@ -139,10 +170,44 @@ export default function ShopifyProductsPage() {
         description: `${selectedVariants.length} product(s) linked. New items were added with their Shopify quantity; ongoing qty syncs both ways after this.`,
       });
       await fetchProducts();
+      await pullLinkedQuantities(selectedVariants.map((v) => v.variantId));
     } catch (e) {
       toast({ variant: "destructive", title: "Error", description: e instanceof Error ? e.message : "Failed to save." });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRefreshInventoryQty = async () => {
+    if (!user || !shop || selectedIds.size === 0) return;
+    setSyncingQty(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch("/api/shopify/pull-inventory", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ shop, variantIds: Array.from(selectedIds) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : "Failed to refresh");
+      }
+      toast({
+        title: "Inventory updated",
+        description: `Pulled Shopify qty into PrepCorex for ${data.updated ?? 0} linked product(s).`,
+      });
+      await fetchProducts();
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Refresh failed",
+        description: e instanceof Error ? e.message : "Could not pull quantities.",
+      });
+    } finally {
+      setSyncingQty(false);
     }
   };
 
@@ -256,7 +321,19 @@ export default function ShopifyProductsPage() {
                   </label>
                 ))}
               </div>
-              <div className="flex justify-end">
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleRefreshInventoryQty}
+                  disabled={syncingQty || selectedIds.size === 0}
+                >
+                  {syncingQty ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Refresh inventory qty
+                </Button>
                 <Button onClick={handleSave} disabled={saving}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
                   Save selection
