@@ -14,6 +14,7 @@ import {
 import { db } from "@/lib/firebase";
 import { isCrossdockClosedCarton } from "@/lib/warehouse-crossdock";
 import { creditReturnInventory } from "@/lib/product-return-ops";
+import { linkInventoryToBillingCycles } from "@/lib/pallet-storage-receive-billing";
 import type { InventoryRequest, WarehouseCartonDoc, WarehouseCartonLine } from "@/types";
 import type { ShopifyInventoryPushHint } from "@/lib/shopify-inventory-sync";
 
@@ -417,6 +418,16 @@ async function syncPutawayLine(input: {
       tx.update(reqRef, reqPatch);
     }
   });
+
+  try {
+    await linkInventoryToBillingCycles({
+      userId: clientUserId,
+      inventoryId: inventoryRef.id,
+      receiveBatchId: input.cartonId,
+    });
+  } catch (err) {
+    console.error("[syncPutawayLine] storage billing link failed", err);
+  }
 
   if (goodQty <= 0) return null;
   const invAfter = await getDoc(inventoryRef);

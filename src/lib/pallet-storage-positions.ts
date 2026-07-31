@@ -71,13 +71,25 @@ export type AssignPalletStorageInput = {
   userId: string;
   warehouseId?: string | null;
   receiveBatchId?: string | null;
+  /** All warehouse carton/pallet ids from this receive (for putaway inventory linking). */
+  receiveBatchIds?: string[] | null;
   receiveReference?: string | null;
   notes?: string | null;
-  contents?: Array<{ sku?: string; productName?: string; quantity?: number; notes?: string }>;
+  contents?: Array<{
+    sku?: string;
+    productName?: string;
+    quantity?: number;
+    notes?: string;
+    inventoryId?: string;
+  }>;
   assignedBy?: string | null;
   hasSpace?: boolean;
   /** Physical cartons added in this assignment. */
   cartonsToAdd?: number;
+  /** Billing mode for storage invoicing rules. */
+  billingMode?: "pallet_receive" | "carton_receive" | null;
+  /** Inventory docs linked to this billable pallet (filled at putaway / receive). */
+  linkedInventoryIds?: string[] | null;
 };
 
 async function createPositionWithCycle(
@@ -92,6 +104,23 @@ async function createPositionWithCycle(
   const capacity = CARTONS_PER_STORAGE_PALLET;
   const count = Math.min(capacity, Math.max(0, Math.floor(cartonCount)));
   const hasSpace = count < capacity;
+  const receiveBatchIds = [
+    ...new Set(
+      [
+        ...(input.receiveBatchIds || []),
+        input.receiveBatchId || "",
+      ]
+        .map((id) => String(id || "").trim())
+        .filter(Boolean)
+    ),
+  ];
+  const linkedInventoryIds = [
+    ...new Set(
+      (input.linkedInventoryIds || [])
+        .map((id) => String(id || "").trim())
+        .filter(Boolean)
+    ),
+  ];
 
   const cycleRef = await addDoc(collection(db, `users/${input.userId}/palletStorageCycles`), {
     status: "active",
@@ -102,10 +131,13 @@ async function createPositionWithCycle(
     nextInvoiceDate,
     paidCycleCount: 0,
     warehouseId: input.warehouseId ?? null,
-    receiveBatchId: input.receiveBatchId ?? null,
+    receiveBatchId: receiveBatchIds[0] ?? input.receiveBatchId ?? null,
+    receiveBatchIds,
     receiveReference: input.receiveReference ?? null,
     assignedBy: input.assignedBy ?? null,
     note: input.notes?.trim() || "Assigned at warehouse receive",
+    billingMode: input.billingMode ?? null,
+    linkedInventoryIds,
     hasSpace,
     cartonCount: count,
     cartonCapacity: capacity,
@@ -140,6 +172,7 @@ async function createPositionWithCycle(
           productName: line.productName?.trim() || null,
           quantity: Math.max(0, Number(line.quantity) || 0),
           notes: line.notes?.trim() || null,
+          inventoryId: line.inventoryId?.trim() || null,
           receiveBatchId: input.receiveBatchId ?? null,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),

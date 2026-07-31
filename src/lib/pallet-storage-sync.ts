@@ -72,21 +72,41 @@ export async function getLatestStoragePrice(db: any, userId: string): Promise<nu
   return tiers.month1Rate;
 }
 
-export async function getLatestStorageTierRates(db: any, userId: string): Promise<PalletStorageTierRates> {
-  const storagePricingSnapshot = await db.collection(`users/${userId}/storagePricing`).get();
-  if (storagePricingSnapshot.empty) {
-    return tierRatesFromStoragePricingDoc(null);
-  }
-
-  const latestPricingDoc = [...storagePricingSnapshot.docs].sort((a, b) => {
+function pickLatestStoragePricingDoc(docs: Array<{ data: () => any }>): Record<string, unknown> | null {
+  if (!docs.length) return null;
+  const latest = [...docs].sort((a, b) => {
     const ad: any = a.data();
     const bd: any = b.data();
     const at = Math.max(toDate(ad.updatedAt)?.getTime() || 0, toDate(ad.createdAt)?.getTime() || 0);
     const bt = Math.max(toDate(bd.updatedAt)?.getTime() || 0, toDate(bd.createdAt)?.getTime() || 0);
     return bt - at;
   })[0];
+  return (latest?.data() as Record<string, unknown>) || null;
+}
 
-  return tierRatesFromStoragePricingDoc(latestPricingDoc.data() as Record<string, unknown>);
+/**
+ * Prefer pricing profile storage rates (admin-editable / custom profiles),
+ * then legacy users/{uid}/storagePricing, then defaults.
+ */
+export async function getLatestStorageTierRates(db: any, userId: string): Promise<PalletStorageTierRates> {
+  try {
+    const userSnap = await db.collection("users").doc(userId).get();
+    const userData = userSnap.exists ? userSnap.data() : null;
+    const profileId =
+      (typeof userData?.pricingProfileId === "string" && userData.pricingProfileId.trim()) ||
+      "standard";
+    const profileSnap = await db.collection(`pricingProfiles/${profileId}/storagePricing`).get();
+    const fromProfile = pickLatestStoragePricingDoc(profileSnap.docs);
+    if (fromProfile) {
+      return tierRatesFromStoragePricingDoc(fromProfile);
+    }
+  } catch {
+    // Fall through to legacy path.
+  }
+
+  const storagePricingSnapshot = await db.collection(`users/${userId}/storagePricing`).get();
+  const fromUser = pickLatestStoragePricingDoc(storagePricingSnapshot.docs);
+  return tierRatesFromStoragePricingDoc(fromUser);
 }
 
 export async function listActivePalletCycles(db: any, userId: string): Promise<PalletCycleDoc[]> {
@@ -99,7 +119,10 @@ export async function listActivePalletCycles(db: any, userId: string): Promise<P
 export async function syncPalletCycles(db: any, userId: string, now: Date): Promise<PalletCycleDoc[]> {
   const invDesired = await getDesiredPalletCountFromInventory(db, userId);
   const cyclesSnap = await db.collection(`users/${userId}/palletStorageCycles`).get();
-  const allCycles: PalletCycleDoc[] = cyclesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+  const allCycles: PalletCycleDoc[] = cyclesSnap.docs.map((d: { id: string; data: () => any }) => ({
+    id: d.id,
+    ...(d.data() as any),
+  }));
   const activeAll = allCycles.filter((c) => c.status !== "closed");
   const manualActive = activeAll.filter((c) => isAdminManualCycle(c.source));
   const invActive = activeAll.filter((c) => !isAdminManualCycle(c.source));
@@ -152,6 +175,6 @@ export async function syncPalletCycles(db: any, userId: string, now: Date): Prom
 
   const afterSnap = await db.collection(`users/${userId}/palletStorageCycles`).get();
   return afterSnap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as any) }))
+    .map((d: { id: string; data: () => any }) => ({ id: d.id, ...(d.data() as any) }))
     .filter((c: PalletCycleDoc) => c.status !== "closed");
 }

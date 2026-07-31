@@ -9,6 +9,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { InventoryItem } from "@/types";
+import { closeBillingPalletsForOutOfStockInventory } from "@/lib/pallet-storage-receive-billing";
 
 export type ClientInventoryDeductionTiming = "confirm" | "dispatch";
 
@@ -143,6 +144,7 @@ export async function applyClientInventoryOnDispatch(input: {
   const requestRef = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
   const logRef = doc(db, `users/${input.clientUserId}/outboundDispatchLogs`, input.shipmentRequestId);
   const shopifyHints: ShopifyInventorySyncHint[] = [];
+  const oosInventoryIds: string[] = [];
 
   await runTransaction(db, async (transaction) => {
     const requestSnap = await transaction.get(requestRef);
@@ -226,6 +228,10 @@ export async function applyClientInventoryOnDispatch(input: {
 
       const newQuantity = currentInventory.quantity - totalUnitsShipped;
       const newStatus = newQuantity > 0 ? "In Stock" : "Out of Stock";
+      if (newStatus === "Out of Stock") {
+        const productId = String(row.shipment.productId ?? "").trim();
+        if (productId) oosInventoryIds.push(productId);
+      }
 
       if (hasTrackedLocations && selectedSourceLocationId) {
         const currentSourceQty = Number(locationQuantities[selectedSourceLocationId] || 0);
@@ -421,6 +427,17 @@ export async function applyClientInventoryOnDispatch(input: {
       at: dispatchedAt,
     });
   });
+
+  for (const inventoryId of [...new Set(oosInventoryIds)]) {
+    try {
+      await closeBillingPalletsForOutOfStockInventory({
+        userId: input.clientUserId,
+        inventoryId,
+      });
+    } catch (err) {
+      console.error("[applyClientInventoryOnDispatch] storage close failed", err);
+    }
+  }
 
   return shopifyHints;
 }

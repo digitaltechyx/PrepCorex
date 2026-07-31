@@ -35,6 +35,9 @@ import { CONTAINER_SIZE_OPTIONS, DTC_FBM_SERVICE, isDtcFbmService, type Containe
    id: string;
    storageType?: string;
    price?: number;
+   month1Rate?: number;
+   month2to6Rate?: number;
+   month6PlusRate?: number;
    palletCount?: number;
    updatedAt?: any;
    createdAt?: any;
@@ -541,16 +544,38 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
                <>
                 <PricingDefinitionRow label="Storage Type">
                   <span className="font-medium">
-                    {latestStorage.storageType || (userProfile as any)?.storageType || "-"}
+                    {latestStorage.storageType || (userProfile as any)?.storageType || "pallet_base"}
                   </span>
                 </PricingDefinitionRow>
-                <PricingDefinitionRow label="Price">
-                  <span className="font-semibold tabular-nums">{money(latestStorage.price)}</span>
+                <PricingDefinitionRow label="Month 1">
+                  <span className="font-semibold tabular-nums">
+                    {money(latestStorage.month1Rate ?? latestStorage.price)}
+                  </span>
                 </PricingDefinitionRow>
-                 {(latestStorage.storageType === "pallet_base" || (userProfile as any)?.storageType === "pallet_base") && (
-                  <PricingDefinitionRow label="Pallet Count">
+                <PricingDefinitionRow label="Months 2–6">
+                  <span className="font-semibold tabular-nums">
+                    {money(latestStorage.month2to6Rate ?? 50)}
+                  </span>
+                </PricingDefinitionRow>
+                <PricingDefinitionRow label="6+ months">
+                  <span className="font-semibold tabular-nums">
+                    {money(latestStorage.month6PlusRate ?? 70)}
+                  </span>
+                </PricingDefinitionRow>
+                 {(latestStorage.storageType === "pallet_base" ||
+                   (userProfile as any)?.storageType === "pallet_base" ||
+                   !latestStorage.storageType) && (
+                  <PricingDefinitionRow label="Active pallets">
                     <span className="font-medium tabular-nums">
                       {activePalletCount || latestStorage.palletCount || 0}
+                    </span>
+                  </PricingDefinitionRow>
+                 )}
+                 {typeof (userProfile as any)?.pendingStorageCartons === "number" &&
+                   (userProfile as any).pendingStorageCartons > 0 && (
+                  <PricingDefinitionRow label="Pending cartons">
+                    <span className="font-medium tabular-nums">
+                      {(userProfile as any).pendingStorageCartons}/10 toward next pallet
                     </span>
                   </PricingDefinitionRow>
                  )}
@@ -560,14 +585,17 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
                       {adminManualPalletCount} admin-assigned pallet{adminManualPalletCount === 1 ? "" : "s"}; the rest follow inventory.
                     </div>
                   )}
-                 {(latestStorage.storageType === "pallet_base" || (userProfile as any)?.storageType === "pallet_base") && sortedPalletCycles.length > 0 && (
+                 {(latestStorage.storageType === "pallet_base" ||
+                   (userProfile as any)?.storageType === "pallet_base" ||
+                   !latestStorage.storageType) &&
+                   sortedPalletCycles.length > 0 && (
                   <div className="pt-2 mt-1 border-t space-y-1.5">
                     <div className="text-xs font-medium text-muted-foreground">Recent Pallet Logs</div>
                     {sortedPalletCycles.slice(0, 5).map((cycle) => (
                       <div key={cycle.id} className="text-xs text-muted-foreground flex flex-wrap items-baseline gap-x-2">
                         <span className="font-medium text-foreground">{cycle.status === "closed" ? "Closed" : "Active"}</span>
                         <span className="rounded bg-muted px-1.5 py-0 text-[10px] uppercase tracking-wide">
-                          {String((cycle as PalletStorageCycleDoc).source || "") === "admin_manual" ? "Admin" : "Inv"}
+                          {String((cycle as PalletStorageCycleDoc).source || "") === "admin_manual" ? "Admin" : "Receive"}
                         </span>
                         <span>Added: {formatUpdated(cycle.assignedAt) || "-"}</span>
                         <span>Next invoice: {formatUpdated(cycle.nextInvoiceDate) || "-"}</span>

@@ -27,10 +27,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
 import { uploadReceivePhotos } from "@/lib/inbound-receive-photos";
 import { attachReceivePhotosToInventoryRequests } from "@/lib/attach-receive-photos-to-requests";
-import {
-  ReceiveStorageAssignmentDialog,
-  type ReceiveStorageAssignContext,
-} from "@/components/warehouse-ops/receive-storage-assignment-dialog";
+import { applyReceiveStorageBilling } from "@/lib/pallet-storage-receive-billing";
 import type { WarehouseDoc, WarehouseCartonDoc } from "@/types";
 import {
   createCrossdockPalletReceive,
@@ -853,9 +850,6 @@ function ReceiveForm({
   const [saving, setSaving] = useState(false);
   const [undoing, setUndoing] = useState(false);
   const [reprintingLastBatch, setReprintingLastBatch] = useState(false);
-  const [storageDialogOpen, setStorageDialogOpen] = useState(false);
-  const [storageAssignContext, setStorageAssignContext] =
-    useState<ReceiveStorageAssignContext | null>(null);
   const [quickScanCartonId, setQuickScanCartonId] = useState<string | null>(null);
   const [inboundQueue, setInboundQueue] = useState<InboundRequestRow[]>([]);
   const inboundPrefillKeyRef = useRef<string | null>(null);
@@ -1293,7 +1287,7 @@ function ReceiveForm({
     return null;
   }
 
-  function promptStorageAssignmentAfterReceive(input: {
+  async function applyStorageBillingAfterReceive(input: {
     receiveEntries?: Array<{ clientUserId: string; sku: string; productName?: string | null; quantity: number }>;
     palletId?: string | null;
     cartonIds?: string[];
@@ -1304,28 +1298,66 @@ function ReceiveForm({
       resetForm();
       return;
     }
-    const batchRef =
-      input.palletId ||
-      (input.cartonIds?.length === 1 ? input.cartonIds[0] : undefined) ||
-      undefined;
+
+    // Storage billing only for carton or pallet receive types.
+    if (type !== "carton" && type !== "pallet") {
+      resetForm();
+      return;
+    }
+
+    const batchIds = [
+      ...new Set(
+        [input.palletId, ...(input.cartonIds || [])]
+          .map((id) => String(id || "").trim())
+          .filter(Boolean)
+      ),
+    ];
     const cartonCount =
       input.receivedCartonCount ??
       (input.cartonIds?.length ? input.cartonIds.length : input.palletId ? 1 : 1);
-    setStorageAssignContext({
-      clientUserId: client.clientUserId,
-      clientDisplayName: client.clientDisplayName,
-      warehouseId: warehouse.id,
-      receiveBatchId: batchRef,
-      receiveReference: batchRef,
-      assignedBy: operatorId ?? null,
-      receivedCartonCount: Math.max(1, cartonCount),
-      contents: input.receiveEntries?.map((e) => ({
-        sku: e.sku,
-        productName: e.productName ?? undefined,
-        quantity: e.quantity,
-      })),
-    });
-    setStorageDialogOpen(true);
+
+    try {
+      const result = await applyReceiveStorageBilling({
+        userId: client.clientUserId,
+        mode: type === "pallet" ? "pallet" : "carton",
+        cartonCount: Math.max(1, cartonCount),
+        warehouseId: warehouse.id,
+        receiveBatchId: batchIds[0] ?? null,
+        receiveBatchIds: batchIds,
+        receiveReference: batchIds[0] ?? null,
+        assignedBy: operatorId ?? null,
+        contents: input.receiveEntries?.map((e) => ({
+          sku: e.sku,
+          productName: e.productName ?? undefined,
+          quantity: e.quantity,
+        })),
+      });
+
+      if (type === "pallet") {
+        toast({
+          title: "Storage assigned",
+          description: `1 billable pallet added for ${client.clientDisplayName}. First 7 days free.`,
+        });
+      } else if (result.palletsCreated > 0) {
+        toast({
+          title: "Storage assigned",
+          description: `${result.palletsCreated} billable pallet${result.palletsCreated === 1 ? "" : "s"} added (10 cartons = 1 pallet). Pending cartons: ${result.pendingCartons}.`,
+        });
+      } else {
+        toast({
+          title: "Cartons counted toward storage",
+          description: `Pending cartons for ${client.clientDisplayName}: ${result.pendingCartons}/10 until next billable pallet.`,
+        });
+      }
+    } catch (e) {
+      toast({
+        title: "Storage billing failed",
+        description: e instanceof Error ? e.message : "Could not assign storage pallets.",
+        variant: "destructive",
+      });
+    } finally {
+      resetForm();
+    }
   }
 
   function resetForm() {
@@ -1464,7 +1496,7 @@ function ReceiveForm({
           title: "Pallet received",
           description: "PLT label printed. Contents stay closed until putaway.",
         });
-        promptStorageAssignmentAfterReceive({ palletId, receivedCartonCount: 1 });
+        await applyStorageBillingAfterReceive({ palletId, receivedCartonCount: 1 });
       } catch (e) {
         toast({
           title: "Receive failed",
@@ -1847,7 +1879,7 @@ function ReceiveForm({
               ? `${created.length} label${created.length > 1 ? "s" : ""} printed.`
               : `${created.length} CTN/PLT label${created.length > 1 ? "s" : ""} printed. Allocate client, then Putaway for placement.`,
       });
-      promptStorageAssignmentAfterReceive({
+      await applyStorageBillingAfterReceive({
         receiveEntries,
         palletId: palletId ?? null,
         cartonIds,
@@ -2794,20 +2826,6 @@ function ReceiveForm({
         </Card>
       ) : null}
 
-      <ReceiveStorageAssignmentDialog
-        open={storageDialogOpen}
-        context={storageAssignContext}
-        onClose={() => {
-          setStorageDialogOpen(false);
-          setStorageAssignContext(null);
-          resetForm();
-        }}
-        onComplete={() => {
-          setStorageDialogOpen(false);
-          setStorageAssignContext(null);
-          resetForm();
-        }}
-      />
     </div>
   );
 }

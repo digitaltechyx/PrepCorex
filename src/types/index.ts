@@ -544,6 +544,11 @@ export interface UserProfile {
   pricingProfileId?: string | null;
   /** Product-base vs pallet-base storage billing (PrepCorex). */
   storageType?: "product_base" | "pallet_base" | null;
+  /**
+   * Cartons received toward the next billable pallet (carton mode).
+   * Every 10 pending cartons creates 1 storage pallet.
+   */
+  pendingStorageCartons?: number | null;
 }
 
 /** User account audit trail event types (`users/{uid}/auditTrail`). */
@@ -1941,6 +1946,7 @@ export interface PalletStoragePositionContent {
   productName?: string | null;
   quantity?: number;
   notes?: string | null;
+  inventoryId?: string | null;
   receiveBatchId?: string | null;
   createdAt?: unknown;
   updatedAt?: unknown;
