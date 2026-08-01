@@ -12,6 +12,11 @@ import {
   loadBuyLabelPrefillFromSession,
   type BuyLabelShopifyPrefill,
 } from "@/lib/shopify-order-buy-label-prefill";
+import {
+  clearBuyLabelParcelPrefillFromSession,
+  loadBuyLabelParcelPrefillFromSession,
+  type BuyLabelParcelPrefill,
+} from "@/lib/buy-label-parcel-prefill";
 
 type LabelsTab = "buy" | "purchased";
 
@@ -20,10 +25,12 @@ export default function AdminBuyLabelsPageContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const fromShopify = searchParams.get("from") === "shopify";
+  const fromOutbound = searchParams.get("from") === "outbound";
   const [activeTab, setActiveTab] = useState<LabelsTab>(
     tabParam === "purchased" ? "purchased" : "buy"
   );
   const [shopifyPrefill, setShopifyPrefill] = useState<BuyLabelShopifyPrefill | null>(null);
+  const [parcelPrefill, setParcelPrefill] = useState<BuyLabelParcelPrefill | null>(null);
 
   useEffect(() => {
     setActiveTab(tabParam === "purchased" ? "purchased" : "buy");
@@ -41,6 +48,18 @@ export default function AdminBuyLabelsPageContent() {
     }
   }, [fromShopify]);
 
+  useEffect(() => {
+    if (!fromOutbound) {
+      setParcelPrefill(null);
+      return;
+    }
+    const prefill = loadBuyLabelParcelPrefillFromSession();
+    if (prefill) {
+      setParcelPrefill(prefill);
+      clearBuyLabelParcelPrefillFromSession();
+    }
+  }, [fromOutbound]);
+
   const handleTabChange = (value: string) => {
     const tab = value as LabelsTab;
     setActiveTab(tab);
@@ -49,7 +68,9 @@ export default function AdminBuyLabelsPageContent() {
         ? "/admin/dashboard/buy-labels?tab=purchased"
         : fromShopify
           ? "/admin/dashboard/buy-labels?from=shopify"
-          : "/admin/dashboard/buy-labels";
+          : fromOutbound
+            ? "/admin/dashboard/buy-labels?from=outbound"
+            : "/admin/dashboard/buy-labels";
     router.replace(url, { scroll: false });
   };
 
@@ -99,6 +120,14 @@ export default function AdminBuyLabelsPageContent() {
                 shopifyPrefillBanner={
                   shopifyPrefill
                     ? `${shopifyPrefill.orderName} · ${shopifyPrefill.ownerName}`
+                    : null
+                }
+                initialParcel={parcelPrefill}
+                parcelPrefillBanner={
+                  parcelPrefill
+                    ? parcelPrefill.productName
+                      ? `Dimensions and weight loaded from outbound product “${parcelPrefill.productName}”`
+                      : "Dimensions and weight loaded from outbound shipment product"
                     : null
                 }
               />

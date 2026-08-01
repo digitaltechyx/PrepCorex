@@ -27,6 +27,7 @@ import {
   compareFlatStockFefoFifo,
   comparePickStepWalkOrder,
   dateFromFirestore,
+  hasLineExpiry,
 } from "@/lib/warehouse-stock-sort";
 import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
 import { orderLinesForRequests } from "@/lib/warehouse-outbound-lines";
@@ -65,6 +66,22 @@ export type OutboundPickOrder = {
   confirmedAt: Date | null;
   warehousePickStatus: WarehousePickStatus;
   lines: OutboundPickLine[];
+  /** Customer remarks from the shipment request. */
+  remarks?: string | null;
+};
+
+/** One putaway location/batch the picker may take from (FEFO flexible mode). */
+export type PickBatchOption = {
+  cartonId: string;
+  cartonCode: string;
+  lineId: string;
+  binId: string;
+  binPath: string;
+  lot: string | null;
+  expiry: string | null;
+  quantity: number;
+  condition: "good" | "damaged";
+  receivedAtIso: string;
 };
 
 export type PickTaskStep = {
@@ -74,6 +91,7 @@ export type PickTaskStep = {
   lot: string | null;
   expiry: string | null;
   condition: "good" | "damaged";
+  /** Units still needed for this SKU (FEFO) or units allocated to this locked step (FIFO). */
   quantity: number;
   binId: string;
   binPath: string;
@@ -83,6 +101,12 @@ export type PickTaskStep = {
   sequence: number;
   /** For FIFO when line has no expiry. */
   receivedAtIso: string;
+  /**
+   * When true, show all `batchOptions` and allow picking from any of them.
+   * Bin/carton on the step are the suggested (earliest expiry) location only.
+   */
+  allowAnyBatch?: boolean;
+  batchOptions?: PickBatchOption[];
 };
 
 export type PickPlan = {
@@ -202,11 +226,35 @@ type PickSource = {
   receivedAtIso: string;
 };
 
+function remarksFromRequest(data: Record<string, unknown>): string | null {
+  const remarks = String(data.remarks ?? "").trim();
+  return remarks || null;
+}
+
 function displayClient(client: UserProfile | undefined, userId: string): string {
   if (!client) return userId.slice(0, 8);
   const name = client.name || client.email || userId;
   const cid = client.clientId ? ` (${client.clientId})` : "";
   return `${name}${cid}`;
+}
+
+function sourceToBatchOption(source: PickSource): PickBatchOption {
+  return {
+    cartonId: source.cartonId,
+    cartonCode: source.cartonCode,
+    lineId: source.lineId,
+    binId: source.binId,
+    binPath: source.binPath,
+    lot: source.lot,
+    expiry: source.expiry,
+    quantity: source.quantity,
+    condition: source.condition,
+    receivedAtIso: source.receivedAtIso,
+  };
+}
+
+function batchOptionKey(option: Pick<PickBatchOption, "cartonId" | "lineId">): string {
+  return `${option.cartonId}::${option.lineId}`;
 }
 
 async function getBinPathMap(warehouseId: string): Promise<Map<string, string>> {
@@ -303,6 +351,7 @@ export async function loadOutboundPickQueue(input: {
       confirmedAt: dateFromFirestore(p.data.confirmedAt),
       warehousePickStatus: p.pickStatus,
       lines,
+      remarks: remarksFromRequest(p.data),
     });
   });
 
@@ -442,10 +491,20 @@ export async function buildPickPlan(
   warehouse: WarehouseDoc,
   order: OutboundPickOrder
 ): Promise<PickPlan> {
-  const [cartons, binPath] = await Promise.all([
+  const [cartons, binPath, pickEvents] = await Promise.all([
     listWarehouseCartons(warehouse.id),
     getBinPathMap(warehouse.id),
+    loadPickEventsForOrder(warehouse.id, order.id),
   ]);
+
+  const alreadyPickedBySku = new Map<string, number>();
+  for (const event of pickEvents) {
+    if (!event.sku) continue;
+    alreadyPickedBySku.set(
+      event.sku,
+      (alreadyPickedBySku.get(event.sku) ?? 0) + event.quantity
+    );
+  }
 
   const pool = sortSourcesFefoFifo(collectPickSources(cartons, binPath, order.clientUserId));
   const consumed = new Map<string, number>();
@@ -453,12 +512,82 @@ export async function buildPickPlan(
   const shortfalls: PickPlan["shortfalls"] = [];
 
   for (const demand of order.lines) {
-    let remaining = demand.quantityUnits;
-    let planned = 0;
+    const alreadyPicked = alreadyPickedBySku.get(demand.sku) ?? 0;
+    let remaining = Math.max(0, demand.quantityUnits - alreadyPicked);
+    if (remaining <= 0) continue;
 
-    for (const source of pool) {
-      if (source.sku !== demand.sku) continue;
-      const key = `${source.cartonId}::${source.lineId}`;
+    const skuSources = pool.filter((source) => source.sku === demand.sku);
+    const hasExpiryBatch = skuSources.some((source) => hasLineExpiry(source.expiry));
+
+    if (hasExpiryBatch) {
+      // FEFO flexible: one step listing every putaway batch; picker chooses.
+      const options: PickBatchOption[] = [];
+      let availableTotal = 0;
+      for (const source of skuSources) {
+        const key = batchOptionKey(source);
+        const used = consumed.get(key) ?? 0;
+        const available = source.quantity - used;
+        if (available <= 0) continue;
+        options.push({ ...sourceToBatchOption(source), quantity: available });
+        availableTotal += available;
+      }
+
+      if (options.length === 0) {
+        shortfalls.push({
+          sku: demand.sku,
+          productName: demand.productName,
+          needed: demand.quantityUnits,
+          planned: alreadyPicked,
+        });
+        continue;
+      }
+
+      const planned = Math.min(remaining, availableTotal);
+      const suggested = options[0];
+      steps.push({
+        stepKey: `fefo:${demand.sku}:${steps.length}`,
+        sku: demand.sku,
+        productName: demand.productName,
+        lot: suggested.lot,
+        expiry: suggested.expiry,
+        condition: suggested.condition,
+        quantity: planned,
+        binId: suggested.binId,
+        binPath: suggested.binPath,
+        cartonId: suggested.cartonId,
+        cartonCode: suggested.cartonCode,
+        lineId: suggested.lineId,
+        sequence: 0,
+        receivedAtIso: suggested.receivedAtIso,
+        allowAnyBatch: true,
+        batchOptions: options,
+      });
+
+      // Reserve capacity across options so later SKU lines cannot double-count.
+      let toReserve = planned;
+      for (const option of options) {
+        if (toReserve <= 0) break;
+        const take = Math.min(toReserve, option.quantity);
+        const key = batchOptionKey(option);
+        consumed.set(key, (consumed.get(key) ?? 0) + take);
+        toReserve -= take;
+      }
+
+      if (planned < remaining) {
+        shortfalls.push({
+          sku: demand.sku,
+          productName: demand.productName,
+          needed: demand.quantityUnits,
+          planned: alreadyPicked + planned,
+        });
+      }
+      continue;
+    }
+
+    // FIFO locked: allocate specific bin/carton steps (oldest receive first).
+    let planned = 0;
+    for (const source of skuSources) {
+      const key = batchOptionKey(source);
       const used = consumed.get(key) ?? 0;
       const available = source.quantity - used;
       if (available <= 0) continue;
@@ -480,6 +609,7 @@ export async function buildPickPlan(
         lineId: source.lineId,
         sequence: 0,
         receivedAtIso: source.receivedAtIso,
+        allowAnyBatch: false,
       });
       remaining -= take;
       planned += take;
@@ -491,7 +621,7 @@ export async function buildPickPlan(
         sku: demand.sku,
         productName: demand.productName,
         needed: demand.quantityUnits,
-        planned,
+        planned: alreadyPicked + planned,
       });
     }
   }
@@ -602,7 +732,7 @@ export async function applyPickStep(input: {
   shipmentRequestId: string;
   step: PickTaskStep;
   scannedBinId: string;
-  /** When omitted/empty, the planned carton for this step is used. */
+  /** When omitted/empty, the planned carton for this step is used (FIFO) or resolved from batch options (FEFO). */
   scannedCartonId?: string | null;
   pickQty?: number;
   operatorId?: string | null;
@@ -612,15 +742,16 @@ export async function applyPickStep(input: {
   if (qty > input.step.quantity) {
     throw new Error(`This step allows at most ${input.step.quantity}.`);
   }
-  if (input.scannedBinId !== input.step.binId) {
-    throw new Error("Wrong bin — scan the bin shown for this pick step.");
-  }
-  const scannedCartonId = String(input.scannedCartonId ?? "").trim();
-  if (scannedCartonId && scannedCartonId !== input.step.cartonId) {
-    throw new Error("Wrong carton — scan the carton shown for this pick step.");
+
+  const selected = resolvePickTarget(input.step, {
+    scannedBinId: input.scannedBinId,
+    scannedCartonId: input.scannedCartonId,
+  });
+  if (qty > selected.quantity) {
+    throw new Error(`Only ${selected.quantity} available in this batch.`);
   }
 
-  const carton = await getWarehouseCarton(input.warehouseId, input.step.cartonId);
+  const carton = await getWarehouseCarton(input.warehouseId, selected.cartonId);
   if (!carton) throw new Error("Carton not found.");
   if (!isCartonPickable(carton)) {
     throw new Error("This carton cannot be picked (status blocked).");
@@ -645,13 +776,13 @@ export async function applyPickStep(input: {
           } satisfies WarehouseCartonLine,
         ];
 
-  const liveLine = baseLines.find((l) => l.lineId === input.step.lineId);
+  const liveLine = baseLines.find((l) => l.lineId === selected.lineId);
   if (!liveLine || !isLinePickable(carton, liveLine, input.clientUserId)) {
     throw new Error("This line is no longer pickable.");
   }
 
-  const picked = pickLineQuantity(baseLines, input.step.lineId, qty, {
-    binId: input.step.binId,
+  const picked = pickLineQuantity(baseLines, selected.lineId, qty, {
+    binId: selected.binId,
     clientUserId: input.clientUserId,
   });
 
@@ -675,10 +806,11 @@ export async function applyPickStep(input: {
     lineId: picked.pickedLineId,
     sku: input.step.sku,
     quantity: picked.pickedQty,
-    condition: input.step.condition,
-    lot: input.step.lot,
-    fromBinId: input.step.binId,
-    fromBinPath: input.step.binPath,
+    condition: selected.condition,
+    lot: selected.lot,
+    expiry: selected.expiry,
+    fromBinId: selected.binId,
+    fromBinPath: selected.binPath,
     operatorId: input.operatorId ?? null,
     at: serverTimestamp(),
   });
@@ -705,6 +837,9 @@ export async function applyPickStep(input: {
       ? await orderLinesFromRequest(input.clientUserId, snap.data() as Record<string, unknown>)
       : [],
     confirmedAt: null,
+    remarks: snap.exists()
+      ? remarksFromRequest(snap.data() as Record<string, unknown>)
+      : null,
   };
 
   const orderComplete = await isOrderFullyPicked(input.warehouseId, order);
@@ -720,4 +855,73 @@ export async function applyPickStep(input: {
   }
 
   return { pickedQty: picked.pickedQty, orderComplete };
+}
+
+function resolvePickTarget(
+  step: PickTaskStep,
+  input: { scannedBinId: string; scannedCartonId?: string | null }
+): PickBatchOption {
+  const scannedCartonId = String(input.scannedCartonId ?? "").trim();
+
+  if (!step.allowAnyBatch) {
+    if (input.scannedBinId !== step.binId) {
+      throw new Error("Wrong bin — scan the bin shown for this pick step.");
+    }
+    if (scannedCartonId && scannedCartonId !== step.cartonId) {
+      throw new Error("Wrong carton — scan the carton shown for this pick step.");
+    }
+    return {
+      cartonId: step.cartonId,
+      cartonCode: step.cartonCode,
+      lineId: step.lineId,
+      binId: step.binId,
+      binPath: step.binPath,
+      lot: step.lot,
+      expiry: step.expiry,
+      quantity: step.quantity,
+      condition: step.condition,
+      receivedAtIso: step.receivedAtIso,
+    };
+  }
+
+  const options = step.batchOptions ?? [];
+  if (options.length === 0) {
+    throw new Error("No expiry batches available for this pick.");
+  }
+
+  const inBin = options.filter((option) => option.binId === input.scannedBinId);
+  if (inBin.length === 0) {
+    throw new Error("Wrong bin — scan one of the listed batch bins for this product.");
+  }
+
+  let matched = inBin;
+  if (scannedCartonId) {
+    matched = inBin.filter((option) => option.cartonId === scannedCartonId);
+    if (matched.length === 0) {
+      throw new Error("Wrong carton — that carton is not one of the listed batches in this bin.");
+    }
+  } else {
+    const cartonIds = new Set(inBin.map((option) => option.cartonId));
+    if (cartonIds.size > 1) {
+      throw new Error("Multiple cartons in this bin — scan the carton for the batch you are picking.");
+    }
+  }
+
+  // Prefer earliest expiry among remaining matches (suggestion order).
+  return [...matched].sort((a, b) =>
+    compareFlatStockFefoFifo(
+      {
+        expiry: a.expiry,
+        receivedAtIso: a.receivedAtIso,
+        cartonCode: a.cartonCode,
+        binPath: a.binPath,
+      },
+      {
+        expiry: b.expiry,
+        receivedAtIso: b.receivedAtIso,
+        cartonCode: b.cartonCode,
+        binPath: b.binPath,
+      }
+    )
+  )[0];
 }

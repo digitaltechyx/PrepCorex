@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, X, Plus, ChevronDown, Upload } from "lucide-react";
+import { Loader2, X, Plus, ChevronDown, Upload, Tag } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
@@ -46,6 +46,12 @@ import {
   readProductUnitMeasurements,
   type BoxSuggestionLine,
 } from "@/lib/box-suggestion";
+import { useRouter } from "next/navigation";
+import { hasFeature } from "@/lib/permissions";
+import {
+  buildBuyLabelParcelPrefillFromSource,
+  saveBuyLabelParcelPrefill,
+} from "@/lib/buy-label-parcel-prefill";
 
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
@@ -147,6 +153,8 @@ export function CreateShipmentWithLabelsForm({
 }: CreateShipmentWithLabelsFormProps) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
+  const router = useRouter();
+  const canBuyLabels = hasFeature(userProfile, "buy_labels");
   const ownerId = targetUserId ?? user?.uid ?? "";
   const ownerDisplayName =
     (targetUserName ?? userProfile?.name ?? "").trim() || "Unknown User";
@@ -170,6 +178,58 @@ export function CreateShipmentWithLabelsForm({
     for (const req of inboundRequests) map.set(req.id, req);
     return map;
   }, [inboundRequests]);
+
+  const handleBuyLabelForShipment = (shipment: {
+    productId?: string;
+    sourceInventoryRequestId?: string;
+  }) => {
+    const inboundId =
+      String(shipment.sourceInventoryRequestId ?? "").trim() ||
+      parsePrepOutboundRequestId(shipment.productId) ||
+      "";
+    const inventoryItem = !inboundId
+      ? inventory.find((item) => item.id === shipment.productId)
+      : undefined;
+    const linkedInbound =
+      (inboundId ? inboundById.get(inboundId) : undefined) ||
+      (inventoryItem?.sourceRequestId
+        ? inboundById.get(inventoryItem.sourceRequestId)
+        : undefined) ||
+      inboundRequests.find(
+        (req) =>
+          Boolean(inventoryItem?.sku) &&
+          req.sku?.trim().toLowerCase() === inventoryItem?.sku?.trim().toLowerCase()
+      );
+
+    const productName =
+      inventoryItem?.productName || linkedInbound?.productName || "Selected product";
+    const prefill =
+      buildBuyLabelParcelPrefillFromSource(
+        inventoryItem as unknown as Record<string, unknown> | undefined,
+        { productName }
+      ) ||
+      buildBuyLabelParcelPrefillFromSource(
+        linkedInbound as unknown as Record<string, unknown> | undefined,
+        { productName }
+      );
+    if (prefill) {
+      saveBuyLabelParcelPrefill(prefill);
+      toast({
+        title: "Opening Buy Labels",
+        description: `Package size/weight from “${productName}” will be prefilled.`,
+      });
+    } else {
+      toast({
+        title: "Opening Buy Labels",
+        description: "No dimensions/weight on file for this product — enter them on the Buy Labels page.",
+      });
+    }
+    router.push(
+      targetUserId
+        ? "/admin/dashboard/buy-labels?from=outbound"
+        : "/dashboard/buy-labels?from=outbound"
+    );
+  };
 
   const pricingUser = useMemo(() => {
     if (!ownerId) return null;
@@ -1657,6 +1717,18 @@ export function CreateShipmentWithLabelsForm({
                                                 </Button>
                                               )}
                                             </div>
+                                            {canBuyLabels ? (
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 w-full gap-1 px-2 text-[11px]"
+                                                onClick={() => handleBuyLabelForShipment(shipment)}
+                                              >
+                                                <Tag className="h-3 w-3" />
+                                                Buy Label
+                                              </Button>
+                                            ) : null}
                                           </div>
                                           <Button
                                             type="button"
@@ -1834,7 +1906,37 @@ export function CreateShipmentWithLabelsForm({
                     </div>
 
                   {groupShipmentType === "product" && groupShipments.length > 0 ? (
-                    <BoxSuggestionCard lines={boxSuggestionLines} className="mt-3" />
+                    <div className="mt-3 space-y-2">
+                      <BoxSuggestionCard lines={boxSuggestionLines} />
+                      {canBuyLabels ? (
+                        <div className="flex flex-wrap gap-2">
+                          {groupShipments.map((shipment, shipmentIndex) => {
+                            const lineProduct =
+                              availableInventory.find((item) => item.id === shipment.productId) ||
+                              inventory.find((item) => item.id === shipment.productId);
+                            const label =
+                              lineProduct?.productName ||
+                              `Line ${shipmentIndex + 1}`;
+                            return (
+                              <Button
+                                key={`buy-label-${shipment.productId || shipmentIndex}`}
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8 gap-1 text-xs"
+                                onClick={() => handleBuyLabelForShipment(shipment)}
+                              >
+                                <Tag className="h-3.5 w-3.5" />
+                                Buy Label
+                                <span className="max-w-[140px] truncate text-muted-foreground">
+                                  · {label}
+                                </span>
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
                   ) : null}
 
                   {/* Selected Products Details */}

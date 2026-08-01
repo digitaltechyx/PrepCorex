@@ -105,6 +105,19 @@ function formatLabels(ts: number): { dateLabel: string; timeLabel: string } {
   };
 }
 
+/** Firebase Auth UIDs are opaque IDs — never show them in the By column. */
+function isLikelyAuthUid(value: string): boolean {
+  return /^[A-Za-z0-9]{20,36}$/.test(value.trim());
+}
+
+function formatHistoryBy(user: string, event: string): string {
+  const v = (user ?? "").trim();
+  if (!v || v === "—") return v || "—";
+  if (!isLikelyAuthUid(v)) return v;
+  if (event === "Inbound requested") return "Client";
+  return "PSF Operations";
+}
+
 function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
   const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
   let running: number | null = null;
@@ -144,7 +157,7 @@ function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
       qtyChange,
       qtyAfter,
       details: e.details,
-      user: e.user,
+      user: formatHistoryBy(e.user, e.event),
     });
   }
 
@@ -422,7 +435,7 @@ export function inventoryHistoryToCsv(
     "Time",
     "Event",
     "Qty Before",
-    "Change",
+    "Action (+/-)",
     "Qty After",
     "Details",
     "User",
@@ -509,8 +522,142 @@ export function inboundReceiveLogsForItem(
     .sort((a, b) => toTimestamp(b.putawayAt) - toTimestamp(a.putawayAt));
 }
 
-export function formatInboundLogDate(log: InboundReceiveLog): string {
-  const ts = toTimestamp(log.putawayAt);
+/** One display row per receive session (good + damaged putaway merged). */
+export type MergedInboundReceiveRow = {
+  id: string;
+  eventType: "initial" | "restock";
+  putawayAtMs: number;
+  totalReceived: number;
+  goodQty: number;
+  damagedQty: number;
+  goodBinPath: string | null;
+  damagedLocation: string | null;
+  remarks: string | null;
+  photoUrls: string[];
+  sourceLogIds: string[];
+};
+
+function inboundMergeKey(log: InboundReceiveLog): string {
+  // 2-minute window so good + damaged putaways from one receive land together
+  const window = Math.floor(toTimestamp(log.putawayAt) / 120_000);
+  const eventType = log.eventType === "restock" ? "restock" : "initial";
+  const req = (log.inventoryRequestId ?? "").trim();
+  if (req) return `req:${req}|${eventType}|${window}`;
+  const carton = (log.cartonId ?? "").trim();
+  if (carton) return `carton:${carton}|${eventType}|${window}`;
+  // Logs are already filtered to one product — same window = one operation
+  const sku = (log.sku ?? "").trim().toLowerCase();
+  const name = (log.productName ?? "").trim().toLowerCase();
+  const inv = (log.inventoryId ?? "").trim();
+  return `item:${inv || sku || name}|${eventType}|${window}`;
+}
+
+function areComplementaryInboundLogs(a: InboundReceiveLog, b: InboundReceiveLog): boolean {
+  const aGood = Math.max(0, Number(a.goodQty) || 0);
+  const aDamaged = Math.max(0, Number(a.damagedQty) || 0);
+  const bGood = Math.max(0, Number(b.goodQty) || 0);
+  const bDamaged = Math.max(0, Number(b.damagedQty) || 0);
+  const aOnlyDamaged = aDamaged > 0 && aGood === 0;
+  const aOnlyGood = aGood > 0 && aDamaged === 0;
+  const bOnlyDamaged = bDamaged > 0 && bGood === 0;
+  const bOnlyGood = bGood > 0 && bDamaged === 0;
+  return (aOnlyGood && bOnlyDamaged) || (aOnlyDamaged && bOnlyGood);
+}
+
+/** Merge separate good/damaged putaway docs from the same receive into one row. */
+export function mergeInboundReceiveLogs(logs: InboundReceiveLog[]): MergedInboundReceiveRow[] {
+  const groups = new Map<string, InboundReceiveLog[]>();
+  for (const log of logs) {
+    const key = inboundMergeKey(log);
+    const list = groups.get(key) ?? [];
+    list.push(log);
+    groups.set(key, list);
+  }
+
+  // Second pass: if request/carton keys still split a good-only + damaged-only pair
+  // at the same time, fold them together (common when lineIds differ).
+  let groupList = [...groups.values()];
+  const used = new Set<number>();
+  const folded: InboundReceiveLog[][] = [];
+  for (let i = 0; i < groupList.length; i++) {
+    if (used.has(i)) continue;
+    let combined = [...groupList[i]];
+    const eventType = combined[0]?.eventType === "restock" ? "restock" : "initial";
+    const ts = Math.max(...combined.map((l) => toTimestamp(l.putawayAt)));
+    for (let j = i + 1; j < groupList.length; j++) {
+      if (used.has(j)) continue;
+      const other = groupList[j];
+      const otherType = other[0]?.eventType === "restock" ? "restock" : "initial";
+      if (otherType !== eventType) continue;
+      const otherTs = Math.max(...other.map((l) => toTimestamp(l.putawayAt)));
+      if (Math.abs(ts - otherTs) > 120_000) continue;
+      const canFold = combined.some((a) => other.some((b) => areComplementaryInboundLogs(a, b)));
+      if (!canFold) continue;
+      combined = [...combined, ...other];
+      used.add(j);
+    }
+    used.add(i);
+    folded.push(combined);
+  }
+  groupList = folded;
+
+  const merged: MergedInboundReceiveRow[] = [];
+  for (const group of groupList) {
+    const sorted = [...group].sort((a, b) => toTimestamp(b.putawayAt) - toTimestamp(a.putawayAt));
+    let goodQty = 0;
+    let damagedQty = 0;
+    let goodBinPath: string | null = null;
+    let damagedLocation: string | null = null;
+    const remarks: string[] = [];
+    const photoUrls: string[] = [];
+    const sourceLogIds: string[] = [];
+    let putawayAtMs = 0;
+    let eventType: "initial" | "restock" = sorted[0]?.eventType === "restock" ? "restock" : "initial";
+
+    for (const log of sorted) {
+      sourceLogIds.push(log.id);
+      const g = Math.max(0, Number(log.goodQty) || 0);
+      const d = Math.max(0, Number(log.damagedQty) || 0);
+      goodQty += g;
+      damagedQty += d;
+      const logTs = toTimestamp(log.putawayAt);
+      if (logTs > putawayAtMs) putawayAtMs = logTs;
+      if (log.eventType === "restock") eventType = "restock";
+
+      if (g > 0 && log.binPath?.trim() && !goodBinPath) {
+        goodBinPath = log.binPath.trim();
+      }
+      if (d > 0 && !damagedLocation) {
+        const loc = log.binPath?.trim() || log.stagingArea?.trim() || null;
+        if (loc) damagedLocation = loc;
+      }
+      if (log.remarks?.trim()) remarks.push(log.remarks.trim());
+      if (log.photoUrls?.length) photoUrls.push(...log.photoUrls);
+    }
+
+    merged.push({
+      id: sourceLogIds.slice().sort().join("_") || `merged-${putawayAtMs}`,
+      eventType,
+      putawayAtMs,
+      totalReceived: goodQty + damagedQty,
+      goodQty,
+      damagedQty,
+      goodBinPath,
+      damagedLocation,
+      remarks: remarks.length ? [...new Set(remarks)].join(" · ") : null,
+      photoUrls: [...new Set(photoUrls)],
+      sourceLogIds,
+    });
+  }
+
+  return merged.sort((a, b) => b.putawayAtMs - a.putawayAtMs);
+}
+
+export function formatInboundLogDate(log: InboundReceiveLog | Pick<MergedInboundReceiveRow, "putawayAtMs">): string {
+  const ts =
+    "putawayAtMs" in log && typeof log.putawayAtMs === "number"
+      ? log.putawayAtMs
+      : toTimestamp((log as InboundReceiveLog).putawayAt);
   if (!ts) return "—";
   return format(new Date(ts), "MMM d, yyyy · h:mm a");
 }

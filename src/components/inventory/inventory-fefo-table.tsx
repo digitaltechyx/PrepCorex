@@ -8,6 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -23,27 +30,61 @@ type Props = {
   error: string | null;
 };
 
+const ALL_PRODUCTS = "__all__";
+
 function formatExpiry(expiry: string): string {
   const date = new Date(`${expiry}T12:00:00`);
   return Number.isNaN(date.getTime()) ? expiry : format(date, "MMM d, yyyy");
+}
+
+function productFilterKey(row: Pick<ClientFefoStockRow, "sku" | "productTitle">): string {
+  const sku = row.sku.trim();
+  if (sku) return `sku:${sku.toLowerCase()}`;
+  return `name:${row.productTitle.trim().toLowerCase()}`;
 }
 
 export function InventoryFefoTable({ rows, loading, error }: Props) {
   const [fromDate, setFromDate] = useState<Date | undefined>();
   const [toDate, setToDate] = useState<Date | undefined>(() => addMonths(new Date(), 6));
   const [preset, setPreset] = useState<"3" | "6" | "all" | "custom">("6");
+  const [productFilter, setProductFilter] = useState<string>(ALL_PRODUCTS);
+
+  const productOptions = useMemo(() => {
+    const byKey = new Map<string, { key: string; label: string; sku: string }>();
+    for (const row of rows) {
+      const key = productFilterKey(row);
+      if (byKey.has(key)) continue;
+      const sku = row.sku.trim();
+      byKey.set(key, {
+        key,
+        label: row.productTitle.trim() || sku || "Product",
+        sku,
+      });
+    }
+    return Array.from(byKey.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: "base" })
+    );
+  }, [rows]);
 
   const filteredRows = useMemo(
     () =>
       rows.filter((row) => {
+        if (productFilter !== ALL_PRODUCTS && productFilterKey(row) !== productFilter) {
+          return false;
+        }
         const expiry = new Date(`${row.expiry}T12:00:00`);
         if (Number.isNaN(expiry.getTime())) return false;
         if (fromDate && expiry < startOfDay(fromDate)) return false;
         if (toDate && expiry > endOfDay(toDate)) return false;
         return true;
       }),
-    [fromDate, rows, toDate]
+    [fromDate, productFilter, rows, toDate]
   );
+
+  const selectedProductLabel =
+    productFilter === ALL_PRODUCTS
+      ? null
+      : productOptions.find((p) => p.key === productFilter)?.label ?? null;
 
   const applyPreset = (months: 3 | 6) => {
     setPreset(String(months) as "3" | "6");
@@ -117,29 +158,60 @@ export function InventoryFefoTable({ rows, loading, error }: Props) {
             All expiry dates
           </Button>
         </div>
-        <DateRangePicker
-          fromDate={fromDate}
-          toDate={toDate}
-          setFromDate={(date) => {
-            setPreset("custom");
-            setFromDate(date);
-          }}
-          setToDate={(date) => {
-            setPreset("custom");
-            setToDate(date);
-          }}
-          className="sm:w-[300px]"
-        />
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="w-full sm:w-[320px]">
+            <Select value={productFilter} onValueChange={setProductFilter}>
+              <SelectTrigger aria-label="Filter by product">
+                <SelectValue placeholder="All products" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_PRODUCTS}>All products</SelectItem>
+                {productOptions.map((product) => (
+                  <SelectItem key={product.key} value={product.key}>
+                    <span className="truncate">
+                      {product.label}
+                      {product.sku ? (
+                        <span className="text-muted-foreground"> · {product.sku}</span>
+                      ) : null}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DateRangePicker
+            fromDate={fromDate}
+            toDate={toDate}
+            setFromDate={(date) => {
+              setPreset("custom");
+              setFromDate(date);
+            }}
+            setToDate={(date) => {
+              setPreset("custom");
+              setToDate(date);
+            }}
+            className="sm:w-[300px]"
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
-          Showing {filteredRows.length} expiry entr{filteredRows.length === 1 ? "y" : "ies"} from
-          earliest to latest.
+          Showing {filteredRows.length} expiry entr{filteredRows.length === 1 ? "y" : "ies"}
+          {selectedProductLabel ? ` for “${selectedProductLabel}”` : ""} from earliest to latest.
         </p>
       </div>
 
       {filteredRows.length === 0 ? (
         <div className="mx-6 flex flex-col items-center gap-2 rounded-lg border border-dashed py-12 text-center sm:mx-0">
           <CalendarClock className="h-8 w-8 text-muted-foreground/60" />
-          <p className="font-medium">No inventory expires in this date range</p>
+          <p className="font-medium">
+            {selectedProductLabel
+              ? "No expiry batches for this product in the selected date range"
+              : "No inventory expires in this date range"}
+          </p>
+          {selectedProductLabel ? (
+            <p className="text-sm text-muted-foreground">
+              Try “All expiry dates”, or clear the product filter.
+            </p>
+          ) : null}
         </div>
       ) : (
         <>

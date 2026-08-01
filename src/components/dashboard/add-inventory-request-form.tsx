@@ -1078,6 +1078,7 @@ export function AddInventoryRequestForm({
                   selectedProduct.unitHeightIn != null ? String(selectedProduct.unitHeightIn) : "",
                 unitWeightLb:
                   selectedProduct.unitWeightLb != null ? String(selectedProduct.unitWeightLb) : "",
+                weightUnit: "lb",
               });
             }
           }
@@ -1555,6 +1556,7 @@ export function AddInventoryRequestForm({
                               selectedProduct.unitWeightLb != null
                                 ? String(selectedProduct.unitWeightLb)
                                 : "",
+                            weightUnit: "lb",
                           });
                         }
                       }}

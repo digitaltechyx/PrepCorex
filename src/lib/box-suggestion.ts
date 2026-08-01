@@ -227,16 +227,23 @@ export function measurementFieldsForWrite(input: {
   unitWidthIn?: unknown;
   unitHeightIn?: unknown;
   unitWeightLb?: unknown;
+  /** Display unit for `unitWeightLb` input — converted to pounds for storage. */
+  weightUnit?: "lb" | "oz" | string | null;
 }): Partial<ProductUnitMeasurements> {
   const out: Partial<ProductUnitMeasurements> = {};
   const l = parsePositiveMeasurement(input.unitLengthIn);
   const w = parsePositiveMeasurement(input.unitWidthIn);
   const h = parsePositiveMeasurement(input.unitHeightIn);
-  const wt = parsePositiveMeasurement(input.unitWeightLb);
+  const wtRaw = parsePositiveMeasurement(input.unitWeightLb);
   if (l != null) out.unitLengthIn = l;
   if (w != null) out.unitWidthIn = w;
   if (h != null) out.unitHeightIn = h;
-  if (wt != null) out.unitWeightLb = wt;
+  if (wtRaw != null) {
+    const asLb = input.weightUnit === "oz" ? wtRaw / 16 : wtRaw;
+    // Match lb input step (0.01) so 5.2 oz → 0.33 lb, not 0.325
+    const rounded = Math.round(asLb * 100) / 100;
+    if (rounded > 0) out.unitWeightLb = rounded;
+  }
   return out;
 }
 

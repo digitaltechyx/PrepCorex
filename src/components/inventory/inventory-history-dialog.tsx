@@ -49,6 +49,7 @@ import {
   formatInboundLogDate,
   formatQtyCell,
   inboundReceiveLogsForItem,
+  mergeInboundReceiveLogs,
   type InventoryHistoryEventType,
   type InventoryHistoryRow,
 } from "@/lib/inventory-history";
@@ -222,8 +223,8 @@ export function InventoryHistoryDialog({
   );
 
   const inboundLogs = useMemo(() => {
-    if (!item) return [] as InboundReceiveLog[];
-    return inboundReceiveLogsForItem(item, inboundReceiveLogs);
+    if (!item) return [];
+    return mergeInboundReceiveLogs(inboundReceiveLogsForItem(item, inboundReceiveLogs));
   }, [item, inboundReceiveLogs]);
 
   const damagedOnHand = Math.max(0, Number((item as InventoryItem & { damagedQuantity?: number })?.damagedQuantity ?? 0));
@@ -416,58 +417,67 @@ export function InventoryHistoryDialog({
                 dock receive and putaway.
               </p>
             ) : (
-              <div className="space-y-3 pb-4">
-                {inboundLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="rounded-lg border bg-card p-4 space-y-2 text-sm"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-medium">{formatInboundLogDate(log)}</span>
-                      <Badge variant="outline" className="text-[10px] capitalize">
-                        {log.eventType === "restock" ? "Restock" : "Initial inbound"}
-                      </Badge>
-                    </div>
-                    <div className="flex flex-wrap gap-4 text-xs">
-                      <span className="text-emerald-700 font-medium">
-                        Good put away: +{log.goodQty}
-                        {log.goodQtyAfter != null ? ` → ${log.goodQtyAfter} in stock` : ""}
-                      </span>
-                      {log.damagedQty > 0 ? (
-                        <span className="text-amber-800 font-medium inline-flex items-center gap-1">
-                          <AlertTriangle className="h-3 w-3" />
-                          Damaged: +{log.damagedQty}
-                          {log.damagedQtyAfter != null ? ` → ${log.damagedQtyAfter} on hand` : ""}
-                        </span>
-                      ) : null}
-                    </div>
-                    {log.remarks ? (
-                      <p className="text-xs text-muted-foreground">{log.remarks}</p>
-                    ) : null}
-                    {log.photoUrls && log.photoUrls.length > 0 ? (
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {log.photoUrls.map((url) => (
-                          <a
-                            key={url}
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block"
-                          >
-                            <img
-                              src={url}
-                              alt="Inbound"
-                              className="h-20 w-20 rounded border object-cover hover:opacity-90"
-                            />
-                          </a>
-                        ))}
-                      </div>
-                    ) : null}
-                    {log.binPath ? (
-                      <p className="text-[10px] text-muted-foreground">Bin: {log.binPath}</p>
-                    ) : null}
-                  </div>
-                ))}
+              <div className="pb-4">
+                <Table containerClassName="overflow-visible">
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent border-b-0">
+                      <TableHead className={cn(stickyHeadClass, "whitespace-nowrap")}>
+                        Date &amp; Time
+                      </TableHead>
+                      <TableHead className={stickyHeadClass}>Receive type</TableHead>
+                      <TableHead className={cn(stickyHeadClass, "text-right")}>
+                        Total received
+                      </TableHead>
+                      <TableHead className={stickyHeadClass}>Sellable qty</TableHead>
+                      <TableHead className={stickyHeadClass}>Damaged qty</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {inboundLogs.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell className="text-xs whitespace-nowrap py-2.5">
+                          {formatInboundLogDate(row)}
+                        </TableCell>
+                        <TableCell className="text-xs py-2.5">
+                          <Badge variant="outline" className="text-[10px] capitalize font-normal">
+                            {row.eventType === "restock" ? "Restock" : "Initial inbound"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-right tabular-nums font-semibold py-2.5">
+                          {row.totalReceived}
+                        </TableCell>
+                        <TableCell className="text-xs py-2.5">
+                          <span className="text-emerald-700 font-medium tabular-nums">
+                            {row.goodQty}
+                          </span>
+                          {row.goodBinPath ? (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              · Bin: {row.goodBinPath}
+                            </span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="text-xs py-2.5">
+                          {row.damagedQty > 0 ? (
+                            <span className="inline-flex flex-wrap items-center gap-1">
+                              <AlertTriangle className="h-3 w-3 text-amber-700 shrink-0" />
+                              <span className="text-amber-800 font-medium tabular-nums">
+                                {row.damagedQty}
+                              </span>
+                              {row.damagedLocation ? (
+                                <span className="text-muted-foreground">
+                                  · Bin/Area: {row.damagedLocation}
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">0</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             )}
           </TabsContent>
@@ -503,7 +513,7 @@ function HistoryTable({ rows }: { rows: InventoryHistoryRow[] }) {
                   <TableHead className={cn(stickyHeadClass, "whitespace-nowrap")}>Time</TableHead>
                   <TableHead className={stickyHeadClass}>Event</TableHead>
                   <TableHead className={cn(stickyHeadClass, "text-right")}>Before</TableHead>
-                  <TableHead className={cn(stickyHeadClass, "text-right")}>Change</TableHead>
+                  <TableHead className={cn(stickyHeadClass, "text-right")}>Action (+/-)</TableHead>
                   <TableHead className={cn(stickyHeadClass, "text-right")}>After</TableHead>
                   <TableHead className={cn(stickyHeadClass, "min-w-[140px]")}>Details</TableHead>
                   <TableHead className={stickyHeadClass}>By</TableHead>

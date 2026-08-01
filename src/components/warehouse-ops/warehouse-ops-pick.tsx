@@ -39,6 +39,7 @@ import {
   markPickOrderStatus,
   skipPickOrder,
   type OutboundPickOrder,
+  type PickBatchOption,
   type PickPlan,
   type PickTaskStep,
 } from "@/lib/warehouse-pick";
@@ -56,6 +57,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Loader2,
+  MessageSquareText,
   Package,
   Search,
   X,
@@ -81,6 +83,60 @@ function localDateKey(date: Date | null | undefined): string | null {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+function formatPickExpiry(expiry: string | null | undefined): string {
+  if (!expiry?.trim()) return "No expiry";
+  const iso = expiry.trim().slice(0, 10);
+  const date = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function batchOptionsForBin(
+  step: PickTaskStep,
+  binId: string | null
+): PickBatchOption[] {
+  if (!binId || !step.allowAnyBatch) return [];
+  return (step.batchOptions ?? []).filter((option) => option.binId === binId);
+}
+
+function resolveSelectedBatch(
+  step: PickTaskStep,
+  binId: string | null,
+  cartonId: string | null
+): PickBatchOption | null {
+  if (!step.allowAnyBatch) {
+    if (binId !== step.binId) return null;
+    if (cartonId && cartonId !== step.cartonId) return null;
+    return {
+      cartonId: step.cartonId,
+      cartonCode: step.cartonCode,
+      lineId: step.lineId,
+      binId: step.binId,
+      binPath: step.binPath,
+      lot: step.lot,
+      expiry: step.expiry,
+      quantity: step.quantity,
+      condition: step.condition,
+      receivedAtIso: step.receivedAtIso,
+    };
+  }
+  if (!binId) return null;
+  let matched = batchOptionsForBin(step, binId);
+  if (matched.length === 0) return null;
+  if (cartonId) {
+    matched = matched.filter((option) => option.cartonId === cartonId);
+    if (matched.length === 0) return null;
+  } else {
+    const cartonIds = new Set(matched.map((option) => option.cartonId));
+    if (cartonIds.size > 1) return null;
+  }
+  return matched[0] ?? null;
 }
 
 function matchesDateFilter(date: Date | null | undefined, day: string): boolean {
@@ -138,15 +194,27 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   const focusAppliedRef = useRef(false);
 
   const currentStep: PickTaskStep | null = plan?.steps[0] ?? null;
+  const selectedBatch = currentStep
+    ? resolveSelectedBatch(currentStep, resolvedBinId, resolvedCartonId)
+    : null;
+  const maxPickQty = selectedBatch
+    ? Math.min(currentStep!.quantity, selectedBatch.quantity)
+    : currentStep?.quantity ?? 0;
+  const binVerified = Boolean(
+    currentStep &&
+      resolvedBinId &&
+      (currentStep.allowAnyBatch
+        ? batchOptionsForBin(currentStep, resolvedBinId).length > 0
+        : resolvedBinId === currentStep.binId)
+  );
   const qtyNum = parseInt(pickQty, 10) || 0;
   const canConfirmPick =
     selectedOrder &&
     currentStep &&
-    resolvedBinId === currentStep.binId &&
+    binVerified &&
+    selectedBatch &&
     qtyNum >= 1 &&
-    qtyNum <= currentStep.quantity &&
-    // Carton scan is optional — if scanned, it must match the planned carton.
-    (resolvedCartonId == null || resolvedCartonId === currentStep.cartonId);
+    qtyNum <= maxPickQty;
 
   async function loadPlanForOrder(order: OutboundPickOrder) {
     setLoadingPlan(true);
@@ -408,6 +476,16 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     }
   }, [currentStep?.stepKey]);
 
+  useEffect(() => {
+    if (!currentStep || !selectedBatch) return;
+    const capped = Math.min(currentStep.quantity, selectedBatch.quantity);
+    setPickQty((prev) => {
+      const n = parseInt(prev, 10) || 0;
+      if (n < 1 || n > capped) return String(capped);
+      return prev;
+    });
+  }, [currentStep?.stepKey, selectedBatch?.cartonId, selectedBatch?.lineId, selectedBatch?.quantity]);
+
   async function handleResolveBin(pathOverride?: string) {
     if (!currentStep) return;
     const v = (pathOverride ?? binScan).trim();
@@ -419,6 +497,27 @@ export function WarehouseOpsPick({ warehouse }: Props) {
       if (!bin) {
         toast({ title: "Bin not found", variant: "destructive" });
         setResolvedBinId(null);
+        return;
+      }
+      if (currentStep.allowAnyBatch) {
+        const inBin = batchOptionsForBin(currentStep, bin.id);
+        if (inBin.length === 0) {
+          toast({
+            title: "Wrong bin",
+            description: "Scan a bin from the listed expiry batches.",
+            variant: "destructive",
+          });
+          setResolvedBinId(null);
+          return;
+        }
+        setResolvedBinId(bin.id);
+        setResolvedCartonId(null);
+        setCartonScan("");
+        const cartonIds = new Set(inBin.map((option) => option.cartonId));
+        if (cartonIds.size === 1) {
+          setResolvedCartonId(inBin[0].cartonId);
+          setCartonScan(inBin[0].cartonCode);
+        }
         return;
       }
       if (bin.id !== currentStep.binId) {
@@ -437,7 +536,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   }
 
   async function handleResolveCarton(pathOverride?: string) {
-    if (!currentStep || resolvedBinId !== currentStep.binId) {
+    if (!currentStep || !resolvedBinId || !binVerified) {
       toast({ title: "Scan bin first", variant: "destructive" });
       return;
     }
@@ -454,6 +553,23 @@ export function WarehouseOpsPick({ warehouse }: Props) {
           variant: "destructive",
         });
         setResolvedCartonId(null);
+        return;
+      }
+      if (currentStep.allowAnyBatch) {
+        const match = batchOptionsForBin(currentStep, resolvedBinId).find(
+          (option) => option.cartonId === res.carton.id
+        );
+        if (!match) {
+          toast({
+            title: "Wrong carton",
+            description: "That carton is not one of the listed batches in this bin.",
+            variant: "destructive",
+          });
+          setResolvedCartonId(null);
+          return;
+        }
+        setResolvedCartonId(res.carton.id);
+        setCartonScan(res.carton.cartonCode);
         return;
       }
       if (res.carton.id !== currentStep.cartonId) {
@@ -522,7 +638,8 @@ export function WarehouseOpsPick({ warehouse }: Props) {
             </CardTitle>
             <CardDescription className="text-xs">
               Approve pending shipment requests (same idea as inbound dock), then select a ready
-              order and start picking (FEFO / FIFO by bin walk).
+              order and start picking. Expiry products show all batches (picker chooses); undated
+              stock stays FIFO by receive date.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -888,6 +1005,20 @@ export function WarehouseOpsPick({ warehouse }: Props) {
         </CardContent>
       </Card>
 
+      {selectedOrder.remarks ? (
+        <Card className="border-sky-200 bg-sky-50/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-sky-900">
+              <MessageSquareText className="h-4 w-4" />
+              Customer remarks
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm whitespace-pre-wrap text-sky-950">{selectedOrder.remarks}</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {plan?.shortfalls.length ? (
         <Card className="border-amber-300 bg-amber-50/40">
           <CardHeader className="pb-2">
@@ -967,32 +1098,92 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                 <Package className="h-4 w-4" />
                 Step {currentStep.sequence}
                 {plan ? ` of ${plan.steps.length}` : ""}
+                {currentStep.allowAnyBatch ? (
+                  <Badge variant="outline" className="ml-1 font-normal">
+                    FEFO — choose batch
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="ml-1 font-normal">
+                    FIFO
+                  </Badge>
+                )}
               </CardTitle>
               <CardDescription className="text-xs font-mono">
-                {currentStep.sku} · {currentStep.quantity} units
-                {currentStep.lot ? ` · Lot ${currentStep.lot}` : ""}
-                {currentStep.expiry
-                  ? ` · Exp ${currentStep.expiry.slice(0, 10)}`
-                  : currentStep.receivedAtIso
-                    ? ` · Rcv ${currentStep.receivedAtIso.slice(0, 10)} (FIFO)`
-                    : ""}
+                {currentStep.productName} · {currentStep.sku} · need {currentStep.quantity} units
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <p>
-                <span className="text-muted-foreground">Bin </span>
-                <span className="font-mono font-semibold">{currentStep.binPath}</span>
-              </p>
-              <p>
-                <span className="text-muted-foreground">Carton </span>
-                <span className="font-mono font-semibold">{currentStep.cartonCode}</span>
-              </p>
+            <CardContent className="space-y-3 text-sm">
+              {currentStep.allowAnyBatch ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    All putaway batches for this product (earliest expiry listed first). Scan any
+                    listed bin — system does not lock you to one batch.
+                  </p>
+                  <div className="space-y-2">
+                    {(currentStep.batchOptions ?? []).map((option, index) => {
+                      const isActive =
+                        selectedBatch?.cartonId === option.cartonId &&
+                        selectedBatch?.lineId === option.lineId;
+                      return (
+                        <div
+                          key={`${option.cartonId}:${option.lineId}`}
+                          className={cn(
+                            "rounded-md border p-2.5",
+                            isActive
+                              ? "border-emerald-400 bg-emerald-50/70"
+                              : "bg-white"
+                          )}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            {index === 0 ? (
+                              <Badge className="bg-amber-500 text-white">Earliest expiry</Badge>
+                            ) : (
+                              <Badge variant="outline">Batch {index + 1}</Badge>
+                            )}
+                            <span className="font-semibold">{formatPickExpiry(option.expiry)}</span>
+                            <span className="text-muted-foreground">· qty {option.quantity}</span>
+                          </div>
+                          <p className="mt-1 font-mono text-xs">
+                            Bin {option.binPath}
+                            <span className="text-muted-foreground"> · {option.cartonCode}</span>
+                            {option.lot ? (
+                              <span className="text-muted-foreground"> · Lot {option.lot}</span>
+                            ) : null}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p>
+                    <span className="text-muted-foreground">Bin </span>
+                    <span className="font-mono font-semibold">{currentStep.binPath}</span>
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Carton </span>
+                    <span className="font-mono font-semibold">{currentStep.cartonCode}</span>
+                    {currentStep.receivedAtIso ? (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · Rcv {currentStep.receivedAtIso.slice(0, 10)} (FIFO)
+                      </span>
+                    ) : null}
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Scan bin</CardTitle>
+              {currentStep.allowAnyBatch ? (
+                <CardDescription className="text-xs">
+                  Scan any bin from the batch list above.
+                </CardDescription>
+              ) : null}
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex gap-2">
@@ -1008,25 +1199,40 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                 <ScanCameraButton
                   onScan={(text) => void handleResolveBin(text)}
                   scannerTitle="Scan bin"
-                  scannerDescription={`Expected: ${currentStep.binPath}`}
+                  scannerDescription={
+                    currentStep.allowAnyBatch
+                      ? "Scan any listed batch bin"
+                      : `Expected: ${currentStep.binPath}`
+                  }
                 />
                 <Button onClick={() => void handleResolveBin()} disabled={resolvingBin}>
                   {resolvingBin ? <Loader2 className="h-4 w-4 animate-spin" /> : "OK"}
                 </Button>
               </div>
-              {resolvedBinId === currentStep.binId ? (
+              {binVerified ? (
                 <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300">
                   Bin verified
+                  {selectedBatch ? ` · ${selectedBatch.binPath}` : ""}
                 </Badge>
               ) : null}
             </CardContent>
           </Card>
 
-          <Card className={cn(resolvedBinId !== currentStep.binId && "opacity-60 pointer-events-none")}>
+          <Card className={cn(!binVerified && "opacity-60 pointer-events-none")}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Scan carton (optional)</CardTitle>
+              <CardTitle className="text-sm">
+                Scan carton
+                {currentStep.allowAnyBatch &&
+                resolvedBinId &&
+                new Set(batchOptionsForBin(currentStep, resolvedBinId).map((o) => o.cartonId)).size >
+                  1
+                  ? " (required)"
+                  : " (optional)"}
+              </CardTitle>
               <CardDescription className="text-xs">
-                Skip if you already have the right carton from the pick step — scan only to double-check.
+                {currentStep.allowAnyBatch
+                  ? "Required only when more than one carton is in the scanned bin."
+                  : "Skip if you already have the right carton from the pick step — scan only to double-check."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -1042,39 +1248,44 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                 <ScanCameraButton
                   onScan={(text) => void handleResolveCarton(text)}
                   scannerTitle="Scan carton"
-                  scannerDescription={`Expected: ${currentStep.cartonCode}`}
+                  scannerDescription={
+                    currentStep.allowAnyBatch
+                      ? "Scan carton for the chosen batch"
+                      : `Expected: ${currentStep.cartonCode}`
+                  }
                 />
                 <Button onClick={() => void handleResolveCarton()} disabled={resolvingCarton}>
                   {resolvingCarton ? <Loader2 className="h-4 w-4 animate-spin" /> : "OK"}
                 </Button>
               </div>
-              {resolvedCartonId === currentStep.cartonId ? (
+              {selectedBatch ? (
                 <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300">
-                  Carton verified
+                  Batch ready · {selectedBatch.cartonCode} · Exp{" "}
+                  {formatPickExpiry(selectedBatch.expiry)}
                 </Badge>
-              ) : (
+              ) : binVerified && currentStep.allowAnyBatch ? (
+                <p className="text-[11px] text-amber-800">
+                  Scan the carton for the batch you are picking from this bin.
+                </p>
+              ) : !currentStep.allowAnyBatch ? (
                 <p className="text-[11px] text-muted-foreground">
                   Using planned carton <span className="font-mono">{currentStep.cartonCode}</span>{" "}
                   unless you scan a different one.
                 </p>
-              )}
+              ) : null}
             </CardContent>
           </Card>
 
-          <Card
-            className={cn(
-              resolvedBinId !== currentStep.binId && "opacity-60 pointer-events-none"
-            )}
-          >
+          <Card className={cn(!selectedBatch && "opacity-60 pointer-events-none")}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Confirm quantity</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Label className="text-xs">Pick qty (max {currentStep.quantity})</Label>
+              <Label className="text-xs">Pick qty (max {maxPickQty})</Label>
               <Input
                 type="number"
                 min={1}
-                max={currentStep.quantity}
+                max={maxPickQty}
                 value={pickQty}
                 onChange={(e) => setPickQty(e.target.value)}
               />
@@ -1091,7 +1302,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
               {saving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                `Confirm pick · ${qtyNum || currentStep.quantity} × ${currentStep.sku}`
+                `Confirm pick · ${qtyNum || maxPickQty} × ${currentStep.sku}`
               )}
             </Button>
           </div>

@@ -55,6 +55,11 @@ import {
   type ProductUnitMeasurementDraft,
 } from "@/components/inventory/product-unit-measurements-fields";
 import { measurementFieldsForWrite } from "@/lib/box-suggestion";
+import { ShippedOrderDetailsDialog } from "@/components/dashboard/shipped-order-details-dialog";
+import {
+  buildShippedOrderDetails,
+  type ShippedOrderDetails,
+} from "@/lib/shipment-utils";
 
 interface AdminInventoryManagementProps {
   selectedUser: UserProfile | null;
@@ -447,6 +452,8 @@ export function AdminInventoryManagement({
   const [isRestockViewerOpen, setIsRestockViewerOpen] = useState(false);
   const [detailsTitle, setDetailsTitle] = useState<string>("");
   const [detailsLines, setDetailsLines] = useState<string[]>([]);
+  const [shipmentDetails, setShipmentDetails] = useState<ShippedOrderDetails | null>(null);
+  const [isShipmentDetailsOpen, setIsShipmentDetailsOpen] = useState(false);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [deleteLogsSearch, setDeleteLogsSearch] = useState("");
   const [editLogsSearch, setEditLogsSearch] = useState("");
@@ -777,6 +784,16 @@ export function AdminInventoryManagement({
     setDetailsTitle(title);
     setDetailsLines(lines);
     setIsDetailsDialogOpen(true);
+  };
+
+  const handleShipmentDetailsClick = (item: ShippedItem) => {
+    setShipmentDetails(
+      buildShippedOrderDetails(item, {
+        status: "Shipped",
+        dateLabel: formatDate(item.date),
+      })
+    );
+    setIsShipmentDetailsOpen(true);
   };
 
   const handleMoveInventory = async () => {
@@ -2728,6 +2745,7 @@ export function AdminInventoryManagement({
                       <TableHead className="whitespace-nowrap">Date</TableHead>
                       <TableHead className="min-w-[120px]">Remarks</TableHead>
                       <TableHead className="w-10">Add’l</TableHead>
+                      <TableHead className="w-[100px] text-right">Details</TableHead>
                       <TableHead className="w-12 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -2801,6 +2819,18 @@ export function AdminInventoryManagement({
                             ) : (
                               <span className="text-muted-foreground">—</span>
                             )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 gap-1 text-xs"
+                              onClick={() => handleShipmentDetailsClick(item)}
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              Details
+                            </Button>
                           </TableCell>
                           <TableCell className="text-right">
                             <AlertDialog>
@@ -4146,6 +4176,16 @@ export function AdminInventoryManagement({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Shipment details (products + total) */}
+      <ShippedOrderDetailsDialog
+        open={isShipmentDetailsOpen}
+        onOpenChange={(open) => {
+          setIsShipmentDetailsOpen(open);
+          if (!open) setShipmentDetails(null);
+        }}
+        details={shipmentDetails}
+      />
 
       {/* Remarks Dialog */}
       <Dialog open={isRemarksDialogOpen} onOpenChange={setIsRemarksDialogOpen}>

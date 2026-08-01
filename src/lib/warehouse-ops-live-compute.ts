@@ -288,6 +288,7 @@ export function buildOutboundQueuesLive(input: {
         confirmedAt: dateFromFirestore(data.confirmedAt),
         warehousePickStatus: pickStatus,
         lines,
+        remarks: String(data.remarks ?? "").trim() || null,
       });
       continue;
     }

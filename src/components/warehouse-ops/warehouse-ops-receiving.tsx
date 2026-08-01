@@ -106,6 +106,7 @@ import { WarehouseOpsDockIntake } from "@/components/warehouse-ops/warehouse-ops
 import {
   ProductUnitMeasurementsFields,
 } from "@/components/inventory/product-unit-measurements-fields";
+import { measurementFieldsForWrite } from "@/lib/box-suggestion";
 import {
   inboundRequestPrefill,
   recordInboundReceiveBatch,
@@ -162,6 +163,7 @@ type LineDraft = {
   unitWidthIn?: string;
   unitHeightIn?: string;
   unitWeightLb?: string;
+  weightUnit?: "lb" | "oz";
 };
 
 type CartonDraft = {
@@ -200,6 +202,7 @@ function newLine(): LineDraft {
     unitWidthIn: "",
     unitHeightIn: "",
     unitWeightLb: "",
+    weightUnit: "lb" as const,
   };
 }
 
@@ -214,12 +217,16 @@ function measurementsFromRequestRow(row: {
   unitWidthIn?: number;
   unitHeightIn?: number;
   unitWeightLb?: number;
-}): Pick<LineDraft, "unitLengthIn" | "unitWidthIn" | "unitHeightIn" | "unitWeightLb"> {
+}): Pick<
+  LineDraft,
+  "unitLengthIn" | "unitWidthIn" | "unitHeightIn" | "unitWeightLb" | "weightUnit"
+> {
   return {
     unitLengthIn: row.unitLengthIn != null ? String(row.unitLengthIn) : "",
     unitWidthIn: row.unitWidthIn != null ? String(row.unitWidthIn) : "",
     unitHeightIn: row.unitHeightIn != null ? String(row.unitHeightIn) : "",
     unitWeightLb: row.unitWeightLb != null ? String(row.unitWeightLb) : "",
+    weightUnit: "lb",
   };
 }
 
@@ -1238,6 +1245,7 @@ function ReceiveForm({
           unitWidthIn: "",
           unitHeightIn: "",
           unitWeightLb: "",
+          weightUnit: "lb",
         });
   }
 
@@ -1804,7 +1812,11 @@ function ReceiveForm({
             unitLengthIn: parseOptionalPositive(l.unitLengthIn),
             unitWidthIn: parseOptionalPositive(l.unitWidthIn),
             unitHeightIn: parseOptionalPositive(l.unitHeightIn),
-            unitWeightLb: parseOptionalPositive(l.unitWeightLb),
+            unitWeightLb:
+              measurementFieldsForWrite({
+                unitWeightLb: l.unitWeightLb,
+                weightUnit: l.weightUnit,
+              }).unitWeightLb ?? null,
           });
         }
       }
@@ -2566,8 +2578,17 @@ function ReceiveForm({
                             unitWidthIn: line.unitWidthIn ?? "",
                             unitHeightIn: line.unitHeightIn ?? "",
                             unitWeightLb: line.unitWeightLb ?? "",
+                            weightUnit: line.weightUnit === "oz" ? "oz" : "lb",
                           }}
-                          onChange={(next) => updateLine(c.id, line.id, next)}
+                          onChange={(next) =>
+                            updateLine(c.id, line.id, {
+                              unitLengthIn: next.unitLengthIn,
+                              unitWidthIn: next.unitWidthIn,
+                              unitHeightIn: next.unitHeightIn,
+                              unitWeightLb: next.unitWeightLb,
+                              weightUnit: next.weightUnit,
+                            })
+                          }
                         />
                       ) : null}
                       <p className="text-[10px] text-muted-foreground">

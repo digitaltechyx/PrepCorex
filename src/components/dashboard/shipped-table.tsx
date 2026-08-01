@@ -8,7 +8,12 @@ import {
   formatFbaMasterCaseSummary,
   recordFbaLabelUpload,
 } from "@/lib/fba-shipment-workflow";
-import { getShipmentSummary } from "@/lib/shipment-utils";
+import {
+  getShipmentSummary,
+  buildShippedOrderDetails,
+  shippedItemFromShipmentRequest,
+  type ShippedOrderDetails,
+} from "@/lib/shipment-utils";
 import { doc, updateDoc, Timestamp } from "firebase/firestore";
 import {
   Card,
@@ -29,7 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Search, Filter, ListFilter, X, Eye, Clock, XCircle, Trash2 } from "lucide-react";
+import { Search, Filter, ListFilter, X, Eye, Clock, XCircle, Trash2, FileText } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
@@ -39,6 +44,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
+import { ShippedOrderDetailsDialog } from "@/components/dashboard/shipped-order-details-dialog";
 
 function formatDate(date: ShippedItem["date"]) {
     if (typeof date === 'string') {
@@ -49,6 +55,40 @@ function formatDate(date: ShippedItem["date"]) {
     }
     return "N/A";
   }
+
+/** Parse Firestore Timestamp / Date / ISO string to ms for sorting. */
+function toSortTimeMs(value: unknown): number {
+  if (!value) return 0;
+  if (typeof value === "string") {
+    const t = new Date(value).getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  if (typeof value === "object" && value !== null) {
+    if (typeof (value as { toDate?: () => Date }).toDate === "function") {
+      try {
+        const t = (value as { toDate: () => Date }).toDate().getTime();
+        return Number.isFinite(t) ? t : 0;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (typeof (value as { seconds?: number }).seconds === "number") {
+      return (value as { seconds: number }).seconds * 1000;
+    }
+  }
+  return 0;
+}
+
+/** Prefer the ship date shown in the table; fall back to created/requested time. */
+function rowSortTimeMs(item: { date?: unknown; createdAt?: unknown }): number {
+  const byDate = toSortTimeMs(item.date);
+  if (byDate > 0) return byDate;
+  return toSortTimeMs(item.createdAt);
+}
 
 function formatRestockDate(restockedAt: RestockHistory["restockedAt"]) {
   if (typeof restockedAt === "string") {
@@ -115,6 +155,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
   const [isProductsDialogOpen, setIsProductsDialogOpen] = useState(false);
   const [selectedAdditionalServices, setSelectedAdditionalServices] = useState<any>(null);
   const [isAdditionalServicesDialogOpen, setIsAdditionalServicesDialogOpen] = useState(false);
+  const [shipmentDetails, setShipmentDetails] = useState<ShippedOrderDetails | null>(null);
+  const [isShipmentDetailsOpen, setIsShipmentDetailsOpen] = useState(false);
 
   // Fetch pending shipment requests
   const { data: pendingShipmentRequests } = useCollection<ShipmentRequest>(
@@ -228,6 +270,21 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
   const handleAdditionalServicesClick = (additionalServices: any) => {
     setSelectedAdditionalServices(additionalServices);
     setIsAdditionalServicesDialogOpen(true);
+  };
+
+  const handleShipmentDetailsClick = (item: any) => {
+    const rawRequest = item.rawRequest as ShipmentRequest | undefined;
+    const payload: ShippedItem =
+      item.isRequest && rawRequest
+        ? shippedItemFromShipmentRequest(rawRequest)
+        : (item as ShippedItem);
+    setShipmentDetails(
+      buildShippedOrderDetails(payload, {
+        status: item.status,
+        dateLabel: formatDate(item.date),
+      })
+    );
+    setIsShipmentDetailsOpen(true);
   };
 
   const uploadOneLabelForRequest = async (file: File): Promise<string> => {
@@ -426,17 +483,13 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
       }
     });
 
-    // Combine and sort (most recent first)
+    // Combine and sort by ship Date column (most recent first)
     const allItems = [...pendingItems, ...rejectedItems, ...cancelledItems, ...shippedItems];
 
     const sortedItems = allItems.sort((a, b) => {
-      const aCreated = a.createdAt
-        ? (typeof a.createdAt === 'string' ? new Date(a.createdAt) : new Date(a.createdAt.seconds * 1000))
-        : (typeof a.date === 'string' ? new Date(a.date) : new Date(a.date.seconds * 1000));
-      const bCreated = b.createdAt
-        ? (typeof b.createdAt === 'string' ? new Date(b.createdAt) : new Date(b.createdAt.seconds * 1000))
-        : (typeof b.date === 'string' ? new Date(b.date) : new Date(b.date.seconds * 1000));
-      return bCreated.getTime() - aCreated.getTime();
+      const diff = rowSortTimeMs(b) - rowSortTimeMs(a);
+      if (diff !== 0) return diff;
+      return String(b.id || "").localeCompare(String(a.id || ""));
     });
 
     // Show "Last restocked" only once per product (on the first/latest row)
@@ -451,7 +504,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     });
   }, [data, pendingShipmentRequests, inventory]);
 
-  // Filtered and sorted shipped data (most recent first)
+  // Filtered data — keep date-wise order (most recent first)
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
       const matchesSearch = item.productName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -459,9 +512,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
 
       let matchesDate = true;
       if (dateFilter !== "all") {
-        const itemDate = typeof item.date === 'string' 
-          ? new Date(item.date) 
-          : new Date(item.date.seconds * 1000);
+        const itemDateMs = rowSortTimeMs(item);
+        const itemDate = new Date(itemDateMs || 0);
         const now = new Date();
         const daysDiff = Math.floor((now.getTime() - itemDate.getTime()) / (1000 * 60 * 60 * 24));
         
@@ -484,7 +536,11 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
       return matchesSearch && matchesDate && matchesStatus;
     });
 
-    return filtered;
+    return [...filtered].sort((a, b) => {
+      const diff = rowSortTimeMs(b) - rowSortTimeMs(a);
+      if (diff !== 0) return diff;
+      return String(b.id || "").localeCompare(String(a.id || ""));
+    });
   }, [combinedData, searchTerm, dateFilter, statusFilter]);
 
   // Pagination calculations
@@ -730,6 +786,16 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                         : "Upload Label"}
                     </Button>
                   )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2 h-7 gap-1 text-xs"
+                    onClick={() => handleShipmentDetailsClick(item)}
+                  >
+                    <FileText className="h-3 w-3" />
+                    Details
+                  </Button>
                 </div>
               </div>
             ))
@@ -756,6 +822,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                   <TableHead className="text-xs sm:text-sm hidden lg:table-cell">Additional Services</TableHead>
                   <TableHead className="text-xs sm:text-sm hidden md:table-cell">Last restocked</TableHead>
                   <TableHead className="text-xs sm:text-sm">Status</TableHead>
+                  <TableHead className="text-xs sm:text-sm text-right">Details</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -984,11 +1051,23 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                           </Button>
                         )}
                       </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1 text-xs"
+                          onClick={() => handleShipmentDetailsClick(item)}
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          Details
+                        </Button>
+                      </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                    <TableCell colSpan={11} className="text-center py-8">
+                    <TableCell colSpan={12} className="text-center py-8">
                       <div className="text-xs sm:text-sm text-gray-500">
                         {combinedData.length === 0 ? "No shipped orders or pending requests found." : "No orders match your search criteria."}
                       </div>
@@ -1029,6 +1108,16 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
           </div>
         )}
       </CardContent>
+
+      {/* Shipment details (products + total) */}
+      <ShippedOrderDetailsDialog
+        open={isShipmentDetailsOpen}
+        onOpenChange={(open) => {
+          setIsShipmentDetailsOpen(open);
+          if (!open) setShipmentDetails(null);
+        }}
+        details={shipmentDetails}
+      />
 
       {/* Remarks Dialog */}
       <Dialog open={isRemarksDialogOpen} onOpenChange={setIsRemarksDialogOpen}>
