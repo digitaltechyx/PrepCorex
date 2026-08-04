@@ -1589,6 +1589,62 @@ export function AdminInventoryManagement({
     };
   };
 
+  const buildInvoiceItemsFromShipments = (shipments: any[]) => {
+    const items: Array<{
+      quantity: number;
+      productName: string;
+      shipDate: string;
+      packaging: string;
+      shipTo: string;
+      unitPrice: number;
+      amount: number;
+    }> = [];
+
+    for (const shipped of shipments) {
+      const qty = Number(
+        (shipped as any).unitsForPricing ??
+          (shipped as any).boxesShipped ??
+          shipped.shippedQty ??
+          0
+      );
+      const unitPrice = Number(shipped.unitPrice || 0);
+      const shipDate =
+        typeof shipped.date === "string"
+          ? format(new Date(shipped.date), "dd/MM/yyyy")
+          : format(new Date(shipped.date.seconds * 1000), "dd/MM/yyyy");
+      const shipTo = String(shipped.shipTo || "");
+
+      items.push({
+        quantity: qty,
+        productName: shipped.productName || "Unknown Product",
+        shipDate,
+        packaging: `${shipped.packOf ?? 1} Nos.`,
+        shipTo,
+        unitPrice,
+        amount: qty * unitPrice,
+      });
+
+      const labelPrice = Number((shipped as any).labelPrice || 0);
+      if (labelPrice > 0.0001) {
+        const orderLabel =
+          (shipped as any).shopifyOrderName ||
+          (shipped as any).shopifyOrderId ||
+          "Shopify";
+        items.push({
+          quantity: 1,
+          productName: `Shipping label · ${orderLabel}`,
+          shipDate,
+          packaging: "Label",
+          shipTo,
+          unitPrice: labelPrice,
+          amount: labelPrice,
+        });
+      }
+    }
+
+    return items;
+  };
+
   const handleGenerateInvoice = async () => {
     if (!selectedUser) {
       toast({
@@ -1639,16 +1695,7 @@ export function AdminInventoryManagement({
         address: '',
       },
       fbm: 'Standard Shipping',
-      items: todayShipments.map(shipped => ({
-        quantity: Number((shipped as any).unitsForPricing ?? (shipped as any).boxesShipped ?? shipped.shippedQty ?? 0),
-        productName: shipped.productName || "Unknown Product",
-        shipDate: (typeof shipped.date === 'string')
-          ? format(new Date(shipped.date), 'dd/MM/yyyy')
-          : format(new Date(shipped.date.seconds * 1000), 'dd/MM/yyyy'),
-        packaging: `${shipped.packOf} Nos.`,
-        unitPrice: shipped.unitPrice || 0,
-        amount: ((shipped as any).unitsForPricing ?? (shipped as any).boxesShipped ?? shipped.shippedQty) * (shipped.unitPrice || 0),
-      })),
+      items: buildInvoiceItemsFromShipments(todayShipments),
       additionalServices: additionalServices || undefined,
     };
 
@@ -1763,16 +1810,7 @@ export function AdminInventoryManagement({
         address: '',
       },
       fbm: 'Standard Shipping',
-      items: rangeShipments.map(shipped => ({
-        quantity: Number((shipped as any).unitsForPricing ?? (shipped as any).boxesShipped ?? shipped.shippedQty ?? 0),
-        productName: shipped.productName || "Unknown Product",
-        shipDate: (typeof shipped.date === 'string')
-          ? format(new Date(shipped.date), 'dd/MM/yyyy')
-          : format(new Date(shipped.date.seconds * 1000), 'dd/MM/yyyy'),
-        packaging: `${shipped.packOf} Nos.`,
-        unitPrice: shipped.unitPrice || 0,
-        amount: ((shipped as any).unitsForPricing ?? (shipped as any).boxesShipped ?? shipped.shippedQty) * (shipped.unitPrice || 0),
-      })),
+      items: buildInvoiceItemsFromShipments(rangeShipments),
       additionalServices: additionalServices || undefined,
     } as const;
 
@@ -1861,23 +1899,46 @@ export function AdminInventoryManagement({
   const paginatedInventory = filteredInventory.slice(inventoryStartIndex, inventoryEndIndex);
   const resetInventoryPagination = () => setInventoryPage(1);
 
-  // Filtered shipped data
+  // Filtered shipped data — newest ship date first (same as client Shipped Orders page)
   const filteredShipped = useMemo(() => {
+    const toSortTimeMs = (value: unknown): number => {
+      if (!value) return 0;
+      if (typeof value === "string" || typeof value === "number") {
+        const t = new Date(value).getTime();
+        return Number.isFinite(t) ? t : 0;
+      }
+      if (typeof value === "object" && value !== null) {
+        if (typeof (value as { toDate?: () => Date }).toDate === "function") {
+          try {
+            const t = (value as { toDate: () => Date }).toDate().getTime();
+            return Number.isFinite(t) ? t : 0;
+          } catch {
+            /* ignore */
+          }
+        }
+        if (typeof (value as { seconds?: number }).seconds === "number") {
+          return (value as { seconds: number }).seconds * 1000;
+        }
+      }
+      return 0;
+    };
+
+    const shipSortTimeMs = (item: ShippedItem): number => {
+      const byDate = toSortTimeMs(item.date);
+      if (byDate > 0) return byDate;
+      return toSortTimeMs((item as ShippedItem & { createdAt?: unknown }).createdAt);
+    };
+
     const filtered = shipped.filter((item) => {
       const matchesSearch = (item.productName || "").toLowerCase().includes(shippedSearch.toLowerCase());
       const matchesDate = matchesDateFilter(item.date, shippedDateFilter);
       return matchesSearch && matchesDate;
     });
 
-    // Sort by createdAt when available, otherwise by date (most recent first)
     return filtered.sort((a, b) => {
-      const aCreated = (a as any).createdAt
-        ? (typeof (a as any).createdAt === 'string' ? new Date((a as any).createdAt) : new Date((a as any).createdAt.seconds * 1000))
-        : (typeof a.date === 'string' ? new Date(a.date) : new Date(a.date.seconds * 1000));
-      const bCreated = (b as any).createdAt
-        ? (typeof (b as any).createdAt === 'string' ? new Date((b as any).createdAt) : new Date((b as any).createdAt.seconds * 1000))
-        : (typeof b.date === 'string' ? new Date(b.date) : new Date(b.date.seconds * 1000));
-      return bCreated.getTime() - aCreated.getTime();
+      const diff = shipSortTimeMs(b) - shipSortTimeMs(a);
+      if (diff !== 0) return diff;
+      return String(b.id || "").localeCompare(String(a.id || ""));
     });
   }, [shipped, shippedSearch, shippedDateFilter]);
 
@@ -2305,6 +2366,7 @@ export function AdminInventoryManagement({
                   managedUsers={selectedUser ? [selectedUser] : []}
                   filterUserId={selectedUser?.uid}
                   initialReturnId={initialRequestId}
+                  pinActionableToTop
                 />
               </TabsContent>
               <TabsContent value="dispose" className="mt-4">
@@ -2325,6 +2387,7 @@ export function AdminInventoryManagement({
                   selectedUser={selectedUser}
                   inventory={inventory}
                   initialRequestId={initialRequestId}
+                  pinActionableToTop
                 />
               </TabsContent>
             </Tabs>

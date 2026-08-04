@@ -5,9 +5,15 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { doc, getDoc } from "firebase/firestore";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import { useToast } from "@/hooks/use-toast";
+import { db } from "@/lib/firebase";
+import {
+  saveShopifyLabelFulfillHandoff,
+  shopifyQuickFulfillReturnUrl,
+} from "@/lib/shopify-order-buy-label-prefill";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -25,6 +31,7 @@ import {
 import { ParcelBoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import { BUY_LABELS_FROM_NAME, BUY_LABELS_DEFAULT_FROM_PHONE } from "@/lib/buy-labels-bulk-import";
 import { buildBuyLabelParcelPrefillFromSource } from "@/lib/buy-label-parcel-prefill";
+import { getBuyLabelRateDisplay } from "@/lib/buy-label-rate-display";
 import { formatUnitDimensions, formatUnitWeight } from "@/lib/box-suggestion";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
@@ -33,7 +40,11 @@ import { PaymentDialog } from "./payment-dialog";
 import type { InventoryItem, ShippingAddress, ParcelDetails, ShippingRate } from "@/types";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { findDefaultWarehouseLocationIdInList } from "@/lib/default-warehouse";
-import { locationToFromShippingAddress } from "@/lib/location-shipping-address";
+import {
+  locationToFromShippingAddress,
+  normalizeShippoCountry,
+  normalizeShippoState,
+} from "@/lib/location-shipping-address";
 import { canUseCsvImport } from "@/lib/csv-import-permissions";
 import { cn } from "@/lib/utils";
 
@@ -167,18 +178,7 @@ type LabelCartItem = {
 type LabelProvider = "shippo" | "shipbest";
 
 function getRateDisplay(rate: ShippingRate): { provider: string; service: string } {
-  const isGofo = /gofo/i.test(`${rate.provider} ${rate.servicelevel.name}`);
-  if (!isGofo) {
-    return { provider: rate.provider, service: rate.servicelevel.name };
-  }
-
-  const service =
-    rate.servicelevel.name
-      .replace(/shipbest/gi, "")
-      .replace(/gofo/gi, "Gofo")
-      .replace(/\s+/g, " ")
-      .trim() || "Gofo";
-  return { provider: "PrepCorex", service };
+  return getBuyLabelRateDisplay(rate);
 }
 
 function toPaymentSelectedRate(
@@ -235,7 +235,8 @@ const EMPTY_TO_ADDRESS: FormValues["toAddress"] = {
   state: "",
   zip: "",
   country: "US",
-  phone: "",
+  /** Default to warehouse phone; user can change recipient phone on To. */
+  phone: BUY_LABELS_DEFAULT_FROM_PHONE,
   email: "",
 };
 
@@ -278,6 +279,19 @@ type BuyLabelsFormProps = {
   } | null;
   /** Banner when parcel was prefilled from outbound / inventory. */
   parcelPrefillBanner?: string | null;
+  /**
+   * Shopify → Buy Labels context. When set, admin can pick the client's warehouse
+   * products and after purchase returns to that order's Quick Fulfill.
+   */
+  shopifyOrderContext?: {
+    orderId: string;
+    orderName: string;
+    shop: string;
+    ownerUserId: string;
+    ownerName: string;
+  } | null;
+  /** Optional list of clients for the inventory-owner picker (admin Shopify flow). */
+  clientOptions?: Array<{ uid: string; label: string }>;
 };
 
 export function BuyLabelsForm({
@@ -286,6 +300,8 @@ export function BuyLabelsForm({
   shopifyPrefillBanner = null,
   initialParcel = null,
   parcelPrefillBanner = null,
+  shopifyOrderContext = null,
+  clientOptions = [],
 }: BuyLabelsFormProps = {}) {
   const { userProfile, user } = useAuth();
   const { toast } = useToast();
@@ -308,11 +324,23 @@ export function BuyLabelsForm({
   const [selectedInventoryProductId, setSelectedInventoryProductId] = useState<string>("");
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [inventoryOwnerUserId, setInventoryOwnerUserId] = useState<string>(
+    shopifyOrderContext?.ownerUserId || ""
+  );
+  const [pendingLabelPurchaseId, setPendingLabelPurchaseId] = useState<string | null>(null);
   const canImportBuyLabels = canUseCsvImport(userProfile, "buy_labels");
   const appliedInitialToRef = useRef(false);
   const appliedInitialParcelRef = useRef(false);
 
-  const inventoryPath = user?.uid ? `users/${user.uid}/inventory` : "";
+  useEffect(() => {
+    if (shopifyOrderContext?.ownerUserId) {
+      setInventoryOwnerUserId(shopifyOrderContext.ownerUserId);
+    }
+  }, [shopifyOrderContext?.ownerUserId]);
+
+  const inventoryOwnerId =
+    (inventoryOwnerUserId || shopifyOrderContext?.ownerUserId || user?.uid || "").trim();
+  const inventoryPath = inventoryOwnerId ? `users/${inventoryOwnerId}/inventory` : "";
   const { data: inventoryItems } = useCollection<InventoryItem>(inventoryPath);
 
   const inventoryProductOptions = useMemo(() => {
@@ -428,21 +456,40 @@ export function BuyLabelsForm({
   useEffect(() => {
     if (!initialToAddress || appliedInitialToRef.current) return;
     appliedInitialToRef.current = true;
-    form.setValue(
-      "toAddress",
-      {
-        name: initialToAddress.name,
-        street1: initialToAddress.street1,
-        street2: initialToAddress.street2 || "",
-        city: initialToAddress.city,
-        state: initialToAddress.state,
-        zip: initialToAddress.zip,
-        country: initialToAddress.country,
-        phone: initialToAddress.phone || "",
-        email: initialToAddress.email || "",
-      },
-      { shouldDirty: true, shouldValidate: false }
-    );
+    const country = normalizeShippoCountry(initialToAddress.country);
+    const state = normalizeShippoState(initialToAddress.state, country);
+    const phone = DEFAULT_FROM_PHONE;
+
+    form.setValue("toAddress.name", initialToAddress.name || "", {
+      shouldDirty: true,
+      shouldValidate: false,
+    });
+    form.setValue("toAddress.street1", initialToAddress.street1 || "", {
+      shouldDirty: true,
+      shouldValidate: false,
+    });
+    form.setValue("toAddress.street2", initialToAddress.street2 || "", {
+      shouldDirty: true,
+      shouldValidate: false,
+    });
+    form.setValue("toAddress.city", initialToAddress.city || "", {
+      shouldDirty: true,
+      shouldValidate: false,
+    });
+    form.setValue("toAddress.zip", initialToAddress.zip || "", {
+      shouldDirty: true,
+      shouldValidate: false,
+    });
+    form.setValue("toAddress.email", initialToAddress.email || "", {
+      shouldDirty: true,
+      shouldValidate: false,
+    });
+    form.setValue("toAddress.phone", phone, { shouldDirty: true, shouldValidate: false });
+    // Country first, then state on next tick so the State Select remounts with the right options.
+    form.setValue("toAddress.country", country, { shouldDirty: true, shouldValidate: false });
+    queueMicrotask(() => {
+      form.setValue("toAddress.state", state, { shouldDirty: true, shouldValidate: false });
+    });
   }, [initialToAddress, form]);
 
   useEffect(() => {
@@ -668,8 +715,11 @@ export function BuyLabelsForm({
       throw new Error(errorMessage);
     }
 
-    const { clientSecret } = await paymentResponse.json();
+    const { clientSecret, labelPurchaseId } = await paymentResponse.json();
     setClientSecret(clientSecret);
+    setPendingLabelPurchaseId(
+      typeof labelPurchaseId === "string" && labelPurchaseId ? labelPurchaseId : null
+    );
     setPaymentAmountCents(amount);
     setPaymentCurrency(item.selectedRate.currency || "usd");
     setPaymentDialogOpen(true);
@@ -811,9 +861,84 @@ export function BuyLabelsForm({
     setCartItems((prev) => [...prev, ...newItems]);
   };
 
-  const handlePaymentSuccess = () => {
+  const handlePaymentSuccess = async () => {
     if (checkoutMode === "bulk") {
       setCartItems([]);
+    }
+
+    const selectedProduct = (inventoryItems || []).find(
+      (item) => item.id === selectedInventoryProductId
+    );
+    const labelPrice = selectedRate
+      ? Number.parseFloat(String(selectedRate.amount))
+      : NaN;
+
+    if (shopifyOrderContext && user?.uid) {
+      let trackingNumber: string | null = null;
+      let trackingCompany: string | null = null;
+      if (pendingLabelPurchaseId) {
+        for (let i = 0; i < 12; i++) {
+          try {
+            const snap = await getDoc(
+              doc(db, `users/${user.uid}/labelPurchases`, pendingLabelPurchaseId)
+            );
+            if (snap.exists()) {
+              const data = snap.data() as {
+                trackingNumber?: string;
+                selectedRate?: { provider?: string; serviceLevel?: string };
+                status?: string;
+              };
+              if (data.trackingNumber) {
+                trackingNumber = String(data.trackingNumber);
+                trackingCompany =
+                  data.selectedRate?.provider || data.selectedRate?.serviceLevel || null;
+                break;
+              }
+              if (data.status === "label_failed") break;
+            }
+          } catch {
+            // keep polling
+          }
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+
+      saveShopifyLabelFulfillHandoff({
+        ownerUserId: inventoryOwnerId || shopifyOrderContext.ownerUserId,
+        orderId: shopifyOrderContext.orderId,
+        orderName: shopifyOrderContext.orderName,
+        shop: shopifyOrderContext.shop,
+        inventoryProductId: selectedInventoryProductId || null,
+        inventoryProductName: selectedProduct?.productName || null,
+        labelPurchaseId: pendingLabelPurchaseId,
+        labelPrice: Number.isFinite(labelPrice) ? labelPrice : null,
+        trackingNumber,
+        trackingCompany,
+        purchasedByUserId: user.uid,
+      });
+
+      resetFormForNextLabel();
+      setRates([]);
+      setSelectedRate(null);
+      setShipmentId(null);
+      setClientSecret(null);
+      setCheckoutMode(null);
+      setPendingLabelPurchaseId(null);
+
+      toast({
+        title: trackingNumber ? "Label purchased" : "Payment succeeded",
+        description: trackingNumber
+          ? "Returning to Quick Fulfill with tracking prefilled."
+          : "Returning to Quick Fulfill. Tracking may appear shortly — refresh if needed.",
+      });
+
+      router.push(
+        shopifyQuickFulfillReturnUrl({
+          ownerUserId: inventoryOwnerId || shopifyOrderContext.ownerUserId,
+          orderId: shopifyOrderContext.orderId,
+        })
+      );
+      return;
     }
 
     // Reset form after successful payment
@@ -823,6 +948,7 @@ export function BuyLabelsForm({
     setShipmentId(null);
     setClientSecret(null);
     setCheckoutMode(null);
+    setPendingLabelPurchaseId(null);
     
     // Redirect to purchased labels page
     router.push(successRedirect);
@@ -835,8 +961,8 @@ export function BuyLabelsForm({
           <Package className="h-4 w-4" />
           <AlertTitle>Pre-filled from Shopify order</AlertTitle>
           <AlertDescription>
-            {shopifyPrefillBanner}. From and ship-to addresses are filled in — add package dimensions,
-            get rates, and purchase.
+            {shopifyPrefillBanner}. Ship-to is filled in — select the client&apos;s warehouse product
+            for dimensions, get rates, and purchase. You&apos;ll return to Quick Fulfill with tracking.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -953,8 +1079,15 @@ export function BuyLabelsForm({
                       <FormItem>
                         <FormLabel>Phone *</FormLabel>
                         <FormControl>
-                          <Input placeholder="+1 347 661 3010 or your country format" {...field} />
+                          <Input
+                            placeholder={DEFAULT_FROM_PHONE}
+                            {...field}
+                            disabled={fromAddressLocked}
+                          />
                         </FormControl>
+                        <p className="text-[11px] text-muted-foreground">
+                          Defaults to the warehouse phone.
+                        </p>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -1097,8 +1230,14 @@ export function BuyLabelsForm({
                       <FormItem>
                         <FormLabel>Phone</FormLabel>
                         <FormControl>
-                          <Input placeholder="+1 555 123 4567 or your country format (optional)" {...field} />
+                          <Input
+                            placeholder={DEFAULT_FROM_PHONE}
+                            {...field}
+                          />
                         </FormControl>
+                        <p className="text-[11px] text-muted-foreground">
+                          Defaults to the warehouse phone — change here if the recipient needs a different number.
+                        </p>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -1135,11 +1274,16 @@ export function BuyLabelsForm({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Country *</FormLabel>
-                        <Select onValueChange={(value) => {
-                          field.onChange(value);
-                          // Reset state when country changes
-                          form.setValue("toAddress.state", "");
-                        }} value={field.value}>
+                        <Select
+                          onValueChange={(value) => {
+                            const prev = field.value;
+                            field.onChange(value);
+                            if (prev !== value) {
+                              form.setValue("toAddress.state", "");
+                            }
+                          }}
+                          value={field.value || undefined}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Select country" />
@@ -1164,7 +1308,7 @@ export function BuyLabelsForm({
                       return (
                         <FormItem>
                           <FormLabel>{selectedCountry === "CA" ? "Province" : "State"} *</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
+                          <Select onValueChange={field.onChange} value={field.value || undefined}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder={`Select ${selectedCountry === "CA" ? "province" : "state"}`} />
@@ -1220,10 +1364,47 @@ export function BuyLabelsForm({
                 </div>
 
                 <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                  {shopifyOrderContext ? (
+                    <div className="space-y-2 pb-2">
+                      <Label className="text-sm font-medium">Client (warehouse inventory)</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Products below load from this client&apos;s inventory. Pre-selected from the
+                        Shopify order owner — change only if needed.
+                      </p>
+                      <Select
+                        value={inventoryOwnerId || undefined}
+                        onValueChange={(value) => {
+                          setInventoryOwnerUserId(value);
+                          setSelectedInventoryProductId("");
+                          setProductSearchQuery("");
+                        }}
+                      >
+                        <SelectTrigger className="w-full max-w-md">
+                          <SelectValue placeholder="Select client…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(clientOptions.length > 0
+                            ? clientOptions
+                            : [
+                                {
+                                  uid: shopifyOrderContext.ownerUserId,
+                                  label: shopifyOrderContext.ownerName,
+                                },
+                              ]
+                          ).map((opt) => (
+                            <SelectItem key={opt.uid} value={opt.uid}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
                   <Label className="text-sm font-medium">Product (optional)</Label>
                   <p className="text-xs text-muted-foreground">
-                    Select an inventory product to autofill length, width, height, and weight. Or
-                    leave blank and enter package details manually.
+                    {shopifyOrderContext
+                      ? "Select the warehouse product you are quick-fulfilling to autofill dimensions. This product will be preselected on return to Quick Fulfill."
+                      : "Select an inventory product to autofill length, width, height, and weight. Or leave blank and enter package details manually."}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <Popover

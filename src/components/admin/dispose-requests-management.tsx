@@ -13,6 +13,12 @@ import {
   refreshDisposeBatchCounts,
   rejectDisposeBatchLine,
 } from "@/lib/dispose-batch";
+import {
+  compareQueueSortKeys,
+  isDisposeBatchActionable,
+  isDisposeRequestActionable,
+  queueSortKey,
+} from "@/lib/user-request-queue-sort";
 import { DisposeBatchAdminDialog } from "@/components/admin/dispose-batch-admin-dialog";
 import { doc, updateDoc, collection, addDoc, runTransaction, Timestamp, serverTimestamp, getDocs } from "firebase/firestore";
 import { format } from "date-fns";
@@ -128,15 +134,12 @@ export function DisposeRequestsManagement({
       );
     }
     return batches.sort((a, b) => {
-      const msA =
-        a.requestedAt && typeof a.requestedAt === "object" && "seconds" in a.requestedAt
-          ? a.requestedAt.seconds * 1000
-          : 0;
-      const msB =
-        b.requestedAt && typeof b.requestedAt === "object" && "seconds" in b.requestedAt
-          ? b.requestedAt.seconds * 1000
-          : 0;
-      return msB - msA;
+      const key = (batch: (typeof disposeBatches)[number]) =>
+        queueSortKey({
+          actionable: isDisposeBatchActionable(batch),
+          requestDate: batch.requestedAt,
+        });
+      return compareQueueSortKeys(key(a), key(b));
     });
   }, [disposeBatches, statusFilter, requestSearch]);
 
@@ -152,9 +155,13 @@ export function DisposeRequestsManagement({
       );
     }
     return [...list].sort((a, b) => {
-      const msA = a.requestedAt && typeof a.requestedAt === "object" && "seconds" in a.requestedAt ? a.requestedAt.seconds * 1000 : 0;
-      const msB = b.requestedAt && typeof b.requestedAt === "object" && "seconds" in b.requestedAt ? b.requestedAt.seconds * 1000 : 0;
-      return msB - msA;
+      const key = (req: DisposeRequest) =>
+        queueSortKey({
+          actionable: isDisposeRequestActionable(req),
+          actionDate: req.approvedAt,
+          requestDate: req.requestedAt,
+        });
+      return compareQueueSortKeys(key(a), key(b));
     });
   }, [singleRequests, statusFilter, requestSearch]);
 

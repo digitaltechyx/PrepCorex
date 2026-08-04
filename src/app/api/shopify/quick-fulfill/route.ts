@@ -70,6 +70,14 @@ export async function POST(request: NextRequest) {
   const trackingCompany =
     typeof body.tracking_company === "string" ? body.tracking_company.trim() : undefined;
   const notifyCustomer = body.notify_customer === true;
+  const labelPriceRaw = Number(body.label_price ?? body.labelPrice);
+  const labelPrice = Number.isFinite(labelPriceRaw) ? labelPriceRaw : undefined;
+  const labelPurchaseId =
+    typeof body.label_purchase_id === "string"
+      ? body.label_purchase_id.trim()
+      : typeof body.labelPurchaseId === "string"
+        ? body.labelPurchaseId.trim()
+        : undefined;
 
   const rawLines = Array.isArray(body.lines) ? body.lines : [];
   const lines: QuickFulfillLineInput[] = rawLines.map((line: Record<string, unknown>) => ({
@@ -100,6 +108,8 @@ export async function POST(request: NextRequest) {
       trackingCompany,
       notifyCustomer,
       fulfilledBy: callerName,
+      labelPrice,
+      labelPurchaseId,
     });
 
     const syncErrors: string[] = [];

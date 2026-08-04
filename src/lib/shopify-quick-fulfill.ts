@@ -8,6 +8,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import { shopifyAdminRestUrl } from "@/lib/shopify-api";
 import { getShopifyAccessTokenForUserShop } from "@/lib/shopify-access-token";
 import { deductWarehouseStockForQuickFulfill } from "@/lib/warehouse-quick-fulfill-deduct";
+import { resolveShopifyQuickFulfillDtcUnitPrice } from "@/lib/shopify-quick-fulfill-pricing";
+import { DTC_FBM_SERVICE } from "@/types";
 
 export type QuickFulfillLineInput = {
   /** Shopify order line item id (string). */
@@ -174,6 +176,9 @@ export async function executeShopifyQuickFulfill(input: {
   trackingCompany?: string;
   notifyCustomer?: boolean;
   fulfilledBy: string;
+  /** PrepCorex Buy Labels price in USD to record on shipped + invoice. */
+  labelPrice?: number | null;
+  labelPurchaseId?: string | null;
 }): Promise<QuickFulfillResult> {
   const shop = normalizeShop(input.shop);
   const orderId = String(input.orderId || "").trim();
@@ -246,10 +251,19 @@ export async function executeShopifyQuickFulfill(input: {
     String(input.orderName || "").trim() ||
     (input.orderNumber != null ? `#${input.orderNumber}` : `#${orderId}`);
   const trackingParts = [input.trackingCompany, input.trackingNumber].filter(Boolean).join(" ");
+  const labelPrice =
+    input.labelPrice != null && Number.isFinite(Number(input.labelPrice))
+      ? Math.max(0, Number(Number(input.labelPrice).toFixed(2)))
+      : 0;
+  const labelPurchaseId =
+    typeof input.labelPurchaseId === "string" && input.labelPurchaseId.trim()
+      ? input.labelPurchaseId.trim()
+      : null;
   const remarks = [
     `Shipped for Shopify order ${orderName}`,
     `Store: ${shop.replace(/\.myshopify\.com$/i, "")}`,
     trackingParts ? `Tracking: ${trackingParts}` : null,
+    labelPrice > 0 ? `Label price: $${labelPrice.toFixed(2)}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -257,6 +271,13 @@ export async function executeShopifyQuickFulfill(input: {
   const shippedRef = input.db.collection("users").doc(ownerUserId).collection("shipped").doc();
   const shopifySyncHints: ShopifyInventorySyncHint[] = [];
   const now = FieldValue.serverTimestamp();
+
+  const provisionalUnits = Array.from(qtyByInventoryId.values()).reduce((a, b) => a + b, 0);
+  const dtcUnitPrice = await resolveShopifyQuickFulfillDtcUnitPrice(
+    input.db,
+    ownerUserId,
+    provisionalUnits
+  );
 
   await input.db.runTransaction(async (tx) => {
     const logSnap = await tx.get(logRef);
@@ -333,7 +354,7 @@ export async function executeShopifyQuickFulfill(input: {
         boxesShipped: shipQty,
         shippedQty: shipQty,
         packOf: 1,
-        unitPrice: 0,
+        unitPrice: dtcUnitPrice,
         remainingQty: newQuantity,
       });
       totalUnits += shipQty;
@@ -367,18 +388,20 @@ export async function executeShopifyQuickFulfill(input: {
       unitsForPricing: totalUnits,
       remainingQty: Math.max(0, first.available - first.needed),
       packOf: 1,
-      unitPrice: 0,
+      unitPrice: dtcUnitPrice,
       shipTo,
       remarks,
-      service: "Shopify",
+      service: DTC_FBM_SERVICE,
       shipmentType: "product",
-      productType: "Shopify Quick Fulfill",
+      productType: "Standard",
       source: "shopify",
       shopifyOrderId: orderId,
       shopifyOrderName: orderName,
       shopifyShop: shop,
       trackingNumber: input.trackingNumber || null,
       trackingCompany: input.trackingCompany || null,
+      labelPrice: labelPrice > 0 ? labelPrice : null,
+      labelPurchaseId,
       items,
       totalBoxes: totalUnits,
       totalUnits,

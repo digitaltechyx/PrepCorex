@@ -47,20 +47,28 @@ export function PutawayBinWritePicker({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return bins;
-    return bins.filter((b) => {
-      const path = b.path.toLowerCase();
-      const code = (b.binCode ?? "").toLowerCase();
-      const barcode = (b.barcode ?? "").toLowerCase();
-      const area = (b.area ?? "").toLowerCase();
-      return (
-        path.includes(q) ||
-        code.includes(q) ||
-        barcode.includes(q) ||
-        area.includes(q)
-      );
+    const matched = !q
+      ? [...bins]
+      : bins.filter((b) => {
+          const path = b.path.toLowerCase();
+          const code = (b.binCode ?? "").toLowerCase();
+          const barcode = (b.barcode ?? "").toLowerCase();
+          const area = (b.area ?? "").toLowerCase();
+          return (
+            path.includes(q) ||
+            code.includes(q) ||
+            barcode.includes(q) ||
+            area.includes(q)
+          );
+        });
+    // Available bins first; occupied at the bottom. Stable path order within each group.
+    return matched.sort((a, b) => {
+      const aOcc = occupiedBinIds?.has(a.id) ? 1 : 0;
+      const bOcc = occupiedBinIds?.has(b.id) ? 1 : 0;
+      if (aOcc !== bOcc) return aOcc - bOcc;
+      return a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: "base" });
     });
-  }, [bins, query]);
+  }, [bins, occupiedBinIds, query]);
 
   function pickBin(bin: WarehouseBinDoc) {
     onChange(bin.path);
@@ -111,10 +119,15 @@ export function PutawayBinWritePicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] min-w-[280px] p-0"
+        className="w-[var(--radix-popover-trigger-width)] min-w-[280px] p-0 overflow-hidden flex flex-col"
         align="start"
+        side="bottom"
+        collisionPadding={12}
+        style={{
+          maxHeight: "min(20rem, var(--radix-popover-content-available-height, 20rem))",
+        }}
       >
-        <div className="flex items-center gap-2 border-b px-3 py-2">
+        <div className="flex items-center gap-2 border-b px-3 py-2 shrink-0">
           <Search className="h-4 w-4 text-muted-foreground shrink-0" />
           <Input
             value={query}
@@ -128,7 +141,11 @@ export function PutawayBinWritePicker({
             autoFocus
           />
         </div>
-        <div className="max-h-64 overflow-y-auto p-1">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1"
+          onWheel={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+        >
           {occupancyLoading ? (
             <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />

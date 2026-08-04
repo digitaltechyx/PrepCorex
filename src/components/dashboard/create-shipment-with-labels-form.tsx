@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
-import { collection, doc, Timestamp, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, Timestamp, writeBatch } from "firebase/firestore";
 import { useMemo, useState, useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -231,18 +231,57 @@ export function CreateShipmentWithLabelsForm({
     );
   };
 
+  const [fetchedOwnerPricingProfileId, setFetchedOwnerPricingProfileId] = useState<
+    string | null | undefined
+  >(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!ownerId) {
+      setFetchedOwnerPricingProfileId(undefined);
+      return;
+    }
+    if (targetUserProfile?.uid === ownerId) {
+      setFetchedOwnerPricingProfileId(targetUserProfile.pricingProfileId ?? null);
+      return;
+    }
+    if (userProfile?.uid === ownerId) {
+      setFetchedOwnerPricingProfileId(userProfile.pricingProfileId ?? null);
+      return;
+    }
+    // Admin/on-behalf flows sometimes only pass ownerId — load the assigned profile.
+    setFetchedOwnerPricingProfileId(undefined);
+    void getDoc(doc(db, "users", ownerId)).then((snap) => {
+      if (cancelled) return;
+      if (!snap.exists()) {
+        setFetchedOwnerPricingProfileId(null);
+        return;
+      }
+      const id = snap.data()?.pricingProfileId;
+      setFetchedOwnerPricingProfileId(typeof id === "string" ? id : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ownerId, targetUserProfile, userProfile]);
+
   const pricingUser = useMemo(() => {
     if (!ownerId) return null;
     if (targetUserProfile?.uid === ownerId) return targetUserProfile;
     if (userProfile?.uid === ownerId) return userProfile;
-    return { uid: ownerId, pricingProfileId: targetUserProfile?.pricingProfileId };
-  }, [ownerId, targetUserProfile, userProfile]);
+    return {
+      uid: ownerId,
+      pricingProfileId:
+        fetchedOwnerPricingProfileId ?? targetUserProfile?.pricingProfileId ?? null,
+    };
+  }, [ownerId, targetUserProfile, userProfile, fetchedOwnerPricingProfileId]);
 
   const {
     pricingRules: effectivePricingRules,
     boxForwardingPricing: effectiveBoxForwardingPricing,
     palletForwardingPricing: effectivePalletForwardingPricing,
     additionalServicesPricing: effectiveAdditionalServicesPricing,
+    loading: profilePricingLoading,
   } = useUserPricingCollections(pricingUser);
 
   const [isLoading, setIsLoading] = useState(false);
@@ -367,6 +406,7 @@ export function CreateShipmentWithLabelsForm({
             finalUnitPrice = calculatedPrice.rate;
           }
         } else if (shipmentType === "box") {
+          if (profilePricingLoading) return;
           if (effectiveBoxForwardingPricing && effectiveBoxForwardingPricing.length > 0) {
             const latestBoxPricing = [...effectiveBoxForwardingPricing].sort((a, b) => {
               const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
@@ -383,9 +423,11 @@ export function CreateShipmentWithLabelsForm({
               }
             }
           }
-          // If no pricing found, keep finalUnitPrice at 0 to clear incorrect values
+          // Don't force $0 when profile rates are missing — skip overwrite below.
+          if (!(finalUnitPrice > 0)) return;
         } else if (shipmentType === "pallet") {
           if (palletSubType === "forwarding") {
+            if (profilePricingLoading) return;
             if (effectivePalletForwardingPricing && effectivePalletForwardingPricing.length > 0) {
               const latestPalletForwarding = [...effectivePalletForwardingPricing].sort((a, b) => {
                 const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
@@ -402,6 +444,7 @@ export function CreateShipmentWithLabelsForm({
                 }
               }
             }
+            if (!(finalUnitPrice > 0)) return;
           } else if (palletSubType === "existing_inventory") {
             // Existing Inventory pallets are priced manually by admin at approval time.
             // Keep pricing at 0 as a placeholder.
@@ -452,7 +495,7 @@ export function CreateShipmentWithLabelsForm({
     } catch (error) {
       console.error("Error calculating pricing:", error);
     }
-  }, [watchedGroups, effectivePricingRules, effectiveBoxForwardingPricing, effectivePalletForwardingPricing, form]);
+  }, [watchedGroups, effectivePricingRules, effectiveBoxForwardingPricing, effectivePalletForwardingPricing, form, profilePricingLoading]);
 
   // Initialize label state when a new group is added
   const handleAddShipmentGroup = () => {
@@ -1086,6 +1129,7 @@ export function CreateShipmentWithLabelsForm({
               ownerId={ownerId}
               ownerDisplayName={ownerDisplayName}
               inventory={inventory}
+              pricingUser={pricingUser}
             />
           ) : null}
 

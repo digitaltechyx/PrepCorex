@@ -54,6 +54,10 @@ export type ShopifyNormalizedOrder = {
   shippingAddress: ShopifyOrderAddress | null;
   billingAddress: ShopifyOrderAddress | null;
   customerName: string | null;
+  /** Order-level phone when present on the Shopify payload. */
+  phone: string | null;
+  /** Customer phone from Shopify customer record. */
+  customerPhone: string | null;
   lineItems: ShopifyOrderLineItem[];
   trackingNumbers: string[];
   trackingCompanies: string[];
@@ -87,18 +91,21 @@ function money(v: unknown): string | null {
 function normalizeAddress(raw: unknown): ShopifyOrderAddress | null {
   const a = asRecord(raw);
   if (!a) return null;
-  const first = str(a.first_name);
-  const last = str(a.last_name);
+  const first = str(a.first_name) || str(a.firstName);
+  const last = str(a.last_name) || str(a.lastName);
   const name = [first, last].filter(Boolean).join(" ") || str(a.name);
+  // Prefer 2-letter codes so Buy Labels state Select can match options.
+  const provinceCode =
+    str(a.province_code) || str(a.provinceCode) || str(a.province) || null;
   return {
     name,
     company: str(a.company),
     address1: str(a.address1),
     address2: str(a.address2),
     city: str(a.city),
-    province: str(a.province) || str(a.province_code),
-    country: str(a.country) || str(a.country_code),
-    zip: str(a.zip) || str(a.postal_code),
+    province: provinceCode,
+    country: str(a.country_code) || str(a.countryCode) || str(a.country),
+    zip: str(a.zip) || str(a.postal_code) || str(a.postalCode),
     phone: str(a.phone),
   };
 }
@@ -207,6 +214,8 @@ export function normalizeShopifyOrder(
     shippingAddress: normalizeAddress(raw.shipping_address),
     billingAddress: normalizeAddress(raw.billing_address),
     customerName,
+    phone: str(raw.phone),
+    customerPhone: str(customer?.phone),
     lineItems,
     trackingNumbers,
     trackingCompanies,
@@ -246,11 +255,17 @@ export function shopifyOrderToFirestoreDoc(order: ShopifyNormalizedOrder): Recor
           address2: order.shippingAddress.address2 ?? undefined,
           city: order.shippingAddress.city ?? undefined,
           province: order.shippingAddress.province ?? undefined,
+          province_code:
+            order.shippingAddress.province && order.shippingAddress.province.length <= 3
+              ? order.shippingAddress.province
+              : undefined,
           country: order.shippingAddress.country ?? undefined,
           zip: order.shippingAddress.zip ?? undefined,
           phone: order.shippingAddress.phone ?? undefined,
         }
       : undefined,
+    phone: order.phone ?? undefined,
+    customer_phone: order.customerPhone ?? undefined,
     line_items: order.lineItems.map((li) => ({
       id: li.id,
       title: li.title,
@@ -339,6 +354,8 @@ export function shopifyOrderFromFirestore(
     shippingAddress: normalizeAddress(data.shipping_address),
     billingAddress: normalizeAddress(data.billing_address),
     customerName,
+    phone: str(data.phone) || str(asRecord(data.customer)?.phone),
+    customerPhone: str(data.customer_phone) || str(asRecord(data.customer)?.phone),
     lineItems,
     trackingNumbers,
     trackingCompanies,

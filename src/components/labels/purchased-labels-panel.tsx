@@ -7,8 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Download, Package, MapPin, Calendar, Truck, ExternalLink, Filter } from "lucide-react";
+import { Loader2, Download, Package, MapPin, Calendar, Truck, ExternalLink, Filter, RotateCcw } from "lucide-react";
 import type { LabelPurchase } from "@/types";
+import { getBuyLabelRateDisplay } from "@/lib/buy-label-rate-display";
+import {
+  canRequestLabelRefund,
+  formatLabelRefundCountdown,
+  labelPurchaseAnchorMs,
+} from "@/lib/label-refund";
+import { LabelRefundRequestDialog } from "@/components/labels/label-refund-request-dialog";
 import { format } from "date-fns";
 
 type PurchasedLabelsPanelProps = {
@@ -17,7 +24,14 @@ type PurchasedLabelsPanelProps = {
 };
 
 function getStatusBadge(label: LabelPurchase) {
-  const { status, paymentStatus, errorMessage } = label;
+  const { status, paymentStatus, errorMessage, refundStatus } = label;
+
+  if (String(refundStatus || "").toLowerCase() === "refunded") {
+    return <Badge className="bg-slate-600 text-white">Refunded</Badge>;
+  }
+  if (String(refundStatus || "").toLowerCase() === "requested") {
+    return <Badge className="bg-amber-500 text-white">Refund pending</Badge>;
+  }
 
   if (paymentStatus === "failed") {
     return <Badge variant="destructive">Payment Failed</Badge>;
@@ -152,6 +166,7 @@ export function PurchasedLabelsPanel({
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [refundLabel, setRefundLabel] = useState<LabelPurchase | null>(null);
   const safeLabels = labels || [];
 
   const filteredLabels = useMemo(() => {
@@ -356,8 +371,15 @@ export function PurchasedLabelsPanel({
                       Label #{label.id ? label.id.slice(0, 8) : "N/A"}
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      {label.selectedRate?.provider || "Unknown"} •{" "}
-                      {label.selectedRate?.serviceLevel || "Standard"}
+                      {(() => {
+                        const display = getBuyLabelRateDisplay({
+                          provider: label.selectedRate?.provider,
+                          serviceLevel: label.selectedRate?.serviceLevel,
+                          labelProvider: label.selectedRate?.labelProvider,
+                          objectId: label.selectedRate?.objectId,
+                        });
+                        return `${display.provider} • ${display.service}`;
+                      })()}
                     </CardDescription>
                   </div>
                   {getStatusBadge(label)}
@@ -410,8 +432,11 @@ export function PurchasedLabelsPanel({
                   </div>
                 </div>
 
-                <div className="flex gap-2 pt-2">
-                  {label.labelUrl && label.status === "label_purchased" && (
+                <div className="flex flex-col gap-2 pt-2">
+                  <div className="flex gap-2">
+                  {label.labelUrl &&
+                    (label.status === "label_purchased" || label.status === "completed") &&
+                    String(label.refundStatus || "").toLowerCase() !== "refunded" && (
                     <Button
                       size="sm"
                       onClick={() => handleDownloadLabel(label.labelUrl!)}
@@ -437,6 +462,46 @@ export function PurchasedLabelsPanel({
                       Track
                     </Button>
                   )}
+                  </div>
+                  {(() => {
+                    const refundStatus = String(label.refundStatus || "none").toLowerCase();
+                    if (refundStatus === "refunded") {
+                      return (
+                        <p className="text-[11px] text-muted-foreground">
+                          This purchase was refunded.
+                        </p>
+                      );
+                    }
+                    if (refundStatus === "requested") {
+                      return (
+                        <Button size="sm" variant="secondary" disabled className="w-full">
+                          Refund request pending
+                        </Button>
+                      );
+                    }
+                    const eligibility = canRequestLabelRefund(label);
+                    const anchorMs = labelPurchaseAnchorMs(label);
+                    return (
+                      <div className="space-y-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full"
+                          disabled={!eligibility.ok}
+                          title={eligibility.reason}
+                          onClick={() => setRefundLabel(label)}
+                        >
+                          <RotateCcw className="mr-2 h-4 w-4" />
+                          {eligibility.ok ? "Request refund" : "Refund unavailable"}
+                        </Button>
+                        <p className="text-[11px] text-muted-foreground text-center">
+                          {eligibility.ok
+                            ? `Available for ${formatLabelRefundCountdown(anchorMs)}`
+                            : eligibility.reason}
+                        </p>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {(() => {
@@ -463,6 +528,14 @@ export function PurchasedLabelsPanel({
           ))}
         </div>
       )}
+
+      <LabelRefundRequestDialog
+        open={Boolean(refundLabel)}
+        label={refundLabel}
+        onOpenChange={(open) => {
+          if (!open) setRefundLabel(null);
+        }}
+      />
     </div>
   );
 }

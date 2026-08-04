@@ -8,6 +8,11 @@ import { useAuth } from "@/hooks/use-auth";
 import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
 import {
+  compareQueueSortKeys,
+  isShipmentRequestActionable,
+  queueSortKey,
+} from "@/lib/user-request-queue-sort";
+import {
   catalogFromPricingDoc,
   unitPriceForServiceKey,
   isLegacyAdditionalServiceKey,
@@ -177,31 +182,15 @@ export function ShipmentRequestsManagement({
             )
           : requests.filter((req) => req.status === statusFilter);
     
-    // Sort by requestedAt (most recent first), fallback to date if requestedAt is not available
+    // Actionable (pending / awaiting label) on top; confirmed/rejected fall back to date.
     filtered = [...filtered].sort((a, b) => {
-      const getDate = (req: ShipmentRequest) => {
-        if (req.requestedAt) {
-          if (typeof req.requestedAt === 'string') {
-            return new Date(req.requestedAt).getTime();
-          }
-          if (req.requestedAt && typeof req.requestedAt === 'object' && 'seconds' in req.requestedAt) {
-            return req.requestedAt.seconds * 1000;
-          }
-        }
-        if (req.date) {
-          if (typeof req.date === 'string') {
-            return new Date(req.date).getTime();
-          }
-          if (req.date && typeof req.date === 'object' && 'seconds' in req.date) {
-            return req.date.seconds * 1000;
-          }
-        }
-        return 0;
-      };
-      
-      const dateA = getDate(a);
-      const dateB = getDate(b);
-      return dateB - dateA; // Descending order (newest first)
+      const key = (req: ShipmentRequest) =>
+        queueSortKey({
+          actionable: isShipmentRequestActionable(req),
+          actionDate: (req as { approvedAt?: unknown }).approvedAt ?? req.confirmedAt,
+          requestDate: req.requestedAt ?? req.date,
+        });
+      return compareQueueSortKeys(key(a), key(b));
     });
     
     return filtered;

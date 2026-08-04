@@ -38,6 +38,7 @@ import {
   type BuyLabelsBulkValidatedRow,
 } from "@/lib/buy-labels-bulk-import";
 import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
+import { getBuyLabelRateDisplay } from "@/lib/buy-label-rate-display";
 import type { ParcelDetails, ShippingAddress, ShippingRate } from "@/types";
 
 export type BuyLabelCartImportItem = {
@@ -621,10 +622,11 @@ export function BuyLabelsBulkImportDialog({
                             ) : selectedRate ? (
                               <>
                                 <span className="text-sm font-semibold text-primary">
-                                  {selectedRate.provider} — {formatRatePrice(selectedRate)}
+                                  {getBuyLabelRateDisplay(selectedRate).provider} —{" "}
+                                  {formatRatePrice(selectedRate)}
                                 </span>
                                 <span className="text-xs text-muted-foreground">
-                                  {selectedRate.servicelevel.name}
+                                  {getBuyLabelRateDisplay(selectedRate).service}
                                   {isCheapestSelected ? " · Cheapest" : ""}
                                 </span>
                               </>
@@ -669,9 +671,11 @@ export function BuyLabelsBulkImportDialog({
                             >
                               <CardContent className="flex items-center justify-between p-3">
                                 <div>
-                                  <p className="font-semibold text-sm">{rate.provider}</p>
+                                  <p className="font-semibold text-sm">
+                                    {getBuyLabelRateDisplay(rate).provider}
+                                  </p>
                                   <p className="text-xs text-muted-foreground">
-                                    {rate.servicelevel.name}
+                                    {getBuyLabelRateDisplay(rate).service}
                                   </p>
                                   {rate.estimated_days != null && (
                                     <p className="text-xs text-muted-foreground mt-0.5">

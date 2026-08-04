@@ -31,8 +31,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCollection } from "@/hooks/use-collection";
+import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
-import { getUserPricingProfilePaths } from "@/lib/pricing-profiles";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import { readProductUnitMeasurements } from "@/lib/box-suggestion";
 
@@ -121,27 +121,18 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
     name: "shipments",
   });
 
-  // Fetch user's pricing rules
-  const { data: pricingRules } = useCollection<UserPricing>(
-    userProfile ? getUserPricingProfilePaths(userProfile).prep : ""
-  );
-  
-  // Fetch forwarding pricing
-  const { data: boxForwardingPricing, loading: boxForwardingPricingLoading } = useCollection<UserBoxForwardingPricing>(
-    userProfile ? getUserPricingProfilePaths(userProfile).boxForwarding : ""
-  );
-  
-  const { data: palletForwardingPricing } = useCollection<UserPalletForwardingPricing>(
-    userProfile ? getUserPricingProfilePaths(userProfile).palletForwarding : ""
-  );
+  // Fetch user's pricing from their assigned profile (falls back to Standard if empty)
+  const {
+    pricingRules,
+    boxForwardingPricing,
+    palletForwardingPricing,
+    additionalServicesPricing,
+    loading: profilePricingLoading,
+  } = useUserPricingCollections(userProfile);
+  const boxForwardingPricingLoading = profilePricingLoading;
   
   const { data: palletExistingInventoryPricing } = useCollection<UserPalletExistingInventoryPricing>(
     userProfile ? `users/${userProfile.uid}/palletExistingInventoryPricing` : ""
-  );
-  
-  // Fetch additional services pricing
-  const { data: additionalServicesPricing } = useCollection<UserAdditionalServicesPricing>(
-    userProfile ? getUserPricingProfilePaths(userProfile).additionalServices : ""
   );
 
   // Watch form values for auto-calculation
@@ -214,9 +205,10 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
           finalUnitPrice = boxForwardingPrice;
           console.log("[PRICING CALC] Setting finalUnitPrice to:", finalUnitPrice);
         } else {
-          // If no pricing found, set to 0 to clear any incorrect values
-          finalUnitPrice = 0;
-          console.log("[PRICING CALC] No pricing found, setting to 0");
+          // Don't overwrite with $0 while pricing is loading or still missing —
+          // leave existing form values alone until a real rate is available.
+          console.log("[PRICING CALC] No pricing found yet, skipping overwrite");
+          return;
         }
       } else if (shipmentType === "product") {
         // Product: Use prep pricing

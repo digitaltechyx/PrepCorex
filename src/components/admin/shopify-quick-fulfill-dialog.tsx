@@ -43,6 +43,14 @@ type Props = {
   order: AdminShopifyOrder | null;
   getAuthToken: () => Promise<string>;
   onCompleted: () => void;
+  /** Prefill from PrepCorex Buy Labels → Quick Fulfill handoff. */
+  labelHandoff?: {
+    inventoryProductId?: string | null;
+    trackingNumber?: string | null;
+    trackingCompany?: string | null;
+    labelPrice?: number | null;
+    labelPurchaseId?: string | null;
+  } | null;
 };
 
 function suggestInventoryId(lineSku: string | null, inventory: InventoryItem[]): string {
@@ -62,6 +70,7 @@ export function ShopifyQuickFulfillDialog({
   order,
   getAuthToken,
   onCompleted,
+  labelHandoff = null,
 }: Props) {
   const { toast } = useToast();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -72,14 +81,24 @@ export function ShopifyQuickFulfillDialog({
   const [notifyCustomer, setNotifyCustomer] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [productSearch, setProductSearch] = useState("");
+  const [labelPrice, setLabelPrice] = useState("");
 
   useEffect(() => {
     if (!open || !order) return;
 
-    setTrackingNumber(order.trackingNumbers[0] || "");
-    setTrackingCompany(order.trackingCompanies[0] || "");
+    setTrackingNumber(
+      (labelHandoff?.trackingNumber || "").trim() || order.trackingNumbers[0] || ""
+    );
+    setTrackingCompany(
+      (labelHandoff?.trackingCompany || "").trim() || order.trackingCompanies[0] || ""
+    );
     setNotifyCustomer(true);
     setProductSearch("");
+    setLabelPrice(
+      labelHandoff?.labelPrice != null && Number.isFinite(Number(labelHandoff.labelPrice))
+        ? String(Number(labelHandoff.labelPrice).toFixed(2))
+        : ""
+    );
 
     let cancelled = false;
     const load = async () => {
@@ -93,17 +112,33 @@ export function ShopifyQuickFulfillDialog({
         }));
         setInventory(items);
 
-        const drafts: LineDraft[] = order.lineItems.map((li) => {
+        const handoffProductId = (labelHandoff?.inventoryProductId || "").trim();
+        const drafts: LineDraft[] = order.lineItems.map((li, index) => {
           const suggested = suggestInventoryId(li.sku, items);
+          const useHandoff =
+            Boolean(handoffProductId) &&
+            items.some((item) => item.id === handoffProductId) &&
+            index === 0;
           return {
             shopifyLineItemId: li.id,
             title: li.variantTitle ? `${li.title} · ${li.variantTitle}` : li.title,
             sku: li.sku,
             orderQty: li.quantity,
-            inventoryId: suggested,
+            inventoryId: useHandoff ? handoffProductId : suggested,
             quantity: li.quantity,
           };
         });
+        if (drafts.length === 0 && handoffProductId && items.some((i) => i.id === handoffProductId)) {
+          const product = items.find((i) => i.id === handoffProductId)!;
+          drafts.push({
+            shopifyLineItemId: "manual",
+            title: product.productName || "Warehouse product",
+            sku: product.sku || null,
+            orderQty: 1,
+            inventoryId: handoffProductId,
+            quantity: 1,
+          });
+        }
         setLines(drafts);
       } catch (error) {
         if (!cancelled) {
@@ -124,7 +159,7 @@ export function ShopifyQuickFulfillDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, order, toast]);
+  }, [open, order, toast, labelHandoff]);
 
   const selectableInventory = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
@@ -237,6 +272,11 @@ export function ShopifyQuickFulfillDialog({
           tracking_number: trackingNumber || undefined,
           tracking_company: trackingCompany || undefined,
           notify_customer: notifyCustomer,
+          label_price: (() => {
+            const n = Number.parseFloat(labelPrice);
+            return Number.isFinite(n) && n > 0 ? n : undefined;
+          })(),
+          label_purchase_id: labelHandoff?.labelPurchaseId || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -413,6 +453,22 @@ export function ShopifyQuickFulfillDialog({
                   placeholder="USPS, FedEx, UPS…"
                 />
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Label price (USD)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={labelPrice}
+                onChange={(e) => setLabelPrice(e.target.value)}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-muted-foreground">
+                Saved on the shipped order remarks and added to the client invoice. Prep is billed as
+                DTC/FBM.
+              </p>
             </div>
 
             <div className="flex items-center gap-2">

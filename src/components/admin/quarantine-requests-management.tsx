@@ -47,6 +47,11 @@ import {
   rejectQuarantineRequest,
   requestSortMs,
 } from "@/lib/quarantine-request-ops";
+import {
+  compareQueueSortKeys,
+  isQuarantineRequestActionable,
+  queueSortKey,
+} from "@/lib/user-request-queue-sort";
 import type { InventoryItem, QuarantineRequest, UserProfile } from "@/types";
 
 const STATUS_CLASS: Record<QuarantineRequest["status"], string> = {
@@ -69,6 +74,8 @@ type Props = {
   inventory: InventoryItem[];
   initialRequestId?: string;
   defaultStatusFilter?: QuarantineRequest["status"] | "all";
+  /** User Requests page: pin pending/approved to top until completed. */
+  pinActionableToTop?: boolean;
 };
 
 export function QuarantineRequestsManagement({
@@ -76,6 +83,7 @@ export function QuarantineRequestsManagement({
   inventory,
   initialRequestId,
   defaultStatusFilter = "pending",
+  pinActionableToTop = false,
 }: Props) {
   const { toast } = useToast();
   const { userProfile: adminProfile } = useAuth();
@@ -122,8 +130,19 @@ export function QuarantineRequestsManagement({
           (r.requestedByName || "").toLowerCase().includes(q)
         );
       })
-      .sort((a, b) => requestSortMs(b) - requestSortMs(a));
-  }, [requests, requestSearch, statusFilter]);
+      .sort((a, b) => {
+        if (!pinActionableToTop) {
+          return requestSortMs(b) - requestSortMs(a);
+        }
+        const key = (req: QuarantineRequest) =>
+          queueSortKey({
+            actionable: isQuarantineRequestActionable(req),
+            actionDate: req.approvedAt,
+            requestDate: req.requestedAt,
+          });
+        return compareQueueSortKeys(key(a), key(b));
+      });
+  }, [requests, requestSearch, statusFilter, pinActionableToTop]);
 
   const pendingCount = requests.filter((r) => r.status === "pending").length;
   const approvedCount = requests.filter((r) => r.status === "approved").length;

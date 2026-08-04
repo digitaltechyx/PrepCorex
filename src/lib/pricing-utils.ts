@@ -110,9 +110,7 @@ export function calculatePrepUnitPrice(
       return null;
     }
 
-    return {
-      rate: latestRule.rate || 0,
-    };
+    return resolveRuleRate(latestRule.rate, defaultRateMap, expectedRange, productType);
   }
 
   const sortedRules = matchingRules.sort((a, b) => {
@@ -135,9 +133,32 @@ export function calculatePrepUnitPrice(
     return null;
   }
 
-  return {
-    rate: latestRule.rate || 0,
-  };
+  return resolveRuleRate(latestRule.rate, defaultRateMap, expectedRange, productType);
+}
+
+function resolveRuleRate(
+  rawRate: unknown,
+  defaultRateMap: Record<string, number> | null,
+  expectedRange: string | null,
+  productType: ProductType
+): { rate: number } | null {
+  const rate =
+    typeof rawRate === "number"
+      ? rawRate
+      : parseFloat(String(rawRate ?? "").trim());
+
+  if (Number.isFinite(rate)) {
+    return { rate };
+  }
+
+  if (defaultRateMap && expectedRange) {
+    const defaultRate = defaultRateMap[`${expectedRange}|${productType}`];
+    if (defaultRate != null) {
+      return { rate: defaultRate };
+    }
+  }
+
+  return null;
 }
 
 function normalizeRange(range: string | undefined | null): string {

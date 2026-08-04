@@ -52,6 +52,11 @@ import {
   pendingDeleteProductIds,
   rejectDeleteRequest,
 } from "@/lib/delete-request-ops";
+import {
+  compareQueueSortKeys,
+  isDeleteRequestActionable,
+  queueSortKey,
+} from "@/lib/user-request-queue-sort";
 import type { DeleteRequest, InventoryItem, UserProfile } from "@/types";
 
 function formatDate(date: DeleteRequest["requestedAt"]) {
@@ -131,7 +136,15 @@ export function DeleteRequestsManagement({
           (r.requestedByName || "").toLowerCase().includes(q)
         );
       })
-      .sort((a, b) => toMs(b.requestedAt) - toMs(a.requestedAt));
+      .sort((a, b) => {
+        const key = (req: DeleteRequest) =>
+          queueSortKey({
+            actionable: isDeleteRequestActionable(req),
+            actionDate: req.approvedAt,
+            requestDate: req.requestedAt,
+          });
+        return compareQueueSortKeys(key(a), key(b));
+      });
   }, [requests, requestSearch, statusFilter]);
 
   const pendingCount = requests.filter((r) => r.status === "pending").length;

@@ -2,31 +2,7 @@
 
 import { useState, useMemo } from "react";
 import React from "react";
-import type { UserProfile } from "@/types";
-
-// Define InventoryRequest locally since it's not exported from @/types
-interface InventoryRequest {
-  id: string;
-  userId?: string;
-  userName?: string;
-  inventoryType: "product" | "box" | "pallet" | "container";
-  productName: string;
-  quantity: number;
-  addDate?: any;
-  requestedAt?: any;
-  receivingDate?: any;
-  status: "pending" | "approved" | "rejected";
-  requestedBy?: string;
-  approvedBy?: string;
-  approvedAt?: any;
-  rejectedBy?: string;
-  rejectedAt?: any;
-  rejectionReason?: string;
-  remarks?: string;
-  imageUrl?: string;
-  imageUrls?: string[];
-  [key: string]: any;
-}
+import type { InventoryRequest, UserProfile } from "@/types";
 
 type InventoryRequestProcessOpts = {
   quiet?: boolean;
@@ -85,15 +61,20 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { db, storage } from "@/lib/firebase";
-import { doc, updateDoc, addDoc, collection, Timestamp, runTransaction, query, where, getDocs } from "firebase/firestore";
+import { doc, updateDoc, addDoc, collection, Timestamp, runTransaction, query, where, getDocs, getDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { format } from "date-fns";
 import { Archive, Boxes, Check, Clock, Eye, Filter, Loader2, Package, Search, Truck, Upload, X, ImageOff } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import imageCompression from "browser-image-compression";
 import { formatInboundQuantityDisplay, getRequestedQuantity } from "@/lib/inventory-qty-display";
-import { closeInventoryRequest } from "@/lib/client-inventory-inbound-sync";
 import { AdminWarehouseActionsPanel } from "@/components/admin/admin-warehouse-actions-panel";
+import {
+  compareQueueSortKeys,
+  isInboundBatchActionable,
+  isInventoryRequestActionable,
+  queueSortKey,
+} from "@/lib/user-request-queue-sort";
 
 function formatDate(date: InventoryRequest["addDate"] | InventoryRequest["requestedAt"] | InventoryRequest["receivingDate"]) {
   if (!date) return "N/A";
@@ -232,8 +213,20 @@ export function InventoryRequestsManagement({
   const filteredRequests = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     let filtered = statusFilter === "all" ? requests : requests.filter(req => req.status === statusFilter);
-    // Hide legacy rows that belong to a batch mirror (shown via batch preview).
-    filtered = filtered.filter((req) => !(req as InventoryRequest & { batchId?: string }).batchId);
+    // Hide pending/settled batch mirrors (those are managed in batch preview).
+    // Keep approved open product/container lines visible so admin can receive & put away.
+    filtered = filtered.filter((req) => {
+      const batchId = (req as InventoryRequest & { batchId?: string }).batchId;
+      if (!batchId) return true;
+      const type = String(req.inventoryType ?? "").trim().toLowerCase();
+      const isWarehouseType = type === "product" || type === "container" || !type;
+      const isOpen =
+        req.status === "approved" &&
+        String((req as InventoryRequest & { fulfillmentStatus?: string }).fulfillmentStatus ?? "")
+          .trim()
+          .toLowerCase() === "open";
+      return isWarehouseType && isOpen;
+    });
     filtered = filtered.filter((req) => {
       if (!query) return true;
       const productName = (req.productName || "").toLowerCase();
@@ -246,48 +239,20 @@ export function InventoryRequestsManagement({
         variantLabel.includes(query) ||
         retailIdentifier.includes(query)
       );
-    });
-    
-    // Sort by requestedAt (most recent first), fallback to addDate if requestedAt is not available
+    }); 
+    // Actionable (pending / approved open) on top; completed fall back to requested date.
     filtered = [...filtered].sort((a, b) => {
-      const getDate = (req: InventoryRequest) => {
-        if (req.requestedAt) {
-          if (typeof req.requestedAt === 'string') {
-            return new Date(req.requestedAt).getTime();
-          }
-          if (req.requestedAt && typeof req.requestedAt === 'object' && 'seconds' in req.requestedAt) {
-            return req.requestedAt.seconds * 1000;
-          }
-        }
-        if (req.addDate) {
-          if (typeof req.addDate === 'string') {
-            return new Date(req.addDate).getTime();
-          }
-          if (req.addDate && typeof req.addDate === 'object' && 'seconds' in req.addDate) {
-            return req.addDate.seconds * 1000;
-          }
-        }
-        return 0;
-      };
-      
-      const dateA = getDate(a);
-      const dateB = getDate(b);
-      return dateB - dateA; // Descending order (newest first)
+      const key = (req: InventoryRequest) =>
+        queueSortKey({
+          actionable: isInventoryRequestActionable(req),
+          actionDate: req.approvedAt,
+          requestDate: req.requestedAt ?? req.addDate,
+        });
+      return compareQueueSortKeys(key(a), key(b));
     });
     
     return filtered;
   }, [requests, statusFilter, searchTerm]);
-
-  // Pagination
-  const totalPages = Math.ceil(filteredRequests.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedRequests = filteredRequests.slice(startIndex, endIndex);
-
-  // Reset to page 1 when filter changes
-  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [statusFilter, searchTerm]);
 
   const filteredBatches = useMemo(() => {
     let batches = [...inboundBatches];
@@ -296,16 +261,56 @@ export function InventoryRequestsManagement({
     } else if (statusFilter !== "all") {
       batches = batches.filter((b) => b.status === statusFilter);
     }
-    return batches.sort((a, b) => {
-      const ta = a.requestedAt && typeof a.requestedAt === "object" && "seconds" in a.requestedAt
-        ? a.requestedAt.seconds * 1000
-        : 0;
-      const tb = b.requestedAt && typeof b.requestedAt === "object" && "seconds" in b.requestedAt
-        ? b.requestedAt.seconds * 1000
-        : 0;
-      return tb - ta;
-    });
-  }, [inboundBatches, statusFilter]);
+    const q = searchTerm.trim().toLowerCase();
+    if (q) {
+      batches = batches.filter((b) => {
+        const notes = (b.productNotes || "").toLowerCase();
+        const shipment = String(b.shipmentType || "").toLowerCase();
+        return notes.includes(q) || shipment.includes(q) || b.status.toLowerCase().includes(q);
+      });
+    }
+    return batches;
+  }, [inboundBatches, statusFilter, searchTerm]);
+
+  type InventoryTableRow =
+    | { kind: "batch"; id: string; batch: InboundBatch }
+    | { kind: "request"; id: string; request: InventoryRequest };
+
+  // Merge batches + single requests so completed batches fall into date order (not always on top).
+  const inventoryTableRows = useMemo(() => {
+    const rows: Array<InventoryTableRow & { sort: ReturnType<typeof queueSortKey> }> = [
+      ...filteredBatches.map((batch) => ({
+        kind: "batch" as const,
+        id: `batch-${batch.id}`,
+        batch,
+        sort: queueSortKey({
+          actionable: isInboundBatchActionable(batch),
+          requestDate: batch.requestedAt ?? batch.addDate,
+        }),
+      })),
+      ...filteredRequests.map((request) => ({
+        kind: "request" as const,
+        id: request.id,
+        request,
+        sort: queueSortKey({
+          actionable: isInventoryRequestActionable(request),
+          actionDate: request.approvedAt,
+          requestDate: request.requestedAt ?? request.addDate,
+        }),
+      })),
+    ];
+    return rows.sort((a, b) => compareQueueSortKeys(a.sort, b.sort));
+  }, [filteredBatches, filteredRequests]);
+
+  // Pagination
+  const totalPages = Math.ceil(inventoryTableRows.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedRows = inventoryTableRows.slice(startIndex, endIndex);
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchTerm]);
 
   const pendingCount =
     requests.filter((req) => req.status === "pending" && !(req as InventoryRequest & { batchId?: string }).batchId).length +
@@ -350,6 +355,8 @@ export function InventoryRequestsManagement({
       return;
     }
     try {
+      const mirroredRequestId =
+        request.id && request.id !== batchLineId ? request.id : undefined;
       const requestId = await ensureInventoryRequestForBatchLine(userId, selectedBatch, {
         id: batchLineId,
         batchId: selectedBatch.id,
@@ -368,11 +375,28 @@ export function InventoryRequestsManagement({
         size: (request as InventoryRequest & { size?: string }).size,
         variantLabel: (request as InventoryRequest & { variantLabel?: string }).variantLabel,
         parentProductName: (request as InventoryRequest & { parentProductName?: string }).parentProductName,
-        status: "pending",
+        status:
+          request.status === "approved" ||
+          request.status === "rejected" ||
+          request.status === "cancelled"
+            ? request.status
+            : "pending",
         remarks: request.remarks,
         imageUrl: request.imageUrl,
         imageUrls: request.imageUrls,
+        inventoryRequestId: mirroredRequestId,
       });
+
+      // Load the live mirrored request so approved+open lines get Admin receive/putaway.
+      const liveSnap = await getDoc(doc(db, `users/${userId}/inventoryRequests`, requestId));
+      if (liveSnap.exists()) {
+        setSelectedRequest({
+          id: liveSnap.id,
+          ...(liveSnap.data() as Omit<InventoryRequest, "id">),
+        } as InventoryRequest);
+        return;
+      }
+
       setSelectedRequest({ ...request, id: requestId, batchId: selectedBatch.id, batchLineId });
     } catch (error: unknown) {
       toast({
@@ -395,6 +419,7 @@ export function InventoryRequestsManagement({
     opts?: InventoryRequestProcessOpts
   ) => {
     if (!selectedUser || !adminProfile) return;
+    const userId = selectedUser.uid;
     if (request.status !== "pending") {
       if (!opts?.quiet) {
         toast({
@@ -713,35 +738,6 @@ export function InventoryRequestsManagement({
     }
   };
 
-  const handleCloseInbound = async (request: InventoryRequest) => {
-    if (!selectedUser || !adminProfile) return;
-    const reason =
-      window.prompt(
-        "Close this inbound request? Optional reason (e.g. short ship, client cancelled remainder):"
-      ) ?? "";
-    setIsProcessing(true);
-    try {
-      await closeInventoryRequest({
-        clientUserId: selectedUser.uid,
-        requestId: request.id,
-        closedBy: adminProfile.uid,
-        closeReason: reason.trim() || "Closed by admin",
-      });
-      toast({
-        title: "Request closed",
-        description: "Inbound request marked closed. Dock queue will no longer show it.",
-      });
-    } catch (error: unknown) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to close request.",
-      });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   const handleReject = async (
     request: InventoryRequest,
     reason: string,
@@ -1021,8 +1017,11 @@ export function InventoryRequestsManagement({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredBatches.map((batch) => (
-                    <TableRow key={`batch-${batch.id}`} className="bg-primary/5">
+                  {paginatedRows.map((row) => {
+                    if (row.kind === "batch") {
+                      const batch = row.batch;
+                      return (
+                    <TableRow key={row.id} className="bg-primary/5">
                       <TableCell>
                         <Badge variant="outline">Batch</Badge>
                       </TableCell>
@@ -1058,9 +1057,12 @@ export function InventoryRequestsManagement({
                         </Button>
                       </TableCell>
                     </TableRow>
-                  ))}
-                  {paginatedRequests.map((request) => (
-                    <TableRow key={request.id}>
+                      );
+                    }
+
+                    const request = row.request;
+                    return (
+                    <TableRow key={row.id}>
                       <TableCell><InventoryTypePill type={request.inventoryType} /></TableCell>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
@@ -1153,24 +1155,12 @@ export function InventoryRequestsManagement({
                               <Eye className="h-3.5 w-3.5 mr-1" />
                               View
                             </Button>
-                            {request.status === "approved" &&
-                            request.inventoryType === "product" &&
-                            (request as any).fulfillmentStatus === "open" ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs"
-                                disabled={isProcessing}
-                                onClick={() => void handleCloseInbound(request)}
-                              >
-                                Close inbound
-                              </Button>
-                            ) : null}
                           </div>
                         )}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
               
@@ -1178,7 +1168,7 @@ export function InventoryRequestsManagement({
               {totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4 pt-4 border-t">
                   <div className="text-sm text-muted-foreground">
-                    Showing {startIndex + 1} to {Math.min(endIndex, filteredRequests.length)} of {filteredRequests.length} requests
+                    Showing {startIndex + 1} to {Math.min(endIndex, inventoryTableRows.length)} of {inventoryTableRows.length} requests
                   </div>
                   <div className="flex items-center gap-2">
                     <Button

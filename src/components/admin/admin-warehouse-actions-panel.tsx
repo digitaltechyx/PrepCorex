@@ -39,6 +39,7 @@ import {
 import { completeDispatchHandoff } from "@/lib/warehouse-pack";
 import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
 import { pushShopifyInventoryHints } from "@/lib/shopify-inventory-sync";
+import { isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import type {
   InventoryRequest,
   ShipmentRequest,
@@ -96,7 +97,10 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   const [destinationSlot, setDestinationSlot] = useState<PutawayLineSlot>(
     emptyPutawayLineSlot()
   );
+  const [damagedDestinationSlot, setDamagedDestinationSlot] =
+    useState<PutawayLineSlot>(emptyPutawayLineSlot());
   const [qty, setQty] = useState(0);
+  const [damagedQty, setDamagedQty] = useState(0);
   const [unitType, setUnitType] = useState<"loose" | "carton" | "pallet">("carton");
   const [packageCount, setPackageCount] = useState(1);
   const [lot, setLot] = useState("");
@@ -125,10 +129,29 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     }),
     [expiry, inboundRequest, lot, props, qty]
   );
+  const damagedDestinationLine = useMemo<WarehouseCartonLine>(
+    () => ({
+      lineId: "ADMIN-PREVIEW-DMG",
+      sku: String(inboundRequest?.sku ?? "").trim(),
+      productTitle: inboundRequest?.productName?.trim() || null,
+      quantity: Math.max(1, damagedQty),
+      lot: lot.trim() || null,
+      expiry: expiry.trim() || null,
+      condition: "damaged",
+      binId: null,
+      allocationStatus: "allocated",
+      clientId: props.mode === "inbound" ? props.clientUserId : null,
+      inventoryRequestId: inboundRequest?.id ?? null,
+    }),
+    [damagedQty, expiry, inboundRequest, lot, props]
+  );
 
   useEffect(() => {
     if (!warehouseId && activeWarehouses.length > 0) {
-      setWarehouseId(activeWarehouses[0].id);
+      const nj2 = activeWarehouses.find(
+        (w) => isDefaultNj2Warehouse(w.name) || isDefaultNj2Warehouse(w.code)
+      );
+      setWarehouseId(nj2?.id ?? activeWarehouses[0].id);
     }
   }, [activeWarehouses, warehouseId]);
 
@@ -138,6 +161,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
       setBins([]);
       setOccupiedBinIds(new Set());
       setDestinationSlot(emptyPutawayLineSlot());
+      setDamagedDestinationSlot(emptyPutawayLineSlot());
       return;
     }
     let cancelled = false;
@@ -153,6 +177,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         setBins(loadedBins);
         setOccupiedBinIds(occupied);
         setDestinationSlot(emptyPutawayLineSlot());
+        setDamagedDestinationSlot(emptyPutawayLineSlot());
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -173,9 +198,11 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   useEffect(() => {
     if (props.mode === "inbound") {
       setQty(remainingInboundQty(props.request));
+      setDamagedQty(0);
       setPackageCount(1);
       setLastInboundResult(null);
       setDestinationSlot(emptyPutawayLineSlot());
+      setDamagedDestinationSlot(emptyPutawayLineSlot());
     }
   }, [props]);
 
@@ -190,16 +217,28 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     const remaining = remainingInboundQty(request);
 
     if (!isProduct || !isApproved || !isOpen || remaining <= 0) return null;
-    const destinationReady = isPutawayLineSlotReady(
-      destinationLine,
-      destinationSlot,
-      { areas, bins }
-    );
+    const goodDestinationReady =
+      qty <= 0 ||
+      isPutawayLineSlotReady(destinationLine, destinationSlot, { areas, bins });
+    const damagedDestinationReady =
+      damagedQty <= 0 ||
+      isPutawayLineSlotReady(damagedDestinationLine, damagedDestinationSlot, {
+        areas,
+        bins,
+      });
+    const destinationReady =
+      qty + damagedQty >= 1 && goodDestinationReady && damagedDestinationReady;
 
-    const resolveDestinationBin = async (pathOverride?: string) => {
-      const path = (pathOverride ?? destinationSlot.binPath).trim();
+    const resolveDestinationBin = async (
+      pathOverride?: string,
+      target: "good" | "damaged" = "good"
+    ) => {
+      const slot = target === "good" ? destinationSlot : damagedDestinationSlot;
+      const setSlot =
+        target === "good" ? setDestinationSlot : setDamagedDestinationSlot;
+      const path = (pathOverride ?? slot.binPath).trim();
       if (!warehouseId || !path) return;
-      setDestinationSlot((previous) => ({
+      setSlot((previous) => ({
         ...previous,
         binPath: path,
         resolved: null,
@@ -210,7 +249,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         const bin = await findBinByPath(warehouseId, path);
         if (!bin) throw new Error("Bin not found. Search and select a valid warehouse bin.");
         const contents = await inspectBinContents(warehouseId, bin.id);
-        setDestinationSlot((previous) => ({
+        setSlot((previous) => ({
           ...previous,
           binPath: bin.path,
           resolved: { bin, contents },
@@ -218,7 +257,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           error: null,
         }));
       } catch (error: unknown) {
-        setDestinationSlot((previous) => ({
+        setSlot((previous) => ({
           ...previous,
           resolved: null,
           loading: false,
@@ -232,8 +271,23 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         toast({ variant: "destructive", title: "Select a warehouse" });
         return;
       }
+      if (qty + damagedQty < 1) {
+        toast({
+          variant: "destructive",
+          title: "Quantity required",
+          description: "Enter at least 1 good or damaged unit.",
+        });
+        return;
+      }
       if (!destinationReady) {
-        toast({ variant: "destructive", title: "Select and validate a putaway destination" });
+        toast({
+          variant: "destructive",
+          title: "Select and validate putaway destinations",
+          description:
+            damagedQty > 0
+              ? "Good stock needs a storage bin; damaged needs a quarantine bin."
+              : "Select and validate a storage bin for good stock.",
+        });
         return;
       }
       setBusy(true);
@@ -244,7 +298,10 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           warehouseId,
           stagingArea: destinationSlot.areaCode || null,
           binPath: destinationSlot.resolved?.bin.path || null,
+          damagedStagingArea: damagedDestinationSlot.areaCode || null,
+          damagedBinPath: damagedDestinationSlot.resolved?.bin.path || null,
           quantity: qty,
+          damagedQuantity: damagedQty,
           unitType,
           packageCount,
           lot,
@@ -355,16 +412,33 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Quantity to receive</Label>
+            <Label>Good qty</Label>
             <Input
               type="number"
-              min={1}
+              min={0}
               max={remaining}
               value={qty}
-              onChange={(e) => setQty(Math.max(1, Math.min(remaining, parseInt(e.target.value, 10) || 0)))}
+              onChange={(e) =>
+                setQty(Math.max(0, Math.min(remaining, parseInt(e.target.value, 10) || 0)))
+              }
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Can leave at 0 if only damaged units were received
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-red-700">Damaged qty</Label>
+            <Input
+              type="number"
+              min={0}
+              value={damagedQty}
+              onChange={(e) =>
+                setDamagedQty(Math.max(0, parseInt(e.target.value, 10) || 0))
+              }
+              className={damagedQty > 0 ? "border-red-300" : ""}
             />
           </div>
-          {unitType !== "loose" ? (
+          {unitType !== "loose" && qty > 0 ? (
             <div className="space-y-1.5">
               <Label>{unitType === "pallet" ? "Cartons on pallet" : "Number of cartons"}</Label>
               <Input
@@ -380,38 +454,74 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               />
             </div>
           ) : null}
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label>Putaway destination</Label>
-            <p className="text-xs text-muted-foreground">
-              Search and click a storage bin, or select an area when that zone has no bins.
-            </p>
-            <PutawayDestinationFields
-              line={destinationLine}
-              slot={destinationSlot}
-              warehouseAreas={areas}
-              warehouseBins={bins}
-              occupiedBinIds={occupiedBinIds}
-              occupancyLoading={destinationsLoading}
-              areasLoading={destinationsLoading}
-              onBinPathChange={(value) =>
-                setDestinationSlot((previous) => ({
-                  ...previous,
-                  binPath: value,
-                  resolved: null,
-                  error: null,
-                }))
-              }
-              onResolveBin={(path) => void resolveDestinationBin(path)}
-              onAreaChange={(areaCode) =>
-                setDestinationSlot((previous) => ({
-                  ...previous,
-                  areaCode,
-                  resolved: null,
-                  error: null,
-                }))
-              }
-            />
-          </div>
+          {qty > 0 ? (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Good putaway (storage)</Label>
+              <p className="text-xs text-muted-foreground">
+                Search and click a storage bin, or select an area when that zone has no bins.
+              </p>
+              <PutawayDestinationFields
+                line={destinationLine}
+                slot={destinationSlot}
+                warehouseAreas={areas}
+                warehouseBins={bins}
+                occupiedBinIds={occupiedBinIds}
+                occupancyLoading={destinationsLoading}
+                areasLoading={destinationsLoading}
+                onBinPathChange={(value) =>
+                  setDestinationSlot((previous) => ({
+                    ...previous,
+                    binPath: value,
+                    resolved: null,
+                    error: null,
+                  }))
+                }
+                onResolveBin={(path) => void resolveDestinationBin(path, "good")}
+                onAreaChange={(areaCode) =>
+                  setDestinationSlot((previous) => ({
+                    ...previous,
+                    areaCode,
+                    resolved: null,
+                    error: null,
+                  }))
+                }
+              />
+            </div>
+          ) : null}
+          {damagedQty > 0 ? (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-red-700">Damaged putaway (quarantine)</Label>
+              <p className="text-xs text-muted-foreground">
+                Damaged units must go to a quarantine bin or quarantine area, same as Warehouse Ops.
+              </p>
+              <PutawayDestinationFields
+                line={damagedDestinationLine}
+                slot={damagedDestinationSlot}
+                warehouseAreas={areas}
+                warehouseBins={bins}
+                occupiedBinIds={occupiedBinIds}
+                occupancyLoading={destinationsLoading}
+                areasLoading={destinationsLoading}
+                onBinPathChange={(value) =>
+                  setDamagedDestinationSlot((previous) => ({
+                    ...previous,
+                    binPath: value,
+                    resolved: null,
+                    error: null,
+                  }))
+                }
+                onResolveBin={(path) => void resolveDestinationBin(path, "damaged")}
+                onAreaChange={(areaCode) =>
+                  setDamagedDestinationSlot((previous) => ({
+                    ...previous,
+                    areaCode,
+                    resolved: null,
+                    error: null,
+                  }))
+                }
+              />
+            </div>
+          ) : null}
           <div className="space-y-1.5">
             <Label>Lot (optional)</Label>
             <Input value={lot} onChange={(e) => setLot(e.target.value)} placeholder="Lot number" />

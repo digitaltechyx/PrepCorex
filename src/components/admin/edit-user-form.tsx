@@ -28,6 +28,7 @@ import {
   pricingProfileIdFromSelect,
   pricingProfileSelectValue,
 } from "@/lib/pricing-profiles";
+import { ensureAssignedPricingProfileSeeded } from "@/lib/pricing-profile-seed";
 
 const editUserSchema = z
   .object({
@@ -250,6 +251,11 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
             }
           : {}),
       });
+
+      if (values.role === "user" && values.pricingProfile) {
+        const nextProfileId = pricingProfileIdFromSelect(values.pricingProfile, user.uid);
+        await ensureAssignedPricingProfileSeeded(nextProfileId);
+      }
 
       toast({
         title: "Success",

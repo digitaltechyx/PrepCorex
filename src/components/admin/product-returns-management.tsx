@@ -5,6 +5,11 @@ import type { ProductReturn, UserProfile, InventoryItem } from "@/types";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  compareQueueSortKeys,
+  isProductReturnActionable,
+  queueSortKey,
+} from "@/lib/user-request-queue-sort";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -137,12 +142,15 @@ interface ProductReturnsManagementProps {
   managedUsers: UserProfile[];
   filterUserId?: string | null;
   initialReturnId?: string;
+  /** User Requests page: pin pending/approved/in-progress to top until closed. */
+  pinActionableToTop?: boolean;
 }
 
 export function ProductReturnsManagement({
   managedUsers,
   filterUserId,
   initialReturnId,
+  pinActionableToTop = false,
 }: ProductReturnsManagementProps) {
   const { toast } = useToast();
   const { userProfile: adminProfile, user: authUser } = useAuth();
@@ -252,27 +260,36 @@ export function ProductReturnsManagement({
   const filteredReturns = useMemo(() => {
     let filtered = statusFilter === "all" ? returns : returns.filter((r) => r.status === statusFilter);
     
-    // Sort by createdAt (newest first)
     filtered = [...filtered].sort((a, b) => {
-      const getDate = (returnItem: ProductReturn) => {
-        if (returnItem.createdAt) {
-          if (typeof returnItem.createdAt === 'string') {
-            return new Date(returnItem.createdAt).getTime();
+      if (!pinActionableToTop) {
+        const getDate = (returnItem: ProductReturn) => {
+          if (returnItem.createdAt) {
+            if (typeof returnItem.createdAt === "string") {
+              return new Date(returnItem.createdAt).getTime();
+            }
+            if (
+              returnItem.createdAt &&
+              typeof returnItem.createdAt === "object" &&
+              "seconds" in returnItem.createdAt
+            ) {
+              return (returnItem.createdAt as { seconds: number }).seconds * 1000;
+            }
           }
-          if (returnItem.createdAt && typeof returnItem.createdAt === 'object' && 'seconds' in returnItem.createdAt) {
-            return (returnItem.createdAt as any).seconds * 1000;
-          }
-        }
-        return 0;
-      };
-      
-      const dateA = getDate(a);
-      const dateB = getDate(b);
-      return dateB - dateA; // Descending order (newest first)
+          return 0;
+        };
+        return getDate(b) - getDate(a);
+      }
+      const key = (returnItem: ProductReturn) =>
+        queueSortKey({
+          actionable: isProductReturnActionable(returnItem),
+          actionDate: returnItem.approvedAt,
+          requestDate: returnItem.createdAt,
+        });
+      return compareQueueSortKeys(key(a), key(b));
     });
     
     return filtered;
-  }, [returns, statusFilter]);
+  }, [returns, statusFilter, pinActionableToTop]);
 
   // Pagination
   const totalPages = Math.ceil(filteredReturns.length / itemsPerPage);

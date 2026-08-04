@@ -1145,6 +1145,9 @@ export interface ShippedItem {
   trackingNumber?: string;
   trackingCompany?: string;
   quickFulfill?: boolean;
+  /** PrepCorex Buy Labels charge (USD) recorded on Shopify quick fulfill. */
+  labelPrice?: number | null;
+  labelPurchaseId?: string | null;
 }
 
 export interface RestockHistory {
@@ -1829,6 +1832,42 @@ export interface LabelPurchase {
   paymentCompletedAt?: Date;
   labelPurchasedAt?: Date;
   shippedItemId?: string;
+  /** User/admin refund workflow for this purchase. */
+  refundStatus?: "none" | "requested" | "refunded" | "rejected";
+  refundRequestId?: string | null;
+  stripeRefundId?: string | null;
+  refundedAt?: any;
+}
+
+export type LabelRefundRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+/** Client-requested Stripe refund for a purchased shipping label (admin reviews). */
+export interface LabelRefundRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  labelPurchaseId: string;
+  reason: string;
+  status: LabelRefundRequestStatus;
+  paymentAmount: number;
+  paymentCurrency: string;
+  stripePaymentIntentId: string;
+  stripeChargeId?: string | null;
+  trackingNumber?: string | null;
+  labelUrl?: string | null;
+  labelProvider?: string | null;
+  carrierProvider?: string | null;
+  serviceLevel?: string | null;
+  /** Milliseconds epoch of when the label/payment completed (for age + 2h window). */
+  labelGeneratedAtMs: number;
+  requestedAt: any;
+  requestedBy: string;
+  reviewedBy?: string | null;
+  reviewedByName?: string | null;
+  reviewedAt?: any;
+  rejectionReason?: string | null;
+  stripeRefundId?: string | null;
+  refundedAmount?: number | null;
 }
 
 // ——— Pricing (prep, storage, forwarding) ———

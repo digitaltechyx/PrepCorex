@@ -35,8 +35,10 @@ import {
   customProfileIdForUser,
   getPricingProfileCollectionPath,
   getPricingProfileLabel,
+  isCustomProfileId,
   resolveUserPricingProfileId,
 } from "@/lib/pricing-profiles";
+import { ensureAssignedPricingProfileSeeded } from "@/lib/pricing-profile-seed";
 import {
   DEFAULT_FBA_INCLUDED_ITEMS,
   DEFAULT_FBM_INCLUDED_ITEMS,
@@ -214,8 +216,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
       });
   }, [users]);
 
-  const selectedUser = selectableUsers.find((u) => u.uid === selectedUserId) || selectableUsers[0];
   const editingCustomProfile = selectedProfileSlug === CUSTOM_PRICING_PROFILE_OPTION.id;
+  const selectedUser =
+    selectableUsers.find((u) =>
+      u.uid === (editingCustomProfile ? customUserId || selectedUserId : selectedUserId)
+    ) || (editingCustomProfile ? undefined : selectableUsers[0]);
   const effectiveProfileId = editingCustomProfile
     ? customUserId
       ? customProfileIdForUser(customUserId)
@@ -224,10 +229,31 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
   const { settings: profileSettings } = usePricingProfileSettings(effectiveProfileId || undefined);
 
+  // When admin opens a non-standard profile (Custom / Wholesale / …), seed empty
+  // rate tables from Standard so the form isn't blank and users get real prices.
+  useEffect(() => {
+    if (!effectiveProfileId || effectiveProfileId === "standard") return;
+    void ensureAssignedPricingProfileSeeded(effectiveProfileId).catch((error) => {
+      console.warn("Failed to seed pricing profile from Standard:", effectiveProfileId, error);
+    });
+  }, [effectiveProfileId]);
+
   const usersOnCurrentProfile = useMemo(() => {
+    if (editingCustomProfile) {
+      return selectableUsers.filter((u) => isCustomProfileId(resolveUserPricingProfileId(u)));
+    }
     if (!effectiveProfileId) return [];
     return selectableUsers.filter((u) => resolveUserPricingProfileId(u) === effectiveProfileId);
-  }, [selectableUsers, effectiveProfileId]);
+  }, [selectableUsers, effectiveProfileId, editingCustomProfile]);
+
+  const usersOnCustomProfiles = useMemo(
+    () => selectableUsers.filter((u) => isCustomProfileId(resolveUserPricingProfileId(u))),
+    [selectableUsers]
+  );
+
+  const selectedUserHasCustomAssigned = Boolean(
+    selectedUser && isCustomProfileId(resolveUserPricingProfileId(selectedUser))
+  );
 
   const assignDialogUsers = useMemo(() => {
     if (!assignSearchQuery.trim()) return selectableUsers;
@@ -557,6 +583,10 @@ export function PricingManagement({ users }: PricingManagementProps) {
     if (!userIds.length || !profileId) return;
     setIsAssigningProfile(true);
     try {
+      // Seed empty non-standard profiles from Standard before assignment so
+      // users immediately see real rates (not $0 / hardcoded defaults).
+      await ensureAssignedPricingProfileSeeded(profileId);
+
       const batch = writeBatch(db);
       for (const uid of userIds) {
         batch.update(doc(db, "users", uid), { pricingProfileId: profileId });
@@ -580,28 +610,42 @@ export function PricingManagement({ users }: PricingManagementProps) {
     }
   };
 
-  const handleUserSelect = async (user: UserProfile) => {
+  const handleUserSelect = (user: UserProfile) => {
     setSelectedUserId(user.uid);
     setCustomUserId(user.uid);
     setUserDialogOpen(false);
     setUserSearchQuery("");
+    // Custom rates can be edited for this user; assignment is explicit via the Assign button.
+  };
 
-    if (editingCustomProfile) {
-      try {
-        await updateDoc(doc(db, "users", user.uid), {
-          pricingProfileId: customProfileIdForUser(user.uid),
-        });
-        toast({
-          title: "Custom profile assigned",
-          description: `${formatUserDisplayName(user, { showEmail: false })} is now on the Custom pricing plan.`,
-        });
-      } catch (error: unknown) {
-        toast({
-          variant: "destructive",
-          title: "Could not assign Custom profile",
-          description: error instanceof Error ? error.message : "Update failed.",
-        });
-      }
+  const assignCustomProfileToSelectedUser = async () => {
+    if (!selectedUser) {
+      toast({
+        variant: "destructive",
+        title: "Select a user",
+        description: "Choose a user first, then assign Custom pricing.",
+      });
+      return;
+    }
+    setIsAssigningProfile(true);
+    try {
+      const customProfileId = customProfileIdForUser(selectedUser.uid);
+      await ensureAssignedPricingProfileSeeded(customProfileId);
+      await updateDoc(doc(db, "users", selectedUser.uid), {
+        pricingProfileId: customProfileId,
+      });
+      toast({
+        title: "Custom profile assigned",
+        description: `${formatUserDisplayName(selectedUser, { showEmail: false })} is now on Custom pricing. Rates were copied from Standard — edit them below as needed.`,
+      });
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Could not assign Custom profile",
+        description: error instanceof Error ? error.message : "Update failed.",
+      });
+    } finally {
+      setIsAssigningProfile(false);
     }
   };
 
@@ -1367,7 +1411,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
               variant={editingCustomProfile ? "default" : "outline"}
               onClick={() => setSelectedProfileSlug(CUSTOM_PRICING_PROFILE_OPTION.id)}
             >
-              {CUSTOM_PRICING_PROFILE_OPTION.label}
+              {CUSTOM_PRICING_PROFILE_OPTION.label} ({usersOnCustomProfiles.length})
             </Button>
           </div>
 
@@ -1380,7 +1424,8 @@ export function PricingManagement({ users }: PricingManagementProps) {
                     <DialogHeader>
                       <DialogTitle>Select user</DialogTitle>
                       <DialogDescription>
-                        Choose the user whose custom pricing table you want to edit.
+                        Choose a user to edit their custom rates. Assignment is a separate step —
+                        use &quot;Assign Custom pricing&quot; after selecting them.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 mt-4">
@@ -1438,7 +1483,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
         </CardContent>
       </Card>
 
-      {effectiveProfileId && (
+      {(editingCustomProfile || Boolean(effectiveProfileId)) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -1447,45 +1492,85 @@ export function PricingManagement({ users }: PricingManagementProps) {
             </CardTitle>
             <CardDescription>
               {editingCustomProfile
-                ? "Select a user above to assign Custom and edit their rates. Assignment happens automatically when you pick a user."
-                : `${usersOnCurrentProfile.length} client user(s) currently on ${getPricingProfileLabel(selectedProfileSlug)}.`}
+                ? `${usersOnCurrentProfile.length} client user(s) currently on Custom.`
+                : effectiveProfileId
+                  ? `${usersOnCurrentProfile.length} client user(s) currently on ${getPricingProfileLabel(selectedProfileSlug)}.`
+                  : "Select a profile to manage assignments."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {!editingCustomProfile && (
-              <>
-                {usersOnCurrentProfile.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {usersOnCurrentProfile.slice(0, 8).map((user) => (
-                      <span
-                        key={user.uid}
-                        className="rounded-full border bg-muted px-3 py-1 text-xs"
-                      >
-                        {formatUserDisplayName(user, { showEmail: false })}
-                      </span>
-                    ))}
-                    {usersOnCurrentProfile.length > 8 && (
-                      <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
-                        +{usersOnCurrentProfile.length - 8} more
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No users assigned yet.</p>
+            {usersOnCurrentProfile.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {usersOnCurrentProfile.slice(0, 8).map((user) => (
+                  <button
+                    key={user.uid}
+                    type="button"
+                    className="rounded-full border bg-muted px-3 py-1 text-xs hover:bg-muted/80"
+                    onClick={() => {
+                      if (editingCustomProfile) {
+                        handleUserSelect(user);
+                      }
+                    }}
+                  >
+                    {formatUserDisplayName(user, { showEmail: false })}
+                  </button>
+                ))}
+                {usersOnCurrentProfile.length > 8 && (
+                  <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
+                    +{usersOnCurrentProfile.length - 8} more
+                  </span>
                 )}
-                <Button type="button" variant="outline" size="sm" onClick={openAssignDialog}>
-                  <UserPlus className="mr-2 h-4 w-4" />
-                  Assign users to {getPricingProfileLabel(selectedProfileSlug)}
-                </Button>
-              </>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No users assigned yet.</p>
             )}
-            {editingCustomProfile && selectedUser && (
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {formatUserDisplayName(selectedUser, { showEmail: true })}
-                </span>{" "}
-                is selected for custom pricing. Picking a different user re-assigns Custom to that user.
-              </p>
+
+            {!editingCustomProfile && effectiveProfileId ? (
+              <Button type="button" variant="outline" size="sm" onClick={openAssignDialog}>
+                <UserPlus className="mr-2 h-4 w-4" />
+                Assign users to {getPricingProfileLabel(selectedProfileSlug)}
+              </Button>
+            ) : null}
+
+            {editingCustomProfile && (
+              <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                {selectedUser ? (
+                  <>
+                    <p className="text-sm">
+                      <span className="font-medium text-foreground">
+                        {formatUserDisplayName(selectedUser, { showEmail: true })}
+                      </span>{" "}
+                      {selectedUserHasCustomAssigned
+                        ? "is already on Custom pricing. You can edit their rates below."
+                        : "is selected for editing. Click Assign to put them on Custom pricing."}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isAssigningProfile || selectedUserHasCustomAssigned}
+                      onClick={() => void assignCustomProfileToSelectedUser()}
+                    >
+                      {isAssigningProfile ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Assigning...
+                        </>
+                      ) : selectedUserHasCustomAssigned ? (
+                        "Already assigned to Custom"
+                      ) : (
+                        <>
+                          <UserPlus className="mr-2 h-4 w-4" />
+                          Assign Custom pricing to this user
+                        </>
+                      )}
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Select a user above, then click Assign Custom pricing.
+                  </p>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -1575,7 +1660,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                 </CardTitle>
                 <CardDescription>
                   {editingCustomProfile
-                    ? "Special rates for this user only. Selecting a user assigns the Custom profile automatically."
+                    ? "Edit this user’s custom rates below. Use Assign Custom pricing to put them on this plan — selecting a user alone does not assign them."
                     : "Enter rates for each service. Only filled rates will be saved."}
                 </CardDescription>
               </div>

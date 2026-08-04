@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BuyLabelsForm } from "@/components/dashboard/buy-labels-form";
 import { AdminPurchasedLabelsSection } from "@/components/admin/admin-purchased-labels-section";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Package, Tag } from "lucide-react";
+import { useManagedUsers } from "@/hooks/use-managed-users";
+import { formatUserDisplayName } from "@/lib/format-user-display";
 import {
   clearBuyLabelPrefillFromSession,
   loadBuyLabelPrefillFromSession,
@@ -31,6 +33,16 @@ export default function AdminBuyLabelsPageContent() {
   );
   const [shopifyPrefill, setShopifyPrefill] = useState<BuyLabelShopifyPrefill | null>(null);
   const [parcelPrefill, setParcelPrefill] = useState<BuyLabelParcelPrefill | null>(null);
+  const { managedUsers } = useManagedUsers();
+
+  const clientOptions = useMemo(
+    () =>
+      (managedUsers || []).map((u) => ({
+        uid: u.uid,
+        label: formatUserDisplayName(u, { showEmail: true }),
+      })),
+    [managedUsers]
+  );
 
   useEffect(() => {
     setActiveTab(tabParam === "purchased" ? "purchased" : "buy");
@@ -122,6 +134,18 @@ export default function AdminBuyLabelsPageContent() {
                     ? `${shopifyPrefill.orderName} · ${shopifyPrefill.ownerName}`
                     : null
                 }
+                shopifyOrderContext={
+                  shopifyPrefill?.ownerUserId
+                    ? {
+                        orderId: shopifyPrefill.orderId,
+                        orderName: shopifyPrefill.orderName,
+                        shop: shopifyPrefill.shop,
+                        ownerUserId: shopifyPrefill.ownerUserId,
+                        ownerName: shopifyPrefill.ownerName,
+                      }
+                    : null
+                }
+                clientOptions={clientOptions}
                 initialParcel={parcelPrefill}
                 parcelPrefillBanner={
                   parcelPrefill

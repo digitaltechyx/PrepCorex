@@ -11,10 +11,18 @@ export function useCollection<T>(path: string, firestoreQuery?: Query) {
   const clearAttemptedRef = useRef(false);
 
   useEffect(() => {
+    // Reset immediately when path changes so callers never keep stale rates
+    // from a previous pricing profile while the new listener loads.
+    setData([]);
+    setError(null);
+    clearAttemptedRef.current = false;
+
     if (!path) {
       setLoading(false);
       return;
     }
+
+    setLoading(true);
 
     try {
       const collectionRef = collection(db, path);

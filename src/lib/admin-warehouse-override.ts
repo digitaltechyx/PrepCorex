@@ -62,11 +62,18 @@ export type AdminInboundCompleteInput = {
   clientUserId: string;
   requestId: string;
   warehouseId: string;
-  /** Area code for putaway (e.g. storage zone). Required when not using a bin. */
+  /** Area code for good putaway (e.g. storage zone). Required when not using a bin. */
   stagingArea?: string | null;
-  /** Searchable bin destination; area is used only when the zone has no bins. */
+  /** Good storage bin path; area is used only when the zone has no bins. */
   binPath?: string | null;
+  /** Area code for damaged → quarantine putaway when not using a bin. */
+  damagedStagingArea?: string | null;
+  /** Damaged quarantine bin path. */
+  damagedBinPath?: string | null;
+  /** Good units to receive (sellable). */
   quantity?: number;
+  /** Damaged units to receive → quarantine. */
+  damagedQuantity?: number;
   unitType?: "loose" | "carton" | "pallet";
   packageCount?: number;
   lot?: string | null;
@@ -125,29 +132,50 @@ export async function adminCompleteInboundReceiveAndPutaway(
     throw new Error("Nothing left to receive on this request.");
   }
 
-  const qty = Math.min(
-    remaining,
-    Math.max(1, Math.floor(input.quantity ?? remaining))
-  );
+  const goodQty =
+    input.quantity == null
+      ? remaining
+      : Math.max(0, Math.floor(input.quantity));
+  const damagedQty = Math.max(0, Math.floor(input.damagedQuantity ?? 0));
+  if (goodQty + damagedQty < 1) {
+    throw new Error("Enter at least 1 good or damaged unit.");
+  }
+  const qty = goodQty;
   const sku = String((request as InventoryRequest & { sku?: string }).sku ?? "").trim();
   if (!sku) throw new Error("Request is missing SKU.");
 
   const areas = await listWarehouseAreas(input.warehouseId);
   const eligible = fallbackAreas(areas);
+
   const requestedBinPath = input.binPath?.trim() || "";
   const destinationBin = requestedBinPath
     ? await findBinByPath(input.warehouseId, requestedBinPath)
     : null;
   if (requestedBinPath && !destinationBin) {
-    throw new Error("Selected putaway bin was not found.");
+    throw new Error("Selected storage bin was not found.");
   }
   const stagingArea =
     destinationBin?.area?.trim() ||
     input.stagingArea?.trim() ||
-    eligible.find((a) => a.code.trim())?.code.trim() ||
+    (qty > 0 ? eligible.find((a) => a.code.trim())?.code.trim() || "" : "");
+
+  const requestedDamagedBinPath = input.damagedBinPath?.trim() || "";
+  const damagedDestinationBin = requestedDamagedBinPath
+    ? await findBinByPath(input.warehouseId, requestedDamagedBinPath)
+    : null;
+  if (requestedDamagedBinPath && !damagedDestinationBin) {
+    throw new Error("Selected quarantine bin was not found.");
+  }
+  const damagedStagingArea =
+    damagedDestinationBin?.area?.trim() ||
+    input.damagedStagingArea?.trim() ||
     "";
-  if (!stagingArea) {
-    throw new Error("Select a putaway bin or storage area.");
+
+  if (qty > 0 && !destinationBin && !stagingArea) {
+    throw new Error("Select a storage bin or area for good stock.");
+  }
+  if (damagedQty > 0 && !damagedDestinationBin && !damagedStagingArea) {
+    throw new Error("Select a quarantine bin or area for damaged stock.");
   }
 
   const expiryRaw = (request as InventoryRequest & { expiryDate?: unknown }).expiryDate;
@@ -160,64 +188,133 @@ export async function adminCompleteInboundReceiveAndPutaway(
   const packageCount =
     unitType === "loose"
       ? 1
-      : Math.min(qty, Math.max(1, Math.floor(input.packageCount ?? 1)));
-  const baseQty = Math.floor(qty / packageCount);
-  const extraQty = qty % packageCount;
-  const validationLine = {
-    lineId: "L1",
+      : qty > 0
+        ? Math.min(qty, Math.max(1, Math.floor(input.packageCount ?? 1)))
+        : 1;
+  const baseQty = qty > 0 ? Math.floor(qty / packageCount) : 0;
+  const extraQty = qty > 0 ? qty % packageCount : 0;
+
+  const buildValidationLine = (
+    condition: "good" | "damaged",
+    quantity: number
+  ) => ({
+    lineId: condition === "good" ? "L1" : "L2",
     sku,
     productTitle: request.productName?.trim() || null,
-    quantity: Math.max(1, baseQty + (extraQty > 0 ? 1 : 0)),
+    quantity: Math.max(1, quantity),
     lot: input.lot?.trim() || null,
     expiry,
-    condition: "good" as const,
+    condition,
     binId: null,
     allocationStatus: "allocated" as const,
     clientId: input.clientUserId,
     inventoryRequestId: input.requestId,
-  };
-  if (destinationBin) {
-    const contents = await inspectBinContents(input.warehouseId, destinationBin.id);
-    const validation = validateLineToBin(
-      validationLine,
-      destinationBin,
-      contents,
-      areas
+  });
+
+  if (qty > 0) {
+    const validationLine = buildValidationLine(
+      "good",
+      Math.max(1, baseQty + (extraQty > 0 ? 1 : 0))
     );
-    if (!validation.ok) throw new Error(validation.reason);
-  } else {
-    const destinationArea = areas.find(
-      (area) => area.code.trim().toUpperCase() === stagingArea.toUpperCase()
-    );
-    if (!destinationArea) throw new Error("Selected putaway area was not found.");
-    const validation = validateLineToArea(validationLine, destinationArea);
-    if (!validation.ok) throw new Error(validation.reason);
+    if (destinationBin) {
+      const contents = await inspectBinContents(input.warehouseId, destinationBin.id);
+      const validation = validateLineToBin(
+        validationLine,
+        destinationBin,
+        contents,
+        areas
+      );
+      if (!validation.ok) throw new Error(validation.reason);
+    } else {
+      const destinationArea = areas.find(
+        (area) => area.code.trim().toUpperCase() === stagingArea.toUpperCase()
+      );
+      if (!destinationArea) throw new Error("Selected storage area was not found.");
+      const validation = validateLineToArea(validationLine, destinationArea);
+      if (!validation.ok) throw new Error(validation.reason);
+    }
   }
-  const cartons = Array.from({ length: packageCount }, (_, index) => ({
-    copies: 1,
-    clientId: input.clientUserId,
-    clientDisplayName: input.clientDisplayName ?? null,
-    inventoryRequestId: input.requestId,
-    trackingNumber: input.trackingNumber?.trim() || null,
-    carrier: input.carrier?.trim() || null,
-    notes: input.notes?.trim() || null,
-    lines: [
-      {
+
+  if (damagedQty > 0) {
+    const validationLine = buildValidationLine("damaged", damagedQty);
+    if (damagedDestinationBin) {
+      const contents = await inspectBinContents(
+        input.warehouseId,
+        damagedDestinationBin.id
+      );
+      const validation = validateLineToBin(
+        validationLine,
+        damagedDestinationBin,
+        contents,
+        areas
+      );
+      if (!validation.ok) throw new Error(validation.reason);
+    } else {
+      const destinationArea = areas.find(
+        (area) =>
+          area.code.trim().toUpperCase() === damagedStagingArea.toUpperCase()
+      );
+      if (!destinationArea) throw new Error("Selected quarantine area was not found.");
+      const validation = validateLineToArea(validationLine, destinationArea);
+      if (!validation.ok) throw new Error(validation.reason);
+    }
+  }
+
+  const cartons = Array.from({ length: packageCount }, (_, index) => {
+    const lines: Array<{
+      sku: string;
+      productTitle: string | null;
+      quantity: number;
+      lot: string | null;
+      expiry: string | null;
+      damaged?: boolean;
+      inventoryRequestId: string;
+      clientId: string;
+    }> = [];
+    const goodForCarton = qty > 0 ? baseQty + (index < extraQty ? 1 : 0) : 0;
+    if (goodForCarton > 0) {
+      lines.push({
         sku,
         productTitle: request.productName?.trim() || null,
-        quantity: baseQty + (index < extraQty ? 1 : 0),
+        quantity: goodForCarton,
         lot: input.lot?.trim() || null,
         expiry,
+        damaged: false,
         inventoryRequestId: input.requestId,
         clientId: input.clientUserId,
-      },
-    ],
-  }));
+      });
+    }
+    if (index === 0 && damagedQty > 0) {
+      lines.push({
+        sku,
+        productTitle: request.productName?.trim() || null,
+        quantity: damagedQty,
+        lot: input.lot?.trim() || null,
+        expiry,
+        damaged: true,
+        inventoryRequestId: input.requestId,
+        clientId: input.clientUserId,
+      });
+    }
+    return {
+      copies: 1,
+      clientId: input.clientUserId,
+      clientDisplayName: input.clientDisplayName ?? null,
+      inventoryRequestId: input.requestId,
+      trackingNumber: input.trackingNumber?.trim() || null,
+      carrier: input.carrier?.trim() || null,
+      notes: input.notes?.trim() || null,
+      lines,
+    };
+  });
+
+  const receiveStagingArea =
+    stagingArea || damagedStagingArea || eligible.find((a) => a.code.trim())?.code.trim() || "";
 
   const { palletId, cartonIds } = await createReceiveBatch({
     warehouseId: input.warehouseId,
     receivedBy: input.operatorId ?? null,
-    stagingArea,
+    stagingArea: receiveStagingArea,
     isLoose: unitType === "loose",
     pallet:
       unitType === "pallet"
@@ -259,29 +356,52 @@ export async function adminCompleteInboundReceiveAndPutaway(
         cartonId: carton.id,
         cartonCode: carton.cartonCode,
         sku,
-        quantity: carton.lines?.[0]?.quantity ?? carton.quantity,
+        quantity:
+          carton.lines?.reduce((sum, line) => sum + Math.max(0, line.quantity), 0) ||
+          carton.quantity,
       })),
     operatorId: input.operatorId ?? null,
   });
 
   const shopifyPushHints: ShopifyInventoryPushHint[] = [];
   for (const carton of receivedCartons) {
-    const line = carton.lines?.[0];
-    if (!line?.lineId) throw new Error(`Received carton ${carton.cartonCode} has no line.`);
+    const lines = carton.lines ?? [];
+    if (lines.length === 0) {
+      throw new Error(`Received carton ${carton.cartonCode} has no lines.`);
+    }
+    const assignments = lines.map((line) => {
+      if (!line.lineId) {
+        throw new Error(`Received carton ${carton.cartonCode} has a line without id.`);
+      }
+      const isDamaged = line.condition === "damaged";
+      if (isDamaged) {
+        return damagedDestinationBin
+          ? {
+              lineId: line.lineId,
+              binId: damagedDestinationBin.id,
+              binPath: damagedDestinationBin.path,
+              quantity: line.quantity,
+            }
+          : {
+              lineId: line.lineId,
+              stagingArea: damagedStagingArea,
+              quantity: line.quantity,
+            };
+      }
+      return destinationBin
+        ? {
+            lineId: line.lineId,
+            binId: destinationBin.id,
+            binPath: destinationBin.path,
+            quantity: line.quantity,
+          }
+        : { lineId: line.lineId, stagingArea, quantity: line.quantity };
+    });
     const putResult = await applyPutawayAssignments(
       input.warehouseId,
       carton.id,
       carton,
-      [
-        destinationBin
-          ? {
-              lineId: line.lineId,
-              binId: destinationBin.id,
-              binPath: destinationBin.path,
-              quantity: line.quantity,
-            }
-          : { lineId: line.lineId, stagingArea, quantity: line.quantity },
-      ],
+      assignments,
       { operatorId: input.operatorId ?? null, warehouseAreas: areas }
     );
     shopifyPushHints.push(...(putResult.shopifyPushHints ?? []));
@@ -291,7 +411,7 @@ export async function adminCompleteInboundReceiveAndPutaway(
   if (palletId) {
     await updateDoc(warehousePalletDocRef(input.warehouseId, palletId), {
       status: "available",
-      stagingArea,
+      stagingArea: receiveStagingArea,
       updatedAt: serverTimestamp(),
     });
     const palletSnap = await getDoc(
@@ -328,14 +448,19 @@ export async function adminCompleteInboundReceiveAndPutaway(
     updatedAt: serverTimestamp(),
   });
 
+  const goodDest = qty > 0 ? destinationBin?.path || stagingArea : "";
+  const damagedDest =
+    damagedQty > 0 ? damagedDestinationBin?.path || damagedStagingArea : "";
+  const putawayDestination = [goodDest, damagedDest].filter(Boolean).join(" · ");
+
   return {
     cartonIds,
     cartonCodes: putawayCartons.map((carton) => carton.cartonCode),
     palletId,
     palletCode: receivedPallet?.palletCode ?? null,
-    quantityReceived: qty,
-    stagingArea,
-    putawayDestination: destinationBin?.path || stagingArea,
+    quantityReceived: qty + damagedQty,
+    stagingArea: receiveStagingArea,
+    putawayDestination,
     cartons: putawayCartons,
     pallets: receivedPallet ? [receivedPallet] : [],
     shopifyPushHints,

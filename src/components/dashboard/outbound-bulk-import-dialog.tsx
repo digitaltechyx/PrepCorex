@@ -16,7 +16,12 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
+import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
 import { db } from "@/lib/firebase";
+import {
+  getPricingProfileCollectionPath,
+  resolveUserPricingProfileId,
+} from "@/lib/pricing-profiles";
 import type { FbaPackAddOnConfig } from "@/lib/pricing-utils";
 import {
   downloadOutboundBulkTemplate,
@@ -27,7 +32,7 @@ import {
   type OutboundBulkRowError,
   type OutboundBulkValidatedRow,
 } from "@/lib/outbound-bulk-import";
-import type { InventoryItem, UserPricing } from "@/types";
+import type { InventoryItem, UserProfile } from "@/types";
 import { formatServiceLabel } from "@/types";
 
 type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & { id: string };
@@ -38,6 +43,7 @@ type OutboundBulkImportDialogProps = {
   ownerId: string;
   ownerDisplayName: string;
   inventory: InventoryItem[];
+  pricingUser?: Pick<UserProfile, "uid" | "pricingProfileId"> | null;
   onSuccess?: () => void;
 };
 
@@ -47,6 +53,7 @@ export function OutboundBulkImportDialog({
   ownerId,
   ownerDisplayName,
   inventory,
+  pricingUser,
   onSuccess,
 }: OutboundBulkImportDialogProps) {
   const { toast } = useToast();
@@ -59,25 +66,30 @@ export function OutboundBulkImportDialog({
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const { data: pricingRules } = useCollection<UserPricing>(
-    ownerId ? `users/${ownerId}/pricing` : ""
-  );
-  const { data: defaultPricingRules } = useCollection<UserPricing>("defaultPricing");
-  const { data: fbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
-    ownerId ? `users/${ownerId}/fbaPackAddOnPricing` : ""
-  );
-  const { data: defaultFbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
-    "defaultFbaPackAddOnPricing"
+  const resolvedPricingUser = useMemo(
+    () => pricingUser ?? { uid: ownerId, pricingProfileId: null },
+    [pricingUser, ownerId]
   );
 
-  const effectivePricingRules =
-    pricingRules && pricingRules.length > 0 ? pricingRules : defaultPricingRules || [];
+  const { pricingRules: effectivePricingRules } =
+    useUserPricingCollections(resolvedPricingUser);
+
+  const profileId = resolveUserPricingProfileId(resolvedPricingUser);
+  const fbaPackPath = getPricingProfileCollectionPath(profileId, "fbaPackAddOn");
+  const standardFbaPackPath = getPricingProfileCollectionPath("standard", "fbaPackAddOn");
+
+  const { data: fbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
+    ownerId ? fbaPackPath : ""
+  );
+  const { data: standardFbaPackAddOnPricing } = useCollection<FbaPackAddOnPricingDoc>(
+    ownerId && profileId !== "standard" ? standardFbaPackPath : ""
+  );
 
   const latestFbaPackAddOnConfig = useMemo((): FbaPackAddOnConfig | undefined => {
     const list =
       fbaPackAddOnPricing && fbaPackAddOnPricing.length > 0
         ? fbaPackAddOnPricing
-        : defaultFbaPackAddOnPricing || [];
+        : standardFbaPackAddOnPricing || [];
     if (list.length === 0) return undefined;
     const sorted = [...list].sort((a, b) => {
       const aT = (a as FbaPackAddOnPricingDoc).updatedAt?.seconds ?? 0;
@@ -89,7 +101,7 @@ export function OutboundBulkImportDialog({
       pack2to3AddOn: latest.pack2to3AddOn,
       pack4to12AddOn: latest.pack4to12AddOn,
     };
-  }, [fbaPackAddOnPricing, defaultFbaPackAddOnPricing]);
+  }, [fbaPackAddOnPricing, standardFbaPackAddOnPricing]);
 
   const resetState = useCallback(() => {
     setFileName("");

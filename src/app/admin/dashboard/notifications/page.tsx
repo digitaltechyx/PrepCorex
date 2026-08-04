@@ -15,12 +15,15 @@ import type {
   DeleteRequest,
   QuarantineRequest,
   InboundTrackingEntry,
+  LabelRefundRequest,
 } from "@/types";
 import {
   QUARANTINE_REQUESTS,
   quarantineRequestKindLabel,
   requestSortMs,
 } from "@/lib/quarantine-request-ops";
+import { LABEL_REFUND_REQUESTS_COLLECTION, formatLabelMoney } from "@/lib/label-refund";
+import { LabelRefundReviewDialog } from "@/components/admin/label-refund-review-dialog";
 import { summarizeInboundTrackings, resolveInboundTrackings } from "@/lib/inbound-tracking";
 import { db } from "@/lib/firebase";
 import { collection, collectionGroup, getDocs, query } from "firebase/firestore";
@@ -44,7 +47,7 @@ import {
 import { hasRole } from "@/lib/permissions";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, Truck, Package, RotateCcw, Trash2, Eraser, ShieldAlert, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye } from "lucide-react";
+import { Bell, Truck, Package, RotateCcw, Trash2, Eraser, ShieldAlert, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type NotificationType =
@@ -53,7 +56,8 @@ type NotificationType =
   | "product_return"
   | "dispose_request"
   | "delete_request"
-  | "quarantine_request";
+  | "quarantine_request"
+  | "label_refund_request";
 type StatusFilter = "all" | "pending" | "paid" | "approved" | "confirmed" | "rejected" | "in_progress" | "closed" | "cancelled";
 
 type NotificationRow = {
@@ -130,6 +134,7 @@ const NOTIFICATION_TYPE_URL_VALUES = new Set<string>([
   "dispose_request",
   "delete_request",
   "quarantine_request",
+  "label_refund_request",
 ]);
 
 const PERIOD_URL_VALUES = new Set<string>(["all", "today", "this_week", "this_month", "this_year"]);
@@ -141,7 +146,8 @@ function isNotificationTypeParam(v: string): v is NotificationType {
     v === "product_return" ||
     v === "dispose_request" ||
     v === "delete_request" ||
-    v === "quarantine_request"
+    v === "quarantine_request" ||
+    v === "label_refund_request"
   );
 }
 
@@ -205,6 +211,7 @@ function typeIcon(type: NotificationType) {
     case "dispose_request": return <Trash2 className="h-4 w-4 shrink-0" />;
     case "delete_request": return <Eraser className="h-4 w-4 shrink-0" />;
     case "quarantine_request": return <ShieldAlert className="h-4 w-4 shrink-0" />;
+    case "label_refund_request": return <Tag className="h-4 w-4 shrink-0" />;
   }
 }
 
@@ -225,6 +232,8 @@ function isProcessComplete(type: NotificationType, status: string): boolean {
     case "quarantine_request":
       // "approved" still needs the warehouse to move the stock, so it stays actionable.
       return ["completed", "rejected", "cancelled"].includes(s);
+    case "label_refund_request":
+      return ["approved", "rejected", "cancelled"].includes(s);
     default:
       return false;
   }
@@ -313,6 +322,12 @@ export default function AdminNotificationsPage() {
   const [disposeRequests, setDisposeRequests] = useState<NotificationRow[]>([]);
   const [deleteRequests, setDeleteRequests] = useState<NotificationRow[]>([]);
   const [quarantineRequests, setQuarantineRequests] = useState<NotificationRow[]>([]);
+  const [labelRefundRequests, setLabelRefundRequests] = useState<NotificationRow[]>([]);
+  const [refundReview, setRefundReview] = useState<{
+    userId: string;
+    refundRequestId: string;
+    viewOnly: boolean;
+  } | null>(null);
 
   const router = useRouter();
 
@@ -663,6 +678,60 @@ export default function AdminNotificationsPage() {
           }
         }
 
+        // Label refund requests (Buy Labels)
+        {
+          try {
+            const snap = await getDocs(query(collectionGroup(db, LABEL_REFUND_REQUESTS_COLLECTION)));
+            const managed = new Set(userIds);
+            const rows = snap.docs
+              .map((d) => {
+                const data = d.data() as Omit<LabelRefundRequest, "id">;
+                const uid = String(data.userId || d.ref.parent.parent?.id || "");
+                return { id: d.id, ...data, userId: uid };
+              })
+              .filter((r) => managed.has(String(r.userId || "")))
+              .map((r) => ({
+                type: "label_refund_request" as const,
+                id: r.id,
+                userId: String(r.userId || ""),
+                status: String(r.status || ""),
+                createdAtMs: toMs(r.requestedAt) || Number(r.labelGeneratedAtMs) || 0,
+                title: `Label refund • ${formatLabelMoney(r.paymentAmount, r.paymentCurrency)}`,
+                subtitle: r.trackingNumber
+                  ? `Tracking ${r.trackingNumber} • ${(r.reason || "").substring(0, 40)}`
+                  : (r.reason || "").substring(0, 50),
+              }));
+            setLabelRefundRequests(rows);
+          } catch (e) {
+            console.warn("Notifications: collectionGroup labelRefundRequests failed, using per-user.", e);
+            try {
+              const results = await Promise.all(userIds.map(async (uid) => {
+                const snap = await getDocs(
+                  query(collection(db, `users/${uid}/${LABEL_REFUND_REQUESTS_COLLECTION}`))
+                );
+                return snap.docs.map((d) => {
+                  const data = d.data() as Omit<LabelRefundRequest, "id">;
+                  return {
+                    type: "label_refund_request" as const,
+                    id: d.id,
+                    userId: uid,
+                    status: String(data.status || ""),
+                    createdAtMs: toMs(data.requestedAt) || Number(data.labelGeneratedAtMs) || 0,
+                    title: `Label refund • ${formatLabelMoney(data.paymentAmount, data.paymentCurrency)}`,
+                    subtitle: data.trackingNumber
+                      ? `Tracking ${data.trackingNumber} • ${(data.reason || "").substring(0, 40)}`
+                      : (data.reason || "").substring(0, 50),
+                  };
+                });
+              }));
+              setLabelRefundRequests(results.flat());
+            } catch (err) {
+              console.warn("Notifications: Could not fetch label refund requests.", err);
+              setLabelRefundRequests([]);
+            }
+          }
+        }
+
         // Note: If anyFailed is true, we used per-user fallback instead of collectionGroup
         // This is expected when collectionGroup queries are blocked by Firestore security rules
         // The fallback works correctly and loads all notifications
@@ -677,6 +746,7 @@ export default function AdminNotificationsPage() {
         setDisposeRequests([]);
         setDeleteRequests([]);
         setQuarantineRequests([]);
+        setLabelRefundRequests([]);
       } finally {
         setLoading(false);
       }
@@ -705,6 +775,7 @@ export default function AdminNotificationsPage() {
       ...disposeRequests,
       ...deleteRequests,
       ...quarantineRequests,
+      ...labelRefundRequests,
     ].sort((a, b) => b.createdAtMs - a.createdAtMs);
   }, [
     shipmentRequests,
@@ -713,6 +784,7 @@ export default function AdminNotificationsPage() {
     disposeRequests,
     deleteRequests,
     quarantineRequests,
+    labelRefundRequests,
   ]);
 
   const statusCounts = useMemo(() => {
@@ -768,6 +840,14 @@ export default function AdminNotificationsPage() {
   }, [filteredRows, notificationPage]);
 
   const openRequest = (row: NotificationRow, viewOnly: boolean) => {
+    if (row.type === "label_refund_request") {
+      setRefundReview({
+        userId: row.userId,
+        refundRequestId: row.id,
+        viewOnly,
+      });
+      return;
+    }
     const params = new URLSearchParams({
       userId: row.userId,
       section: "user-requests",
@@ -807,7 +887,11 @@ export default function AdminNotificationsPage() {
                         ? "Return"
                         : r.type === "dispose_request"
                           ? "Dispose"
-                          : "Delete"}
+                          : r.type === "quarantine_request"
+                            ? "Quarantine"
+                            : r.type === "label_refund_request"
+                              ? "Label refund"
+                              : "Delete"}
                 </Badge>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -935,6 +1019,7 @@ export default function AdminNotificationsPage() {
                   <SelectItem value="dispose_request">Dispose Requests</SelectItem>
                   <SelectItem value="delete_request">Delete Requests</SelectItem>
                   <SelectItem value="quarantine_request">Quarantine Requests</SelectItem>
+                  <SelectItem value="label_refund_request">Label Refunds</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1069,6 +1154,17 @@ export default function AdminNotificationsPage() {
           </Tabs>
         </CardContent>
       </Card>
+
+      <LabelRefundReviewDialog
+        open={Boolean(refundReview)}
+        userId={refundReview?.userId ?? null}
+        refundRequestId={refundReview?.refundRequestId ?? null}
+        viewOnly={refundReview?.viewOnly}
+        onOpenChange={(open) => {
+          if (!open) setRefundReview(null);
+        }}
+        onResolved={() => setNotificationsRefreshKey((k) => k + 1)}
+      />
     </div>
   );
 }

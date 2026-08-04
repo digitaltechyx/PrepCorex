@@ -34,7 +34,12 @@ import { ShopifyOrderDetailBody } from "@/components/integrations/shopify-order-
 import { ShopifyCreateLabelDialog } from "@/components/admin/shopify-create-label-dialog";
 import { ShopifyLabelSourceDialog } from "@/components/admin/shopify-label-source-dialog";
 import { ShopifyQuickFulfillDialog } from "@/components/admin/shopify-quick-fulfill-dialog";
-import { saveBuyLabelPrefillFromShopifyOrder } from "@/lib/shopify-order-buy-label-prefill";
+import {
+  saveBuyLabelPrefillFromShopifyOrder,
+  clearShopifyLabelFulfillHandoff,
+  loadShopifyLabelFulfillHandoff,
+  type ShopifyLabelFulfillHandoff,
+} from "@/lib/shopify-order-buy-label-prefill";
 import {
   ChevronsUpDown,
   Eye,
@@ -106,6 +111,8 @@ export function ShopifyOrdersPanel() {
 
   const [fulfillDialogOpen, setFulfillDialogOpen] = useState(false);
   const [fulfillOrder, setFulfillOrder] = useState<AdminShopifyOrder | null>(null);
+  const [labelFulfillHandoff, setLabelFulfillHandoff] =
+    useState<ShopifyLabelFulfillHandoff | null>(null);
 
   const [labelSourceDialogOpen, setLabelSourceDialogOpen] = useState(false);
   const [shopifyLabelDialogOpen, setShopifyLabelDialogOpen] = useState(false);
@@ -195,42 +202,128 @@ export function ShopifyOrdersPanel() {
     void fetchOrders("cache");
   }, [fetchOrders]);
 
-  const handleSync = async () => {
-    if (!user) return;
-    setSyncing(true);
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch("/api/admin/shopify/orders", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ userId: userFilter }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Sync failed");
-      setOrders(Array.isArray(data.orders) ? data.orders : []);
-      toast({
-        title: "Shopify synced",
-        description: `${data.orders?.length ?? 0} orders from ${data.syncedUsers ?? 0} client(s)`,
-      });
-      if (Array.isArray(data.errors) && data.errors.length) {
+  // Return from PrepCorex Buy Labels → open Quick Fulfill with tracking/product/label price.
+  useEffect(() => {
+    const orderId = searchParams.get("quickFulfillOrderId")?.trim() || "";
+    if (!orderId || loading || orders.length === 0) return;
+
+    const handoff = loadShopifyLabelFulfillHandoff();
+    const match =
+      orders.find(
+        (o) =>
+          o.id === orderId &&
+          (!handoff?.ownerUserId || o.ownerUserId === handoff.ownerUserId) &&
+          (!urlUserId || urlUserId === "all" || o.ownerUserId === urlUserId)
+      ) || orders.find((o) => o.id === orderId);
+
+    if (!match) return;
+
+    setLabelFulfillHandoff(
+      handoff && handoff.orderId === orderId
+        ? handoff
+        : {
+            ownerUserId: match.ownerUserId,
+            orderId: match.id,
+            orderName: match.name || `#${match.orderNumber}`,
+            shop: match.shop,
+          }
+    );
+    setFulfillOrder(match);
+    setFulfillDialogOpen(true);
+    clearShopifyLabelFulfillHandoff();
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("quickFulfillOrderId");
+    const next = params.toString();
+    router.replace(
+      next ? `/admin/dashboard/shopify-orders?${next}` : "/admin/dashboard/shopify-orders",
+      { scroll: false }
+    );
+  }, [orders, loading, searchParams, urlUserId, router]);
+
+  const syncFromShopify = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!user) return;
+      const silent = options?.silent === true;
+      setSyncing(true);
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/admin/shopify/orders", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ userId: userFilter }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Sync failed");
+        setOrders(Array.isArray(data.orders) ? data.orders : []);
+        try {
+          sessionStorage.setItem(
+            `prepcorex:admin-shopify-orders-sync:${userFilter}`,
+            String(Date.now())
+          );
+        } catch {
+          /* ignore */
+        }
+        if (!silent) {
+          toast({
+            title: "Shopify synced",
+            description: `${data.orders?.length ?? 0} orders from ${data.syncedUsers ?? 0} client(s)`,
+          });
+        }
+        if (Array.isArray(data.errors) && data.errors.length) {
+          toast({
+            variant: "destructive",
+            title: "Some clients had errors",
+            description: data.errors.slice(0, 2).join("; "),
+          });
+        }
+      } catch (e) {
         toast({
           variant: "destructive",
-          title: "Some clients had errors",
-          description: data.errors.slice(0, 2).join("; "),
+          title: "Sync failed",
+          description: e instanceof Error ? e.message : "Could not sync Shopify orders.",
         });
+      } finally {
+        setSyncing(false);
       }
-    } catch (e) {
-      toast({
-        variant: "destructive",
-        title: "Sync failed",
-        description: e instanceof Error ? e.message : "Could not sync Shopify orders.",
-      });
-    } finally {
-      setSyncing(false);
-    }
+    },
+    [user, userFilter, toast]
+  );
+
+  // Auto-sync from Shopify when the admin page opens / client filter changes.
+  // Throttle ~90s so revisiting the page quickly does not hammer every store.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const run = async () => {
+      let shouldSync = true;
+      try {
+        const raw = sessionStorage.getItem(
+          `prepcorex:admin-shopify-orders-sync:${userFilter}`
+        );
+        if (raw) {
+          const ageMs = Date.now() - Number(raw);
+          if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 90_000) {
+            shouldSync = false;
+          }
+        }
+      } catch {
+        shouldSync = true;
+      }
+      if (!shouldSync || cancelled) return;
+      await syncFromShopify({ silent: true });
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, userFilter, syncFromShopify]);
+
+  const handleSync = async () => {
+    await syncFromShopify({ silent: false });
   };
 
   const shopOptions = useMemo(() => {
@@ -319,6 +412,7 @@ export function ShopifyOrdersPanel() {
   };
 
   const openFulfillDialog = (order: AdminShopifyOrder) => {
+    setLabelFulfillHandoff(null);
     setFulfillOrder(order);
     setFulfillDialogOpen(true);
   };
@@ -356,8 +450,8 @@ export function ShopifyOrdersPanel() {
             Shopify Orders
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            All client Shopify orders in one place. Filter by client, store, status, or date — then
-            fulfill or purchase labels.
+            All client Shopify orders in one place. Orders auto-sync when you open this page.
+            Filter by client, store, status, or date — then fulfill or purchase labels.
           </p>
         </div>
         <Button onClick={() => void handleSync()} disabled={syncing || loading || !user}>
@@ -702,9 +796,13 @@ export function ShopifyOrdersPanel() {
         open={fulfillDialogOpen}
         onOpenChange={(open) => {
           setFulfillDialogOpen(open);
-          if (!open) setFulfillOrder(null);
+          if (!open) {
+            setFulfillOrder(null);
+            setLabelFulfillHandoff(null);
+          }
         }}
         order={fulfillOrder}
+        labelHandoff={labelFulfillHandoff}
         getAuthToken={() => user!.getIdToken()}
         onCompleted={() => void fetchOrders("cache")}
       />

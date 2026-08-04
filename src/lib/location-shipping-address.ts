@@ -107,16 +107,35 @@ export function normalizeShippoState(raw: string | undefined, countryCode: strin
   const v = (raw || "").trim();
   if (!v) return "";
 
+  const fold = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+
   if (countryCode === "US") {
     const upper = v.toUpperCase();
     if (US_STATE_CODES.has(upper)) return upper;
-    return US_STATE_BY_LABEL.get(v.toLowerCase()) || upper;
+    const byLabel = US_STATE_BY_LABEL.get(v.toLowerCase());
+    if (byLabel) return byLabel;
+    const folded = fold(v);
+    for (const s of US_STATES) {
+      if (fold(s.label) === folded || fold(s.value) === folded) return s.value;
+    }
+    return US_STATE_CODES.has(upper) ? upper : "";
   }
 
   if (countryCode === "CA") {
     const upper = v.toUpperCase();
     if (CA_PROVINCE_CODES.has(upper)) return upper;
-    return CA_PROVINCE_BY_LABEL.get(v.toLowerCase()) || upper;
+    const byLabel = CA_PROVINCE_BY_LABEL.get(v.toLowerCase());
+    if (byLabel) return byLabel;
+    const folded = fold(v);
+    for (const s of CANADIAN_PROVINCES) {
+      if (fold(s.label) === folded || fold(s.value) === folded) return s.value;
+    }
+    return CA_PROVINCE_CODES.has(upper) ? upper : "";
   }
 
   return v;
