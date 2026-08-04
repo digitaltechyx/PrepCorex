@@ -11,32 +11,100 @@ import type {
   UserContainerHandlingPricing,
   UserAdditionalServicesPricing,
 } from "@/types";
+import { servicesMatch } from "@/types";
 import {
   DEFAULT_PRICING_PROFILE_ID,
   getPricingProfilePaths,
   getUserPricingProfilePaths,
   resolveUserPricingProfileId,
   getPricingProfileLabel,
+  isCustomProfileId,
 } from "@/lib/pricing-profiles";
 
-function pickWithStandardFallback<T>(
+function toMs(v: unknown): number {
+  if (!v) return 0;
+  if (typeof v === "string") {
+    const t = new Date(v).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  }
+  if (typeof (v as { toDate?: () => Date })?.toDate === "function") {
+    return (v as { toDate: () => Date }).toDate().getTime();
+  }
+  if (typeof (v as { seconds?: number })?.seconds === "number") {
+    return ((v as { seconds: number }).seconds || 0) * 1000;
+  }
+  if (v instanceof Date) return v.getTime();
+  return 0;
+}
+
+function prepRuleKey(rule: Pick<UserPricing, "service" | "package" | "quantityRange" | "productType">) {
+  return [
+    String(rule.service || "").trim(),
+    String(rule.package || "").trim(),
+    String(rule.quantityRange || "").trim(),
+    String(rule.productType || "").trim(),
+  ].join("|");
+}
+
+/**
+ * Prefer assigned-profile docs; fill missing keys from Standard.
+ * When duplicates exist, keep the newest by updatedAt.
+ */
+function mergeAssignedWithStandard<T extends { updatedAt?: unknown; createdAt?: unknown; id?: string }>(
+  assigned: T[] | undefined,
+  assignedLoading: boolean,
+  standard: T[] | undefined,
+  useFallback: boolean,
+  keyOf: (item: T) => string
+): T[] {
+  if (assignedLoading) return assigned ?? [];
+  const assignedList = assigned ?? [];
+  if (!useFallback) return assignedList;
+  if (assignedList.length === 0) return standard ?? [];
+
+  const pickNewer = (a: T, b: T) =>
+    toMs(b.updatedAt || b.createdAt) - toMs(a.updatedAt || a.createdAt) >= 0 ? b : a;
+
+  const map = new Map<string, T>();
+  for (const item of standard ?? []) {
+    const key = keyOf(item);
+    if (!key || key === "|||") continue;
+    const prev = map.get(key);
+    map.set(key, prev ? pickNewer(prev, item) : item);
+  }
+  for (const item of assignedList) {
+    const key = keyOf(item);
+    if (!key || key === "|||") {
+      // Keep unkeyed assigned docs so callers can still inspect them.
+      map.set(`__assigned_${item.id || map.size}`, item);
+      continue;
+    }
+    const prev = map.get(key);
+    map.set(key, prev ? pickNewer(prev, item) : item);
+  }
+  return Array.from(map.values());
+}
+
+function pickNewerList<T extends { updatedAt?: unknown; createdAt?: unknown }>(
   assigned: T[] | undefined,
   assignedLoading: boolean,
   standard: T[] | undefined,
   useFallback: boolean
 ): T[] {
   if (assignedLoading) return assigned ?? [];
-  if ((assigned ?? []).length > 0) return assigned ?? [];
+  const assignedList = assigned ?? [];
+  if (assignedList.length > 0) return assignedList;
   if (useFallback) return standard ?? [];
-  return assigned ?? [];
+  return assignedList;
 }
 
 /**
  * Load all pricing tables for a user's assigned profile.
  * Pallet storage cycles remain per-user (operational), not profile-scoped.
  *
- * If the assigned profile has an empty category (e.g. Custom assigned but never
- * seeded), fall back to Standard rates so users never see $0 / blank pricing.
+ * Prep rules: merge Standard into gaps so missing tiers don't blank out,
+ * but assigned-profile rates always win for the same key.
+ * Other categories: use assigned when present, else Standard.
  */
 export function useUserPricingCollections(
   user: Pick<UserProfile, "pricingProfileId" | "uid"> | null | undefined
@@ -91,89 +159,96 @@ export function useUserPricingCollections(
       standardPath(standardPaths.additionalServices)
     );
 
+  // Custom profiles: never wholesale-replace with Standard (that made Custom users
+  // see Standard rates). Merge prep by key so assigned custom rates always win.
+  const allowWholesaleCategoryFallback =
+    useStandardFallback && !isCustomProfileId(profileId);
+
   const resolvedPricingRules = useMemo(
     () =>
-      pickWithStandardFallback(
+      mergeAssignedWithStandard(
         pricingRules,
         prepLoading,
         standardPricingRules,
-        useStandardFallback
+        useStandardFallback,
+        (rule) => prepRuleKey(rule)
       ),
     [pricingRules, prepLoading, standardPricingRules, useStandardFallback]
   );
+
   const resolvedStoragePricingList = useMemo(
     () =>
-      pickWithStandardFallback(
+      pickNewerList(
         storagePricingList,
         storageLoading,
         standardStoragePricingList,
-        useStandardFallback
+        allowWholesaleCategoryFallback
       ),
     [
       storagePricingList,
       storageLoading,
       standardStoragePricingList,
-      useStandardFallback,
+      allowWholesaleCategoryFallback,
     ]
   );
   const resolvedBoxForwardingPricing = useMemo(
     () =>
-      pickWithStandardFallback(
+      pickNewerList(
         boxForwardingPricing,
         boxLoading,
         standardBoxForwardingPricing,
-        useStandardFallback
+        allowWholesaleCategoryFallback
       ),
     [
       boxForwardingPricing,
       boxLoading,
       standardBoxForwardingPricing,
-      useStandardFallback,
+      allowWholesaleCategoryFallback,
     ]
   );
   const resolvedPalletForwardingPricing = useMemo(
     () =>
-      pickWithStandardFallback(
+      pickNewerList(
         palletForwardingPricing,
         palletLoading,
         standardPalletForwardingPricing,
-        useStandardFallback
+        allowWholesaleCategoryFallback
       ),
     [
       palletForwardingPricing,
       palletLoading,
       standardPalletForwardingPricing,
-      useStandardFallback,
+      allowWholesaleCategoryFallback,
     ]
   );
   const resolvedContainerHandlingPricing = useMemo(
     () =>
-      pickWithStandardFallback(
+      pickNewerList(
         containerHandlingPricing,
         containerLoading,
         standardContainerHandlingPricing,
-        useStandardFallback
+        allowWholesaleCategoryFallback
       ),
     [
       containerHandlingPricing,
       containerLoading,
       standardContainerHandlingPricing,
-      useStandardFallback,
+      allowWholesaleCategoryFallback,
     ]
   );
   const resolvedAdditionalServicesPricing = useMemo(
     () =>
-      pickWithStandardFallback(
+      pickNewerList(
         additionalServicesPricing,
         additionalLoading,
         standardAdditionalServicesPricing,
-        useStandardFallback
+        allowWholesaleCategoryFallback
       ),
     [
       additionalServicesPricing,
       additionalLoading,
       standardAdditionalServicesPricing,
-      useStandardFallback,
+      allowWholesaleCategoryFallback,
     ]
   );
 
@@ -196,6 +271,9 @@ export function useUserPricingCollections(
 
   const loading = assignedLoading || Boolean(fallbackLoading);
 
+  // Expose raw assigned prep for debugging/UI that must ignore Standard merge.
+  const assignedPrepCount = (pricingRules ?? []).length;
+
   return {
     profileId,
     profileLabel: getPricingProfileLabel(profileId),
@@ -207,15 +285,47 @@ export function useUserPricingCollections(
     containerHandlingPricing: resolvedContainerHandlingPricing,
     additionalServicesPricing: resolvedAdditionalServicesPricing,
     loading,
-    /** True when at least one category is served from Standard because the assigned profile is empty. */
+    assignedPrepCount,
     usingStandardFallback:
       useStandardFallback &&
       !assignedLoading &&
-      ((pricingRules ?? []).length === 0 ||
-        (boxForwardingPricing ?? []).length === 0 ||
-        (palletForwardingPricing ?? []).length === 0 ||
-        (storagePricingList ?? []).length === 0 ||
-        (containerHandlingPricing ?? []).length === 0 ||
-        (additionalServicesPricing ?? []).length === 0),
+      assignedPrepCount === 0,
   };
+}
+
+/** Find newest prep rate for a service / volume tier / product type. */
+export function findLatestPrepRate(
+  pricingList: Array<{
+    service?: string;
+    package?: string;
+    quantityRange?: string;
+    productType?: string;
+    rate?: number | string;
+    updatedAt?: unknown;
+    createdAt?: unknown;
+  }>,
+  service: string,
+  quantityRange: string,
+  productType: string,
+  preferredPackage?: string
+): number | undefined {
+  const range = String(quantityRange || "").trim();
+  let matches = (pricingList || []).filter(
+    (d) =>
+      servicesMatch(d.service, service) &&
+      String(d.quantityRange || "").trim() === range &&
+      d.productType === productType
+  );
+  if (preferredPackage) {
+    const withPkg = matches.filter((d) => d.package === preferredPackage);
+    if (withPkg.length > 0) matches = withPkg;
+  }
+  if (matches.length === 0) return undefined;
+
+  matches.sort(
+    (a, b) => toMs(b.updatedAt || b.createdAt) - toMs(a.updatedAt || a.createdAt)
+  );
+  const raw = matches[0]?.rate;
+  const rate = typeof raw === "number" ? raw : parseFloat(String(raw ?? "").trim());
+  return Number.isFinite(rate) ? rate : undefined;
 }

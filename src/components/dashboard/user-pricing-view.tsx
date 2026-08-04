@@ -3,7 +3,7 @@
  import { useMemo, useState, type ReactNode } from "react";
  import { useAuth } from "@/hooks/use-auth";
  import { useCollection } from "@/hooks/use-collection";
- import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
+ import { useUserPricingCollections, findLatestPrepRate } from "@/hooks/use-user-pricing-collections";
  import { usePricingProfileSettings } from "@/hooks/use-pricing-profile-settings";
  import {
    DEFAULT_FBA_INCLUDED_ITEMS,
@@ -244,7 +244,14 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
     for (const d of pricingList || []) {
        if (!d.service || !d.package || !d.quantityRange || !d.productType) continue;
        const key = `${d.service}|${d.package}|${d.quantityRange}|${d.productType}`;
-      map.set(key, d);
+       const prev = map.get(key);
+       if (!prev) {
+         map.set(key, d);
+         continue;
+       }
+       const prevMs = toMs(prev.updatedAt || prev.createdAt);
+       const nextMs = toMs(d.updatedAt || d.createdAt);
+       if (nextMs >= prevMs) map.set(key, d);
      }
      return map;
   }, [pricingList]);
@@ -368,12 +375,28 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
                PRODUCT_TYPES.map((pt) => {
                  const key = `${service}|${pkg.package}|${pkg.quantityRange}|${pt}`;
                  const rule = pricingByKey.get(key);
+                 const matchedRate =
+                   rule?.rate !== undefined && rule?.rate !== null
+                     ? typeof rule.rate === "number"
+                       ? rule.rate
+                       : Number(rule.rate)
+                     : findLatestPrepRate(
+                         pricingList || [],
+                         service,
+                         pkg.quantityRange,
+                         pt,
+                         pkg.package
+                       );
                 const fbaDefaultRate =
                   service === "FBA/WFS/TFS"
                     ? DEFAULT_FBA_RATES[`${pkg.quantityRange}|${pt}`]
-                    : undefined;
+                    : isDtcFbmService(service)
+                      ? DEFAULT_FBM_RATES[`${pkg.quantityRange}|${pt}`]
+                      : undefined;
                 const rateToShow =
-                  rule?.rate !== undefined && rule?.rate !== null ? rule.rate : fbaDefaultRate;
+                  matchedRate !== undefined && Number.isFinite(matchedRate)
+                    ? matchedRate
+                    : fbaDefaultRate;
                  return (
                    <tr key={key} className="border-b hover:bg-muted/50">
                      <td className="p-2 text-sm">{pkg.package}</td>
@@ -393,10 +416,16 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
   const renderFbaPlans = () => {
     const getFbaPrice = (range: (typeof FBA_PACKAGES)[number]["quantityRange"]) => {
       const pkg = FBA_PACKAGES.find((p) => p.quantityRange === range);
-      if (!pkg) return undefined;
-      const key = `FBA/WFS/TFS|${pkg.package}|${pkg.quantityRange}|Standard`;
-      const rule = pricingByKey.get(key);
-      if (rule?.rate !== undefined && rule?.rate !== null) return rule.rate;
+      // Match by volume tier first so Custom profile rates show even if package
+      // labels differ slightly from Starter/Standard/Premium.
+      const fromProfile = findLatestPrepRate(
+        pricingList || [],
+        "FBA/WFS/TFS",
+        range,
+        "Standard",
+        pkg?.package
+      );
+      if (fromProfile !== undefined) return fromProfile;
       return DEFAULT_FBA_RATES[`${range}|Standard`];
     };
 
@@ -463,11 +492,22 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
     ];
     const getFbmPrice = (range: (typeof rows)[number]["range"]) => {
       const pkg = FBM_PACKAGES.find((p) => p.quantityRange === range);
-      if (!pkg) return undefined;
-      const key = `${DTC_FBM_SERVICE}|${pkg.package}|${pkg.quantityRange}|Standard`;
-      const legacyKey = `FBM|${pkg.package}|${pkg.quantityRange}|Standard`;
-      const rule = pricingByKey.get(key) ?? pricingByKey.get(legacyKey);
-      if (rule?.rate !== undefined && rule?.rate !== null) return rule.rate;
+      const fromProfile =
+        findLatestPrepRate(
+          pricingList || [],
+          DTC_FBM_SERVICE,
+          range,
+          "Standard",
+          pkg?.package
+        ) ??
+        findLatestPrepRate(
+          pricingList || [],
+          "FBM",
+          range,
+          "Standard",
+          pkg?.package
+        );
+      if (fromProfile !== undefined) return fromProfile;
       return DEFAULT_FBM_RATES[`${range}|Standard`];
     };
 

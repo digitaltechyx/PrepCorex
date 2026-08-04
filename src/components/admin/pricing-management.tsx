@@ -681,6 +681,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
         const pricingData: any = {
           userId: ownerId,
+          profileId: ownerId,
           service: row.service,
           package: row.package,
           quantityRange: row.quantityRange,
