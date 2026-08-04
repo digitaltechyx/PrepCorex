@@ -290,8 +290,13 @@ type BuyLabelsFormProps = {
     ownerUserId: string;
     ownerName: string;
   } | null;
-  /** Optional list of clients for the inventory-owner picker (admin Shopify flow). */
+  /** Client list for the inventory-owner picker (admin Buy Labels). */
   clientOptions?: Array<{ uid: string; label: string }>;
+  /**
+   * Admin mode: show Select User and load that client's inventory for the
+   * product dropdown (required for Shopify quick-fulfill handoff).
+   */
+  enableClientInventoryPicker?: boolean;
 };
 
 export function BuyLabelsForm({
@@ -302,6 +307,7 @@ export function BuyLabelsForm({
   parcelPrefillBanner = null,
   shopifyOrderContext = null,
   clientOptions = [],
+  enableClientInventoryPicker = false,
 }: BuyLabelsFormProps = {}) {
   const { userProfile, user } = useAuth();
   const { toast } = useToast();
@@ -324,6 +330,8 @@ export function BuyLabelsForm({
   const [selectedInventoryProductId, setSelectedInventoryProductId] = useState<string>("");
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [inventoryOwnerUserId, setInventoryOwnerUserId] = useState<string>(
     shopifyOrderContext?.ownerUserId || ""
   );
@@ -332,16 +340,48 @@ export function BuyLabelsForm({
   const appliedInitialToRef = useRef(false);
   const appliedInitialParcelRef = useRef(false);
 
+  const showClientInventoryPicker =
+    enableClientInventoryPicker || Boolean(shopifyOrderContext) || clientOptions.length > 0;
+
   useEffect(() => {
     if (shopifyOrderContext?.ownerUserId) {
       setInventoryOwnerUserId(shopifyOrderContext.ownerUserId);
     }
   }, [shopifyOrderContext?.ownerUserId]);
 
-  const inventoryOwnerId =
-    (inventoryOwnerUserId || shopifyOrderContext?.ownerUserId || user?.uid || "").trim();
+  // Admin client picker: only load that client's inventory (never silently fall back to admin uid).
+  const inventoryOwnerId = showClientInventoryPicker
+    ? (inventoryOwnerUserId || shopifyOrderContext?.ownerUserId || "").trim()
+    : (user?.uid || "").trim();
   const inventoryPath = inventoryOwnerId ? `users/${inventoryOwnerId}/inventory` : "";
   const { data: inventoryItems } = useCollection<InventoryItem>(inventoryPath);
+
+  const resolvedClientOptions = useMemo(() => {
+    if (
+      shopifyOrderContext?.ownerUserId &&
+      !clientOptions.some((o) => o.uid === shopifyOrderContext.ownerUserId)
+    ) {
+      return [
+        {
+          uid: shopifyOrderContext.ownerUserId,
+          label: shopifyOrderContext.ownerName || shopifyOrderContext.ownerUserId,
+        },
+        ...clientOptions,
+      ];
+    }
+    return clientOptions;
+  }, [clientOptions, shopifyOrderContext]);
+
+  const selectedClientOption = useMemo(
+    () => resolvedClientOptions.find((opt) => opt.uid === inventoryOwnerId) ?? null,
+    [resolvedClientOptions, inventoryOwnerId]
+  );
+
+  const filteredClientOptions = useMemo(() => {
+    const q = clientSearchQuery.trim().toLowerCase();
+    if (!q) return resolvedClientOptions;
+    return resolvedClientOptions.filter((opt) => opt.label.toLowerCase().includes(q));
+  }, [resolvedClientOptions, clientSearchQuery]);
 
   const inventoryProductOptions = useMemo(() => {
     return [...(inventoryItems || [])]
@@ -1363,155 +1403,226 @@ export function BuyLabelsForm({
                   <h3 className="text-lg font-semibold">Packaging Details</h3>
                 </div>
 
-                <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
-                  {shopifyOrderContext ? (
-                    <div className="space-y-2 pb-2">
-                      <Label className="text-sm font-medium">Client (warehouse inventory)</Label>
+                <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+                  {showClientInventoryPicker ? (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Select user *</Label>
                       <p className="text-xs text-muted-foreground">
-                        Products below load from this client&apos;s inventory. Pre-selected from the
-                        Shopify order owner — change only if needed.
+                        {shopifyOrderContext
+                          ? "Pre-selected from the Shopify order. Change if needed — products load from this client’s inventory."
+                          : "Choose a client first. The product list below shows that user’s warehouse inventory."}
                       </p>
-                      <Select
-                        value={inventoryOwnerId || undefined}
-                        onValueChange={(value) => {
-                          setInventoryOwnerUserId(value);
-                          setSelectedInventoryProductId("");
-                          setProductSearchQuery("");
+                      <Popover
+                        open={clientPickerOpen}
+                        modal={false}
+                        onOpenChange={(open) => {
+                          setClientPickerOpen(open);
+                          if (!open) setClientSearchQuery("");
                         }}
                       >
-                        <SelectTrigger className="w-full max-w-md">
-                          <SelectValue placeholder="Select client…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(clientOptions.length > 0
-                            ? clientOptions
-                            : [
-                                {
-                                  uid: shopifyOrderContext.ownerUserId,
-                                  label: shopifyOrderContext.ownerName,
-                                },
-                              ]
-                          ).map((opt) => (
-                            <SelectItem key={opt.uid} value={opt.uid}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={clientPickerOpen}
+                            className="relative z-10 w-full max-w-md justify-between font-normal pointer-events-auto"
+                          >
+                            <span className="truncate">
+                              {selectedClientOption
+                                ? selectedClientOption.label
+                                : inventoryOwnerId
+                                  ? resolvedClientOptions.find((o) => o.uid === inventoryOwnerId)
+                                      ?.label ||
+                                    shopifyOrderContext?.ownerName ||
+                                    "Selected user"
+                                  : "Select user…"}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          className="z-[200] w-[min(100vw-2rem,28rem)] p-0 pointer-events-auto"
+                          align="start"
+                          sideOffset={4}
+                          onOpenAutoFocus={(e) => e.preventDefault()}
+                          onCloseAutoFocus={(e) => e.preventDefault()}
+                        >
+                          <div className="flex items-center gap-2 border-b px-3 py-2">
+                            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <Input
+                              value={clientSearchQuery}
+                              onChange={(e) => setClientSearchQuery(e.target.value)}
+                              placeholder="Search client by name or email…"
+                              className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                            />
+                          </div>
+                          <div className="max-h-[280px] overflow-y-auto overscroll-contain p-1">
+                            {filteredClientOptions.length === 0 ? (
+                              <p className="py-6 text-center text-sm text-muted-foreground">
+                                No clients found.
+                              </p>
+                            ) : (
+                              filteredClientOptions.map((opt) => {
+                                const selected = inventoryOwnerId === opt.uid;
+                                return (
+                                  <button
+                                    key={opt.uid}
+                                    type="button"
+                                    className={cn(
+                                      "flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                                      selected && "bg-accent"
+                                    )}
+                                    onClick={() => {
+                                      setInventoryOwnerUserId(opt.uid);
+                                      setSelectedInventoryProductId("");
+                                      setProductSearchQuery("");
+                                      setClientPickerOpen(false);
+                                      setClientSearchQuery("");
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "h-4 w-4 shrink-0",
+                                        selected ? "opacity-100" : "opacity-0"
+                                      )}
+                                    />
+                                    <span className="truncate">{opt.label}</span>
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
                     </div>
                   ) : null}
-                  <Label className="text-sm font-medium">Product (optional)</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {shopifyOrderContext
-                      ? "Select the warehouse product you are quick-fulfilling to autofill dimensions. This product will be preselected on return to Quick Fulfill."
-                      : "Select an inventory product to autofill length, width, height, and weight. Or leave blank and enter package details manually."}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Popover
-                      open={productPickerOpen}
-                      onOpenChange={(open) => {
-                        setProductPickerOpen(open);
-                        if (!open) setProductSearchQuery("");
-                      }}
-                    >
-                      <PopoverTrigger asChild>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Product (optional)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {showClientInventoryPicker
+                        ? inventoryOwnerId
+                          ? shopifyOrderContext
+                            ? "Select the warehouse product for this quick fulfill to autofill dimensions."
+                            : "Select a product from this user’s inventory to autofill dimensions."
+                          : "Select a user above to load their products."
+                        : "Select an inventory product to autofill length, width, height, and weight. Or leave blank and enter package details manually."}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Popover
+                        open={productPickerOpen}
+                        modal={false}
+                        onOpenChange={(open) => {
+                          if (showClientInventoryPicker && !inventoryOwnerId) return;
+                          setProductPickerOpen(open);
+                          if (!open) setProductSearchQuery("");
+                        }}
+                      >
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={productPickerOpen}
+                            disabled={showClientInventoryPicker && !inventoryOwnerId}
+                            className="relative z-10 w-full max-w-md justify-between font-normal pointer-events-auto"
+                          >
+                            <span className="truncate">
+                              {selectedInventoryProduct
+                                ? selectedInventoryProduct.productName
+                                : showClientInventoryPicker && !inventoryOwnerId
+                                  ? "Select user first…"
+                                  : "Select product…"}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          className="z-[200] w-[min(100vw-2rem,28rem)] p-0 pointer-events-auto"
+                          align="start"
+                          sideOffset={4}
+                          onOpenAutoFocus={(e) => e.preventDefault()}
+                          onCloseAutoFocus={(e) => e.preventDefault()}
+                        >
+                          <div className="flex items-center gap-2 border-b px-3 py-2">
+                            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <Input
+                              value={productSearchQuery}
+                              onChange={(e) => setProductSearchQuery(e.target.value)}
+                              placeholder="Search by name or SKU…"
+                              className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                            />
+                          </div>
+                          <div className="max-h-[280px] overflow-y-auto overscroll-contain p-1">
+                            {filteredInventoryProductOptions.length === 0 ? (
+                              <p className="py-6 text-center text-sm text-muted-foreground">
+                                No products found.
+                              </p>
+                            ) : (
+                              filteredInventoryProductOptions.map((item) => {
+                                const dims = formatUnitDimensions(item);
+                                const weight = formatUnitWeight(item);
+                                const meta = [item.sku, dims, weight].filter(Boolean).join(" · ");
+                                const selected = selectedInventoryProductId === item.id;
+                                return (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    className={cn(
+                                      "flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                                      selected && "bg-accent"
+                                    )}
+                                    onClick={() => {
+                                      applyParcelFromInventoryProduct(item);
+                                      setProductPickerOpen(false);
+                                      setProductSearchQuery("");
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mt-0.5 h-4 w-4 shrink-0",
+                                        selected ? "opacity-100" : "opacity-0"
+                                      )}
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="truncate font-medium">{item.productName}</div>
+                                      {meta ? (
+                                        <div className="truncate text-xs text-muted-foreground">
+                                          {meta}
+                                        </div>
+                                      ) : (
+                                        <div className="text-xs text-amber-700">
+                                          No L/W/H or weight on file
+                                        </div>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                      {selectedInventoryProductId ? (
                         <Button
                           type="button"
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={productPickerOpen}
-                          className="w-full max-w-md justify-between font-normal"
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 gap-1"
+                          onClick={clearSelectedInventoryProduct}
                         >
-                          <span className="truncate">
-                            {selectedInventoryProduct
-                              ? selectedInventoryProduct.productName
-                              : "Select product…"}
-                          </span>
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          <X className="h-3.5 w-3.5" />
+                          Clear
                         </Button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        className="w-[min(100vw-2rem,28rem)] p-0"
-                        align="start"
-                        onOpenAutoFocus={(e) => e.preventDefault()}
-                      >
-                        <div className="flex items-center gap-2 border-b px-3 py-2">
-                          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <Input
-                            value={productSearchQuery}
-                            onChange={(e) => setProductSearchQuery(e.target.value)}
-                            placeholder="Search by name or SKU…"
-                            className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-                          />
-                        </div>
-                        <div className="max-h-[280px] overflow-y-auto p-1">
-                          {filteredInventoryProductOptions.length === 0 ? (
-                            <p className="py-6 text-center text-sm text-muted-foreground">
-                              No products found.
-                            </p>
-                          ) : (
-                            filteredInventoryProductOptions.map((item) => {
-                              const dims = formatUnitDimensions(item);
-                              const weight = formatUnitWeight(item);
-                              const meta = [item.sku, dims, weight].filter(Boolean).join(" · ");
-                              const selected = selectedInventoryProductId === item.id;
-                              return (
-                                <button
-                                  key={item.id}
-                                  type="button"
-                                  className={cn(
-                                    "flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
-                                    selected && "bg-accent"
-                                  )}
-                                  onClick={() => {
-                                    applyParcelFromInventoryProduct(item);
-                                    setProductPickerOpen(false);
-                                    setProductSearchQuery("");
-                                  }}
-                                >
-                                  <Check
-                                    className={cn(
-                                      "mt-0.5 h-4 w-4 shrink-0",
-                                      selected ? "opacity-100" : "opacity-0"
-                                    )}
-                                  />
-                                  <div className="min-w-0 flex-1">
-                                    <div className="truncate font-medium">{item.productName}</div>
-                                    {meta ? (
-                                      <div className="truncate text-xs text-muted-foreground">
-                                        {meta}
-                                      </div>
-                                    ) : (
-                                      <div className="text-xs text-amber-700">
-                                        No L/W/H or weight on file
-                                      </div>
-                                    )}
-                                  </div>
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                    {selectedInventoryProductId ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-9 gap-1"
-                        onClick={clearSelectedInventoryProduct}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                        Clear
-                      </Button>
+                      ) : null}
+                    </div>
+                    {selectedInventoryProduct ? (
+                      <p className="text-xs text-muted-foreground">
+                        You can still edit the weight and dimensions below after autofill.
+                      </p>
                     ) : null}
                   </div>
-                  {selectedInventoryProduct ? (
-                    <p className="text-xs text-muted-foreground">
-                      You can still edit the weight and dimensions below after autofill.
-                    </p>
-                  ) : null}
                 </div>
 
                 {/* Weight Section */}

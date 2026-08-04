@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Package, Tag } from "lucide-react";
 import { useManagedUsers } from "@/hooks/use-managed-users";
 import { formatUserDisplayName } from "@/lib/format-user-display";
+import { hasRole } from "@/lib/permissions";
 import {
   clearBuyLabelPrefillFromSession,
   loadBuyLabelPrefillFromSession,
@@ -37,10 +38,15 @@ export default function AdminBuyLabelsPageContent() {
 
   const clientOptions = useMemo(
     () =>
-      (managedUsers || []).map((u) => ({
-        uid: u.uid,
-        label: formatUserDisplayName(u, { showEmail: true }),
-      })),
+      (managedUsers || [])
+        .filter((u) => hasRole(u, "user") || hasRole(u, "commission_agent"))
+        .filter((u) => u.status === "approved" || !u.status)
+        .filter((u) => u.status !== "deleted")
+        .map((u) => ({
+          uid: u.uid,
+          label: formatUserDisplayName(u, { showEmail: true }),
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" })),
     [managedUsers]
   );
 
@@ -108,8 +114,8 @@ export default function AdminBuyLabelsPageContent() {
         </TabsList>
 
         <TabsContent value="buy" className="mt-0">
-          <Card className="overflow-hidden border-2 shadow-xl">
-            <CardHeader className="bg-gradient-to-r from-cyan-500 to-blue-600 pb-4 text-white">
+          <Card className="border-2 shadow-xl">
+            <CardHeader className="rounded-t-lg bg-gradient-to-r from-cyan-500 to-blue-600 pb-4 text-white">
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-2xl font-bold text-white">
@@ -125,9 +131,10 @@ export default function AdminBuyLabelsPageContent() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="p-6">
+            <CardContent className="relative z-0 overflow-visible p-6">
               <BuyLabelsForm
                 successRedirect="/admin/dashboard/buy-labels?tab=purchased"
+                enableClientInventoryPicker
                 initialToAddress={shopifyPrefill?.toAddress ?? null}
                 shopifyPrefillBanner={
                   shopifyPrefill
