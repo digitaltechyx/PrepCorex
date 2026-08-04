@@ -286,9 +286,14 @@ service cloud.firestore {
     }
 
     // ---- PRICING PROFILES (global + custom per-user tables) ----
-    match /pricingProfiles/{profileId}/{collectionId}/{docId} {
+    match /pricingProfiles/{profileId} {
       allow read: if signedIn();
       allow write: if isAdminOrSubAdmin();
+
+      match /{collectionId}/{docId} {
+        allow read: if signedIn();
+        allow write: if isAdminOrSubAdmin();
+      }
     }
 
     // ---- UPLOADED PDFs ----

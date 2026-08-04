@@ -67,13 +67,30 @@ export async function seedPricingProfileFromSource(
       delete data.migratedAt;
       delete data.seededFrom;
       delete data.seededAt;
-      const ref = doc(collection(db, targetPath));
-      batch.set(ref, {
-        ...data,
-        profileId: targetId,
-        seededFrom: sourceId,
-        seededAt: now,
-      });
+
+      const service = String(data.service || "").trim();
+      const pkg = String(data.package || "").trim();
+      const quantityRange = String(data.quantityRange || "").trim();
+      const productType = String(data.productType || "").trim();
+      const safe = (value: string) => value.replace(/[^a-zA-Z0-9+_.-]/g, "_");
+      const deterministicId =
+        category === "prep" && service && pkg && quantityRange && productType
+          ? `${safe(service)}_${safe(pkg)}_${safe(quantityRange)}_${safe(productType)}`
+          : null;
+
+      const ref = deterministicId
+        ? doc(db, targetPath, deterministicId)
+        : doc(collection(db, targetPath));
+      batch.set(
+        ref,
+        {
+          ...data,
+          profileId: targetId,
+          seededFrom: sourceId,
+          seededAt: now,
+        },
+        { merge: true }
+      );
     });
     await batch.commit();
     seededCategories.push(category);

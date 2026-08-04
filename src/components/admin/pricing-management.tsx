@@ -407,13 +407,20 @@ export function PricingManagement({ users }: PricingManagementProps) {
     // If we have existing pricing, populate the rows
     if (pricingList && pricingList.length > 0) {
       allCombinations.forEach((row) => {
-        const existing = pricingList.find(
-          (p) =>
-            (p.service === row.service || servicesMatch(p.service, row.service)) &&
-            p.package === row.package &&
-            p.quantityRange === row.quantityRange &&
-            p.productType === row.productType
-        );
+        const safe = (value: string) =>
+          String(value || "")
+            .trim()
+            .replace(/[^a-zA-Z0-9+_.-]/g, "_");
+        const stableId = `${safe(row.service)}_${safe(row.package)}_${safe(row.quantityRange)}_${safe(row.productType)}`;
+        const existing =
+          pricingList.find((p) => p.id === stableId) ||
+          pricingList.find(
+            (p) =>
+              (p.service === row.service || servicesMatch(p.service, row.service)) &&
+              p.package === row.package &&
+              p.quantityRange === row.quantityRange &&
+              p.productType === row.productType
+          );
         if (existing) {
           row.rate = existing.rate.toString();
           row.pricingId = existing.id;
@@ -636,7 +643,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
       });
       toast({
         title: "Custom profile assigned",
-        description: `${formatUserDisplayName(selectedUser, { showEmail: false })} is now on Custom pricing. Rates were copied from Standard — edit them below as needed.`,
+        description: `${formatUserDisplayName(selectedUser, { showEmail: false })} is now on Custom pricing. Rates were copied from Standard — edit them below, then click Save All Rates so the client sees the new prices.`,
       });
     } catch (error: unknown) {
       toast({
@@ -670,7 +677,16 @@ export function PricingManagement({ users }: PricingManagementProps) {
       const batch = writeBatch(db);
       const now = Timestamp.now();
 
-      // Process all rows
+      const pricingDocIdFor = (row: PricingRow) => {
+        const safe = (value: string) =>
+          String(value || "")
+            .trim()
+            .replace(/[^a-zA-Z0-9+_.-]/g, "_");
+        return `${safe(row.service)}_${safe(row.package)}_${safe(row.quantityRange)}_${safe(row.productType)}`;
+      };
+
+      // Process all rows — always upsert by stable id so Custom profile rates
+      // overwrite seeded Standard copies and clients read the latest values.
       for (const row of pricingRows) {
         // Skip rows with no rate entered
         if (!row.rate || row.rate.trim() === "") continue;
@@ -679,7 +695,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
         if (isNaN(rate) || rate < 0) continue;
 
-        const pricingData: any = {
+        const pricingData: Record<string, unknown> = {
           userId: ownerId,
           profileId: ownerId,
           service: row.service,
@@ -690,26 +706,16 @@ export function PricingManagement({ users }: PricingManagementProps) {
           packOf: 0,
           updatedAt: now,
         };
-        
-        // Remove any undefined values
-        Object.keys(pricingData).forEach(key => {
-          if (pricingData[key] === undefined) {
-            delete pricingData[key];
-          }
-        });
 
-        if (row.pricingId) {
-          // Update existing
-          const pricingRef = doc(db, targetPricingPath, row.pricingId);
-          batch.update(pricingRef, pricingData);
-        } else {
-          // Create new
-          const pricingRef = doc(collection(db, targetPricingPath));
-          batch.set(pricingRef, {
-            ...pricingData,
-            createdAt: now,
-          });
-        }
+        const docId = pricingDocIdFor(row);
+        const pricingRef = doc(db, targetPricingPath, docId);
+        // Only set createdAt when inserting; merge keeps existing createdAt on updates.
+        const isNew = !row.pricingId || row.pricingId !== docId;
+        batch.set(
+          pricingRef,
+          isNew ? { ...pricingData, createdAt: now } : pricingData,
+          { merge: true }
+        );
       }
 
       await batch.commit();
@@ -727,7 +733,10 @@ export function PricingManagement({ users }: PricingManagementProps) {
 
       toast({
         title: "Success",
-        description: "Pricing rates and plan details saved successfully.",
+        description:
+          editingCustomProfile
+            ? "Custom rates saved. The client Pricing page will show these values on refresh."
+            : "Pricing rates and plan details saved successfully.",
       });
     } catch (error: any) {
       toast({

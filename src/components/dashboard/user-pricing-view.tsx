@@ -388,11 +388,13 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
                          pkg.package
                        );
                 const fbaDefaultRate =
-                  service === "FBA/WFS/TFS"
-                    ? DEFAULT_FBA_RATES[`${pkg.quantityRange}|${pt}`]
-                    : isDtcFbmService(service)
-                      ? DEFAULT_FBM_RATES[`${pkg.quantityRange}|${pt}`]
-                      : undefined;
+                  !profileId || profileId === "standard"
+                    ? service === "FBA/WFS/TFS"
+                      ? DEFAULT_FBA_RATES[`${pkg.quantityRange}|${pt}`]
+                      : isDtcFbmService(service)
+                        ? DEFAULT_FBM_RATES[`${pkg.quantityRange}|${pt}`]
+                        : undefined
+                    : undefined;
                 const rateToShow =
                   matchedRate !== undefined && Number.isFinite(matchedRate)
                     ? matchedRate
@@ -414,6 +416,8 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
    };
 
   const renderFbaPlans = () => {
+    const allowHardcodedDefaults =
+      !profileId || profileId === "standard" || String(profileId).trim() === "";
     const getFbaPrice = (range: (typeof FBA_PACKAGES)[number]["quantityRange"]) => {
       const pkg = FBA_PACKAGES.find((p) => p.quantityRange === range);
       // Match by volume tier first so Custom profile rates show even if package
@@ -426,6 +430,9 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
         pkg?.package
       );
       if (fromProfile !== undefined) return fromProfile;
+      // Never paint Standard hardcoded rates on Custom / wholesale profiles —
+      // that made Custom look "stuck" on $0.65 / $0.45 / $0.35.
+      if (!allowHardcodedDefaults) return undefined;
       return DEFAULT_FBA_RATES[`${range}|Standard`];
     };
 
@@ -508,6 +515,7 @@ function PricingDefinitionRow({ label, children }: { label: string; children: Re
           pkg?.package
         );
       if (fromProfile !== undefined) return fromProfile;
+      if (profileId && profileId !== "standard") return undefined;
       return DEFAULT_FBM_RATES[`${range}|Standard`];
     };
 

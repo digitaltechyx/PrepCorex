@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { useCollection } from "@/hooks/use-collection";
+import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import type { UserProfile } from "@/types";
 import type {
   UserPricing,
@@ -14,12 +14,23 @@ import type {
 import { servicesMatch } from "@/types";
 import {
   DEFAULT_PRICING_PROFILE_ID,
-  getPricingProfilePaths,
   getUserPricingProfilePaths,
   resolveUserPricingProfileId,
   getPricingProfileLabel,
-  isCustomProfileId,
 } from "@/lib/pricing-profiles";
+
+type ProfileApiResponse = {
+  profileId?: string;
+  profileLabel?: string;
+  prep?: UserPricing[];
+  storage?: UserStoragePricing[];
+  boxForwarding?: UserBoxForwardingPricing[];
+  palletForwarding?: UserPalletForwardingPricing[];
+  containerHandling?: UserContainerHandlingPricing[];
+  additionalServices?: UserAdditionalServicesPricing[];
+  prepSource?: string;
+  error?: string;
+};
 
 function toMs(v: unknown): number {
   if (!v) return 0;
@@ -37,259 +48,142 @@ function toMs(v: unknown): number {
   return 0;
 }
 
-function prepRuleKey(rule: Pick<UserPricing, "service" | "package" | "quantityRange" | "productType">) {
-  return [
-    String(rule.service || "").trim(),
-    String(rule.package || "").trim(),
-    String(rule.quantityRange || "").trim(),
-    String(rule.productType || "").trim(),
-  ].join("|");
-}
-
 /**
- * Prefer assigned-profile docs; fill missing keys from Standard.
- * When duplicates exist, keep the newest by updatedAt.
- */
-function mergeAssignedWithStandard<T extends { updatedAt?: unknown; createdAt?: unknown; id?: string }>(
-  assigned: T[] | undefined,
-  assignedLoading: boolean,
-  standard: T[] | undefined,
-  useFallback: boolean,
-  keyOf: (item: T) => string
-): T[] {
-  if (assignedLoading) return assigned ?? [];
-  const assignedList = assigned ?? [];
-  if (!useFallback) return assignedList;
-  if (assignedList.length === 0) return standard ?? [];
-
-  const pickNewer = (a: T, b: T) =>
-    toMs(b.updatedAt || b.createdAt) - toMs(a.updatedAt || a.createdAt) >= 0 ? b : a;
-
-  const map = new Map<string, T>();
-  for (const item of standard ?? []) {
-    const key = keyOf(item);
-    if (!key || key === "|||") continue;
-    const prev = map.get(key);
-    map.set(key, prev ? pickNewer(prev, item) : item);
-  }
-  for (const item of assignedList) {
-    const key = keyOf(item);
-    if (!key || key === "|||") {
-      // Keep unkeyed assigned docs so callers can still inspect them.
-      map.set(`__assigned_${item.id || map.size}`, item);
-      continue;
-    }
-    const prev = map.get(key);
-    map.set(key, prev ? pickNewer(prev, item) : item);
-  }
-  return Array.from(map.values());
-}
-
-function pickNewerList<T extends { updatedAt?: unknown; createdAt?: unknown }>(
-  assigned: T[] | undefined,
-  assignedLoading: boolean,
-  standard: T[] | undefined,
-  useFallback: boolean
-): T[] {
-  if (assignedLoading) return assigned ?? [];
-  const assignedList = assigned ?? [];
-  if (assignedList.length > 0) return assignedList;
-  if (useFallback) return standard ?? [];
-  return assignedList;
-}
-
-/**
- * Load all pricing tables for a user's assigned profile.
- * Pallet storage cycles remain per-user (operational), not profile-scoped.
- *
- * Prep rules: merge Standard into gaps so missing tiers don't blank out,
- * but assigned-profile rates always win for the same key.
- * Other categories: use assigned when present, else Standard.
+ * Load pricing tables for a user's assigned profile via server API (Admin SDK).
+ * This avoids client Firestore rule/cache issues that made Custom profiles
+ * appear as Standard rates on the client Pricing page.
  */
 export function useUserPricingCollections(
   user: Pick<UserProfile, "pricingProfileId" | "uid"> | null | undefined
 ) {
+  const { user: authUser } = useAuth();
   const profileId = resolveUserPricingProfileId(user);
   const paths = useMemo(() => getUserPricingProfilePaths(user), [user, profileId]);
-  const standardPaths = useMemo(
-    () => getPricingProfilePaths(DEFAULT_PRICING_PROFILE_ID),
-    []
-  );
-  const enabled = Boolean(user?.uid);
-  const useStandardFallback = profileId !== DEFAULT_PRICING_PROFILE_ID;
-  const standardPath = (categoryPath: string) =>
-    enabled && useStandardFallback ? categoryPath : "";
 
-  const { data: pricingRules, loading: prepLoading } = useCollection<UserPricing>(
-    enabled ? paths.prep : ""
-  );
-  const { data: storagePricingList, loading: storageLoading } =
-    useCollection<UserStoragePricing>(enabled ? paths.storage : "");
-  const { data: boxForwardingPricing, loading: boxLoading } =
-    useCollection<UserBoxForwardingPricing>(enabled ? paths.boxForwarding : "");
-  const { data: palletForwardingPricing, loading: palletLoading } =
-    useCollection<UserPalletForwardingPricing>(enabled ? paths.palletForwarding : "");
-  const { data: containerHandlingPricing, loading: containerLoading } =
-    useCollection<UserContainerHandlingPricing>(
-      enabled ? paths.containerHandling : ""
-    );
-  const { data: additionalServicesPricing, loading: additionalLoading } =
-    useCollection<UserAdditionalServicesPricing>(
-      enabled ? paths.additionalServices : ""
-    );
+  const [pricingRules, setPricingRules] = useState<UserPricing[]>([]);
+  const [storagePricingList, setStoragePricingList] = useState<UserStoragePricing[]>([]);
+  const [boxForwardingPricing, setBoxForwardingPricing] = useState<
+    UserBoxForwardingPricing[]
+  >([]);
+  const [palletForwardingPricing, setPalletForwardingPricing] = useState<
+    UserPalletForwardingPricing[]
+  >([]);
+  const [containerHandlingPricing, setContainerHandlingPricing] = useState<
+    UserContainerHandlingPricing[]
+  >([]);
+  const [additionalServicesPricing, setAdditionalServicesPricing] = useState<
+    UserAdditionalServicesPricing[]
+  >([]);
+  const [resolvedProfileId, setResolvedProfileId] = useState(profileId);
+  const [loading, setLoading] = useState(Boolean(user?.uid));
+  const [prepSource, setPrepSource] = useState<string | null>(null);
 
-  const { data: standardPricingRules, loading: stdPrepLoading } =
-    useCollection<UserPricing>(standardPath(standardPaths.prep));
-  const { data: standardStoragePricingList, loading: stdStorageLoading } =
-    useCollection<UserStoragePricing>(standardPath(standardPaths.storage));
-  const { data: standardBoxForwardingPricing, loading: stdBoxLoading } =
-    useCollection<UserBoxForwardingPricing>(
-      standardPath(standardPaths.boxForwarding)
-    );
-  const { data: standardPalletForwardingPricing, loading: stdPalletLoading } =
-    useCollection<UserPalletForwardingPricing>(
-      standardPath(standardPaths.palletForwarding)
-    );
-  const { data: standardContainerHandlingPricing, loading: stdContainerLoading } =
-    useCollection<UserContainerHandlingPricing>(
-      standardPath(standardPaths.containerHandling)
-    );
-  const { data: standardAdditionalServicesPricing, loading: stdAdditionalLoading } =
-    useCollection<UserAdditionalServicesPricing>(
-      standardPath(standardPaths.additionalServices)
-    );
+  useEffect(() => {
+    setResolvedProfileId(profileId);
+  }, [profileId]);
 
-  // Custom profiles: never wholesale-replace with Standard (that made Custom users
-  // see Standard rates). Merge prep by key so assigned custom rates always win.
-  const allowWholesaleCategoryFallback =
-    useStandardFallback && !isCustomProfileId(profileId);
+  useEffect(() => {
+    const targetUid = user?.uid?.trim();
+    if (!targetUid || !authUser) {
+      setPricingRules([]);
+      setStoragePricingList([]);
+      setBoxForwardingPricing([]);
+      setPalletForwardingPricing([]);
+      setContainerHandlingPricing([]);
+      setAdditionalServicesPricing([]);
+      setLoading(false);
+      return;
+    }
 
-  const resolvedPricingRules = useMemo(
-    () =>
-      mergeAssignedWithStandard(
-        pricingRules,
-        prepLoading,
-        standardPricingRules,
-        useStandardFallback,
-        (rule) => prepRuleKey(rule)
-      ),
-    [pricingRules, prepLoading, standardPricingRules, useStandardFallback]
-  );
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const token = await authUser.getIdToken();
+        const res = await fetch(
+          `/api/pricing/profile?userId=${encodeURIComponent(targetUid)}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          }
+        );
+        const data = (await res.json().catch(() => ({}))) as ProfileApiResponse;
+        if (cancelled) return;
+        if (!res.ok) {
+          console.warn("[useUserPricingCollections] API error:", data.error || res.status);
+          setPricingRules([]);
+          setStoragePricingList([]);
+          setBoxForwardingPricing([]);
+          setPalletForwardingPricing([]);
+          setContainerHandlingPricing([]);
+          setAdditionalServicesPricing([]);
+          return;
+        }
 
-  const resolvedStoragePricingList = useMemo(
-    () =>
-      pickNewerList(
-        storagePricingList,
-        storageLoading,
-        standardStoragePricingList,
-        allowWholesaleCategoryFallback
-      ),
-    [
-      storagePricingList,
-      storageLoading,
-      standardStoragePricingList,
-      allowWholesaleCategoryFallback,
-    ]
-  );
-  const resolvedBoxForwardingPricing = useMemo(
-    () =>
-      pickNewerList(
-        boxForwardingPricing,
-        boxLoading,
-        standardBoxForwardingPricing,
-        allowWholesaleCategoryFallback
-      ),
-    [
-      boxForwardingPricing,
-      boxLoading,
-      standardBoxForwardingPricing,
-      allowWholesaleCategoryFallback,
-    ]
-  );
-  const resolvedPalletForwardingPricing = useMemo(
-    () =>
-      pickNewerList(
-        palletForwardingPricing,
-        palletLoading,
-        standardPalletForwardingPricing,
-        allowWholesaleCategoryFallback
-      ),
-    [
-      palletForwardingPricing,
-      palletLoading,
-      standardPalletForwardingPricing,
-      allowWholesaleCategoryFallback,
-    ]
-  );
-  const resolvedContainerHandlingPricing = useMemo(
-    () =>
-      pickNewerList(
-        containerHandlingPricing,
-        containerLoading,
-        standardContainerHandlingPricing,
-        allowWholesaleCategoryFallback
-      ),
-    [
-      containerHandlingPricing,
-      containerLoading,
-      standardContainerHandlingPricing,
-      allowWholesaleCategoryFallback,
-    ]
-  );
-  const resolvedAdditionalServicesPricing = useMemo(
-    () =>
-      pickNewerList(
-        additionalServicesPricing,
-        additionalLoading,
-        standardAdditionalServicesPricing,
-        allowWholesaleCategoryFallback
-      ),
-    [
-      additionalServicesPricing,
-      additionalLoading,
-      standardAdditionalServicesPricing,
-      allowWholesaleCategoryFallback,
-    ]
-  );
+        setResolvedProfileId(data.profileId || profileId);
+        setPrepSource(data.prepSource || null);
+        setPricingRules(Array.isArray(data.prep) ? (data.prep as UserPricing[]) : []);
+        setStoragePricingList(
+          Array.isArray(data.storage) ? (data.storage as UserStoragePricing[]) : []
+        );
+        setBoxForwardingPricing(
+          Array.isArray(data.boxForwarding)
+            ? (data.boxForwarding as UserBoxForwardingPricing[])
+            : []
+        );
+        setPalletForwardingPricing(
+          Array.isArray(data.palletForwarding)
+            ? (data.palletForwarding as UserPalletForwardingPricing[])
+            : []
+        );
+        setContainerHandlingPricing(
+          Array.isArray(data.containerHandling)
+            ? (data.containerHandling as UserContainerHandlingPricing[])
+            : []
+        );
+        setAdditionalServicesPricing(
+          Array.isArray(data.additionalServices)
+            ? (data.additionalServices as UserAdditionalServicesPricing[])
+            : []
+        );
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("[useUserPricingCollections] fetch failed:", err);
+          setPricingRules([]);
+          setStoragePricingList([]);
+          setBoxForwardingPricing([]);
+          setPalletForwardingPricing([]);
+          setContainerHandlingPricing([]);
+          setAdditionalServicesPricing([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
 
-  const assignedLoading =
-    prepLoading ||
-    storageLoading ||
-    boxLoading ||
-    palletLoading ||
-    containerLoading ||
-    additionalLoading;
-
-  const fallbackLoading =
-    useStandardFallback &&
-    (stdPrepLoading ||
-      stdStorageLoading ||
-      stdBoxLoading ||
-      stdPalletLoading ||
-      stdContainerLoading ||
-      stdAdditionalLoading);
-
-  const loading = assignedLoading || Boolean(fallbackLoading);
-
-  // Expose raw assigned prep for debugging/UI that must ignore Standard merge.
-  const assignedPrepCount = (pricingRules ?? []).length;
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, user?.pricingProfileId, authUser, profileId]);
 
   return {
-    profileId,
-    profileLabel: getPricingProfileLabel(profileId),
+    profileId: resolvedProfileId,
+    profileLabel: getPricingProfileLabel(resolvedProfileId),
     paths,
-    pricingRules: resolvedPricingRules,
-    storagePricingList: resolvedStoragePricingList,
-    boxForwardingPricing: resolvedBoxForwardingPricing,
-    palletForwardingPricing: resolvedPalletForwardingPricing,
-    containerHandlingPricing: resolvedContainerHandlingPricing,
-    additionalServicesPricing: resolvedAdditionalServicesPricing,
+    pricingRules,
+    storagePricingList,
+    boxForwardingPricing,
+    palletForwardingPricing,
+    containerHandlingPricing,
+    additionalServicesPricing,
     loading,
-    assignedPrepCount,
+    prepSource,
     usingStandardFallback:
-      useStandardFallback &&
-      !assignedLoading &&
-      assignedPrepCount === 0,
+      Boolean(prepSource) &&
+      prepSource !== resolvedProfileId &&
+      (prepSource === "standard_fallback" ||
+        prepSource === DEFAULT_PRICING_PROFILE_ID),
   };
 }
 
