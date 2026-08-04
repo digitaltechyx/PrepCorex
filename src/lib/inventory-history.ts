@@ -118,6 +118,78 @@ function formatHistoryBy(user: string, event: string): string {
   return "PSF Operations";
 }
 
+/** Outbound Details column: "qty 4 pack of 12" (packs × pack size), not remarks. */
+function formatOutboundShipmentDetails(input: {
+  units?: number | null;
+  packOf?: number | null;
+  boxesShipped?: number | null;
+  fallbackText?: string | null;
+}): string {
+  const packOfRaw = Number(input.packOf);
+  const boxesRaw = Number(input.boxesShipped);
+  const unitsRaw = Math.abs(Number(input.units) || 0);
+
+  const packOf =
+    Number.isFinite(packOfRaw) && packOfRaw > 0 ? Math.floor(packOfRaw) : null;
+  const boxesShipped =
+    Number.isFinite(boxesRaw) && boxesRaw > 0 ? Math.floor(boxesRaw) : null;
+
+  if (packOf != null && boxesShipped != null) {
+    return `qty ${boxesShipped} pack of ${packOf}`;
+  }
+  if (packOf != null && unitsRaw > 0) {
+    const packCount = Math.max(1, Math.round(unitsRaw / packOf));
+    return `qty ${packCount} pack of ${packOf}`;
+  }
+  if (boxesShipped != null) {
+    return `qty ${boxesShipped} pack of 1`;
+  }
+  if (unitsRaw > 0) {
+    return `qty ${unitsRaw} pack of 1`;
+  }
+  const fallback = String(input.fallbackText ?? "").trim();
+  return fallback || "—";
+}
+
+function parsePackOfFromText(text: string | null | undefined): number | null {
+  const m = String(text ?? "").match(/pack\s*of\s*(\d+)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function findShippedLineForChangeLog(
+  shipped: ShippedItem[],
+  log: InventoryChangeLog,
+  item: InventoryItem
+): { units: number; packOf?: number; boxesShipped?: number } | null {
+  const shippedId = log.shippedId != null ? String(log.shippedId).trim() : "";
+  if (!shippedId) return null;
+  const record = shipped.find((s) => s.id === shippedId);
+  if (!record) return null;
+
+  if (record.items?.length) {
+    const line =
+      record.items.find((l) => namesMatch(item, l.productName)) ||
+      record.items.find((l) => namesMatch({ productName: log.productName } as InventoryItem, l.productName));
+    if (!line) return null;
+    return {
+      units: line.shippedQty ?? Math.abs(log.qtyChange) ?? 0,
+      packOf: line.packOf,
+      boxesShipped: line.boxesShipped,
+    };
+  }
+
+  if (namesMatch(item, record.productName) || namesMatch(item, log.productName)) {
+    return {
+      units: record.shippedQty ?? record.totalUnits ?? Math.abs(log.qtyChange) ?? 0,
+      packOf: record.packOf,
+      boxesShipped: record.boxesShipped ?? record.totalBoxes,
+    };
+  }
+  return null;
+}
+
 function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
   const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
   let running: number | null = null;
@@ -280,6 +352,19 @@ export function buildInventoryHistory(
             : log.eventType === "shopify_quick_fulfill"
               ? "Shopify quick fulfill"
               : "Stock removed";
+
+    const shippedLine = findShippedLineForChangeLog(sources.shipped, log, item);
+    const packOf =
+      shippedLine?.packOf ??
+      parsePackOfFromText(log.details) ??
+      parsePackOfFromText(log.shipTo);
+    const details = formatOutboundShipmentDetails({
+      units: shippedLine?.units ?? Math.abs(log.qtyChange),
+      packOf,
+      boxesShipped: shippedLine?.boxesShipped,
+      fallbackText: log.details,
+    });
+
     raw.push({
       timestamp: toTimestamp(log.at),
       event: eventLabel,
@@ -287,15 +372,7 @@ export function buildInventoryHistory(
       qtyBefore: log.qtyBefore,
       qtyAfter: log.qtyAfter,
       qtyChange: log.qtyChange,
-      details:
-        log.details?.trim() ||
-        [
-          log.service ? `Service: ${log.service}` : "",
-          log.shipTo ? `Ship to: ${log.shipTo}` : "",
-        ]
-          .filter(Boolean)
-          .join(" · ") ||
-        "Removed from sellable stock",
+      details,
       user: "Fulfillment",
     });
   }
@@ -310,16 +387,30 @@ export function buildInventoryHistory(
     // Avoid double-counting when inventoryChangeLogs already recorded this shipment.
     if (s.id && shippedIdsFromChangeLogs.has(s.id)) continue;
     if ((s as ShippedItem & { quickFulfill?: boolean }).quickFulfill === true) continue;
-    const lines: Array<{ name: string; qty: number; packOf?: number }> = [];
+    const lines: Array<{ name: string; qty: number; packOf?: number; boxesShipped?: number }> = [];
     if (s.items?.length) {
       for (const line of s.items) {
         if (!namesMatch(item, line.productName)) continue;
         const qty = line.shippedQty ?? line.boxesShipped ?? 0;
-        if (qty > 0) lines.push({ name: line.productName, qty, packOf: line.packOf });
+        if (qty > 0) {
+          lines.push({
+            name: line.productName,
+            qty,
+            packOf: line.packOf,
+            boxesShipped: line.boxesShipped,
+          });
+        }
       }
     } else if (namesMatch(item, s.productName)) {
       const qty = s.shippedQty ?? s.boxesShipped ?? s.totalUnits ?? 0;
-      if (qty > 0) lines.push({ name: s.productName!, qty });
+      if (qty > 0) {
+        lines.push({
+          name: s.productName!,
+          qty,
+          packOf: s.packOf,
+          boxesShipped: s.boxesShipped ?? s.totalBoxes,
+        });
+      }
     }
 
     for (const line of lines) {
@@ -329,14 +420,11 @@ export function buildInventoryHistory(
         event: "Shipped",
         eventType: "shipped",
         qtyChange: -line.qty,
-        details: [
-          s.shipTo ? `Ship to: ${s.shipTo}` : "",
-          s.service ? `Service: ${s.service}` : "",
-          line.packOf ? `Pack of ${line.packOf}` : "",
-          s.remarks?.trim() ? s.remarks.trim() : "",
-        ]
-          .filter(Boolean)
-          .join(" · "),
+        details: formatOutboundShipmentDetails({
+          units: line.qty,
+          packOf: line.packOf,
+          boxesShipped: line.boxesShipped,
+        }),
         user: "Fulfillment",
       });
     }
