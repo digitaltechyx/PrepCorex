@@ -8,6 +8,14 @@ export type InboundTableDisplayStatus =
   | "Out of Stock"
   | "Rejected";
 
+/** Admin Inventory Requests table status (recognition after approve vs receive). */
+export type AdminInboundRequestDisplayStatus =
+  | "pending"
+  | "pending_receive"
+  | "complete"
+  | "rejected"
+  | "cancelled";
+
 export function expectedApprovedInboundQty(req: InventoryRequest): number {
   if (typeof req.receivedQuantity === "number" && req.receivedQuantity > 0) {
     return req.receivedQuantity;
@@ -28,6 +36,49 @@ export function isOpenProductInboundRequest(req: InventoryRequest): boolean {
   if (req.inventoryType !== "product" && req.inventoryType !== "container") return false;
   if (req.fulfillmentStatus === "closed") return false;
   return true;
+}
+
+/**
+ * Admin-facing lifecycle for inbound requests.
+ * - After approve (warehouse v2): pending_receive (status approved + fulfillment open)
+ * - After receive complete / legacy fulfill: complete
+ */
+export function adminInboundRequestDisplayStatus(
+  req: Pick<InventoryRequest, "status" | "fulfillmentStatus" | "inventoryType">
+): AdminInboundRequestDisplayStatus {
+  const status = String(req.status ?? "")
+    .trim()
+    .toLowerCase();
+  if (status === "pending" || status === "pending_approval") return "pending";
+  if (status === "rejected") return "rejected";
+  if (status === "cancelled") return "cancelled";
+  if (status === "approved") {
+    const fulfillment = String(req.fulfillmentStatus ?? "")
+      .trim()
+      .toLowerCase();
+    if (fulfillment === "open") return "pending_receive";
+    return "complete";
+  }
+  return "complete";
+}
+
+export function adminInboundRequestStatusLabel(
+  status: AdminInboundRequestDisplayStatus
+): string {
+  switch (status) {
+    case "pending":
+      return "Pending";
+    case "pending_receive":
+      return "Pending receive";
+    case "complete":
+      return "Complete";
+    case "rejected":
+      return "Rejected";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return status;
+  }
 }
 
 export function inboundRequestDisplayStatus(req: InventoryRequest): InboundTableDisplayStatus {

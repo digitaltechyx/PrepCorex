@@ -434,8 +434,19 @@ export function ShopifyOrdersPanel() {
     if (!saved) {
       toast({
         variant: "destructive",
-        title: "Missing shipping address",
-        description: "This order has no shipping address to pre-fill. Add the address manually on Buy Labels.",
+        title: "Could not open Buy Labels",
+        description: "Missing Shopify order or client reference. Try syncing orders and open Label again.",
+      });
+      return;
+    }
+    const hasShipTo =
+      Boolean(labelOrder.shippingAddress?.address1?.trim()) ||
+      Boolean(labelOrder.billingAddress?.address1?.trim());
+    if (!hasShipTo) {
+      toast({
+        title: "No shipping address on order",
+        description:
+          "Order details will still show on Buy Labels — enter the ship-to address manually.",
       });
     }
     router.push("/admin/dashboard/buy-labels?from=shopify");

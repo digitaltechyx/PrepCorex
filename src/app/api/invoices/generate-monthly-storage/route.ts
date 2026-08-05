@@ -10,6 +10,7 @@ import { format } from "date-fns";
 import { generateInvoiceNumber } from "@/lib/invoice-utils";
 import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
 import { getLatestStorageTierRates, listActivePalletCycles, toDate, add30Days, getRateForPaidCycle } from "@/lib/pallet-storage-sync";
+import { formatStoragePalletInvoiceProductName } from "@/lib/pallet-storage-billing";
 
 const CRON_SECRET = process.env.INVOICE_CRON_SECRET || process.env.CRON_SECRET;
 
@@ -147,10 +148,17 @@ async function handleRequest(request: NextRequest) {
       const invoiceItems = dueCycles.map((cycle) => {
         const paidCycleCount = Math.max(0, Number((cycle as any).paidCycleCount) || 0);
         const unitPrice = getRateForPaidCycle(paidCycleCount, tierRates);
-        const label = String((cycle as any).positionLabel || cycle.id).trim();
         return {
           quantity: 1,
-          productName: `Storage — Pallet ${label} (cycle ${paidCycleCount + 1})`,
+          productName: formatStoragePalletInvoiceProductName({
+            id: cycle.id,
+            positionLabel: (cycle as any).positionLabel,
+            palletSequence: (cycle as any).palletSequence,
+            assignedAt: (cycle as any).assignedAt,
+            paidCycleCount,
+            cartonCount: (cycle as any).cartonCount,
+            source: (cycle as any).source,
+          }),
           shipDate: format(today, "yyyy-MM-dd"),
           shipTo: "N/A",
           packaging: "Storage",

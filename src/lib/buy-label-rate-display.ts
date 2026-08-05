@@ -27,15 +27,15 @@ export function getBuyLabelRateDisplay(rate: RateDisplayInput): {
     const service =
       serviceName
         .replace(/shipbest/gi, "")
-        .replace(/gofo/gi, "Gofo")
+        .replace(/gofo/gi, "GOFO")
         .replace(/\s+/g, " ")
-        .trim() || "Gofo";
+        .trim() || "GOFO";
     return { provider: "PrepCorex", service };
   }
 
-  // ShipBest USPS → PrepCorex (USPS), same customer branding as Gofo
+  // ShipBest USPS rates keep ShipBest branding (not PrepCorex).
   if (isShipBest && /usps/i.test(blob)) {
-    return { provider: "PrepCorex", service: "USPS" };
+    return { provider: "ShipBest", service: "USPS" };
   }
 
   return { provider, service: serviceName || "Standard" };

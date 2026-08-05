@@ -136,19 +136,29 @@ export default function AdminBuyLabelsPageContent() {
                 successRedirect="/admin/dashboard/buy-labels?tab=purchased"
                 enableClientInventoryPicker
                 initialToAddress={shopifyPrefill?.toAddress ?? null}
-                shopifyPrefillBanner={
-                  shopifyPrefill
-                    ? `${shopifyPrefill.orderName} · ${shopifyPrefill.ownerName}`
-                    : null
-                }
                 shopifyOrderContext={
                   shopifyPrefill?.ownerUserId
                     ? {
                         orderId: shopifyPrefill.orderId,
                         orderName: shopifyPrefill.orderName,
                         shop: shopifyPrefill.shop,
+                        shopName: shopifyPrefill.shopName || shopifyPrefill.shop,
                         ownerUserId: shopifyPrefill.ownerUserId,
                         ownerName: shopifyPrefill.ownerName,
+                        customerName: shopifyPrefill.customerName ?? null,
+                        email: shopifyPrefill.email ?? null,
+                        shipToSummary: shopifyPrefill.toAddress
+                          ? [
+                              shopifyPrefill.toAddress.name,
+                              shopifyPrefill.toAddress.street1,
+                              shopifyPrefill.toAddress.city,
+                              shopifyPrefill.toAddress.state,
+                              shopifyPrefill.toAddress.zip,
+                            ]
+                              .filter(Boolean)
+                              .join(", ")
+                          : null,
+                        lineItems: shopifyPrefill.lineItems || [],
                       }
                     : null
                 }

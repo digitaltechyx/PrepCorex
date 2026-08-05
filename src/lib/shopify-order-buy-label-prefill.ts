@@ -11,13 +11,25 @@ import type { ShippingAddress } from "@/types";
 const STORAGE_KEY = "prepcorex:buy-label-shopify-prefill";
 const FULFILL_HANDOFF_KEY = "prepcorex:shopify-label-fulfill-handoff";
 
+export type BuyLabelShopifyPrefillLine = {
+  title: string;
+  variantTitle?: string | null;
+  sku?: string | null;
+  quantity: number;
+};
+
 export type BuyLabelShopifyPrefill = {
   orderId: string;
   orderName: string;
   shop: string;
+  shopName?: string;
   ownerUserId: string;
   ownerName: string;
-  toAddress: ShippingAddress;
+  customerName?: string | null;
+  email?: string | null;
+  /** Null when the Shopify order has no usable ship-to address. */
+  toAddress: ShippingAddress | null;
+  lineItems: BuyLabelShopifyPrefillLine[];
 };
 
 /** After PrepCorex Buy Label → return to Quick Fulfill with tracking + product. */
@@ -78,6 +90,10 @@ export function shopifyAddressToBuyLabelsToAddress(
 export function buildBuyLabelPrefillFromShopifyOrder(
   order: AdminShopifyOrder
 ): BuyLabelShopifyPrefill | null {
+  const ownerUserId = String(order.ownerUserId || "").trim();
+  const orderId = String(order.id || "").trim();
+  if (!ownerUserId || !orderId) return null;
+
   const shipping = order.shippingAddress;
   const billing = order.billingAddress;
   const common = {
@@ -90,15 +106,24 @@ export function buildBuyLabelPrefillFromShopifyOrder(
     shopifyAddressToBuyLabelsToAddress(shipping, common) ||
     shopifyAddressToBuyLabelsToAddress(billing, common);
 
-  if (!toAddress) return null;
+  const lineItems: BuyLabelShopifyPrefillLine[] = (order.lineItems || []).map((li) => ({
+    title: String(li.title || "Item").trim() || "Item",
+    variantTitle: li.variantTitle ?? null,
+    sku: li.sku ?? null,
+    quantity: Number.isFinite(li.quantity) ? li.quantity : 1,
+  }));
 
   return {
-    orderId: order.id,
+    orderId,
     orderName: order.name || `#${order.orderNumber}`,
     shop: order.shop,
-    ownerUserId: order.ownerUserId,
+    shopName: order.shopName || order.shop,
+    ownerUserId,
     ownerName: order.ownerName,
+    customerName: order.customerName,
+    email: order.email,
     toAddress,
+    lineItems,
   };
 }
 
@@ -115,16 +140,32 @@ export function loadBuyLabelPrefillFromSession(): BuyLabelShopifyPrefill | null 
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as BuyLabelShopifyPrefill;
-    if (!parsed?.toAddress?.street1) return null;
-    // Re-normalize in case older session data had a full state name / empty phone.
-    const country = normalizeShippoCountry(parsed.toAddress.country);
-    parsed.toAddress = {
-      ...parsed.toAddress,
-      country,
-      state: normalizeShippoState(parsed.toAddress.state, country),
-      phone: BUY_LABELS_DEFAULT_FROM_PHONE,
-    };
     parsed.ownerUserId = String(parsed.ownerUserId || "").trim();
+    parsed.orderId = String(parsed.orderId || "").trim();
+    if (!parsed.ownerUserId || !parsed.orderId) return null;
+
+    if (parsed.toAddress?.street1) {
+      // Re-normalize in case older session data had a full state name / empty phone.
+      const country = normalizeShippoCountry(parsed.toAddress.country);
+      parsed.toAddress = {
+        ...parsed.toAddress,
+        country,
+        state: normalizeShippoState(parsed.toAddress.state, country),
+        phone: BUY_LABELS_DEFAULT_FROM_PHONE,
+      };
+    } else {
+      parsed.toAddress = null;
+    }
+
+    parsed.lineItems = Array.isArray(parsed.lineItems)
+      ? parsed.lineItems.map((li) => ({
+          title: String(li?.title || "Item").trim() || "Item",
+          variantTitle: li?.variantTitle ?? null,
+          sku: li?.sku ?? null,
+          quantity: Number.isFinite(Number(li?.quantity)) ? Number(li.quantity) : 1,
+        }))
+      : [];
+
     return parsed;
   } catch {
     return null;

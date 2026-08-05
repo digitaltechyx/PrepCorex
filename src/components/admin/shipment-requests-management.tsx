@@ -714,7 +714,7 @@ export function ShipmentRequestsManagement({
     return (
       <Card>
         <CardContent className="p-6">
-          <p className="text-muted-foreground text-center">Select a user to manage their shipment requests.</p>
+          <p className="text-muted-foreground text-center">Select a user to manage their outbound requests.</p>
         </CardContent>
       </Card>
     );
@@ -769,9 +769,9 @@ export function ShipmentRequestsManagement({
       {/* Requests Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Shipment Requests</CardTitle>
+          <CardTitle>Outbound Requests</CardTitle>
           <CardDescription>
-            Review and confirm shipment requests from {selectedUser.name}
+            Review and confirm outbound requests from {selectedUser.name}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -782,7 +782,7 @@ export function ShipmentRequestsManagement({
               <Skeleton className="h-12 w-full" />
             </div>
           ) : filteredRequests.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No shipment requests found.</p>
+            <p className="text-muted-foreground text-center py-8">No outbound requests found.</p>
           ) : (
             <Table>
               <TableHeader>

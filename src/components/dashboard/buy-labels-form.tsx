@@ -19,11 +19,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2, Upload, ChevronsUpDown, Check, X, Search } from "lucide-react";
+import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2, Upload, ChevronsUpDown, Check, X, Search, ShoppingBag } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import type { BuyLabelShopifyPrefillLine } from "@/lib/shopify-order-buy-label-prefill";
 import {
   BuyLabelsBulkImportDialog,
   type BuyLabelCartImportItem,
@@ -266,7 +269,7 @@ type BuyLabelsFormProps = {
   successRedirect?: string;
   /** Pre-fill ship-to address (e.g. from a Shopify order). */
   initialToAddress?: ShippingAddress | null;
-  /** Short banner shown when the form was opened with pre-filled order data. */
+  /** @deprecated Prefer shopifyOrderContext — kept for older call sites. */
   shopifyPrefillBanner?: string | null;
   /** Pre-fill parcel length/width/height/weight (e.g. from outbound inventory). */
   initialParcel?: {
@@ -280,15 +283,20 @@ type BuyLabelsFormProps = {
   /** Banner when parcel was prefilled from outbound / inventory. */
   parcelPrefillBanner?: string | null;
   /**
-   * Shopify → Buy Labels context. When set, admin can pick the client's warehouse
-   * products and after purchase returns to that order's Quick Fulfill.
+   * Shopify → Buy Labels context. When set, shows order reference / line items,
+   * pre-selects the client for inventory products, and returns to Quick Fulfill after purchase.
    */
   shopifyOrderContext?: {
     orderId: string;
     orderName: string;
     shop: string;
+    shopName?: string;
     ownerUserId: string;
     ownerName: string;
+    customerName?: string | null;
+    email?: string | null;
+    shipToSummary?: string | null;
+    lineItems?: BuyLabelShopifyPrefillLine[];
   } | null;
   /** Client list for the inventory-owner picker (admin Buy Labels). */
   clientOptions?: Array<{ uid: string; label: string }>;
@@ -384,14 +392,34 @@ export function BuyLabelsForm({
   }, [resolvedClientOptions, clientSearchQuery]);
 
   const inventoryProductOptions = useMemo(() => {
+    const skus = new Set(
+      (shopifyOrderContext?.lineItems || [])
+        .map((li) => String(li.sku || "").trim().toLowerCase())
+        .filter(Boolean)
+    );
     return [...(inventoryItems || [])]
       .filter((item) => Boolean(item.productName?.trim()))
-      .sort((a, b) =>
-        String(a.productName).localeCompare(String(b.productName), undefined, {
+      .sort((a, b) => {
+        const aSku = String(a.sku || "").trim().toLowerCase();
+        const bSku = String(b.sku || "").trim().toLowerCase();
+        const aMatch = aSku && skus.has(aSku) ? 0 : 1;
+        const bMatch = bSku && skus.has(bSku) ? 0 : 1;
+        if (aMatch !== bMatch) return aMatch - bMatch;
+        return String(a.productName).localeCompare(String(b.productName), undefined, {
           sensitivity: "base",
-        })
-      );
-  }, [inventoryItems]);
+        });
+      });
+  }, [inventoryItems, shopifyOrderContext?.lineItems]);
+
+  const findInventoryBySku = (sku: string | null | undefined) => {
+    const needle = String(sku || "").trim().toLowerCase();
+    if (!needle) return null;
+    return (
+      inventoryProductOptions.find(
+        (item) => String(item.sku || "").trim().toLowerCase() === needle
+      ) ?? null
+    );
+  };
 
   const filteredInventoryProductOptions = useMemo(() => {
     const q = productSearchQuery.trim().toLowerCase();
@@ -592,8 +620,6 @@ export function BuyLabelsForm({
     setSelectedInventoryProductId("");
   };
 
-  const fromAddressLocked = Boolean(selectedFromLocation);
-
   const handleGetRates = async (data: FormValues) => {
     if (!user) {
       toast({
@@ -687,8 +713,8 @@ export function BuyLabelsForm({
         });
         if (!hasRecipientPhone) {
           toast({
-            title: "PrepCorex Gofo rates unavailable",
-            description: "Add the recipient phone number to view PrepCorex Gofo rates.",
+            title: "PrepCorex GOFO rates unavailable",
+            description: "Add the recipient phone number to view PrepCorex GOFO rates.",
           });
         }
         if (failedProviders.length > 0) {
@@ -697,7 +723,7 @@ export function BuyLabelsForm({
             description: failedProviders
               .map((result) =>
                 result.name === "ShipBest"
-                  ? "PrepCorex Gofo could not return rates. Verify the recipient address and phone."
+                  ? "PrepCorex GOFO could not return rates. Verify the recipient address and phone."
                   : `${result.name}: ${result.error}`
               )
               .join(" | "),
@@ -996,7 +1022,129 @@ export function BuyLabelsForm({
 
   return (
     <div className="space-y-6">
-      {shopifyPrefillBanner ? (
+      {shopifyOrderContext ? (
+        <Card className="border-emerald-200 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+              <ShoppingBag className="h-5 w-5 text-emerald-600" />
+              Shopify order reference
+              <Badge variant="secondary">{shopifyOrderContext.orderName}</Badge>
+            </CardTitle>
+            <CardDescription>
+              Review the order below, then select the matching warehouse product to fill package
+              size/weight before getting rates. After purchase you&apos;ll return to Quick Fulfill.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Client
+                </div>
+                <div className="font-medium">{shopifyOrderContext.ownerName}</div>
+              </div>
+              <div>
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Store
+                </div>
+                <div className="font-medium">
+                  {shopifyOrderContext.shopName || shopifyOrderContext.shop}
+                </div>
+                {shopifyOrderContext.shopName &&
+                shopifyOrderContext.shopName !== shopifyOrderContext.shop ? (
+                  <div className="text-xs text-muted-foreground">{shopifyOrderContext.shop}</div>
+                ) : null}
+              </div>
+              {shopifyOrderContext.customerName ? (
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Customer
+                  </div>
+                  <div className="font-medium">{shopifyOrderContext.customerName}</div>
+                  {shopifyOrderContext.email ? (
+                    <div className="text-xs text-muted-foreground">{shopifyOrderContext.email}</div>
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="sm:col-span-2">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Ship to
+                </div>
+                <div className="font-medium">
+                  {shopifyOrderContext.shipToSummary ||
+                    "No address on the order — enter ship-to below."}
+                </div>
+              </div>
+            </div>
+
+            {(shopifyOrderContext.lineItems || []).length > 0 ? (
+              <div className="space-y-2">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Order line items — pick a warehouse product
+                </div>
+                <ul className="divide-y rounded-md border bg-background">
+                  {(shopifyOrderContext.lineItems || []).map((li, idx) => {
+                    const matched = findInventoryBySku(li.sku);
+                    const selected =
+                      matched && selectedInventoryProductId === matched.id;
+                    const label = [li.title, li.variantTitle].filter(Boolean).join(" · ");
+                    return (
+                      <li
+                        key={`${li.sku || li.title}-${idx}`}
+                        className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">
+                            {label}{" "}
+                            <span className="text-muted-foreground">×{li.quantity}</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {li.sku ? `SKU: ${li.sku}` : "No SKU on Shopify line"}
+                            {matched
+                              ? ` · Matched inventory: ${matched.productName}`
+                              : li.sku
+                                ? " · No inventory match for this SKU yet"
+                                : ""}
+                          </div>
+                        </div>
+                        {matched ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={selected ? "secondary" : "outline"}
+                            className="shrink-0"
+                            onClick={() => applyParcelFromInventoryProduct(matched)}
+                          >
+                            {selected ? "Selected" : "Use this product"}
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="shrink-0"
+                            disabled={!inventoryOwnerId}
+                            onClick={() => {
+                              setProductSearchQuery(li.sku || li.title || "");
+                              setProductPickerOpen(true);
+                            }}
+                          >
+                            Find in inventory
+                          </Button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-muted-foreground">
+                No line items on this order. Select a product from the client&apos;s inventory below.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      ) : shopifyPrefillBanner ? (
         <Alert>
           <Package className="h-4 w-4" />
           <AlertTitle>Pre-filled from Shopify order</AlertTitle>
@@ -1093,7 +1241,8 @@ export function BuyLabelsForm({
                         </SelectContent>
                       </Select>
                       <p className="text-xs text-muted-foreground">
-                        From address is filled automatically from the selected warehouse location.
+                        Defaults to the selected warehouse (NJ-02 when available). Change the
+                        warehouse to fill our address, or edit the fields below to use your own.
                       </p>
                     </div>
                   </div>
@@ -1106,7 +1255,7 @@ export function BuyLabelsForm({
                       <FormItem>
                         <FormLabel>Name *</FormLabel>
                         <FormControl>
-                          <Input placeholder="Prep Services FBA" {...field} disabled={fromAddressLocked} />
+                          <Input placeholder="Prep Services FBA" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1119,14 +1268,15 @@ export function BuyLabelsForm({
                       <FormItem>
                         <FormLabel>Phone *</FormLabel>
                         <FormControl>
-                          <Input
-                            placeholder={DEFAULT_FROM_PHONE}
-                            {...field}
-                            disabled={fromAddressLocked}
+                          <PhoneInput
+                            value={field.value}
+                            onChange={field.onChange}
+                            defaultCountry="us"
+                            placeholder="347 661 3010"
                           />
                         </FormControl>
                         <p className="text-[11px] text-muted-foreground">
-                          Defaults to the warehouse phone.
+                          Country code defaults to +1. Select another code if needed, then enter the number.
                         </p>
                         <FormMessage />
                       </FormItem>
@@ -1139,7 +1289,7 @@ export function BuyLabelsForm({
                       <FormItem className="md:col-span-2">
                         <FormLabel>Street Address *</FormLabel>
                         <FormControl>
-                          <Input placeholder="123 Main St" {...field} disabled={fromAddressLocked} />
+                          <Input placeholder="123 Main St" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1152,7 +1302,7 @@ export function BuyLabelsForm({
                       <FormItem className="md:col-span-2">
                         <FormLabel>Apartment, suite, etc. (optional)</FormLabel>
                         <FormControl>
-                          <Input placeholder="Apt 4B" {...field} disabled={fromAddressLocked} />
+                          <Input placeholder="Apt 4B" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1165,7 +1315,6 @@ export function BuyLabelsForm({
                       <FormItem>
                         <FormLabel>Country *</FormLabel>
                         <Select
-                          disabled={fromAddressLocked}
                           onValueChange={(value) => {
                           field.onChange(value);
                           // Reset state when country changes
@@ -1195,7 +1344,7 @@ export function BuyLabelsForm({
                       return (
                         <FormItem>
                           <FormLabel>{selectedCountry === "CA" ? "Province" : "State"} *</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value} disabled={fromAddressLocked}>
+                          <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder={`Select ${selectedCountry === "CA" ? "province" : "state"}`} />
@@ -1221,7 +1370,7 @@ export function BuyLabelsForm({
                       <FormItem>
                         <FormLabel>City *</FormLabel>
                         <FormControl>
-                          <Input placeholder="New York" {...field} disabled={fromAddressLocked} />
+                          <Input placeholder="New York" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1234,7 +1383,7 @@ export function BuyLabelsForm({
                       <FormItem>
                         <FormLabel>ZIP Code *</FormLabel>
                         <FormControl>
-                          <Input placeholder="10001" {...field} disabled={fromAddressLocked} />
+                          <Input placeholder="10001" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1270,13 +1419,15 @@ export function BuyLabelsForm({
                       <FormItem>
                         <FormLabel>Phone</FormLabel>
                         <FormControl>
-                          <Input
-                            placeholder={DEFAULT_FROM_PHONE}
-                            {...field}
+                          <PhoneInput
+                            value={field.value}
+                            onChange={field.onChange}
+                            defaultCountry="us"
+                            placeholder="347 661 3010"
                           />
                         </FormControl>
                         <p className="text-[11px] text-muted-foreground">
-                          Defaults to the warehouse phone — change here if the recipient needs a different number.
+                          Country code defaults to +1. Change the code or number if the recipient needs a different phone.
                         </p>
                         <FormMessage />
                       </FormItem>
@@ -1565,6 +1716,12 @@ export function BuyLabelsForm({
                                 const weight = formatUnitWeight(item);
                                 const meta = [item.sku, dims, weight].filter(Boolean).join(" · ");
                                 const selected = selectedInventoryProductId === item.id;
+                                const skuMatch = (shopifyOrderContext?.lineItems || []).some(
+                                  (li) =>
+                                    li.sku &&
+                                    String(li.sku).trim().toLowerCase() ===
+                                      String(item.sku || "").trim().toLowerCase()
+                                );
                                 return (
                                   <button
                                     key={item.id}
@@ -1586,7 +1743,14 @@ export function BuyLabelsForm({
                                       )}
                                     />
                                     <div className="min-w-0 flex-1">
-                                      <div className="truncate font-medium">{item.productName}</div>
+                                      <div className="flex items-center gap-2 truncate font-medium">
+                                        <span className="truncate">{item.productName}</span>
+                                        {skuMatch ? (
+                                          <Badge variant="secondary" className="shrink-0 text-[10px]">
+                                            Order SKU
+                                          </Badge>
+                                        ) : null}
+                                      </div>
                                       {meta ? (
                                         <div className="truncate text-xs text-muted-foreground">
                                           {meta}

@@ -2337,7 +2337,7 @@ export function AdminInventoryManagement({
           <CardHeader>
             <CardTitle>User Requests — {selectedUser.name}</CardTitle>
             <CardDescription>
-              Process this user&apos;s shipment, inventory, return, dispose, delete, and quarantine
+              Process this user&apos;s outbound, inbound, return, dispose, delete, and quarantine
               requests. Each tab shows only this user&apos;s requests.
             </CardDescription>
           </CardHeader>
@@ -2348,8 +2348,8 @@ export function AdminInventoryManagement({
               className="w-full"
             >
               <TabsList className="grid w-full grid-cols-2 sm:grid-cols-6">
-                <TabsTrigger value="shipment">Shipment</TabsTrigger>
-                <TabsTrigger value="inventory">Inventory</TabsTrigger>
+                <TabsTrigger value="shipment">Outbound</TabsTrigger>
+                <TabsTrigger value="inventory">Inbound</TabsTrigger>
                 <TabsTrigger value="return">Returns</TabsTrigger>
                 <TabsTrigger value="dispose">Dispose</TabsTrigger>
                 <TabsTrigger value="delete">Delete</TabsTrigger>

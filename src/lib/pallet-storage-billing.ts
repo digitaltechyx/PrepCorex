@@ -63,3 +63,70 @@ export function tierRatesFromStoragePricingDoc(data: Record<string, unknown> | n
 export function formatTierRatesLabel(tiers: PalletStorageTierRates): string {
   return `$${tiers.month1Rate} / $${tiers.month2to6Rate} / $${tiers.month6PlusRate} per pallet (mo 1 / mo 2–6 / 6+)`;
 }
+
+function formatCreatedAtDate(value: unknown): string {
+  if (!value) return "unknown date";
+  let d: Date | null = null;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    d = Number.isNaN(parsed.getTime()) ? null : parsed;
+  } else if (value instanceof Date) {
+    d = value;
+  } else if (typeof value === "object") {
+    const asAny = value as { toDate?: () => Date; seconds?: number };
+    if (typeof asAny.toDate === "function") {
+      try {
+        d = asAny.toDate();
+      } catch {
+        d = null;
+      }
+    } else if (typeof asAny.seconds === "number") {
+      d = new Date(asAny.seconds * 1000);
+    }
+  }
+  if (!d || Number.isNaN(d.getTime())) return "unknown date";
+  try {
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+export type PalletCycleInvoiceLabelInput = {
+  id?: string | null;
+  assignedAt?: unknown;
+  paidCycleCount?: number | null;
+  positionLabel?: string | null;
+  palletSequence?: number | null;
+  cartonCount?: number | null;
+  source?: string | null;
+};
+
+/**
+ * Product line for pallet-base storage invoices.
+ * Example: "Storage - Pallet created at Jul 31, 2026 - Cycle 1"
+ */
+export function formatStoragePalletInvoiceProductName(cycle: PalletCycleInvoiceLabelInput): string {
+  const paidCycleCount = Math.max(0, Number(cycle.paidCycleCount) || 0);
+  const cycleNumber = paidCycleCount + 1;
+  const createdAt = formatCreatedAtDate(cycle.assignedAt);
+  return `Storage - Pallet created at ${createdAt} - Cycle ${cycleNumber}`;
+}
+
+/**
+ * Clean already-generated invoice lines that embedded a Firestore cycle id
+ * as "Storage — Pallet {id} (cycle N)".
+ */
+export function sanitizeStorageInvoiceProductName(productName: string): string {
+  const raw = String(productName || "").trim();
+  if (!raw) return raw;
+  const match = raw.match(/\(cycle\s+(\d+)\)/i);
+  const cycleNumber = match?.[1];
+  if (
+    /Storage\s*[—\-]\s*Pallet\s+[A-Za-z0-9_-]{16,}/i.test(raw) &&
+    cycleNumber
+  ) {
+    return `Storage - Pallet created at unknown date - Cycle ${cycleNumber}`;
+  }
+  return raw;
+}

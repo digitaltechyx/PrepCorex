@@ -9,6 +9,7 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { format } from "date-fns";
 import { generateInvoiceNumber } from "@/lib/invoice-utils";
 import { getLatestStorageTierRates, listActivePalletCycles, toDate, add30Days, getRateForPaidCycle } from "@/lib/pallet-storage-sync";
+import { formatStoragePalletInvoiceProductName } from "@/lib/pallet-storage-billing";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -119,10 +120,17 @@ export async function POST(request: NextRequest) {
     const invoiceItems = dueCycles.map((cycle) => {
       const paidCycleCount = Math.max(0, Number((cycle as any).paidCycleCount) || 0);
       const unitPrice = getRateForPaidCycle(paidCycleCount, tierRates);
-      const label = String((cycle as any).positionLabel || cycle.id).trim();
       return {
         quantity: 1,
-        productName: `Storage — Pallet ${label} (cycle ${paidCycleCount + 1})`,
+        productName: formatStoragePalletInvoiceProductName({
+          id: cycle.id,
+          positionLabel: (cycle as any).positionLabel,
+          palletSequence: (cycle as any).palletSequence,
+          assignedAt: (cycle as any).assignedAt,
+          paidCycleCount,
+          cartonCount: (cycle as any).cartonCount,
+          source: (cycle as any).source,
+        }),
         shipDate: invoiceMonthBase,
         shipTo: "N/A",
         packaging: "Storage",

@@ -13,12 +13,27 @@ interface PhoneInputProps {
   value?: string;
   onChange?: (value: string) => void;
   placeholder?: string;
+  /** Force a default dial country (e.g. "us" for +1). When set, locale auto-detect is skipped. */
+  defaultCountry?: CountryIso2;
+  disabled?: boolean;
 }
 
-export function PhoneInput({ value, onChange, placeholder }: PhoneInputProps) {
-  const [defaultCountry, setDefaultCountry] = useState<CountryIso2>("us");
+export function PhoneInput({
+  value,
+  onChange,
+  placeholder,
+  defaultCountry: defaultCountryProp,
+  disabled,
+}: PhoneInputProps) {
+  const [defaultCountry, setDefaultCountry] = useState<CountryIso2>(
+    defaultCountryProp || "us"
+  );
 
   useEffect(() => {
+    if (defaultCountryProp) {
+      setDefaultCountry(defaultCountryProp);
+      return;
+    }
     if (typeof window === "undefined") return;
 
     try {
@@ -37,7 +52,7 @@ export function PhoneInput({ value, onChange, placeholder }: PhoneInputProps) {
     } catch {
       // Fallback to default (us)
     }
-  }, []);
+  }, [defaultCountryProp]);
 
   return (
     <div className="w-full">
@@ -46,6 +61,7 @@ export function PhoneInput({ value, onChange, placeholder }: PhoneInputProps) {
         defaultCountry={defaultCountry}
         onChange={(val) => onChange?.(val)}
         placeholder={placeholder || "Enter phone number"}
+        disabled={disabled}
         className="w-full text-sm"
         inputClassName="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         countrySelectorStyleProps={{
@@ -59,4 +75,3 @@ export function PhoneInput({ value, onChange, placeholder }: PhoneInputProps) {
     </div>
   );
 }
-

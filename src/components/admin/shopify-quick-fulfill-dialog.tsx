@@ -19,14 +19,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Loader2, Package, Truck } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Loader2, Package, Truck, ChevronsUpDown, Check, Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type LineDraft = {
   shopifyLineItemId: string;
@@ -80,7 +75,8 @@ export function ShopifyQuickFulfillDialog({
   const [trackingCompany, setTrackingCompany] = useState("");
   const [notifyCustomer, setNotifyCustomer] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [productSearch, setProductSearch] = useState("");
+  const [productPickerLineIndex, setProductPickerLineIndex] = useState<number | null>(null);
+  const [productPickerSearch, setProductPickerSearch] = useState("");
   const [labelPrice, setLabelPrice] = useState("");
 
   useEffect(() => {
@@ -93,7 +89,8 @@ export function ShopifyQuickFulfillDialog({
       (labelHandoff?.trackingCompany || "").trim() || order.trackingCompanies[0] || ""
     );
     setNotifyCustomer(true);
-    setProductSearch("");
+    setProductPickerLineIndex(null);
+    setProductPickerSearch("");
     setLabelPrice(
       labelHandoff?.labelPrice != null && Number.isFinite(Number(labelHandoff.labelPrice))
         ? String(Number(labelHandoff.labelPrice).toFixed(2))
@@ -162,20 +159,22 @@ export function ShopifyQuickFulfillDialog({
   }, [open, order, toast, labelHandoff]);
 
   const selectableInventory = useMemo(() => {
-    const q = productSearch.trim().toLowerCase();
     return inventory
       .filter((item) => item.status !== "Out of Stock" || item.quantity > 0)
-      .filter((item) => {
-        if (!q) return true;
-        return (
-          item.productName.toLowerCase().includes(q) ||
-          String(item.sku || "")
-            .toLowerCase()
-            .includes(q)
-        );
-      })
       .sort((a, b) => a.productName.localeCompare(b.productName));
-  }, [inventory, productSearch]);
+  }, [inventory]);
+
+  const filteredPickerInventory = useMemo(() => {
+    const q = productPickerSearch.trim().toLowerCase();
+    if (!q) return selectableInventory;
+    return selectableInventory.filter(
+      (item) =>
+        item.productName.toLowerCase().includes(q) ||
+        String(item.sku || "")
+          .toLowerCase()
+          .includes(q)
+    );
+  }, [selectableInventory, productPickerSearch]);
 
   const updateLine = (index: number, patch: Partial<LineDraft>) => {
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -354,20 +353,10 @@ export function ShopifyQuickFulfillDialog({
                 Loading warehouse inventory…
               </div>
             ) : (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="qf-product-search">Search warehouse products</Label>
-                  <Input
-                    id="qf-product-search"
-                    value={productSearch}
-                    onChange={(e) => setProductSearch(e.target.value)}
-                    placeholder="Filter by name or SKU…"
-                  />
-                </div>
-
-                <div className="space-y-3">
+              <div className="space-y-3">
                   {lines.map((line, index) => {
                     const selected = inventory.find((item) => item.id === line.inventoryId);
+                    const pickerOpen = productPickerLineIndex === index;
                     return (
                       <div key={line.shopifyLineItemId} className="rounded-lg border p-3 space-y-3">
                         <div className="flex items-start justify-between gap-2">
@@ -384,28 +373,96 @@ export function ShopifyQuickFulfillDialog({
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div className="space-y-1.5">
                             <Label>Warehouse product</Label>
-                            <Select
-                              value={line.inventoryId || undefined}
-                              onValueChange={(value) => updateLine(index, { inventoryId: value })}
+                            <Popover
+                              open={pickerOpen}
+                              modal={false}
+                              onOpenChange={(openNext) => {
+                                setProductPickerLineIndex(openNext ? index : null);
+                                if (!openNext) setProductPickerSearch("");
+                              }}
                             >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select product" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {selectableInventory.length === 0 ? (
-                                  <SelectItem value="__none" disabled>
-                                    No inventory found
-                                  </SelectItem>
-                                ) : (
-                                  selectableInventory.map((item) => (
-                                    <SelectItem key={item.id} value={item.id}>
-                                      {item.productName}
-                                      {item.sku ? ` (${item.sku})` : ""} · {item.quantity} avail
-                                    </SelectItem>
-                                  ))
-                                )}
-                              </SelectContent>
-                            </Select>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  role="combobox"
+                                  aria-expanded={pickerOpen}
+                                  className="w-full justify-between font-normal"
+                                >
+                                  <span className="truncate">
+                                    {selected
+                                      ? `${selected.productName}${
+                                          selected.sku ? ` (${selected.sku})` : ""
+                                        }`
+                                      : "Select product…"}
+                                  </span>
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                className="z-[200] w-[min(100vw-2rem,28rem)] p-0"
+                                align="start"
+                                sideOffset={4}
+                                onOpenAutoFocus={(e) => e.preventDefault()}
+                                onCloseAutoFocus={(e) => e.preventDefault()}
+                              >
+                                <div className="flex items-center gap-2 border-b px-3 py-2">
+                                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                  <Input
+                                    value={productPickerSearch}
+                                    onChange={(e) => setProductPickerSearch(e.target.value)}
+                                    placeholder="Search warehouse products…"
+                                    className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                                  />
+                                </div>
+                                <div className="max-h-[280px] overflow-y-auto overscroll-contain p-1">
+                                  {filteredPickerInventory.length === 0 ? (
+                                    <p className="py-6 text-center text-sm text-muted-foreground">
+                                      No inventory found
+                                    </p>
+                                  ) : (
+                                    filteredPickerInventory.map((item) => {
+                                      const isSelected = line.inventoryId === item.id;
+                                      return (
+                                        <button
+                                          key={item.id}
+                                          type="button"
+                                          className={cn(
+                                            "flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                                            isSelected && "bg-accent"
+                                          )}
+                                          onClick={() => {
+                                            updateLine(index, { inventoryId: item.id });
+                                            setProductPickerLineIndex(null);
+                                            setProductPickerSearch("");
+                                          }}
+                                        >
+                                          <Check
+                                            className={cn(
+                                              "mt-0.5 h-4 w-4 shrink-0",
+                                              isSelected ? "opacity-100" : "opacity-0"
+                                            )}
+                                          />
+                                          <div className="min-w-0 flex-1">
+                                            <div className="truncate font-medium">
+                                              {item.productName}
+                                            </div>
+                                            <div className="truncate text-xs text-muted-foreground">
+                                              {[
+                                                item.sku ? `SKU: ${item.sku}` : null,
+                                                `${item.quantity} avail`,
+                                              ]
+                                                .filter(Boolean)
+                                                .join(" · ")}
+                                            </div>
+                                          </div>
+                                        </button>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
                             {selected ? (
                               <p className="text-[11px] text-muted-foreground">
                                 Available: {selected.quantity}
@@ -432,8 +489,7 @@ export function ShopifyQuickFulfillDialog({
                       </div>
                     );
                   })}
-                </div>
-              </>
+              </div>
             )}
 
             <div className="grid gap-3 sm:grid-cols-2">

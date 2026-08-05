@@ -75,6 +75,10 @@ import {
   isInventoryRequestActionable,
   queueSortKey,
 } from "@/lib/user-request-queue-sort";
+import {
+  adminInboundRequestDisplayStatus,
+  adminInboundRequestStatusLabel,
+} from "@/lib/inventory-inbound-display";
 
 function formatDate(date: InventoryRequest["addDate"] | InventoryRequest["requestedAt"] | InventoryRequest["receivingDate"]) {
   if (!date) return "N/A";
@@ -212,7 +216,16 @@ export function InventoryRequestsManagement({
   // Sort and filter requests - latest first
   const filteredRequests = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-    let filtered = statusFilter === "all" ? requests : requests.filter(req => req.status === statusFilter);
+    let filtered =
+      statusFilter === "all"
+        ? requests
+        : requests.filter((req) => {
+            const display = adminInboundRequestDisplayStatus(req);
+            if (statusFilter === "pending_receive") return display === "pending_receive";
+            if (statusFilter === "complete") return display === "complete";
+            if (statusFilter === "approved") return req.status === "approved";
+            return display === statusFilter || req.status === statusFilter;
+          });
     // Hide pending/settled batch mirrors (those are managed in batch preview).
     // Keep approved open product/container lines visible so admin can receive & put away.
     filtered = filtered.filter((req) => {
@@ -258,6 +271,10 @@ export function InventoryRequestsManagement({
     let batches = [...inboundBatches];
     if (statusFilter === "pending") {
       batches = batches.filter((b) => b.status === "pending" || b.status === "partial");
+    } else if (statusFilter === "pending_receive") {
+      batches = batches.filter((b) => b.status === "partial");
+    } else if (statusFilter === "complete") {
+      batches = batches.filter((b) => b.status === "completed");
     } else if (statusFilter !== "all") {
       batches = batches.filter((b) => b.status === statusFilter);
     }
@@ -315,7 +332,12 @@ export function InventoryRequestsManagement({
   const pendingCount =
     requests.filter((req) => req.status === "pending" && !(req as InventoryRequest & { batchId?: string }).batchId).length +
     inboundBatches.filter((b) => b.status === "pending" || b.status === "partial").length;
-  const approvedCount = requests.filter(req => req.status === "approved").length;
+  const pendingReceiveCount = requests.filter(
+    (req) => adminInboundRequestDisplayStatus(req) === "pending_receive"
+  ).length;
+  const completeCount = requests.filter(
+    (req) => adminInboundRequestDisplayStatus(req) === "complete"
+  ).length;
   const rejectedCount = requests.filter(req => req.status === "rejected").length;
   const cancelledCount = requests.filter(req => req.status === "cancelled").length;
 
@@ -892,7 +914,7 @@ export function InventoryRequestsManagement({
     return (
       <Card>
         <CardContent className="p-6">
-          <p className="text-muted-foreground text-center">Select a user to manage their inventory requests.</p>
+          <p className="text-muted-foreground text-center">Select a user to manage their inbound requests.</p>
         </CardContent>
       </Card>
     );
@@ -901,7 +923,7 @@ export function InventoryRequestsManagement({
   return (
     <div className="space-y-4">
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Pending Requests</CardTitle>
@@ -912,10 +934,18 @@ export function InventoryRequestsManagement({
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Approved</CardTitle>
+            <CardTitle className="text-sm font-medium">Pending receive</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{approvedCount}</div>
+            <div className="text-2xl font-bold text-amber-600">{pendingReceiveCount}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Complete</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{completeCount}</div>
           </CardContent>
         </Card>
         <Card>
@@ -960,7 +990,8 @@ export function InventoryRequestsManagement({
             <SelectContent>
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="pending_receive">Pending receive</SelectItem>
+              <SelectItem value="complete">Complete</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
@@ -971,9 +1002,9 @@ export function InventoryRequestsManagement({
       {/* Requests Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Inventory Requests</CardTitle>
+          <CardTitle>Inbound Requests</CardTitle>
           <CardDescription>
-            Review and manage inventory requests from {selectedUser.name}
+            Review and manage inbound requests from {selectedUser.name}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -991,7 +1022,7 @@ export function InventoryRequestsManagement({
             </div>
           ) : filteredRequests.length === 0 && filteredBatches.length === 0 ? (
             <div className="text-center py-8">
-              <p className="text-muted-foreground">No inventory requests found.</p>
+              <p className="text-muted-foreground">No inbound requests found.</p>
               {selectedUser && requests.length === 0 && (
                 <p className="text-xs text-muted-foreground mt-2">
                   User: {selectedUser.name} ({userId})
@@ -1100,28 +1131,39 @@ export function InventoryRequestsManagement({
                         {getCurrentLocation(request)}
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={
-                            request.status === "approved"
-                              ? "default"
-                              : request.status === "rejected"
-                              ? "destructive"
-                              : request.status === "cancelled"
-                              ? "secondary"
-                              : "secondary"
-                          }
-                        >
-                          {request.status === "pending" ? (
-                            <span className="inline-flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              Pending
-                            </span>
-                          ) : request.status === "cancelled" ? (
-                            "Cancelled"
-                          ) : (
-                            request.status
-                          )}
-                        </Badge>
+                        {(() => {
+                          const displayStatus = adminInboundRequestDisplayStatus(request);
+                          const label = adminInboundRequestStatusLabel(displayStatus);
+                          return (
+                            <Badge
+                              variant={
+                                displayStatus === "complete"
+                                  ? "default"
+                                  : displayStatus === "rejected"
+                                    ? "destructive"
+                                    : displayStatus === "pending_receive"
+                                      ? "outline"
+                                      : "secondary"
+                              }
+                              className={
+                                displayStatus === "pending_receive"
+                                  ? "border-amber-500/50 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                                  : displayStatus === "complete"
+                                    ? "bg-emerald-600 hover:bg-emerald-600"
+                                    : undefined
+                              }
+                            >
+                              {displayStatus === "pending" ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {label}
+                                </span>
+                              ) : (
+                                label
+                              )}
+                            </Badge>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         {request.status === "pending" ? (
@@ -1136,8 +1178,14 @@ export function InventoryRequestsManagement({
                         ) : (
                           <div className="flex flex-col gap-1">
                             <span className="text-muted-foreground text-sm">
-                              {request.status === "approved"
-                                ? `Approved ${request.approvedAt ? formatDate(request.approvedAt) : ""}`
+                              {adminInboundRequestDisplayStatus(request) === "pending_receive"
+                                ? `Pending receive · approved ${
+                                    request.approvedAt ? formatDate(request.approvedAt) : ""
+                                  }`
+                                : adminInboundRequestDisplayStatus(request) === "complete"
+                                ? `Complete · approved ${
+                                    request.approvedAt ? formatDate(request.approvedAt) : ""
+                                  }`
                                 : request.status === "cancelled"
                                 ? `Cancelled ${(request as any).cancelledAt ? formatDate((request as any).cancelledAt) : ""}${
                                     (request as any).cancellationReason
@@ -1448,8 +1496,15 @@ function ReviewRequestDialog({
               <div className="rounded-lg border bg-muted/30 p-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <Label className="text-xs uppercase text-muted-foreground">Status</Label>
-                  <Badge variant="outline" className="capitalize">
-                    {request.status}
+                  <Badge
+                    variant="outline"
+                    className={
+                      adminInboundRequestDisplayStatus(request) === "pending_receive"
+                        ? "border-amber-500/50 bg-amber-50 text-amber-800"
+                        : undefined
+                    }
+                  >
+                    {adminInboundRequestStatusLabel(adminInboundRequestDisplayStatus(request))}
                   </Badge>
                 </div>
                 {request.status === "approved" && (
