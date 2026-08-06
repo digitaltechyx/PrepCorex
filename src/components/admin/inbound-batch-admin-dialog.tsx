@@ -13,6 +13,8 @@ import {
   type DocumentData,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import imageCompression from "browser-image-compression";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -25,10 +27,12 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
+import { useToast } from "@/hooks/use-toast";
 import type { InboundBatch, InboundBatchLine, InventoryRequest } from "@/types";
 import {
   batchLineToInventoryRequest,
@@ -46,7 +50,11 @@ type InboundBatchAdminDialogProps = {
   onClose: () => void;
   onReviewLine: (request: InventoryRequest) => void;
   onBulkApprove: (lines: InboundBatchLine[], receivingDate: Date) => void | Promise<void>;
-  onBulkReject: (lines: InboundBatchLine[], reason: string) => void | Promise<void>;
+  onBulkReject: (
+    lines: InboundBatchLine[],
+    reason: string,
+    evidenceUrls: string[]
+  ) => void | Promise<void>;
 };
 
 export function InboundBatchAdminDialog({
@@ -58,6 +66,7 @@ export function InboundBatchAdminDialog({
   onBulkApprove,
   onBulkReject,
 }: InboundBatchAdminDialogProps) {
+  const { toast } = useToast();
   const linesPath = batch ? inboundBatchLinesPath(userId, batch.id) : "";
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("pending");
   const [lines, setLines] = useState<InboundBatchLine[]>([]);
@@ -70,12 +79,19 @@ export function InboundBatchAdminDialog({
   const [rejectOpen, setRejectOpen] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [rejectEvidenceFiles, setRejectEvidenceFiles] = useState<File[]>([]);
+  const [rejectEvidencePreviews, setRejectEvidencePreviews] = useState<
+    { file: File; preview: string }[]
+  >([]);
+  const [isUploadingRejectEvidence, setIsUploadingRejectEvidence] = useState(false);
   const [receivingDate, setReceivingDate] = useState<Date>(new Date());
 
   useEffect(() => {
     if (!batch) {
       setSelectedIds(new Set());
       setRejectReason("");
+      setRejectEvidenceFiles([]);
+      setRejectEvidencePreviews([]);
       setRejectOpen(false);
       setApproveOpen(false);
       setLines([]);
@@ -402,40 +418,149 @@ export function InboundBatchAdminDialog({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+      <Dialog
+        open={rejectOpen}
+        onOpenChange={(open) => {
+          setRejectOpen(open);
+          if (!open) {
+            setRejectReason("");
+            setRejectEvidenceFiles([]);
+            setRejectEvidencePreviews([]);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Bulk reject</DialogTitle>
             <DialogDescription>
-              Reject {selectedLines.length} selected line(s). The same reason applies to all.
+              Reject {selectedLines.length} selected line(s). The same reason and evidence apply to all.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <Label>Rejection reason *</Label>
-            <Textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Enter reason for rejection…"
-              className="min-h-[100px]"
-            />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Rejection reason (optional)</Label>
+              <Textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Enter reason for rejection…"
+                className="min-h-[100px]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Rejection evidence (optional)</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                multiple
+                disabled={isProcessing || isUploadingRejectEvidence}
+                onChange={(event) => {
+                  const files = event.target.files;
+                  if (!files || files.length === 0) return;
+                  const valid: File[] = [];
+                  const previews: { file: File; preview: string }[] = [];
+                  Array.from(files).forEach((file) => {
+                    if (!file.type.startsWith("image/")) return;
+                    valid.push(file);
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      previews.push({ file, preview: reader.result as string });
+                      if (previews.length === valid.length) {
+                        setRejectEvidenceFiles((prev) => [...prev, ...valid]);
+                        setRejectEvidencePreviews((prev) => [...prev, ...previews]);
+                      }
+                    };
+                    reader.readAsDataURL(file);
+                  });
+                  event.target.value = "";
+                }}
+              />
+              {rejectEvidencePreviews.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {rejectEvidencePreviews.map((preview, index) => (
+                    <div key={`bulk-reject-preview-${index}`} className="relative rounded-lg border p-2">
+                      <img
+                        src={preview.preview}
+                        alt={`Evidence ${index + 1}`}
+                        className="max-h-28 w-full rounded object-cover"
+                      />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="absolute right-1 top-1 h-6 w-6 p-0"
+                        onClick={() => {
+                          setRejectEvidenceFiles((prev) => prev.filter((_, i) => i !== index));
+                          setRejectEvidencePreviews((prev) => prev.filter((_, i) => i !== index));
+                        }}
+                        disabled={isProcessing || isUploadingRejectEvidence}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Optional. Same reason/evidence apply to every selected line; the client can view them.
+              </p>
+            </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setRejectOpen(false)} disabled={isProcessing}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRejectOpen(false)}
+              disabled={isProcessing || isUploadingRejectEvidence}
+            >
               Cancel
             </Button>
             <Button
               type="button"
               variant="destructive"
-              disabled={isProcessing || selectedLines.length === 0 || !rejectReason.trim()}
+              disabled={
+                isProcessing ||
+                isUploadingRejectEvidence ||
+                selectedLines.length === 0
+              }
               onClick={() => {
-                void onBulkReject(selectedLines, rejectReason.trim()).then(() => {
-                  setRejectOpen(false);
-                  setRejectReason("");
-                  setSelectedIds(new Set());
-                });
+                void (async () => {
+                  try {
+                    setIsUploadingRejectEvidence(true);
+                    const uploadedUrls: string[] = [];
+                    for (const file of rejectEvidenceFiles) {
+                      const compressed = await imageCompression(file, {
+                        maxSizeMB: 1,
+                        maxWidthOrHeight: 1920,
+                        useWebWorker: true,
+                        fileType: file.type,
+                      });
+                      const storagePath = `inbound-rejection-evidence/${userId}/bulk/${batch?.id || "batch"}/${Date.now()}_${compressed.name}`;
+                      const storageRef = ref(storage, storagePath);
+                      await uploadBytes(storageRef, compressed);
+                      uploadedUrls.push(await getDownloadURL(storageRef));
+                    }
+                    await onBulkReject(selectedLines, rejectReason.trim(), uploadedUrls);
+                    setRejectOpen(false);
+                    setRejectReason("");
+                    setRejectEvidenceFiles([]);
+                    setRejectEvidencePreviews([]);
+                    setSelectedIds(new Set());
+                  } catch (error) {
+                    console.error(error);
+                    toast({
+                      variant: "destructive",
+                      title: "Bulk reject failed",
+                      description: error instanceof Error ? error.message : "Please try again.",
+                    });
+                  } finally {
+                    setIsUploadingRejectEvidence(false);
+                  }
+                })();
               }}
             >
-              {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {(isProcessing || isUploadingRejectEvidence) && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
               Reject {selectedLines.length} line(s)
             </Button>
           </DialogFooter>

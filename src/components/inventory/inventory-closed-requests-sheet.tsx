@@ -65,6 +65,15 @@ function getImageUrls(data: { imageUrl?: string; imageUrls?: string[] } | undefi
   return [];
 }
 
+function evidenceUrlsForRequest(req: InventoryRequest, mode: ClosedRequestMode): string[] {
+  if (mode === "rejected") {
+    return Array.isArray(req.rejectionEvidenceUrls)
+      ? req.rejectionEvidenceUrls.map((u) => String(u || "").trim()).filter(Boolean)
+      : [];
+  }
+  return getImageUrls(req);
+}
+
 function statusDateForRequest(req: InventoryRequest, mode: ClosedRequestMode): unknown {
   if (mode === "rejected") return req.rejectedAt ?? req.addDate ?? req.requestedAt;
   return req.cancelledAt ?? req.addDate ?? req.requestedAt;
@@ -292,7 +301,7 @@ export function InventoryClosedRequestsSheet({ mode, open, onOpenChange, request
                   <TableBody>
                     {filtered.map((req) => {
                       const reason = reasonForRequest(req, mode);
-                      const imageUrls = getImageUrls(req);
+                      const imageUrls = evidenceUrlsForRequest(req, mode);
                       const statusDate = statusDateForRequest(req, mode);
                       return (
                         <TableRow key={req.id}>

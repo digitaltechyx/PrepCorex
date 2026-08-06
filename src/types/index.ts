@@ -769,7 +769,10 @@ export interface InventoryRequest {
   cancelledAt?: { seconds: number; nanoseconds: number } | string;
   /** Required when the client cancels a pending inbound request. */
   cancellationReason?: string;
+  /** Optional when admin rejects an inbound request. */
   rejectionReason?: string;
+  /** Optional admin rejection evidence photos — visible to the client when present. */
+  rejectionEvidenceUrls?: string[];
   remarks?: string;
   imageUrl?: string;
   imageUrls?: string[];
@@ -906,6 +909,7 @@ export interface InboundBatchLine {
   rejectedBy?: string;
   rejectedAt?: InventoryRequest["rejectedAt"];
   rejectionReason?: string;
+  rejectionEvidenceUrls?: string[];
   receivingDate?: InventoryRequest["receivingDate"];
   fulfillmentStatus?: InventoryRequest["fulfillmentStatus"];
   warehouseGoodReceivedQty?: number;

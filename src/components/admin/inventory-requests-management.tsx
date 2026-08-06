@@ -252,7 +252,7 @@ export function InventoryRequestsManagement({
         variantLabel.includes(query) ||
         retailIdentifier.includes(query)
       );
-    }); 
+    });
     // Actionable (pending / approved open) on top; completed fall back to requested date.
     filtered = [...filtered].sort((a, b) => {
       const key = (req: InventoryRequest) =>
@@ -444,11 +444,11 @@ export function InventoryRequestsManagement({
     const userId = selectedUser.uid;
     if (request.status !== "pending") {
       if (!opts?.quiet) {
-        toast({
-          variant: "destructive",
-          title: "Request unavailable",
-          description: "This request is no longer pending and cannot be approved.",
-        });
+      toast({
+        variant: "destructive",
+        title: "Request unavailable",
+        description: "This request is no longer pending and cannot be approved.",
+      });
       }
       throw new Error("Request is not pending.");
     }
@@ -707,21 +707,21 @@ export function InventoryRequestsManagement({
       }
 
       if (!opts?.quiet) {
-        await addDoc(collection(db, `users/${userId}/notifications`), {
-          type: "inventory_request",
-          title: "Inventory request approved",
-          message:
-            request.inventoryType === "container"
-              ? "Your container handling request has been approved."
-              : request.inventoryType === "product"
-              ? "Your inventory request has been approved. Stock will appear after warehouse receiving and putaway."
-              : "Your inventory request has been approved and added to inventory.",
-          isRead: false,
-          targetUrl: "/dashboard/inventory",
-          relatedRequestId: request.id,
-          createdAt: Timestamp.now(),
-          createdBy: adminProfile.uid,
-        });
+      await addDoc(collection(db, `users/${userId}/notifications`), {
+        type: "inventory_request",
+        title: "Inventory request approved",
+        message:
+          request.inventoryType === "container"
+            ? "Your container handling request has been approved."
+            : request.inventoryType === "product"
+            ? "Your inventory request has been approved. Stock will appear after warehouse receiving and putaway."
+            : "Your inventory request has been approved and added to inventory.",
+        isRead: false,
+        targetUrl: "/dashboard/inventory",
+        relatedRequestId: request.id,
+        createdAt: Timestamp.now(),
+        createdBy: adminProfile.uid,
+      });
       }
 
       const isRestock = (request as any).productSubType === "restock";
@@ -732,27 +732,27 @@ export function InventoryRequestsManagement({
         await refreshBatchCounts(batchId);
       }
       if (!opts?.quiet) {
-        toast({
-          title: "Success",
-          description: isRestock
-            ? request.inventoryType === "product"
-              ? "Restock request approved. Stock will update after warehouse putaway."
-              : "Restock request approved. Quantity added to existing product."
-            : request.inventoryType === "container"
-            ? "Container handling request approved and invoice generated."
-            : request.inventoryType === "product"
-            ? "Product request approved. Awaiting warehouse receive."
-            : "Inventory request approved and added to inventory.",
-        });
-        setSelectedRequest(null);
+      toast({
+        title: "Success",
+        description: isRestock 
+          ? request.inventoryType === "product"
+            ? "Restock request approved. Stock will update after warehouse putaway."
+            : "Restock request approved. Quantity added to existing product."
+          : request.inventoryType === "container"
+          ? "Container handling request approved and invoice generated."
+          : request.inventoryType === "product"
+          ? "Product request approved. Awaiting warehouse receive."
+          : "Inventory request approved and added to inventory.",
+      });
+      setSelectedRequest(null);
       }
     } catch (error: unknown) {
       if (!opts?.quiet) {
-        toast({
-          variant: "destructive",
-          title: "Error",
+      toast({
+        variant: "destructive",
+        title: "Error",
           description: error instanceof Error ? error.message : "Failed to approve inventory request.",
-        });
+      });
       }
       throw error;
     } finally {
@@ -763,55 +763,68 @@ export function InventoryRequestsManagement({
   const handleReject = async (
     request: InventoryRequest,
     reason: string,
+    evidenceUrls: string[] = [],
     opts?: InventoryRequestProcessOpts
   ) => {
     if (!selectedUser || !adminProfile) return;
 
+    const trimmedReason = reason.trim();
+    const evidence = (evidenceUrls || []).map((u) => String(u || "").trim()).filter(Boolean);
+
     if (!opts?.quiet) setIsProcessing(true);
     try {
       const requestRef = doc(db, `users/${selectedUser.uid}/inventoryRequests`, request.id);
-      await updateDoc(requestRef, {
+      const patch: Record<string, unknown> = {
         status: "rejected",
         rejectedBy: adminProfile.uid,
         rejectedAt: Timestamp.now(),
-        rejectionReason: reason,
-        remarks: reason,
-      });
+      };
+      if (trimmedReason) {
+        patch.rejectionReason = trimmedReason;
+        patch.remarks = trimmedReason;
+      }
+      if (evidence.length > 0) {
+        patch.rejectionEvidenceUrls = evidence;
+      }
+      await updateDoc(requestRef, patch);
 
       if (!opts?.quiet) {
-        await addDoc(collection(db, `users/${selectedUser.uid}/notifications`), {
-          type: "inventory_request",
-          title: "Inventory request rejected",
-          message: `Your inventory request was rejected. Reason: ${reason}`,
-          isRead: false,
-          targetUrl: "/dashboard/inventory",
-          relatedRequestId: request.id,
-          createdAt: Timestamp.now(),
-          createdBy: adminProfile.uid,
-        });
+      await addDoc(collection(db, `users/${selectedUser.uid}/notifications`), {
+        type: "inventory_request",
+        title: "Inventory request rejected",
+        message: trimmedReason
+          ? `Your inventory request was rejected. Reason: ${trimmedReason}`
+          : "Your inventory request was rejected.",
+        isRead: false,
+        targetUrl: "/dashboard/inventory",
+        relatedRequestId: request.id,
+        createdAt: Timestamp.now(),
+        createdBy: adminProfile.uid,
+      });
       }
 
       const batchId = (request as InventoryRequest & { batchId?: string }).batchId;
       const batchLineId = (request as InventoryRequest & { batchLineId?: string }).batchLineId;
       if (!opts?.skipBatchSync && batchId && batchLineId) {
-        await syncBatchLineStatus(selectedUser.uid, batchId, batchLineId, "rejected", {
-          rejectionReason: reason,
-        });
+        const batchExtra: Record<string, unknown> = {};
+        if (trimmedReason) batchExtra.rejectionReason = trimmedReason;
+        if (evidence.length > 0) batchExtra.rejectionEvidenceUrls = evidence;
+        await syncBatchLineStatus(selectedUser.uid, batchId, batchLineId, "rejected", batchExtra);
         await refreshBatchCounts(batchId);
       }
 
       if (!opts?.quiet) {
-        toast({
-          title: "Success",
-          description: "Inventory request rejected.",
-        });
-        setSelectedRequest(null);
+      toast({
+        title: "Success",
+        description: "Inventory request rejected.",
+      });
+      setSelectedRequest(null);
       }
     } catch (error: unknown) {
       if (!opts?.quiet) {
-        toast({
-          variant: "destructive",
-          title: "Error",
+      toast({
+        variant: "destructive",
+        title: "Error",
           description: error instanceof Error ? error.message : "Failed to reject inventory request.",
         });
       }
@@ -824,7 +837,7 @@ export function InventoryRequestsManagement({
   const runBulkBatchAction = async (
     lines: InboundBatchLine[],
     action: "approve" | "reject",
-    options: { reason?: string; receivingDate?: Date }
+    options: { reason?: string; evidenceUrls?: string[]; receivingDate?: Date }
   ) => {
     if (!selectedBatch || !userId || !adminProfile) return;
     const pendingLines = lines.filter((line) => line.status === "pending");
@@ -866,13 +879,18 @@ export function InventoryRequestsManagement({
             );
             await syncBatchLineStatus(userId, selectedBatch.id, line.id, "approved");
           } else {
-            await handleReject(request, options.reason?.trim() || "Rejected in bulk", {
+            const bulkReason = options.reason?.trim() || "";
+            const bulkEvidence = (options.evidenceUrls || [])
+              .map((u) => String(u || "").trim())
+              .filter(Boolean);
+            await handleReject(request, bulkReason, bulkEvidence, {
               quiet: true,
               skipBatchSync: true,
             });
-            await syncBatchLineStatus(userId, selectedBatch.id, line.id, "rejected", {
-              rejectionReason: options.reason?.trim() || "Rejected in bulk",
-            });
+            const batchExtra: Record<string, unknown> = {};
+            if (bulkReason) batchExtra.rejectionReason = bulkReason;
+            if (bulkEvidence.length > 0) batchExtra.rejectionEvidenceUrls = bulkEvidence;
+            await syncBatchLineStatus(userId, selectedBatch.id, line.id, "rejected", batchExtra);
           }
           succeeded += 1;
         } catch {
@@ -1135,16 +1153,16 @@ export function InventoryRequestsManagement({
                           const displayStatus = adminInboundRequestDisplayStatus(request);
                           const label = adminInboundRequestStatusLabel(displayStatus);
                           return (
-                            <Badge
-                              variant={
+                        <Badge
+                          variant={
                                 displayStatus === "complete"
-                                  ? "default"
+                              ? "default"
                                   : displayStatus === "rejected"
-                                    ? "destructive"
+                              ? "destructive"
                                     : displayStatus === "pending_receive"
                                       ? "outline"
-                                      : "secondary"
-                              }
+                              : "secondary"
+                          }
                               className={
                                 displayStatus === "pending_receive"
                                   ? "border-amber-500/50 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
@@ -1154,14 +1172,14 @@ export function InventoryRequestsManagement({
                               }
                             >
                               {displayStatus === "pending" ? (
-                                <span className="inline-flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
                                   {label}
-                                </span>
-                              ) : (
+                            </span>
+                          ) : (
                                 label
-                              )}
-                            </Badge>
+                          )}
+                        </Badge>
                           );
                         })()}
                       </TableCell>
@@ -1194,15 +1212,15 @@ export function InventoryRequestsManagement({
                                   }`
                                 : `Rejected ${request.rejectedAt ? formatDate(request.rejectedAt) : ""}`}
                             </span>
-                            <Button
+                              <Button
                               variant="ghost"
-                              size="sm"
+                                size="sm"
                               className="h-7 w-fit px-2 text-xs"
                               onClick={() => setSelectedRequest(request)}
-                            >
+                              >
                               <Eye className="h-3.5 w-3.5 mr-1" />
                               View
-                            </Button>
+                              </Button>
                           </div>
                         )}
                       </TableCell>
@@ -1254,7 +1272,9 @@ export function InventoryRequestsManagement({
           onClose={() => setSelectedBatch(null)}
           onReviewLine={(request) => void handleReviewBatchLine(request)}
           onBulkApprove={(lines, receivingDate) => runBulkBatchAction(lines, "approve", { receivingDate })}
-          onBulkReject={(lines, reason) => runBulkBatchAction(lines, "reject", { reason })}
+          onBulkReject={(lines, reason, evidenceUrls) =>
+            runBulkBatchAction(lines, "reject", { reason, evidenceUrls })
+          }
         />
       )}
 
@@ -1265,7 +1285,7 @@ export function InventoryRequestsManagement({
           clientUserId={userId}
           clientDisplayName={selectedUser?.name ?? selectedUser?.email ?? null}
           onApprove={handleApprove}
-          onReject={handleReject}
+          onReject={(req, reason, evidenceUrls) => handleReject(req, reason, evidenceUrls)}
           onClose={() => setSelectedRequest(null)}
           isProcessing={isProcessing}
         />
@@ -1287,7 +1307,7 @@ function ReviewRequestDialog({
   clientUserId: string;
   clientDisplayName?: string | null;
   onApprove: (request: InventoryRequest, receivingDate: Date, status: "In Stock" | "Out of Stock", remarks?: string, editedQuantity?: number, editedProductName?: string, editedSku?: string, imageUrls?: string[]) => void;
-  onReject: (request: InventoryRequest, reason: string) => void;
+  onReject: (request: InventoryRequest, reason: string, evidenceUrls: string[]) => void | Promise<void>;
   onClose: () => void;
   isProcessing: boolean;
 }) {
@@ -1308,6 +1328,16 @@ function ReviewRequestDialog({
   const [imagePreviews, setImagePreviews] = useState<{ file: File; preview: string }[]>([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [uploadedImageUrls, setUploadedImageUrls] = useState<string[]>(getImageUrls(request as any));
+  const [rejectionEvidenceFiles, setRejectionEvidenceFiles] = useState<File[]>([]);
+  const [rejectionEvidencePreviews, setRejectionEvidencePreviews] = useState<
+    { file: File; preview: string }[]
+  >([]);
+  const [rejectionEvidenceUrls, setRejectionEvidenceUrls] = useState<string[]>(
+    Array.isArray(request.rejectionEvidenceUrls)
+      ? request.rejectionEvidenceUrls.map((u) => String(u || "").trim()).filter(Boolean)
+      : []
+  );
+  const [isUploadingRejectionEvidence, setIsUploadingRejectionEvidence] = useState(false);
   const readOnly = request.status !== "pending";
 
   const compressImage = async (file: File): Promise<File> => {
@@ -1453,6 +1483,96 @@ function ReviewRequestDialog({
     }
   };
 
+  const handleRejectEvidenceSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const validFiles: File[] = [];
+    const newPreviews: { file: File; preview: string }[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file.type.startsWith("image/")) {
+        toast({
+          variant: "destructive",
+          title: "Invalid File",
+          description: `${file.name} is not an image file. Skipping.`,
+        });
+        continue;
+      }
+      const maxSizeBytes = 10 * 1024 * 1024;
+      if (file.size > maxSizeBytes) {
+        toast({
+          variant: "destructive",
+          title: "File Too Large",
+          description: `${file.name} is too large (max 10 MB).`,
+        });
+        continue;
+      }
+      validFiles.push(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        newPreviews.push({ file, preview: reader.result as string });
+        if (newPreviews.length === validFiles.length) {
+          setRejectionEvidenceFiles((prev) => [...prev, ...validFiles]);
+          setRejectionEvidencePreviews((prev) => [...prev, ...newPreviews]);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    event.target.value = "";
+  };
+
+  const uploadRejectionEvidence = async (): Promise<string[]> => {
+    if (rejectionEvidenceFiles.length === 0 || !adminProfile) return rejectionEvidenceUrls;
+
+    try {
+      setIsUploadingRejectionEvidence(true);
+      const userId = (request as any).requestedBy || clientUserId || adminProfile.uid;
+      const uploadedUrls: string[] = [...rejectionEvidenceUrls];
+
+      for (const file of rejectionEvidenceFiles) {
+        try {
+          const compressedFile = await compressImage(file);
+          if (compressedFile.size > 1024 * 1024) {
+            toast({
+              variant: "destructive",
+              title: "Compression Failed",
+              description: `Unable to compress ${file.name} below 1 MB. Skipping.`,
+            });
+            continue;
+          }
+          const storagePath = `inbound-rejection-evidence/${userId}/${request.id}/${Date.now()}_${compressedFile.name}`;
+          const storageRef = ref(storage, storagePath);
+          await uploadBytes(storageRef, compressedFile);
+          uploadedUrls.push(await getDownloadURL(storageRef));
+        } catch (error: any) {
+          console.error(`Error uploading rejection evidence ${file.name}:`, error);
+          toast({
+            variant: "destructive",
+            title: "Upload Failed",
+            description: `Failed to upload ${file.name}: ${error.message || "Unknown error"}`,
+          });
+        }
+      }
+
+      setRejectionEvidenceUrls(uploadedUrls);
+      setRejectionEvidenceFiles([]);
+      setRejectionEvidencePreviews([]);
+      return uploadedUrls;
+    } catch (error: any) {
+      console.error("Error uploading rejection evidence:", error);
+      toast({
+        variant: "destructive",
+        title: "Upload Failed",
+        description: error.message || "Failed to upload evidence. Please try again.",
+      });
+      return rejectionEvidenceUrls;
+    } finally {
+      setIsUploadingRejectionEvidence(false);
+    }
+  };
+
   const handleApproveClick = async () => {
     // Validate edited quantity
     if (editedQuantity <= 0) {
@@ -1470,11 +1590,12 @@ function ReviewRequestDialog({
     onApprove(request, receivingDate, status, remarks, editedQuantity, editedProductName, editedSku, imageUrls.length > 0 ? imageUrls : undefined);
   };
 
-  const handleRejectClick = () => {
-    if (!rejectionReason.trim()) {
-      return;
+  const handleRejectClick = async () => {
+    let evidenceUrls = rejectionEvidenceUrls;
+    if (rejectionEvidenceFiles.length > 0) {
+      evidenceUrls = await uploadRejectionEvidence();
     }
-    onReject(request, rejectionReason);
+    await onReject(request, rejectionReason.trim(), evidenceUrls);
   };
 
   return (
@@ -1536,6 +1657,29 @@ function ReviewRequestDialog({
                     </p>
                   </div>
                 )}
+                {request.status === "rejected" &&
+                  Array.isArray(request.rejectionEvidenceUrls) &&
+                  request.rejectionEvidenceUrls.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-muted-foreground text-xs uppercase">Rejection evidence</p>
+                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {request.rejectionEvidenceUrls.map((url, index) => (
+                          <a
+                            key={`reject-evidence-${index}`}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <img
+                              src={url}
+                              alt={`Rejection evidence ${index + 1}`}
+                              className="h-24 w-full rounded-md border object-cover"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 {request.status === "cancelled" && (request as any).cancellationReason && (
                   <div className="mt-2">
                     <p className="text-muted-foreground text-xs uppercase">Cancellation reason</p>
@@ -1830,25 +1974,102 @@ function ReviewRequestDialog({
             <div className="space-y-4 border-t pt-4">
               <h3 className="font-semibold">Reject Request</h3>
               <div>
-                <Label>Rejection Reason *</Label>
+                <Label>Rejection Reason (optional)</Label>
                 <Textarea
                   placeholder="Enter reason for rejection..."
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
-                  required
                 />
+              </div>
+              <div>
+                <Label>Rejection Evidence (optional)</Label>
+                <div className="space-y-2">
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleRejectEvidenceSelect}
+                    disabled={isUploadingRejectionEvidence || isProcessing}
+                  />
+                  {rejectionEvidenceUrls.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {rejectionEvidenceUrls.map((url, index) => (
+                        <div key={`reject-uploaded-${index}`} className="relative border rounded-lg p-2">
+                          <img
+                            src={url}
+                            alt={`Evidence ${index + 1}`}
+                            className="max-h-32 max-w-full rounded"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="absolute top-1 right-1 h-6 w-6 p-0"
+                            onClick={() =>
+                              setRejectionEvidenceUrls((prev) => prev.filter((_, i) => i !== index))
+                            }
+                            disabled={isUploadingRejectionEvidence || isProcessing}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {rejectionEvidencePreviews.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {rejectionEvidencePreviews.map((preview, index) => (
+                        <div key={`reject-preview-${index}`} className="relative border rounded-lg p-2">
+                          <img
+                            src={preview.preview}
+                            alt={`Evidence preview ${index + 1}`}
+                            className="max-h-32 max-w-full rounded"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="absolute top-1 right-1 h-6 w-6 p-0"
+                            onClick={() => {
+                              setRejectionEvidenceFiles((prev) => prev.filter((_, i) => i !== index));
+                              setRejectionEvidencePreviews((prev) => prev.filter((_, i) => i !== index));
+                            }}
+                            disabled={isUploadingRejectionEvidence || isProcessing}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {isUploadingRejectionEvidence && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Uploading evidence...
+                    </div>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Optional photos the client can see with the rejection.
+                </p>
               </div>
               <div className="flex gap-2">
                 <Button
                   variant="destructive"
-                  onClick={handleRejectClick}
-                  disabled={isProcessing || !rejectionReason.trim()}
+                  onClick={() => void handleRejectClick()}
+                  disabled={isProcessing || isUploadingRejectionEvidence}
                   className="flex-1"
                 >
-                  {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {(isProcessing || isUploadingRejectionEvidence) && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
                   Confirm Rejection
                 </Button>
-                <Button variant="outline" onClick={() => setAction(null)}>
+                <Button
+                  variant="outline"
+                  onClick={() => setAction(null)}
+                  disabled={isProcessing || isUploadingRejectionEvidence}
+                >
                   Cancel
                 </Button>
               </div>

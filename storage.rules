@@ -44,6 +44,15 @@ service firebase.storage {
       // Allow authenticated users to delete restock photos
       allow delete: if request.auth != null;
     }
+
+    // Inbound rejection evidence: admins upload photos when rejecting an inbound request.
+    match /inbound-rejection-evidence/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 1024 * 1024;
+      allow delete: if request.auth != null;
+    }
     
     // Shipment labels: Users can upload labels for their shipment requests
     match /shipment-labels/{userId}/{fileName} {
