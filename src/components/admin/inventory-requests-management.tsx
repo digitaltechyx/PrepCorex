@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import React from "react";
-import type { InventoryRequest, UserProfile } from "@/types";
+import type { InventoryRequest, UserProfile, InboundTrackingEntry } from "@/types";
 
 type InventoryRequestProcessOpts = {
   quiet?: boolean;
@@ -27,6 +27,11 @@ import {
   syncBatchLineStatus,
 } from "@/lib/inbound-batch";
 import { InboundBatchAdminDialog } from "@/components/admin/inbound-batch-admin-dialog";
+import { InboundTrackingDetailDialog } from "@/components/inventory/inbound-tracking-detail-dialog";
+import { InboundTrackingStatusCell } from "@/components/inventory/inbound-tracking-status-cell";
+import {
+  resolveInboundTrackings,
+} from "@/lib/inbound-tracking";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
@@ -143,6 +148,37 @@ function InventoryAvatar({ request }: { request: InventoryRequest }) {
   return <ImageOff className="h-8 w-8 rounded-md border p-2 text-muted-foreground" />;
 }
 
+/** Dedupe tracking entries across batch-mirrored inventory requests. */
+function trackingsForBatchId(
+  batchId: string,
+  allRequests: InventoryRequest[]
+): InboundTrackingEntry[] {
+  const seen = new Set<string>();
+  const out: InboundTrackingEntry[] = [];
+  for (const req of allRequests) {
+    if (String((req as InventoryRequest & { batchId?: string }).batchId || "") !== batchId) {
+      continue;
+    }
+    for (const t of resolveInboundTrackings(
+      req as InventoryRequest & { trackingNumber?: string; carrier?: string }
+    )) {
+      const key = String(t.trackingNumber || "")
+        .trim()
+        .toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+function formatTrackingNumbersDisplay(trackings: InboundTrackingEntry[]): string {
+  if (!trackings.length) return "—";
+  if (trackings.length === 1) return trackings[0].trackingNumber;
+  return `${trackings[0].trackingNumber} (+${trackings.length - 1})`;
+}
+
 export function InventoryRequestsManagement({ 
   selectedUser,
   initialRequestId,
@@ -154,6 +190,10 @@ export function InventoryRequestsManagement({
   const { userProfile: adminProfile, user: authUser } = useAuth();
   const [selectedRequest, setSelectedRequest] = useState<InventoryRequest | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<InboundBatch | null>(null);
+  const [trackingDetail, setTrackingDetail] = useState<{
+    productName: string;
+    trackings: InboundTrackingEntry[];
+  } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -246,11 +286,18 @@ export function InventoryRequestsManagement({
       const sku = String((req as any).sku || "").toLowerCase();
       const variantLabel = String((req as any).variantLabel || "").toLowerCase();
       const retailIdentifier = String((req as any).retailIdentifier || "").toLowerCase();
+      const trackingBlob = resolveInboundTrackings(
+        req as InventoryRequest & { trackingNumber?: string; carrier?: string }
+      )
+        .map((t) => `${t.trackingNumber} ${t.lastStatusLabel || ""} ${t.lastStatus || ""}`)
+        .join(" ")
+        .toLowerCase();
       return (
         productName.includes(query) ||
         sku.includes(query) ||
         variantLabel.includes(query) ||
-        retailIdentifier.includes(query)
+        retailIdentifier.includes(query) ||
+        trackingBlob.includes(query)
       );
     });
     // Actionable (pending / approved open) on top; completed fall back to requested date.
@@ -982,7 +1029,7 @@ export function InventoryRequestsManagement({
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search product, SKU, variant, or identifier..."
+              placeholder="Search product, SKU, variant, identifier, or tracking..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
@@ -1062,6 +1109,8 @@ export function InventoryRequestsManagement({
                     <TableHead>Receiving Date</TableHead>
                     <TableHead className="hidden lg:table-cell">Current Location</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="min-w-[120px]">Tracking</TableHead>
+                    <TableHead className="text-center min-w-[100px]">Tracking Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1069,6 +1118,7 @@ export function InventoryRequestsManagement({
                   {paginatedRows.map((row) => {
                     if (row.kind === "batch") {
                       const batch = row.batch;
+                      const batchTrackings = trackingsForBatchId(batch.id, requests);
                       return (
                     <TableRow key={row.id} className="bg-primary/5">
                       <TableCell>
@@ -1100,6 +1150,26 @@ export function InventoryRequestsManagement({
                           {batch.status}
                         </Badge>
                       </TableCell>
+                      <TableCell className="font-mono text-xs max-w-[140px] truncate" title={formatTrackingNumbersDisplay(batchTrackings)}>
+                        {formatTrackingNumbersDisplay(batchTrackings)}
+                      </TableCell>
+                      <TableCell>
+                        <InboundTrackingStatusCell
+                          trackings={batchTrackings}
+                          canAddTracking={false}
+                          onViewTracking={
+                            batchTrackings.length
+                              ? () =>
+                                  setTrackingDetail({
+                                    productName: `Inbound batch · ${batch.totalLines} item${
+                                      batch.totalLines === 1 ? "" : "s"
+                                    }`,
+                                    trackings: batchTrackings,
+                                  })
+                              : undefined
+                          }
+                        />
+                      </TableCell>
                       <TableCell>
                         <Button type="button" size="sm" variant="outline" onClick={() => setSelectedBatch(batch)}>
                           Preview
@@ -1110,6 +1180,9 @@ export function InventoryRequestsManagement({
                     }
 
                     const request = row.request;
+                    const requestTrackings = resolveInboundTrackings(
+                      request as InventoryRequest & { trackingNumber?: string; carrier?: string }
+                    );
                     return (
                     <TableRow key={row.id}>
                       <TableCell><InventoryTypePill type={request.inventoryType} /></TableCell>
@@ -1182,6 +1255,24 @@ export function InventoryRequestsManagement({
                         </Badge>
                           );
                         })()}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs max-w-[140px] truncate" title={formatTrackingNumbersDisplay(requestTrackings)}>
+                        {formatTrackingNumbersDisplay(requestTrackings)}
+                      </TableCell>
+                      <TableCell>
+                        <InboundTrackingStatusCell
+                          trackings={requestTrackings}
+                          canAddTracking={false}
+                          onViewTracking={
+                            requestTrackings.length
+                              ? () =>
+                                  setTrackingDetail({
+                                    productName: request.productName || "Inbound request",
+                                    trackings: requestTrackings,
+                                  })
+                              : undefined
+                          }
+                        />
                       </TableCell>
                       <TableCell>
                         {request.status === "pending" ? (
@@ -1290,6 +1381,15 @@ export function InventoryRequestsManagement({
           isProcessing={isProcessing}
         />
       )}
+
+      <InboundTrackingDetailDialog
+        open={Boolean(trackingDetail)}
+        onOpenChange={(open) => {
+          if (!open) setTrackingDetail(null);
+        }}
+        productName={trackingDetail?.productName || ""}
+        trackings={trackingDetail?.trackings}
+      />
     </div>
   );
 }
