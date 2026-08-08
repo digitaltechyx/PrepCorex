@@ -99,15 +99,35 @@ function sumTodayReceivedUnits(
 }
 
 function countPendingRequests(
-  shipmentDocs: Array<{ ref: { path: string } }>,
-  inventoryDocs: Array<{ ref: { path: string } }>,
-  returnDocs: Array<{ ref: { path: string } }>,
+  docsLists: Array<Array<{ ref: { path: string } }>>,
   adminUid: string | undefined,
   managedIds: Set<string> | null
 ): number {
   let total = 0;
-  for (const doc of [...shipmentDocs, ...inventoryDocs, ...returnDocs]) {
-    if (isAllowedUser(doc.ref.path, adminUid, managedIds)) total += 1;
+  for (const docs of docsLists) {
+    for (const doc of docs) {
+      if (isAllowedUser(doc.ref.path, adminUid, managedIds)) total += 1;
+    }
+  }
+  return total;
+}
+
+function countPendingQuarantineDocs(
+  docs: Array<{ data: () => Record<string, unknown> }>,
+  adminUid: string | undefined,
+  managedIds: Set<string> | null,
+  users: UserProfile[] | null | undefined
+): number {
+  const allowedUids = new Set(
+    (users || [])
+      .map((u) => String(u.uid || ""))
+      .filter((id) => id && id !== adminUid && (managedIds === null || managedIds.has(id)))
+  );
+  let total = 0;
+  for (const doc of docs) {
+    const uid = String(doc.data().userId || "");
+    if (!uid || !allowedUids.has(uid)) continue;
+    total += 1;
   }
   return total;
 }
@@ -152,31 +172,56 @@ export function useAdminDashboardKpis(
     }
 
     setRequestsLoading(true);
-    const shipmentQ = query(
-      collectionGroup(db, "shipmentRequests"),
+    const pendingStatusQ = (collectionName: string) =>
+      query(collectionGroup(db, collectionName), where("status", "in", ["pending", "Pending"]));
+
+    const shipmentQ = pendingStatusQ("shipmentRequests");
+    const inventoryQ = pendingStatusQ("inventoryRequests");
+    const returnsQ = pendingStatusQ("productReturns");
+    const disposeQ = pendingStatusQ("disposeRequests");
+    const deleteQ = pendingStatusQ("deleteRequests");
+    const labelRefundQ = pendingStatusQ("labelRefundRequests");
+    const quarantineQ = query(
+      collection(db, "quarantineRequests"),
       where("status", "in", ["pending", "Pending"])
-    );
-    const inventoryQ = query(
-      collectionGroup(db, "inventoryRequests"),
-      where("status", "in", ["pending", "Pending"])
-    );
-    const returnsQ = query(
-      collectionGroup(db, "productReturns"),
-      where(
-        "status",
-        "in",
-        ["pending", "Pending", "approved", "Approved", "in_progress", "In Progress", "in progress"]
-      )
     );
 
     let shipDocs: Array<{ ref: { path: string } }> = [];
     let invDocs: Array<{ ref: { path: string } }> = [];
     let retDocs: Array<{ ref: { path: string } }> = [];
-    let loaded = { ship: false, inv: false, ret: false };
+    let disposeDocs: Array<{ ref: { path: string } }> = [];
+    let deleteDocs: Array<{ ref: { path: string } }> = [];
+    let labelRefundDocs: Array<{ ref: { path: string } }> = [];
+    let quarantineDocs: Array<{ data: () => Record<string, unknown> }> = [];
+    let loaded = {
+      ship: false,
+      inv: false,
+      ret: false,
+      dispose: false,
+      del: false,
+      label: false,
+      quarantine: false,
+    };
 
     const publish = () => {
-      if (!loaded.ship || !loaded.inv || !loaded.ret) return;
-      setPendingRequestsCount(countPendingRequests(shipDocs, invDocs, retDocs, adminUid, managedIds));
+      if (
+        !loaded.ship ||
+        !loaded.inv ||
+        !loaded.ret ||
+        !loaded.dispose ||
+        !loaded.del ||
+        !loaded.label ||
+        !loaded.quarantine
+      ) {
+        return;
+      }
+      setPendingRequestsCount(
+        countPendingRequests(
+          [shipDocs, invDocs, retDocs, disposeDocs, deleteDocs, labelRefundDocs],
+          adminUid,
+          managedIds
+        ) + countPendingQuarantineDocs(quarantineDocs, adminUid, managedIds, users)
+      );
       setRequestsLoading(false);
     };
 
@@ -216,13 +261,65 @@ export function useAdminDashboardKpis(
         publish();
       }
     );
+    const unsub4 = onSnapshot(
+      disposeQ,
+      (snap) => {
+        disposeDocs = snap.docs;
+        loaded.dispose = true;
+        publish();
+      },
+      () => {
+        loaded.dispose = true;
+        publish();
+      }
+    );
+    const unsub5 = onSnapshot(
+      deleteQ,
+      (snap) => {
+        deleteDocs = snap.docs;
+        loaded.del = true;
+        publish();
+      },
+      () => {
+        loaded.del = true;
+        publish();
+      }
+    );
+    const unsub6 = onSnapshot(
+      labelRefundQ,
+      (snap) => {
+        labelRefundDocs = snap.docs;
+        loaded.label = true;
+        publish();
+      },
+      () => {
+        loaded.label = true;
+        publish();
+      }
+    );
+    const unsub7 = onSnapshot(
+      quarantineQ,
+      (snap) => {
+        quarantineDocs = snap.docs;
+        loaded.quarantine = true;
+        publish();
+      },
+      () => {
+        loaded.quarantine = true;
+        publish();
+      }
+    );
 
     return () => {
       unsub1();
       unsub2();
       unsub3();
+      unsub4();
+      unsub5();
+      unsub6();
+      unsub7();
     };
-  }, [ready, adminUid, managedIds]);
+  }, [ready, adminUid, managedIds, users]);
 
   useEffect(() => {
     if (!ready || !adminUid) {

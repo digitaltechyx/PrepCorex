@@ -1,5 +1,4 @@
 import { adminDb } from "@/lib/firebase-admin";
-import { pickInvoiceDateMs } from "@/lib/admin-reports-utils";
 import { getSubAdminManagedUserIds } from "@/lib/permissions";
 import type { Invoice, UserProfile } from "@/types";
 import { buildAdminDashboardFinanceMetrics, type AdminDashboardFinanceMetrics } from "@/lib/admin-dashboard-finance-server";
@@ -34,16 +33,11 @@ function toMs(v: unknown): number {
   return 0;
 }
 
-function normStatus(v: unknown): string {
-  return String(v || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
+function uidFromDocPath(path: string): string {
+  // users/{uid}/collection/{id}
+  const parts = path.split("/");
+  return parts[0] === "users" ? parts[1] || "" : "";
 }
-
-const PENDING_SHIP_STATUSES = new Set(["pending"]);
-const PENDING_INV_REQ_STATUSES = new Set(["pending"]);
-const PENDING_RETURN_STATUSES = new Set(["pending", "approved", "in_progress"]);
 
 async function resolveClientUserIds(callerUid: string): Promise<string[]> {
   const usersSnap = await adminDb().collection("users").get();
@@ -64,92 +58,137 @@ async function resolveClientUserIds(callerUid: string): Promise<string[]> {
     .filter(Boolean);
 }
 
-async function countPendingRequestsForUser(userId: string): Promise<number> {
+/** Pending docs under users/{uid}/… via collectionGroup (status pending only). */
+async function countPendingCollectionGroup(
+  collectionId: string,
+  allowedUserIds: Set<string>
+) {
+  const snap = await adminDb()
+    .collectionGroup(collectionId)
+    .where("status", "in", ["pending", "Pending"])
+    .get();
+  return snap.docs.filter((d) => allowedUserIds.has(uidFromDocPath(d.ref.path)));
+}
+
+/**
+ * Fast pending count for Notifications types (pending only).
+ * Uses collectionGroup queries instead of loading every user subcollection.
+ */
+async function countPendingRequests(allowedUserIds: Set<string>): Promise<number> {
   const db = adminDb();
-  const [shipSnap, invSnap, retSnap] = await Promise.all([
-    db.collection(`users/${userId}/shipmentRequests`).get(),
-    db.collection(`users/${userId}/inventoryRequests`).get(),
-    db.collection(`users/${userId}/productReturns`).get(),
+
+  const [
+    shipDocs,
+    invDocs,
+    retDocs,
+    disposeDocs,
+    deleteDocs,
+    labelDocs,
+    inboundBatchDocs,
+    disposeBatchDocs,
+    quarantineSnap,
+  ] = await Promise.all([
+    countPendingCollectionGroup("shipmentRequests", allowedUserIds),
+    countPendingCollectionGroup("inventoryRequests", allowedUserIds),
+    countPendingCollectionGroup("productReturns", allowedUserIds),
+    countPendingCollectionGroup("disposeRequests", allowedUserIds),
+    countPendingCollectionGroup("deleteRequests", allowedUserIds),
+    countPendingCollectionGroup("labelRefundRequests", allowedUserIds),
+    countPendingCollectionGroup("inboundBatches", allowedUserIds),
+    countPendingCollectionGroup("disposeBatches", allowedUserIds),
+    db.collection("quarantineRequests").where("status", "in", ["pending", "Pending"]).get(),
   ]);
 
+  const multiLineInboundBatchIds = new Set(
+    inboundBatchDocs.filter((d) => Number(d.data().totalLines || 0) > 1).map((d) => d.id)
+  );
+  const multiLineDisposeBatchIds = new Set(
+    disposeBatchDocs.filter((d) => Number(d.data().totalLines || 0) > 1).map((d) => d.id)
+  );
+
   let count = 0;
-  for (const doc of shipSnap.docs) {
-    if (PENDING_SHIP_STATUSES.has(normStatus(doc.data().status))) count += 1;
+  count += shipDocs.length;
+  count += retDocs.length;
+  count += deleteDocs.length;
+  count += labelDocs.length;
+
+  for (const d of invDocs) {
+    const batchId = String(d.data().batchId || "");
+    if (batchId && multiLineInboundBatchIds.has(batchId)) continue;
+    count += 1;
   }
-  for (const doc of invSnap.docs) {
-    if (PENDING_INV_REQ_STATUSES.has(normStatus(doc.data().status))) count += 1;
+  for (const d of inboundBatchDocs) {
+    if (Number(d.data().totalLines || 0) <= 1) continue;
+    count += 1;
   }
-  for (const doc of retSnap.docs) {
-    if (PENDING_RETURN_STATUSES.has(normStatus(doc.data().status))) count += 1;
+
+  for (const d of disposeDocs) {
+    const batchId = String(d.data().batchId || "");
+    if (batchId && multiLineDisposeBatchIds.has(batchId)) continue;
+    count += 1;
   }
+  for (const d of disposeBatchDocs) {
+    if (Number(d.data().totalLines || 0) <= 1) continue;
+    count += 1;
+  }
+
+  for (const d of quarantineSnap.docs) {
+    if (allowedUserIds.has(String(d.data().userId || ""))) count += 1;
+  }
+
   return count;
 }
 
-async function countTodayActivityForUser(
-  userId: string,
-  todayStart: number,
-  todayEnd: number
-): Promise<{ shipped: number; received: number }> {
-  const db = adminDb();
-  const [shippedSnap, inventorySnap] = await Promise.all([
-    db.collection(`users/${userId}/shipped`).get(),
-    db.collection(`users/${userId}/inventory`).get(),
-  ]);
-
-  let shipped = 0;
-  for (const doc of shippedSnap.docs) {
-    const ms = toMs(doc.data().date);
-    if (ms >= todayStart && ms <= todayEnd) shipped += 1;
-  }
-
-  let received = 0;
-  for (const doc of inventorySnap.docs) {
-    const data = doc.data();
-    const ms = toMs(data.receivingDate) || toMs(data.dateAdded);
-    if (ms >= todayStart && ms <= todayEnd) {
-      received += Number(data.quantity) || 0;
-    }
-  }
-
-  return { shipped, received };
-}
-
-async function countTodayActivity(userIds: string[]): Promise<{
+async function countTodayActivity(allowedUserIds: Set<string>): Promise<{
   ordersShippedToday: number;
   receivedUnitsToday: number;
 }> {
   const todayStart = startOfDay(new Date()).getTime();
   const todayEnd = endOfDay(new Date()).getTime();
+  const db = adminDb();
 
-  const rows = await Promise.all(
-    userIds.map((uid) => countTodayActivityForUser(uid, todayStart, todayEnd))
-  );
+  // Prefer bounded queries when date fields are Timestamps; fall back to scan filter.
+  const [shippedSnap, inventorySnap] = await Promise.all([
+    db.collectionGroup("shipped").get(),
+    db.collectionGroup("inventory").get(),
+  ]);
 
-  return {
-    ordersShippedToday: rows.reduce((s, r) => s + r.shipped, 0),
-    receivedUnitsToday: rows.reduce((s, r) => s + r.received, 0),
-  };
+  let ordersShippedToday = 0;
+  for (const doc of shippedSnap.docs) {
+    if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
+    const ms = toMs(doc.data().date);
+    if (ms >= todayStart && ms <= todayEnd) ordersShippedToday += 1;
+  }
+
+  let receivedUnitsToday = 0;
+  for (const doc of inventorySnap.docs) {
+    if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
+    const data = doc.data();
+    const ms = toMs(data.receivingDate) || toMs(data.dateAdded);
+    if (ms >= todayStart && ms <= todayEnd) {
+      receivedUnitsToday += Number(data.quantity) || 0;
+    }
+  }
+
+  return { ordersShippedToday, receivedUnitsToday };
 }
 
-async function countAllTimePendingInvoices(userIds: string[]): Promise<{
+async function countAllTimePendingInvoices(allowedUserIds: Set<string>): Promise<{
   pendingInvoicesCount: number;
   pendingInvoicesAmount: number;
 }> {
-  const batches = await Promise.all(
-    userIds.map(async (userId) => {
-      const snap = await adminDb().collection(`users/${userId}/invoices`).get();
-      return snap.docs.map((doc) => doc.data() as Invoice);
-    })
-  );
+  const snap = await adminDb()
+    .collectionGroup("invoices")
+    .where("status", "in", ["pending", "Pending"])
+    .get();
 
   let pendingInvoicesCount = 0;
   let pendingInvoicesAmount = 0;
-  for (const invoices of batches) {
-    for (const inv of invoices) {
-      if (String(inv.status || "").toLowerCase() !== "pending") continue;
-      pendingInvoicesCount += 1;
-      pendingInvoicesAmount += Number(inv.grandTotal || 0);
-    }
+  for (const doc of snap.docs) {
+    if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
+    const inv = doc.data() as Invoice;
+    pendingInvoicesCount += 1;
+    pendingInvoicesAmount += Number(inv.grandTotal || 0);
   }
 
   return { pendingInvoicesCount, pendingInvoicesAmount };
@@ -163,12 +202,13 @@ export async function buildAdminDashboardSummary(input: {
   topClientsDays?: number;
 }): Promise<AdminDashboardSummary> {
   const userIds = await resolveClientUserIds(input.callerUid);
+  const allowedUserIds = new Set(userIds);
   const allTime = input.allTime ?? !(input.from && input.to);
 
-  const [pendingRequestsPerUser, todayActivity, pendingInvoices, financial] = await Promise.all([
-    Promise.all(userIds.map((uid) => countPendingRequestsForUser(uid))),
-    countTodayActivity(userIds),
-    countAllTimePendingInvoices(userIds),
+  const [pendingRequestsCount, todayActivity, pendingInvoices, financial] = await Promise.all([
+    countPendingRequests(allowedUserIds),
+    countTodayActivity(allowedUserIds),
+    countAllTimePendingInvoices(allowedUserIds),
     buildAdminDashboardFinanceMetrics({
       callerUid: input.callerUid,
       from: allTime ? undefined : input.from,
@@ -179,7 +219,7 @@ export async function buildAdminDashboardSummary(input: {
   ]);
 
   return {
-    pendingRequestsCount: pendingRequestsPerUser.reduce((a, b) => a + b, 0),
+    pendingRequestsCount,
     pendingInvoicesCount: pendingInvoices.pendingInvoicesCount,
     pendingInvoicesAmount: pendingInvoices.pendingInvoicesAmount,
     ordersShippedToday: todayActivity.ordersShippedToday,

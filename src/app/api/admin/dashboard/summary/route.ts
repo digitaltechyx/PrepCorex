@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/api-admin-auth";
 import { buildAdminDashboardSummary } from "@/lib/admin-dashboard-summary-server";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 function parseDateParam(value: string | null): Date | undefined {
   if (!value?.trim()) return undefined;
@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json(summary);
   } catch (e) {
+    console.error("[admin/dashboard/summary]", e);
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Failed to load dashboard summary" },
       { status: 500 }

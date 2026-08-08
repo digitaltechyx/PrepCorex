@@ -19,6 +19,9 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
   const [inventoryPendingCount, setInventoryPendingCount] = useState(0);
   const [productReturnsPendingCount, setProductReturnsPendingCount] = useState(0);
   const [disposePendingCount, setDisposePendingCount] = useState(0);
+  const [deletePendingCount, setDeletePendingCount] = useState(0);
+  const [quarantinePendingCount, setQuarantinePendingCount] = useState(0);
+  const [labelRefundPendingCount, setLabelRefundPendingCount] = useState(0);
   const [pendingDocumentRequestsCount, setPendingDocumentRequestsCount] = useState(0);
   const [pendingInvoicesCount, setPendingInvoicesCount] = useState(0);
   const [pendingLabelsCount, setPendingLabelsCount] = useState(0);
@@ -38,13 +41,25 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
     [managedUsers]
   );
 
+  /** Matches Admin Notifications types (pending only). Documents stay separate. */
   const pendingRequestsCount = useMemo(
     () =>
       shipmentPendingCount +
       inventoryPendingCount +
       productReturnsPendingCount +
+      disposePendingCount +
+      deletePendingCount +
+      quarantinePendingCount +
+      labelRefundPendingCount,
+    [
+      shipmentPendingCount,
+      inventoryPendingCount,
+      productReturnsPendingCount,
       disposePendingCount,
-    [shipmentPendingCount, inventoryPendingCount, productReturnsPendingCount, disposePendingCount]
+      deletePendingCount,
+      quarantinePendingCount,
+      labelRefundPendingCount,
+    ]
   );
 
   const inventoryActionCount = useMemo(
@@ -55,14 +70,12 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
   const totalAdminAttentionCount = useMemo(
     () =>
       pendingRequestsCount +
-      pendingDocumentRequestsCount +
       pendingInvoicesCount +
       pendingLabelsCount +
       pendingUsersCount +
       pendingCommissionAgentsCount,
     [
       pendingRequestsCount,
-      pendingDocumentRequestsCount,
       pendingInvoicesCount,
       pendingLabelsCount,
       pendingUsersCount,
@@ -93,21 +106,19 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
           inventoryPending,
           productReturnPending,
           disposePending,
+          deletePending,
+          quarantinePending,
+          labelRefundPending,
           documentPending,
           invoicePending,
         ] = await Promise.all([
           countStatuses("shipmentRequests", ["pending", "Pending"]),
           countStatuses("inventoryRequests", ["pending", "Pending"]),
-          countStatuses("productReturns", [
-            "pending",
-            "Pending",
-            "approved",
-            "Approved",
-            "in_progress",
-            "In Progress",
-            "in progress",
-          ]),
+          countStatuses("productReturns", ["pending", "Pending"]),
           countStatuses("disposeRequests", ["pending", "Pending"]),
+          countStatuses("deleteRequests", ["pending", "Pending"]),
+          countStatuses("quarantineRequests", ["pending", "Pending"]),
+          countStatuses("labelRefundRequests", ["pending", "Pending"]),
           countStatuses("documentRequests", ["pending", "Pending"]),
           countStatuses("invoices", ["pending", "Pending"]),
         ]);
@@ -117,6 +128,9 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
         setInventoryPendingCount(inventoryPending);
         setProductReturnsPendingCount(productReturnPending);
         setDisposePendingCount(disposePending);
+        setDeletePendingCount(deletePending);
+        setQuarantinePendingCount(quarantinePending);
+        setLabelRefundPendingCount(labelRefundPending);
         setPendingDocumentRequestsCount(documentPending);
         setPendingInvoicesCount(invoicePending);
       } catch (err) {
@@ -136,11 +150,19 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
     );
     const returnsQ = query(
       collectionGroup(db, "productReturns"),
-      where(
-        "status",
-        "in",
-        ["pending", "Pending", "approved", "Approved", "in_progress", "In Progress", "in progress"]
-      )
+      where("status", "in", ["pending", "Pending"])
+    );
+    const deleteQ = query(
+      collectionGroup(db, "deleteRequests"),
+      where("status", "in", ["pending", "Pending"])
+    );
+    const quarantineQ = query(
+      collection(db, "quarantineRequests"),
+      where("status", "in", ["pending", "Pending"])
+    );
+    const labelRefundQ = query(
+      collectionGroup(db, "labelRefundRequests"),
+      where("status", "in", ["pending", "Pending"])
     );
     const documentsQ = query(
       collectionGroup(db, "documentRequests"),
@@ -185,19 +207,40 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       },
       onListenerError("productReturns")
     );
-    const unsub4 = onSnapshot(
-      documentsQ,
-      (snap) => {
-        if (!cancelled) setPendingDocumentRequestsCount(snap.size);
-      },
-      onListenerError("documentRequests")
-    );
     const unsub5 = onSnapshot(
       disposeQ,
       (snap) => {
         if (!cancelled) setDisposePendingCount(snap.size);
       },
       onListenerError("disposeRequests")
+    );
+    const unsubDelete = onSnapshot(
+      deleteQ,
+      (snap) => {
+        if (!cancelled) setDeletePendingCount(snap.size);
+      },
+      onListenerError("deleteRequests")
+    );
+    const unsubQuarantine = onSnapshot(
+      quarantineQ,
+      (snap) => {
+        if (!cancelled) setQuarantinePendingCount(snap.size);
+      },
+      onListenerError("quarantineRequests")
+    );
+    const unsubLabelRefund = onSnapshot(
+      labelRefundQ,
+      (snap) => {
+        if (!cancelled) setLabelRefundPendingCount(snap.size);
+      },
+      onListenerError("labelRefundRequests")
+    );
+    const unsub4 = onSnapshot(
+      documentsQ,
+      (snap) => {
+        if (!cancelled) setPendingDocumentRequestsCount(snap.size);
+      },
+      onListenerError("documentRequests")
     );
     const unsub6 = onSnapshot(
       invoicesQ,
@@ -256,6 +299,9 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       unsub3();
       unsub4();
       unsub5();
+      unsubDelete();
+      unsubQuarantine();
+      unsubLabelRefund();
       unsub6();
       unsub7();
       unsub8();

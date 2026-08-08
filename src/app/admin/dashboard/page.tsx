@@ -527,7 +527,7 @@ export default function AdminDashboardPage() {
       iconBg: "bg-blue-500/10 text-blue-600",
       href: "/admin/dashboard/invoices?tab=pending",
     },
-    { title: "Pending Requests", value: requestsLoading ? "…" : String(pendingRequestsCount), hint: "All request types", icon: Bell, iconBg: "bg-indigo-500/10 text-indigo-600", href: "/admin/dashboard/notifications?tab=pending" },
+    { title: "Pending Requests", value: requestsLoading ? "…" : String(pendingRequestsCount), hint: "Awaiting admin action", icon: Bell, iconBg: "bg-indigo-500/10 text-indigo-600", href: "/admin/dashboard/notifications?tab=pending" },
     {
       title: "Today Shipped Orders",
       value: shippedAndReceivedLoading ? "…" : String(ordersShippedToday),
@@ -554,7 +554,7 @@ export default function AdminDashboardPage() {
     : 0;
   const integrationHealth = integrationStats.shopify + integrationStats.ebay > 0 ? "Healthy" : "Needs setup";
   const alerts = [
-    pendingRequestsCount > 0 ? `${pendingRequestsCount} document requests pending` : null,
+    pendingRequestsCount > 0 ? `${pendingRequestsCount} pending requests` : null,
     pendingInvoicesCount > 0 ? `${pendingInvoicesCount} due invoices` : null,
     (hasDateRange ? dueAmount : pendingInvoicesAmount) > 0
       ? `Outstanding balance $${Number(hasDateRange ? dueAmount : pendingInvoicesAmount).toLocaleString("en-US")}`
