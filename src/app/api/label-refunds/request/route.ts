@@ -7,6 +7,7 @@ import {
   detectLabelPlatformIssue,
   labelPurchaseAnchorMs,
   labelRefundRequestsPath,
+  resolveShipBestCustomNo,
 } from "@/lib/label-refund";
 import { clampLabelRefundProofUrls } from "@/lib/label-refund-proof";
 import type { LabelPurchase } from "@/types";
@@ -62,8 +63,15 @@ export async function POST(request: NextRequest) {
 
     const anchorMs = labelPurchaseAnchorMs(label);
     const refundRef = adminDb().collection(labelRefundRequestsPath(userId)).doc();
-    const labelProvider = label.labelProvider || label.selectedRate?.labelProvider || null;
+    const labelProvider =
+      label.labelProvider ||
+      label.selectedRate?.labelProvider ||
+      (String(label.selectedRate?.objectId || "").startsWith("shipbest:") ? "shipbest" : null);
     const platformIssueDetected = detectLabelPlatformIssue(label);
+    const isShipBest = String(labelProvider || "").toLowerCase() === "shipbest";
+    const shipbestCustomNo = isShipBest
+      ? resolveShipBestCustomNo(userId, labelPurchaseId, label.shipbestCustomNo)
+      : label.shipbestCustomNo || null;
 
     const payload = {
       userId,
@@ -84,7 +92,7 @@ export async function POST(request: NextRequest) {
       labelPurchaseStatus: label.status || null,
       shippoTransactionId: label.shippoTransactionId || null,
       shipbestOrderNo: label.shipbestOrderNo || null,
-      shipbestCustomNo: label.shipbestCustomNo || null,
+      shipbestCustomNo,
       selectedRateAmount: label.selectedRate?.amount || null,
       selectedRateCurrency: label.selectedRate?.currency || null,
       errorMessage: label.errorMessage || null,

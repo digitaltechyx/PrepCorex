@@ -3,11 +3,10 @@ import {
   shipbestCreateOrder,
   shipbestWaitForLabel,
 } from "@/lib/shipbest-api";
+import { buildShipBestCustomNo } from "@/lib/shipbest-ids";
 import type { ParcelDetails, ShippingAddress } from "@/types";
 
-export function buildShipBestCustomNo(userId: string, labelPurchaseId: string): string {
-  return `PCX-${userId.slice(0, 6)}-${labelPurchaseId}`.slice(0, 50);
-}
+export { buildShipBestCustomNo } from "@/lib/shipbest-ids";
 
 export async function purchaseLabelFromShipBest({
   labelPurchaseId,

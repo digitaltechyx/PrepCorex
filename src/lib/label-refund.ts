@@ -1,3 +1,4 @@
+import { buildShipBestCustomNo } from "@/lib/shipbest-ids";
 import type { LabelPurchase, LabelRefundRequest } from "@/types";
 
 /** Users may request a label refund within this window after purchase. */
@@ -147,6 +148,78 @@ export function formatLabelProviderName(provider?: string | null): string {
   if (p === "shippo") return "Shippo";
   if (p === "shipbest") return "ShipBest";
   return provider ? String(provider) : "Unknown";
+}
+
+/** Prefer stored customNo; otherwise rebuild the deterministic ShipBest id. */
+export function resolveShipBestCustomNo(
+  userId: string,
+  labelPurchaseId: string,
+  stored?: string | null
+): string | null {
+  const existing = String(stored || "").trim();
+  if (existing) return existing;
+  if (!userId || !labelPurchaseId) return null;
+  return buildShipBestCustomNo(userId, labelPurchaseId);
+}
+
+function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const trimmed = String(value || "").trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+/**
+ * Fill gaps on older refund snapshots from the live label purchase
+ * (and reconstruct ShipBest customNo when the purchase never stored it).
+ */
+export function mergeLabelRefundWithPurchase(
+  request: LabelRefundRequest,
+  label: LabelPurchase | null | undefined
+): LabelRefundRequest {
+  const provider = firstNonEmpty(
+    request.labelProvider,
+    label?.labelProvider,
+    label?.selectedRate?.labelProvider
+  );
+  const isShipBest = String(provider || "").toLowerCase() === "shipbest";
+  const shipbestCustomNo = isShipBest
+    ? resolveShipBestCustomNo(
+        request.userId,
+        request.labelPurchaseId,
+        firstNonEmpty(request.shipbestCustomNo, label?.shipbestCustomNo)
+      )
+    : firstNonEmpty(request.shipbestCustomNo, label?.shipbestCustomNo);
+
+  if (!label) {
+    return {
+      ...request,
+      labelProvider: provider || request.labelProvider,
+      shipbestCustomNo: shipbestCustomNo || request.shipbestCustomNo || null,
+    };
+  }
+
+  return {
+    ...request,
+    trackingNumber: firstNonEmpty(request.trackingNumber, label.trackingNumber),
+    labelUrl: firstNonEmpty(request.labelUrl, label.labelUrl),
+    labelProvider: provider || request.labelProvider,
+    carrierProvider: firstNonEmpty(request.carrierProvider, label.selectedRate?.provider),
+    serviceLevel: firstNonEmpty(request.serviceLevel, label.selectedRate?.serviceLevel),
+    labelPurchaseStatus: request.labelPurchaseStatus || label.status || null,
+    shippoTransactionId: firstNonEmpty(request.shippoTransactionId, label.shippoTransactionId),
+    shipbestOrderNo: firstNonEmpty(request.shipbestOrderNo, label.shipbestOrderNo),
+    shipbestCustomNo: shipbestCustomNo || null,
+    selectedRateAmount: firstNonEmpty(request.selectedRateAmount, label.selectedRate?.amount),
+    selectedRateCurrency: firstNonEmpty(request.selectedRateCurrency, label.selectedRate?.currency),
+    errorMessage: firstNonEmpty(request.errorMessage, label.errorMessage),
+    fromName: firstNonEmpty(request.fromName, label.fromAddress?.name),
+    toName: firstNonEmpty(request.toName, label.toAddress?.name),
+    toCity: firstNonEmpty(request.toCity, label.toAddress?.city),
+    toCountry: firstNonEmpty(request.toCountry, label.toAddress?.country),
+    stripeChargeId: firstNonEmpty(request.stripeChargeId, label.stripeChargeId),
+  };
 }
 
 export function formatLabelMoney(amountCents: number, currency = "usd"): string {

@@ -11,8 +11,9 @@ import {
   formatLabelMoney,
   formatLabelProviderName,
   labelRefundRequestsPath,
+  mergeLabelRefundWithPurchase,
 } from "@/lib/label-refund";
-import type { LabelRefundRequest } from "@/types";
+import type { LabelPurchase, LabelRefundRequest } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -58,16 +59,37 @@ export function LabelRefundReviewDialog({
     }
     let cancelled = false;
     setLoading(true);
-    void getDoc(doc(db, labelRefundRequestsPath(userId), refundRequestId))
-      .then((snap) => {
+    void (async () => {
+      try {
+        const refundSnap = await getDoc(doc(db, labelRefundRequestsPath(userId), refundRequestId));
         if (cancelled) return;
-        if (!snap.exists()) {
+        if (!refundSnap.exists()) {
           setRequest(null);
           return;
         }
-        setRequest({ id: snap.id, ...(snap.data() as Omit<LabelRefundRequest, "id">) });
-      })
-      .catch((error: unknown) => {
+        const base = {
+          id: refundSnap.id,
+          ...(refundSnap.data() as Omit<LabelRefundRequest, "id">),
+        } as LabelRefundRequest;
+
+        let label: LabelPurchase | null = null;
+        if (base.labelPurchaseId) {
+          try {
+            const labelSnap = await getDoc(
+              doc(db, `users/${userId}/labelPurchases`, base.labelPurchaseId)
+            );
+            if (labelSnap.exists()) {
+              label = { id: labelSnap.id, ...(labelSnap.data() as Omit<LabelPurchase, "id">) };
+            }
+          } catch {
+            /* Admin can still review from the refund snapshot alone. */
+          }
+        }
+
+        if (!cancelled) {
+          setRequest(mergeLabelRefundWithPurchase(base, label));
+        }
+      } catch (error: unknown) {
         if (cancelled) return;
         toast({
           variant: "destructive",
@@ -75,10 +97,10 @@ export function LabelRefundReviewDialog({
           description: error instanceof Error ? error.message : "Try again.",
         });
         setRequest(null);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -255,7 +277,13 @@ export function LabelRefundReviewDialog({
                 <>
                   <p>
                     <span className="text-muted-foreground">ShipBest order: </span>
-                    <span className="font-mono text-xs">{request.shipbestOrderNo || "—"}</span>
+                    <span className="font-mono text-xs">
+                      {request.shipbestOrderNo ||
+                        (request.labelPurchaseStatus === "label_failed" ||
+                        request.labelPurchaseStatus === "payment_succeeded"
+                          ? "Not created"
+                          : "—")}
+                    </span>
                   </p>
                   <p>
                     <span className="text-muted-foreground">ShipBest custom no: </span>

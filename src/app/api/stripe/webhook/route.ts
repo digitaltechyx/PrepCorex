@@ -241,11 +241,18 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         continue;
       }
 
+      const customNo = buildShipBestCustomNo(userId, labelPurchaseDoc.id);
+      // Persist before the API call so refund review still has a lookup id if creation fails.
+      await labelPurchaseRef.update({
+        labelProvider: "shipbest",
+        shipbestCustomNo: customNo,
+      });
+
       try {
         await purchaseLabelFromShipBest({
           labelPurchaseId: labelPurchaseDoc.id,
           userId,
-          customNo: buildShipBestCustomNo(userId, labelPurchaseDoc.id),
+          customNo,
           logisticsProductCode,
           logisticsProductId,
           fromAddress,
@@ -261,6 +268,8 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         console.error("Error purchasing ShipBest label:", error);
         await labelPurchaseRef.update({
           status: "label_failed",
+          labelProvider: "shipbest",
+          shipbestCustomNo: customNo,
           errorMessage: error.message || "Error purchasing ShipBest label",
         });
       }
