@@ -48,6 +48,8 @@ const EMPTY_METRICS: AdminDashboardFinanceMetrics = {
   todayPaidRevenue: 0,
   todayPaidCount: 0,
   topClientsByRevenue: [],
+  pendingInvoicesCount: 0,
+  pendingInvoicesAmount: 0,
 };
 
 export function useAdminDashboardFinance(input: {

@@ -10,6 +10,9 @@ export type AdminDashboardFinanceMetrics = {
   todayPaidRevenue: number;
   todayPaidCount: number;
   topClientsByRevenue: Array<{ user: string; count: number; fill: string }>;
+  /** All-time pending invoices (status pending), not limited to selected date range. */
+  pendingInvoicesCount: number;
+  pendingInvoicesAmount: number;
 };
 
 function startOfDay(d: Date): Date {
@@ -116,6 +119,8 @@ export async function buildAdminDashboardFinanceMetrics(input: {
   let dueInRange = 0;
   let todayPaidRevenue = 0;
   let todayPaidCount = 0;
+  let pendingInvoicesCount = 0;
+  let pendingInvoicesAmount = 0;
   const userRevenueInWindow = new Map<string, number>();
 
   // One collectionGroup read instead of N per-user invoice scans (was 30–70s+).
@@ -127,9 +132,16 @@ export async function buildAdminDashboardFinanceMetrics(input: {
 
     const inv = doc.data() as Invoice;
     const amount = Number(inv.grandTotal || 0);
-    const status = String(inv.status || "").toLowerCase();
+    const status = String(inv.status || "")
+      .trim()
+      .toLowerCase();
     const dMs = invoiceDateMs(inv);
     const inFinancialRange = allTime || (dMs >= rangeFromMs && dMs <= rangeToMs);
+
+    if (status === "pending") {
+      pendingInvoicesCount += 1;
+      pendingInvoicesAmount += amount;
+    }
 
     if (inFinancialRange) {
       billedInRange += amount;
@@ -163,5 +175,7 @@ export async function buildAdminDashboardFinanceMetrics(input: {
     todayPaidRevenue,
     todayPaidCount,
     topClientsByRevenue,
+    pendingInvoicesCount,
+    pendingInvoicesAmount,
   };
 }

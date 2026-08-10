@@ -12,6 +12,8 @@ const EMPTY_FINANCE: AdminDashboardFinanceMetrics = {
   todayPaidRevenue: 0,
   todayPaidCount: 0,
   topClientsByRevenue: [],
+  pendingInvoicesCount: 0,
+  pendingInvoicesAmount: 0,
 };
 
 const EMPTY_SUMMARY: AdminDashboardSummary = {

@@ -4,7 +4,6 @@ import {
   resolveClientUserIdsForDashboard,
   type AdminDashboardFinanceMetrics,
 } from "@/lib/admin-dashboard-finance-server";
-import type { Invoice } from "@/types";
 
 export type AdminDashboardSummary = {
   pendingRequestsCount: number;
@@ -47,33 +46,97 @@ type QueryDoc = {
   data: () => Record<string, unknown>;
 };
 
-/** Safe pending query — never throws (missing index / rules → empty). */
+function isPendingStatus(status: unknown): boolean {
+  return (
+    String(status || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_") === "pending"
+  );
+}
+
+function mapPendingDocs(
+  docs: Array<{ id: string; ref: { path: string }; data: () => Record<string, unknown> }>,
+  allowedUserIds: Set<string>,
+  opts?: { topLevelUserIdField?: boolean }
+): QueryDoc[] {
+  return docs
+    .filter((d) => {
+      if (!isPendingStatus(d.data().status)) return false;
+      if (opts?.topLevelUserIdField) {
+        return allowedUserIds.has(String(d.data().userId || ""));
+      }
+      return allowedUserIds.has(uidFromDocPath(d.ref.path));
+    })
+    .map((d) => ({
+      id: d.id,
+      ref: { path: d.ref.path },
+      data: () => d.data() as Record<string, unknown>,
+    }));
+}
+
+/**
+ * Resilient pending load — matches Notifications / sidebar badges.
+ * Tries status in ["pending","Pending"], then full scan + filter, then per-user fallback.
+ */
 async function pendingDocs(
   collectionId: string,
   allowedUserIds: Set<string>,
   opts?: { topLevelUserIdField?: boolean }
 ): Promise<QueryDoc[]> {
-  try {
-    const snap = opts?.topLevelUserIdField
-      ? await adminDb().collection(collectionId).where("status", "==", "pending").get()
-      : await adminDb().collectionGroup(collectionId).where("status", "==", "pending").get();
+  const db = adminDb();
 
-    return snap.docs
-      .filter((d) => {
-        if (opts?.topLevelUserIdField) {
-          return allowedUserIds.has(String(d.data().userId || ""));
-        }
-        return allowedUserIds.has(uidFromDocPath(d.ref.path));
-      })
-      .map((d) => ({
-        id: d.id,
-        ref: { path: d.ref.path },
-        data: () => d.data() as Record<string, unknown>,
-      }));
-  } catch (e) {
-    console.warn(`[dashboard-summary] pending query failed for ${collectionId}:`, e);
-    return [];
+  if (opts?.topLevelUserIdField) {
+    try {
+      const snap = await db.collection(collectionId).where("status", "in", ["pending", "Pending"]).get();
+      return mapPendingDocs(snap.docs, allowedUserIds, opts);
+    } catch (e1) {
+      console.warn(`[dashboard-summary] pending in-query failed for ${collectionId}, trying full scan:`, e1);
+      try {
+        const snap = await db.collection(collectionId).get();
+        return mapPendingDocs(snap.docs, allowedUserIds, opts);
+      } catch (e2) {
+        console.warn(`[dashboard-summary] pending full scan failed for ${collectionId}:`, e2);
+        return [];
+      }
+    }
   }
+
+  try {
+    const snap = await db.collectionGroup(collectionId).where("status", "in", ["pending", "Pending"]).get();
+    return mapPendingDocs(snap.docs, allowedUserIds);
+  } catch (e1) {
+    console.warn(`[dashboard-summary] pending CG in-query failed for ${collectionId}, trying full CG:`, e1);
+  }
+
+  try {
+    const snap = await db.collectionGroup(collectionId).get();
+    return mapPendingDocs(snap.docs, allowedUserIds);
+  } catch (e2) {
+    console.warn(`[dashboard-summary] pending CG full scan failed for ${collectionId}, trying per-user:`, e2);
+  }
+
+  // Per-user fallback (same resilience as Notifications for dispose/delete).
+  const out: QueryDoc[] = [];
+  const uids = [...allowedUserIds];
+  const chunkSize = 25;
+  for (let i = 0; i < uids.length; i += chunkSize) {
+    const chunk = uids.slice(i, i + chunkSize);
+    const snaps = await Promise.all(
+      chunk.map(async (uid) => {
+        try {
+          return await db.collection(`users/${uid}/${collectionId}`).get();
+        } catch {
+          return null;
+        }
+      })
+    );
+    for (const snap of snaps) {
+      if (!snap) continue;
+      out.push(...mapPendingDocs(snap.docs, allowedUserIds));
+    }
+  }
+  return out;
 }
 
 /**
@@ -211,28 +274,6 @@ async function countTodayActivity(allowedUserIds: Set<string>): Promise<{
   return { ordersShippedToday, receivedUnitsToday };
 }
 
-async function countAllTimePendingInvoices(allowedUserIds: Set<string>): Promise<{
-  pendingInvoicesCount: number;
-  pendingInvoicesAmount: number;
-}> {
-  try {
-    const snap = await adminDb().collectionGroup("invoices").where("status", "==", "pending").get();
-
-    let pendingInvoicesCount = 0;
-    let pendingInvoicesAmount = 0;
-    for (const doc of snap.docs) {
-      if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
-      const inv = doc.data() as Invoice;
-      pendingInvoicesCount += 1;
-      pendingInvoicesAmount += Number(inv.grandTotal || 0);
-    }
-    return { pendingInvoicesCount, pendingInvoicesAmount };
-  } catch (e) {
-    console.warn("[dashboard-summary] pending invoices query failed:", e);
-    return { pendingInvoicesCount: 0, pendingInvoicesAmount: 0 };
-  }
-}
-
 const EMPTY_FINANCE: AdminDashboardFinanceMetrics = {
   billedInRange: 0,
   paidInRange: 0,
@@ -240,6 +281,8 @@ const EMPTY_FINANCE: AdminDashboardFinanceMetrics = {
   todayPaidRevenue: 0,
   todayPaidCount: 0,
   topClientsByRevenue: [],
+  pendingInvoicesCount: 0,
+  pendingInvoicesAmount: 0,
 };
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -268,10 +311,9 @@ export async function buildAdminDashboardSummary(input: {
   const allowedUserIds = new Set(userIds);
   const allTime = input.allTime ?? !(input.from && input.to);
 
-  const [pendingRequestsCount, todayActivity, pendingInvoices, financial] = await Promise.all([
+  const [pendingRequestsCount, todayActivity, financial] = await Promise.all([
     countPendingRequests(allowedUserIds),
     countTodayActivity(allowedUserIds),
-    countAllTimePendingInvoices(allowedUserIds),
     withTimeout(
       buildAdminDashboardFinanceMetrics({
         callerUid: input.callerUid,
@@ -292,8 +334,8 @@ export async function buildAdminDashboardSummary(input: {
 
   return {
     pendingRequestsCount,
-    pendingInvoicesCount: pendingInvoices.pendingInvoicesCount,
-    pendingInvoicesAmount: pendingInvoices.pendingInvoicesAmount,
+    pendingInvoicesCount: financial.pendingInvoicesCount,
+    pendingInvoicesAmount: financial.pendingInvoicesAmount,
     ordersShippedToday: todayActivity.ordersShippedToday,
     receivedUnitsToday: todayActivity.receivedUnitsToday,
     financial,
