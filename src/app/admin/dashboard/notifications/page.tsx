@@ -343,8 +343,11 @@ export default function AdminNotificationsPage() {
       try {
         let anyFailed = false;
 
+        // Load all notification types in parallel so label refunds aren't stuck
+        // behind shipments/inventory/returns (previously sequential, felt very slow).
+        await Promise.all([
         // Shipment Requests
-        {
+        (async () => {
           try {
             const base = collectionGroup(db, "shipmentRequests");
             const q = query(base);
@@ -402,10 +405,10 @@ export default function AdminNotificationsPage() {
             }));
             setShipmentRequests(results.flat());
           }
-        }
+        })(),
 
         // Inventory Requests + inbound batch submissions
-        {
+        (async () => {
           try {
             const batchSnap = await getDocs(query(collectionGroup(db, "inboundBatches")));
             const multiLineBatchIds = new Set(
@@ -528,10 +531,10 @@ export default function AdminNotificationsPage() {
               .filter((r): r is NotificationRow => r != null);
             setInventoryRequests([...results.flat(), ...batchRows]);
           }
-        }
+        })(),
 
         // Product Returns
-        {
+        (async () => {
           try {
             const base = collectionGroup(db, "productReturns");
             const q = query(base);
@@ -576,10 +579,10 @@ export default function AdminNotificationsPage() {
             }));
             setProductReturns(results.flat());
           }
-        }
+        })(),
 
         // Dispose Requests + dispose batch submissions
-        {
+        (async () => {
           try {
             const results = await Promise.all(userIds.map(async (uid) => {
               const base = collection(db, `users/${uid}/disposeRequests`);
@@ -623,10 +626,10 @@ export default function AdminNotificationsPage() {
             console.warn("Notifications: Could not fetch dispose requests.", e);
             setDisposeRequests([]);
           }
-        }
+        })(),
 
         // Delete Requests (permanent inventory deletion approvals)
-        {
+        (async () => {
           try {
             const results = await Promise.all(userIds.map(async (uid) => {
               const base = collection(db, `users/${uid}/deleteRequests`);
@@ -650,10 +653,10 @@ export default function AdminNotificationsPage() {
             console.warn("Notifications: Could not fetch delete requests.", e);
             setDeleteRequests([]);
           }
-        }
+        })(),
 
         // Quarantine / release / dispose requests (top-level, scoped to managed users)
-        {
+        (async () => {
           try {
             const snap = await getDocs(query(collection(db, QUARANTINE_REQUESTS)));
             const managed = new Set(userIds);
@@ -676,10 +679,10 @@ export default function AdminNotificationsPage() {
             console.warn("Notifications: Could not fetch quarantine requests.", e);
             setQuarantineRequests([]);
           }
-        }
+        })(),
 
-        // Label refund requests (Buy Labels)
-        {
+        // Label refund requests (Buy Labels) — run in parallel with other types
+        (async () => {
           try {
             const snap = await getDocs(query(collectionGroup(db, LABEL_REFUND_REQUESTS_COLLECTION)));
             const managed = new Set(userIds);
@@ -730,7 +733,8 @@ export default function AdminNotificationsPage() {
               setLabelRefundRequests([]);
             }
           }
-        }
+        })(),
+        ]);
 
         // Note: If anyFailed is true, we used per-user fallback instead of collectionGroup
         // This is expected when collectionGroup queries are blocked by Firestore security rules
