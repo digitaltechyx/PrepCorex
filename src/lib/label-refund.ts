@@ -119,6 +119,36 @@ export function canRequestLabelRefund(
   return { ok: true };
 }
 
+/** Detect likely PrepCorex / integration failures (not carrier delivery issues). */
+export function detectLabelPlatformIssue(label: Pick<LabelPurchase, "status" | "errorMessage">): boolean {
+  if (label.status === "label_failed") return true;
+  const msg = String(label.errorMessage || "").toLowerCase();
+  if (!msg) return false;
+  const patterns = [
+    "shipment id not found",
+    "rate id not found",
+    "shipbest logistics product",
+    "shipment address/parcel missing",
+    "missing shipment",
+    "payment succeeded but label",
+    "webhook",
+    "internal",
+    "timeout",
+    "failed to purchase",
+    "could not create",
+    "unauthorized",
+    "api key",
+  ];
+  return patterns.some((p) => msg.includes(p));
+}
+
+export function formatLabelProviderName(provider?: string | null): string {
+  const p = String(provider || "").toLowerCase();
+  if (p === "shippo") return "Shippo";
+  if (p === "shipbest") return "ShipBest";
+  return provider ? String(provider) : "Unknown";
+}
+
 export function formatLabelMoney(amountCents: number, currency = "usd"): string {
   const cur = (currency || "usd").toUpperCase();
   return `${cur} $${(Math.max(0, amountCents) / 100).toFixed(2)}`;

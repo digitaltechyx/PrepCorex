@@ -9,6 +9,7 @@ import { db } from "@/lib/firebase";
 import {
   formatLabelAge,
   formatLabelMoney,
+  formatLabelProviderName,
   labelRefundRequestsPath,
 } from "@/lib/label-refund";
 import type { LabelRefundRequest } from "@/types";
@@ -24,7 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, ExternalLink, Loader2 } from "lucide-react";
 
 type Props = {
   open: boolean;
@@ -136,14 +137,17 @@ export function LabelRefundReviewDialog({
   const generatedAt = request?.labelGeneratedAtMs
     ? format(new Date(request.labelGeneratedAtMs), "PPp")
     : "N/A";
+  const providerName = formatLabelProviderName(request?.labelProvider);
+  const showPlatformIssue = Boolean(request?.platformIssueClaimed || request?.platformIssueDetected);
+  const proofUrls = Array.isArray(request?.proofUrls) ? request!.proofUrls!.filter(Boolean) : [];
 
   return (
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[min(92vh,820px)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Label refund review</DialogTitle>
           <DialogDescription>
-            Review purchase details, then approve to refund via Stripe or decline the request.
+            Verify Shippo / ShipBest purchase details, then approve to refund via Stripe or decline.
           </DialogDescription>
         </DialogHeader>
 
@@ -159,14 +163,53 @@ export function LabelRefundReviewDialog({
               <Badge variant="outline" className="capitalize">
                 {request.status}
               </Badge>
+              <Badge variant="secondary">{providerName}</Badge>
               <span className="text-muted-foreground">{request.userName}</span>
             </div>
+
+            {showPlatformIssue ? (
+              <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-950 dark:text-amber-100">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="font-medium">Possible issue on our side</p>
+                  <p className="text-xs opacity-90">
+                    {request.platformIssueDetected
+                      ? "System detected a label-generation / integration failure."
+                      : "Client marked this as a PrepCorex / platform problem."}
+                    {request.platformIssueClaimed && request.platformIssueDetected
+                      ? " Client also confirmed this."
+                      : null}
+                  </p>
+                </div>
+              </div>
+            ) : null}
 
             <div className="rounded-md border bg-muted/30 px-3 py-2 space-y-1.5">
               <p>
                 <span className="text-muted-foreground">Price paid: </span>
                 <span className="font-semibold">
                   {formatLabelMoney(request.paymentAmount, request.paymentCurrency)}
+                </span>
+                {request.selectedRateAmount ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · rate {request.selectedRateAmount}{" "}
+                    {String(request.selectedRateCurrency || "").toUpperCase()}
+                  </span>
+                ) : null}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Label provider: </span>
+                <span className="font-medium">{providerName}</span>
+              </p>
+              <p>
+                <span className="text-muted-foreground">Carrier / service: </span>
+                {[request.carrierProvider, request.serviceLevel].filter(Boolean).join(" · ") || "N/A"}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Purchase status: </span>
+                <span className="capitalize">
+                  {String(request.labelPurchaseStatus || "unknown").replace(/_/g, " ")}
                 </span>
               </p>
               <p>
@@ -185,15 +228,61 @@ export function LabelRefundReviewDialog({
                   "Not available"
                 )}
               </p>
+              {request.labelUrl ? (
+                <p>
+                  <span className="text-muted-foreground">Label PDF: </span>
+                  <a
+                    href={request.labelUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
+                  >
+                    Open label
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </p>
+              ) : null}
+              {String(request.labelProvider || "").toLowerCase() === "shippo" ||
+              request.shippoTransactionId ? (
+                <p>
+                  <span className="text-muted-foreground">Shippo transaction: </span>
+                  <span className="font-mono text-xs">{request.shippoTransactionId || "—"}</span>
+                </p>
+              ) : null}
+              {String(request.labelProvider || "").toLowerCase() === "shipbest" ||
+              request.shipbestOrderNo ||
+              request.shipbestCustomNo ? (
+                <>
+                  <p>
+                    <span className="text-muted-foreground">ShipBest order: </span>
+                    <span className="font-mono text-xs">{request.shipbestOrderNo || "—"}</span>
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">ShipBest custom no: </span>
+                    <span className="font-mono text-xs">{request.shipbestCustomNo || "—"}</span>
+                  </p>
+                </>
+              ) : null}
               <p>
-                <span className="text-muted-foreground">Service: </span>
-                {[request.carrierProvider, request.serviceLevel].filter(Boolean).join(" · ") ||
-                  "N/A"}
+                <span className="text-muted-foreground">Stripe PI: </span>
+                <span className="font-mono text-xs">{request.stripePaymentIntentId}</span>
+              </p>
+              <p>
+                <span className="text-muted-foreground">Ship from → to: </span>
+                {[request.fromName, [request.toName, request.toCity, request.toCountry].filter(Boolean).join(", ")]
+                  .filter(Boolean)
+                  .join(" → ") || "N/A"}
               </p>
               <p>
                 <span className="text-muted-foreground">Label ID: </span>
                 <span className="font-mono text-xs">{request.labelPurchaseId}</span>
               </p>
+              {request.errorMessage ? (
+                <p className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-destructive">
+                  <span className="font-medium">Purchase error: </span>
+                  {request.errorMessage}
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-1">
@@ -202,6 +291,28 @@ export function LabelRefundReviewDialog({
               </p>
               <p className="rounded-md border px-3 py-2 whitespace-pre-wrap">{request.reason}</p>
             </div>
+
+            {proofUrls.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Client proof
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {proofUrls.map((url) => (
+                    <a
+                      key={url}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block h-20 w-20 overflow-hidden rounded-md border ring-offset-background hover:ring-2 hover:ring-primary/40"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="Refund proof" className="h-full w-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             {!viewOnly && request.status === "pending" ? (
               <div className="space-y-2 border-t pt-3">

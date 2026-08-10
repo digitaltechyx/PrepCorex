@@ -4,9 +4,11 @@ import { adminDb } from "@/lib/firebase-admin";
 import { verifyBearerToken } from "@/lib/api-admin-auth";
 import {
   canRequestLabelRefund,
+  detectLabelPlatformIssue,
   labelPurchaseAnchorMs,
   labelRefundRequestsPath,
 } from "@/lib/label-refund";
+import { clampLabelRefundProofUrls } from "@/lib/label-refund-proof";
 import type { LabelPurchase } from "@/types";
 
 export async function POST(request: NextRequest) {
@@ -19,10 +21,15 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as {
       labelPurchaseId?: string;
       reason?: string;
+      platformIssueClaimed?: boolean;
+      proofUrls?: string[];
     };
 
     const labelPurchaseId = String(body.labelPurchaseId || "").trim();
     const reason = String(body.reason || "").trim();
+    const platformIssueClaimed = Boolean(body.platformIssueClaimed);
+    const proofUrls = clampLabelRefundProofUrls(body.proofUrls);
+
     if (!labelPurchaseId) {
       return NextResponse.json({ error: "labelPurchaseId is required." }, { status: 400 });
     }
@@ -55,6 +62,8 @@ export async function POST(request: NextRequest) {
 
     const anchorMs = labelPurchaseAnchorMs(label);
     const refundRef = adminDb().collection(labelRefundRequestsPath(userId)).doc();
+    const labelProvider = label.labelProvider || label.selectedRate?.labelProvider || null;
+    const platformIssueDetected = detectLabelPlatformIssue(label);
 
     const payload = {
       userId,
@@ -68,10 +77,24 @@ export async function POST(request: NextRequest) {
       stripeChargeId: label.stripeChargeId || null,
       trackingNumber: label.trackingNumber || null,
       labelUrl: label.labelUrl || null,
-      labelProvider: label.labelProvider || label.selectedRate?.labelProvider || null,
+      labelProvider,
       carrierProvider: label.selectedRate?.provider || null,
       serviceLevel: label.selectedRate?.serviceLevel || null,
       labelGeneratedAtMs: anchorMs,
+      labelPurchaseStatus: label.status || null,
+      shippoTransactionId: label.shippoTransactionId || null,
+      shipbestOrderNo: label.shipbestOrderNo || null,
+      shipbestCustomNo: label.shipbestCustomNo || null,
+      selectedRateAmount: label.selectedRate?.amount || null,
+      selectedRateCurrency: label.selectedRate?.currency || null,
+      errorMessage: label.errorMessage || null,
+      platformIssueClaimed,
+      platformIssueDetected,
+      proofUrls,
+      fromName: label.fromAddress?.name || null,
+      toName: label.toAddress?.name || null,
+      toCity: label.toAddress?.city || null,
+      toCountry: label.toAddress?.country || null,
       requestedAt: FieldValue.serverTimestamp(),
       requestedBy: userId,
       reviewedBy: null,

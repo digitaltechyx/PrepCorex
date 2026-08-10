@@ -1864,6 +1864,25 @@ export interface LabelRefundRequest {
   serviceLevel?: string | null;
   /** Milliseconds epoch of when the label/payment completed (for age + 2h window). */
   labelGeneratedAtMs: number;
+  /** Snapshot of purchase status at request time. */
+  labelPurchaseStatus?: LabelPurchase["status"] | null;
+  shippoTransactionId?: string | null;
+  shipbestOrderNo?: string | null;
+  shipbestCustomNo?: string | null;
+  selectedRateAmount?: string | null;
+  selectedRateCurrency?: string | null;
+  /** Carrier/platform error message from the purchase, if any. */
+  errorMessage?: string | null;
+  /** Client says something went wrong on PrepCorex / our side. */
+  platformIssueClaimed?: boolean;
+  /** Server-derived: purchase failed with a platform-side error pattern. */
+  platformIssueDetected?: boolean;
+  /** Optional proof images uploaded by the client. */
+  proofUrls?: string[];
+  fromName?: string | null;
+  toName?: string | null;
+  toCity?: string | null;
+  toCountry?: string | null;
   requestedAt: any;
   requestedBy: string;
   reviewedBy?: string | null;
