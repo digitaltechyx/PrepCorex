@@ -84,6 +84,36 @@
       "collectionGroup": "productReturns",
       "queryScope": "COLLECTION_GROUP",
       "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "disposeRequests",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "deleteRequests",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "labelRefundRequests",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "inboundBatches",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "disposeBatches",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    },
+    {
+      "collectionGroup": "quarantineRequests",
+      "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
     }
   ],
   "fieldOverrides": []

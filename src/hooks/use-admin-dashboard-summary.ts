@@ -43,7 +43,7 @@ export function useAdminDashboardSummary(input: {
 
     setLoading(true);
     try {
-      const token = await auth.currentUser?.getIdToken();
+      let token = await auth.currentUser?.getIdToken();
       if (!token) throw new Error("Not authenticated");
 
       const params = new URLSearchParams();
@@ -53,18 +53,30 @@ export function useAdminDashboardSummary(input: {
       }
       params.set("topClientsDays", String(input.topClientsDays));
 
-      const res = await fetch(`/api/admin/dashboard/summary?${params.toString()}`, {
+      let res = await fetch(`/api/admin/dashboard/summary?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
+
+      // Token can expire while a slow summary runs — refresh once and retry.
+      if (res.status === 401) {
+        token = await auth.currentUser?.getIdToken(true);
+        if (!token) throw new Error("Not authenticated");
+        res = await fetch(`/api/admin/dashboard/summary?${params.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+      }
+
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Failed to load dashboard");
       }
       const data = (await res.json()) as AdminDashboardSummary;
       setSummary(data);
-    } catch {
-      setSummary(EMPTY_SUMMARY);
+    } catch (error) {
+      console.error("[useAdminDashboardSummary]", error);
+      // Keep last good summary instead of wiping KPIs to zero on transient auth/network errors.
     } finally {
       setLoading(false);
     }

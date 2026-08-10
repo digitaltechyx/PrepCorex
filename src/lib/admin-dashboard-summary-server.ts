@@ -1,7 +1,10 @@
 import { adminDb } from "@/lib/firebase-admin";
-import { getSubAdminManagedUserIds } from "@/lib/permissions";
-import type { Invoice, UserProfile } from "@/types";
-import { buildAdminDashboardFinanceMetrics, type AdminDashboardFinanceMetrics } from "@/lib/admin-dashboard-finance-server";
+import {
+  buildAdminDashboardFinanceMetrics,
+  resolveClientUserIdsForDashboard,
+  type AdminDashboardFinanceMetrics,
+} from "@/lib/admin-dashboard-finance-server";
+import type { Invoice } from "@/types";
 
 export type AdminDashboardSummary = {
   pendingRequestsCount: number;
@@ -34,49 +37,50 @@ function toMs(v: unknown): number {
 }
 
 function uidFromDocPath(path: string): string {
-  // users/{uid}/collection/{id}
   const parts = path.split("/");
   return parts[0] === "users" ? parts[1] || "" : "";
 }
 
-async function resolveClientUserIds(callerUid: string): Promise<string[]> {
-  const usersSnap = await adminDb().collection("users").get();
-  const users = usersSnap.docs.map((d) => ({ ...(d.data() as UserProfile), uid: d.id }));
-  const caller = users.find((u) => u.uid === callerUid);
-  const managedIds = getSubAdminManagedUserIds(caller, users);
+type QueryDoc = {
+  id: string;
+  ref: { path: string };
+  data: () => Record<string, unknown>;
+};
 
-  return users
-    .filter((u) => {
-      if (!u.uid || u.uid === callerUid) return false;
-      if (u.status === "deleted") return false;
-      const role = String(u.role || "").toLowerCase();
-      if (role === "admin" || role === "sub_admin") return false;
-      if (managedIds !== null && !managedIds.includes(u.uid)) return false;
-      return true;
-    })
-    .map((u) => u.uid!)
-    .filter(Boolean);
-}
-
-/** Pending docs under users/{uid}/… via collectionGroup (status pending only). */
-async function countPendingCollectionGroup(
+/** Safe pending query — never throws (missing index / rules → empty). */
+async function pendingDocs(
   collectionId: string,
-  allowedUserIds: Set<string>
-) {
-  const snap = await adminDb()
-    .collectionGroup(collectionId)
-    .where("status", "in", ["pending", "Pending"])
-    .get();
-  return snap.docs.filter((d) => allowedUserIds.has(uidFromDocPath(d.ref.path)));
+  allowedUserIds: Set<string>,
+  opts?: { topLevelUserIdField?: boolean }
+): Promise<QueryDoc[]> {
+  try {
+    const snap = opts?.topLevelUserIdField
+      ? await adminDb().collection(collectionId).where("status", "==", "pending").get()
+      : await adminDb().collectionGroup(collectionId).where("status", "==", "pending").get();
+
+    return snap.docs
+      .filter((d) => {
+        if (opts?.topLevelUserIdField) {
+          return allowedUserIds.has(String(d.data().userId || ""));
+        }
+        return allowedUserIds.has(uidFromDocPath(d.ref.path));
+      })
+      .map((d) => ({
+        id: d.id,
+        ref: { path: d.ref.path },
+        data: () => d.data() as Record<string, unknown>,
+      }));
+  } catch (e) {
+    console.warn(`[dashboard-summary] pending query failed for ${collectionId}:`, e);
+    return [];
+  }
 }
 
 /**
- * Fast pending count for Notifications types (pending only).
- * Uses collectionGroup queries instead of loading every user subcollection.
+ * Pending-only count for Notifications types.
+ * Fast collectionGroup status==pending queries (no full subcollection scans).
  */
 async function countPendingRequests(allowedUserIds: Set<string>): Promise<number> {
-  const db = adminDb();
-
   const [
     shipDocs,
     invDocs,
@@ -86,17 +90,17 @@ async function countPendingRequests(allowedUserIds: Set<string>): Promise<number
     labelDocs,
     inboundBatchDocs,
     disposeBatchDocs,
-    quarantineSnap,
+    quarantineDocs,
   ] = await Promise.all([
-    countPendingCollectionGroup("shipmentRequests", allowedUserIds),
-    countPendingCollectionGroup("inventoryRequests", allowedUserIds),
-    countPendingCollectionGroup("productReturns", allowedUserIds),
-    countPendingCollectionGroup("disposeRequests", allowedUserIds),
-    countPendingCollectionGroup("deleteRequests", allowedUserIds),
-    countPendingCollectionGroup("labelRefundRequests", allowedUserIds),
-    countPendingCollectionGroup("inboundBatches", allowedUserIds),
-    countPendingCollectionGroup("disposeBatches", allowedUserIds),
-    db.collection("quarantineRequests").where("status", "in", ["pending", "Pending"]).get(),
+    pendingDocs("shipmentRequests", allowedUserIds),
+    pendingDocs("inventoryRequests", allowedUserIds),
+    pendingDocs("productReturns", allowedUserIds),
+    pendingDocs("disposeRequests", allowedUserIds),
+    pendingDocs("deleteRequests", allowedUserIds),
+    pendingDocs("labelRefundRequests", allowedUserIds),
+    pendingDocs("inboundBatches", allowedUserIds),
+    pendingDocs("disposeBatches", allowedUserIds),
+    pendingDocs("quarantineRequests", allowedUserIds, { topLevelUserIdField: true }),
   ]);
 
   const multiLineInboundBatchIds = new Set(
@@ -111,6 +115,7 @@ async function countPendingRequests(allowedUserIds: Set<string>): Promise<number
   count += retDocs.length;
   count += deleteDocs.length;
   count += labelDocs.length;
+  count += quarantineDocs.length;
 
   for (const d of invDocs) {
     const batchId = String(d.data().batchId || "");
@@ -132,10 +137,6 @@ async function countPendingRequests(allowedUserIds: Set<string>): Promise<number
     count += 1;
   }
 
-  for (const d of quarantineSnap.docs) {
-    if (allowedUserIds.has(String(d.data().userId || ""))) count += 1;
-  }
-
   return count;
 }
 
@@ -143,31 +144,68 @@ async function countTodayActivity(allowedUserIds: Set<string>): Promise<{
   ordersShippedToday: number;
   receivedUnitsToday: number;
 }> {
-  const todayStart = startOfDay(new Date()).getTime();
-  const todayEnd = endOfDay(new Date()).getTime();
+  const todayStart = startOfDay(new Date());
+  const todayEnd = endOfDay(new Date());
+  const startMs = todayStart.getTime();
+  const endMs = todayEnd.getTime();
   const db = adminDb();
-
-  // Prefer bounded queries when date fields are Timestamps; fall back to scan filter.
-  const [shippedSnap, inventorySnap] = await Promise.all([
-    db.collectionGroup("shipped").get(),
-    db.collectionGroup("inventory").get(),
-  ]);
+  // Admin SDK Timestamp for range queries (indexes exist on shipped.date / inventory.receivingDate).
+  const { Timestamp } = await import("firebase-admin/firestore");
+  const startTs = Timestamp.fromDate(todayStart);
+  const endTs = Timestamp.fromDate(todayEnd);
 
   let ordersShippedToday = 0;
-  for (const doc of shippedSnap.docs) {
-    if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
-    const ms = toMs(doc.data().date);
-    if (ms >= todayStart && ms <= todayEnd) ordersShippedToday += 1;
+  let receivedUnitsToday = 0;
+
+  try {
+    const shippedSnap = await db
+      .collectionGroup("shipped")
+      .where("date", ">=", startTs)
+      .where("date", "<=", endTs)
+      .get();
+    for (const doc of shippedSnap.docs) {
+      if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
+      ordersShippedToday += 1;
+    }
+  } catch (e) {
+    console.warn("[dashboard-summary] today shipped query failed:", e);
   }
 
-  let receivedUnitsToday = 0;
-  for (const doc of inventorySnap.docs) {
-    if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
-    const data = doc.data();
-    const ms = toMs(data.receivingDate) || toMs(data.dateAdded);
-    if (ms >= todayStart && ms <= todayEnd) {
+  try {
+    const invByReceiving = await db
+      .collectionGroup("inventory")
+      .where("receivingDate", ">=", startTs)
+      .where("receivingDate", "<=", endTs)
+      .get();
+    for (const doc of invByReceiving.docs) {
+      if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
+      receivedUnitsToday += Number(doc.data().quantity) || 0;
+    }
+  } catch (e) {
+    console.warn("[dashboard-summary] today inventory receivingDate query failed:", e);
+  }
+
+  // Also catch string-date inventory rows via dateAdded range when possible.
+  try {
+    const invByAdded = await db
+      .collectionGroup("inventory")
+      .where("dateAdded", ">=", startTs)
+      .where("dateAdded", "<=", endTs)
+      .get();
+    const seen = new Set<string>();
+    // Avoid double-count if both receivingDate and dateAdded match — only add when
+    // receivingDate is missing/out of range.
+    for (const doc of invByAdded.docs) {
+      if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
+      const data = doc.data();
+      const recvMs = toMs(data.receivingDate);
+      if (recvMs >= startMs && recvMs <= endMs) continue;
+      if (seen.has(doc.ref.path)) continue;
+      seen.add(doc.ref.path);
       receivedUnitsToday += Number(data.quantity) || 0;
     }
+  } catch (e) {
+    console.warn("[dashboard-summary] today inventory dateAdded query failed:", e);
   }
 
   return { ordersShippedToday, receivedUnitsToday };
@@ -177,21 +215,46 @@ async function countAllTimePendingInvoices(allowedUserIds: Set<string>): Promise
   pendingInvoicesCount: number;
   pendingInvoicesAmount: number;
 }> {
-  const snap = await adminDb()
-    .collectionGroup("invoices")
-    .where("status", "in", ["pending", "Pending"])
-    .get();
+  try {
+    const snap = await adminDb().collectionGroup("invoices").where("status", "==", "pending").get();
 
-  let pendingInvoicesCount = 0;
-  let pendingInvoicesAmount = 0;
-  for (const doc of snap.docs) {
-    if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
-    const inv = doc.data() as Invoice;
-    pendingInvoicesCount += 1;
-    pendingInvoicesAmount += Number(inv.grandTotal || 0);
+    let pendingInvoicesCount = 0;
+    let pendingInvoicesAmount = 0;
+    for (const doc of snap.docs) {
+      if (!allowedUserIds.has(uidFromDocPath(doc.ref.path))) continue;
+      const inv = doc.data() as Invoice;
+      pendingInvoicesCount += 1;
+      pendingInvoicesAmount += Number(inv.grandTotal || 0);
+    }
+    return { pendingInvoicesCount, pendingInvoicesAmount };
+  } catch (e) {
+    console.warn("[dashboard-summary] pending invoices query failed:", e);
+    return { pendingInvoicesCount: 0, pendingInvoicesAmount: 0 };
   }
+}
 
-  return { pendingInvoicesCount, pendingInvoicesAmount };
+const EMPTY_FINANCE: AdminDashboardFinanceMetrics = {
+  billedInRange: 0,
+  paidInRange: 0,
+  dueInRange: 0,
+  todayPaidRevenue: 0,
+  todayPaidCount: 0,
+  topClientsByRevenue: [],
+};
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise
+      .then((v) => {
+        clearTimeout(timer);
+        resolve(v);
+      })
+      .catch((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+  });
 }
 
 export async function buildAdminDashboardSummary(input: {
@@ -201,7 +264,7 @@ export async function buildAdminDashboardSummary(input: {
   allTime?: boolean;
   topClientsDays?: number;
 }): Promise<AdminDashboardSummary> {
-  const userIds = await resolveClientUserIds(input.callerUid);
+  const { userIds, nameByUid } = await resolveClientUserIdsForDashboard(input.callerUid);
   const allowedUserIds = new Set(userIds);
   const allTime = input.allTime ?? !(input.from && input.to);
 
@@ -209,12 +272,21 @@ export async function buildAdminDashboardSummary(input: {
     countPendingRequests(allowedUserIds),
     countTodayActivity(allowedUserIds),
     countAllTimePendingInvoices(allowedUserIds),
-    buildAdminDashboardFinanceMetrics({
-      callerUid: input.callerUid,
-      from: allTime ? undefined : input.from,
-      to: allTime ? undefined : input.to,
-      allTime,
-      topClientsDays: input.topClientsDays,
+    withTimeout(
+      buildAdminDashboardFinanceMetrics({
+        callerUid: input.callerUid,
+        from: allTime ? undefined : input.from,
+        to: allTime ? undefined : input.to,
+        allTime,
+        topClientsDays: input.topClientsDays,
+        allowedUserIds,
+        nameByUid,
+      }),
+      25000,
+      "finance metrics"
+    ).catch((e) => {
+      console.warn("[dashboard-summary] finance metrics failed:", e);
+      return EMPTY_FINANCE;
     }),
   ]);
 

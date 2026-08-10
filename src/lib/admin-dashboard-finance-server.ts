@@ -42,13 +42,26 @@ function paidAtMs(inv: Invoice): number {
   return invoiceDateMs(inv);
 }
 
-async function resolveClientUserIds(callerUid: string): Promise<string[]> {
+function uidFromDocPath(path: string): string {
+  const parts = path.split("/");
+  return parts[0] === "users" ? parts[1] || "" : "";
+}
+
+export async function resolveClientUserIdsForDashboard(callerUid: string): Promise<{
+  userIds: string[];
+  nameByUid: Map<string, string>;
+}> {
   const usersSnap = await adminDb().collection("users").get();
   const users = usersSnap.docs.map((d) => ({ ...(d.data() as UserProfile), uid: d.id }));
   const caller = users.find((u) => u.uid === callerUid);
   const managedIds = getSubAdminManagedUserIds(caller, users);
 
-  return users
+  const nameByUid = new Map<string, string>();
+  for (const u of users) {
+    if (u.uid) nameByUid.set(u.uid, String(u.name || u.email || "User"));
+  }
+
+  const userIds = users
     .filter((u) => {
       if (!u.uid || u.uid === callerUid) return false;
       if (u.status === "deleted") return false;
@@ -59,6 +72,8 @@ async function resolveClientUserIds(callerUid: string): Promise<string[]> {
     })
     .map((u) => u.uid!)
     .filter(Boolean);
+
+  return { userIds, nameByUid };
 }
 
 export async function buildAdminDashboardFinanceMetrics(input: {
@@ -67,12 +82,21 @@ export async function buildAdminDashboardFinanceMetrics(input: {
   to?: Date;
   allTime?: boolean;
   topClientsDays?: number;
+  /** When provided, skips a second users collection scan. */
+  allowedUserIds?: Set<string>;
+  nameByUid?: Map<string, string>;
 }): Promise<AdminDashboardFinanceMetrics> {
-  const userIds = await resolveClientUserIds(input.callerUid);
+  let allowedUserIds = input.allowedUserIds;
+  let nameByUid = input.nameByUid;
+
+  if (!allowedUserIds || !nameByUid) {
+    const resolved = await resolveClientUserIdsForDashboard(input.callerUid);
+    allowedUserIds = allowedUserIds ?? new Set(resolved.userIds);
+    nameByUid = nameByUid ?? resolved.nameByUid;
+  }
+
   const allTime = input.allTime ?? !(input.from && input.to);
-  const rangeFrom = allTime
-    ? new Date(0)
-    : startOfDay(input.from!);
+  const rangeFrom = allTime ? new Date(0) : startOfDay(input.from!);
   const rangeTo = allTime ? new Date() : endOfDay(input.to!);
   const rangeFromMs = rangeFrom.getTime();
   const rangeToMs = rangeTo.getTime();
@@ -84,13 +108,8 @@ export async function buildAdminDashboardFinanceMetrics(input: {
     ? new Date(Date.now() - (input.topClientsDays ?? 30) * 86400000)
     : rangeFrom;
   const topWindowTo = allTime ? new Date() : rangeTo;
-
-  const usersSnap = await adminDb().collection("users").get();
-  const nameByUid = new Map<string, string>();
-  usersSnap.docs.forEach((d) => {
-    const data = d.data();
-    nameByUid.set(d.id, String(data.name || data.email || "User"));
-  });
+  const topFromMs = topWindowFrom.getTime();
+  const topToMs = topWindowTo.getTime();
 
   let billedInRange = 0;
   let paidInRange = 0;
@@ -99,44 +118,36 @@ export async function buildAdminDashboardFinanceMetrics(input: {
   let todayPaidCount = 0;
   const userRevenueInWindow = new Map<string, number>();
 
-  const batches = await Promise.all(
-    userIds.map(async (userId) => {
-      const snap = await adminDb().collection(`users/${userId}/invoices`).get();
-      return { userId, invoices: snap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as Invoice) })) };
-    })
-  );
+  // One collectionGroup read instead of N per-user invoice scans (was 30–70s+).
+  const snap = await adminDb().collectionGroup("invoices").get();
 
-  for (const batch of batches) {
-    const displayName = nameByUid.get(batch.userId) || "User";
-    let userRevenue = 0;
+  for (const doc of snap.docs) {
+    const userId = uidFromDocPath(doc.ref.path);
+    if (!userId || !allowedUserIds.has(userId)) continue;
 
-    for (const inv of batch.invoices) {
-      const amount = Number(inv.grandTotal || 0);
-      const status = String(inv.status || "").toLowerCase();
-      const dMs = invoiceDateMs(inv);
-      const inFinancialRange = allTime || (dMs >= rangeFromMs && dMs <= rangeToMs);
+    const inv = doc.data() as Invoice;
+    const amount = Number(inv.grandTotal || 0);
+    const status = String(inv.status || "").toLowerCase();
+    const dMs = invoiceDateMs(inv);
+    const inFinancialRange = allTime || (dMs >= rangeFromMs && dMs <= rangeToMs);
 
-      if (inFinancialRange) {
-        billedInRange += amount;
-        if (status === "paid") paidInRange += amount;
-        if (status === "pending") dueInRange += amount;
-      }
+    if (inFinancialRange) {
+      billedInRange += amount;
+      if (status === "paid") paidInRange += amount;
+      if (status === "pending") dueInRange += amount;
+    }
 
-      if (status === "paid") {
-        const paidMs = paidAtMs(inv);
-        if (paidMs >= todayStart && paidMs <= todayEnd) {
-          todayPaidRevenue += amount;
-          todayPaidCount += 1;
-        }
-      }
-
-      if (dMs >= topWindowFrom.getTime() && dMs <= topWindowTo.getTime()) {
-        userRevenue += amount;
+    if (status === "paid") {
+      const paidMs = paidAtMs(inv);
+      if (paidMs >= todayStart && paidMs <= todayEnd) {
+        todayPaidRevenue += amount;
+        todayPaidCount += 1;
       }
     }
 
-    if (userRevenue > 0) {
-      userRevenueInWindow.set(displayName, (userRevenueInWindow.get(displayName) ?? 0) + userRevenue);
+    if (dMs >= topFromMs && dMs <= topToMs) {
+      const displayName = nameByUid.get(userId) || "User";
+      userRevenueInWindow.set(displayName, (userRevenueInWindow.get(displayName) ?? 0) + amount);
     }
   }
 

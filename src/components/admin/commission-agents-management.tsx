@@ -275,6 +275,7 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [copiedCode, setCopiedCode] = useState(false);
     const [dialogTab, setDialogTab] = useState<"details" | "roles">("details");
+    const isAdmin = adminUser?.role === "admin";
 
     const copyReferralCode = () => {
       if (agent.referralCode) {
@@ -299,6 +300,14 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
             <div className="min-w-0 flex-1">
               <h3 className="font-semibold text-base truncate">{agent.name}</h3>
               <p className="text-sm text-muted-foreground truncate">{agent.email}</p>
+              {isAdmin && (agent.status === "approved" || !agent.status) && (
+                <div className="mt-1.5 text-[11px] sm:text-xs text-muted-foreground">
+                  <span className="font-medium">Login:</span>{" "}
+                  <span className="font-mono break-all">{agent.email}</span>{" "}
+                  <span className="font-medium">| Password:</span>{" "}
+                  <span className="font-mono">{agent.password || "Not stored"}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -406,6 +415,12 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
                             <span className="font-medium">Email:</span>
                             <p className="text-muted-foreground break-all">{agent.email || "N/A"}</p>
                           </div>
+                          {isAdmin && (
+                            <div>
+                              <span className="font-medium">Password:</span>
+                              <p className="font-mono text-muted-foreground">{agent.password || "Not stored"}</p>
+                            </div>
+                          )}
                           <div>
                             <span className="font-medium">Phone/WhatsApp:</span>
                             <p className="text-muted-foreground">{agent.phone || "N/A"}</p>
