@@ -13,9 +13,9 @@ export const LABEL_WALLET_ACH = {
 
 export const LABEL_WALLET_ZELLE = {
   recipientName: "ARSHAD IQBAL",
-  phone: "+1 347 661 3010",
+  phone: "+1 (347) 661-3010",
   qrImageSrc: "/label-billing/zelle-qr.png",
 } as const;
 
 export const LABEL_WALLET_TOPUP_DISCLAIMER =
-  "For faster credit we prefer Zelle. ACH and bank transfers can take 1–3 business days. Delays may occur depending on your bank. Always include your warehouse / account phone so we can match your payment.";
+  "For the fastest credit, we recommend Zelle. ACH and Bank transfers may take 1–3 business days to process. Please include your warehouse/account phone number with your payment to ensure quick and accurate processing.";

@@ -133,7 +133,7 @@ export function LabelWalletTopupDialog({ open, onOpenChange, onSubmitted }: Prop
     <Dialog open={open} onOpenChange={(n) => !submitting && onOpenChange(n)}>
       <DialogContent className="max-h-[min(92vh,860px)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Top up wallet</DialogTitle>
+          <DialogTitle>Top-up Wallet</DialogTitle>
           <DialogDescription>
             Send payment via Zelle (preferred) or ACH, then upload your receipt for admin approval.
           </DialogDescription>
@@ -144,36 +144,42 @@ export function LabelWalletTopupDialog({ open, onOpenChange, onSubmitted }: Prop
             {LABEL_WALLET_TOPUP_DISCLAIMER}
           </p>
 
-          <div className="rounded-md border px-3 py-3 space-y-2">
-            <p className="font-medium">Zelle (preferred)</p>
+          <div className="space-y-2 rounded-md border-2 border-violet-500/70 bg-violet-500/5 px-3 py-3">
+            <p className="font-medium text-violet-800 dark:text-violet-200">Zelle (Preferred)</p>
             <p>
               Name: <span className="font-medium">{LABEL_WALLET_ZELLE.recipientName}</span>
             </p>
             <p>
-              Phone / warehouse #:{" "}
-              <span className="font-mono font-medium">{LABEL_WALLET_ZELLE.phone}</span>
+              Phone: <span className="font-medium">{LABEL_WALLET_ZELLE.phone}</span>
             </p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={LABEL_WALLET_ZELLE.qrImageSrc}
               alt="Zelle QR code"
-              className="mx-auto max-h-56 w-auto rounded-md border bg-white p-2"
+              className="mx-auto max-h-56 w-auto rounded-md border border-violet-200 bg-white p-2"
             />
           </div>
 
-          <div className="rounded-md border px-3 py-3 space-y-1">
-            <p className="font-medium">ACH / bank transfer</p>
-            <p>ABA routing: <span className="font-mono">{LABEL_WALLET_ACH.abaRoutingNumber}</span></p>
-            <p>Bank: {LABEL_WALLET_ACH.bankName}</p>
+          <div className="space-y-1 rounded-md border-2 border-sky-500/70 bg-sky-500/5 px-3 py-3">
+            <p className="font-medium text-sky-800 dark:text-sky-200">ACH / Bank transfer</p>
+            <p>
+              Routing Number:{" "}
+              <span className="font-mono">{LABEL_WALLET_ACH.abaRoutingNumber}</span>
+            </p>
+            <p>
+              Account Number:{" "}
+              <span className="font-mono">{LABEL_WALLET_ACH.accountNumber}</span> (
+              {LABEL_WALLET_ACH.accountKind})
+            </p>
+            <p>Bank Name: {LABEL_WALLET_ACH.bankName}</p>
             <p className="text-xs text-muted-foreground">{LABEL_WALLET_ACH.bankNote}</p>
-            <p className="text-xs text-muted-foreground">{LABEL_WALLET_ACH.bankAddress}</p>
-            <p>Beneficiary: {LABEL_WALLET_ACH.beneficiaryName}</p>
-            <p>Account: <span className="font-mono">{LABEL_WALLET_ACH.accountNumber}</span> ({LABEL_WALLET_ACH.accountKind})</p>
-            <p className="text-xs text-muted-foreground">{LABEL_WALLET_ACH.beneficiaryAddress}</p>
+            <p>Bank Address: {LABEL_WALLET_ACH.bankAddress}</p>
+            <p>Beneficiary Name: {LABEL_WALLET_ACH.beneficiaryName}</p>
+            <p>Beneficiary Address: {LABEL_WALLET_ACH.beneficiaryAddress}</p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="topup-amount">Amount sent (USD, optional)</Label>
+            <Label htmlFor="topup-amount">Amount Sent (USD, optional)</Label>
             <Input
               id="topup-amount"
               type="number"
@@ -197,7 +203,7 @@ export function LabelWalletTopupDialog({ open, onOpenChange, onSubmitted }: Prop
           </div>
 
           <div className="space-y-2">
-            <Label>Receipt screenshot</Label>
+            <Label>Receipt Screenshot</Label>
             <input
               ref={fileInputRef}
               type="file"

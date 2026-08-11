@@ -266,9 +266,9 @@ export function AdminLabelBillingPanel() {
                       void patch(
                         {
                           walletBalanceDollars: Number(walletDollars),
-                          reason: reason || "Admin wallet balance change",
+                          reason: reason || "Wallet Balance Adjusted by Admin",
                         },
-                        "Wallet balance updated"
+                        "Wallet Balance Updated"
                       )
                     }
                   >

@@ -28,9 +28,48 @@ export function formatLabelBillingPeriod(period?: LabelBillingPeriod | null): st
   }
 }
 
+/** Title-case period noun for UI labels (Day / Week / Month / Year). */
+export function formatLabelBillingPeriodNoun(period?: LabelBillingPeriod | null): string {
+  switch (period) {
+    case "daily":
+      return "Day";
+    case "weekly":
+      return "Week";
+    case "yearly":
+      return "Year";
+    case "monthly":
+    default:
+      return "Month";
+  }
+}
+
+/** Title-case adjective for spend-limit labels (Daily / Weekly / Monthly / Yearly). */
+export function formatLabelBillingPeriodAdjective(period?: LabelBillingPeriod | null): string {
+  switch (period) {
+    case "daily":
+      return "Daily";
+    case "weekly":
+      return "Weekly";
+    case "yearly":
+      return "Yearly";
+    case "monthly":
+    default:
+      return "Monthly";
+  }
+}
+
 export function formatLabelBillingMoney(cents: number, currency = "usd"): string {
   const cur = (currency || "usd").toUpperCase();
   return `${cur} $${(Math.max(0, Math.floor(cents || 0)) / 100).toFixed(2)}`;
+}
+
+/** Signed ledger amount: `+USD $20.00`, `-USD $50.00`, or `USD $0.00`. */
+export function formatSignedLabelBillingMoney(cents: number, currency = "usd"): string {
+  const amount = Math.floor(Number(cents) || 0);
+  const body = formatLabelBillingMoney(Math.abs(amount), currency);
+  if (amount > 0) return `+${body}`;
+  if (amount < 0) return `-${body}`;
+  return body;
 }
 
 /** Calendar period key in local timezone of the provided Date (server should pass now). */
@@ -138,7 +177,7 @@ export function canSpendLabelBilling(
       const left = labelBillingRemainingCents(settings);
       return {
         ok: false,
-        error: `Purchase limit reached. Remaining this ${formatLabelBillingPeriod(settings.period)}: ${formatLabelBillingMoney(left)}. Contact administration to raise your limit.`,
+        error: `Trial label purchase limit reached. Remaining this ${formatLabelBillingPeriod(settings.period)}: ${formatLabelBillingMoney(left)}. Contact an administrator to raise your limit.`,
         code: "LIMIT_EXCEEDED",
       };
     }
@@ -172,5 +211,5 @@ export function labelBillingSummaryLine(settings: LabelBillingSettings): string 
   if (settings.mode === "wallet") {
     return `Your wallet ${period} limit is ${limit} · Used ${used} · Left ${left} · Balance ${formatLabelBillingMoney(settings.walletBalanceCents || 0)}`;
   }
-  return `Limit ${limit} / ${period} · Used ${used} · Left ${left}`;
+  return `Trial limit ${limit} / ${period} · Used ${used} · Left ${left}`;
 }
