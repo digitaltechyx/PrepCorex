@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStripe } from '@/lib/stripe';
 import { adminDb, adminFieldValue } from '@/lib/firebase-admin';
+import { assertCanSpendLabelBilling } from '@/lib/label-billing-admin';
 import type { LabelPurchase } from '@/types';
 
 export async function POST(request: NextRequest) {
@@ -30,6 +31,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Amount must be greater than 0' },
         { status: 400 }
+      );
+    }
+
+    try {
+      await assertCanSpendLabelBilling(adminDb(), {
+        userId,
+        amountCents: Math.round(Number(amount)),
+        preferWallet: false,
+      });
+    } catch (gateErr: unknown) {
+      const code = (gateErr as { code?: string })?.code;
+      const status =
+        code === "LIMIT_EXCEEDED" || code === "WRONG_MODE" || code === "WALLET_INSUFFICIENT"
+          ? 400
+          : 500;
+      return NextResponse.json(
+        { error: gateErr instanceof Error ? gateErr.message : "Purchase not allowed." },
+        { status }
       );
     }
 

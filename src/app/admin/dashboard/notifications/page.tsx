@@ -16,6 +16,7 @@ import type {
   QuarantineRequest,
   InboundTrackingEntry,
   LabelRefundRequest,
+  LabelWalletTopupRequest,
 } from "@/types";
 import {
   QUARANTINE_REQUESTS,
@@ -23,7 +24,12 @@ import {
   requestSortMs,
 } from "@/lib/quarantine-request-ops";
 import { LABEL_REFUND_REQUESTS_COLLECTION, formatLabelMoney } from "@/lib/label-refund";
+import {
+  LABEL_WALLET_TOPUP_COLLECTION,
+  formatLabelBillingMoney,
+} from "@/lib/label-billing";
 import { LabelRefundReviewDialog } from "@/components/admin/label-refund-review-dialog";
+import { LabelWalletTopupReviewDialog } from "@/components/admin/label-wallet-topup-review-dialog";
 import { summarizeInboundTrackings, resolveInboundTrackings } from "@/lib/inbound-tracking";
 import { db } from "@/lib/firebase";
 import { collection, collectionGroup, getDocs, query } from "firebase/firestore";
@@ -47,7 +53,7 @@ import {
 import { hasRole } from "@/lib/permissions";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, Truck, Package, RotateCcw, Trash2, Eraser, ShieldAlert, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye, Tag } from "lucide-react";
+import { Bell, Truck, Package, RotateCcw, Trash2, Eraser, ShieldAlert, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye, Tag, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type NotificationType =
@@ -57,7 +63,8 @@ type NotificationType =
   | "dispose_request"
   | "delete_request"
   | "quarantine_request"
-  | "label_refund_request";
+  | "label_refund_request"
+  | "label_wallet_topup";
 type StatusFilter = "all" | "pending" | "paid" | "approved" | "confirmed" | "rejected" | "in_progress" | "closed" | "cancelled";
 
 type NotificationRow = {
@@ -135,6 +142,7 @@ const NOTIFICATION_TYPE_URL_VALUES = new Set<string>([
   "delete_request",
   "quarantine_request",
   "label_refund_request",
+  "label_wallet_topup",
 ]);
 
 const PERIOD_URL_VALUES = new Set<string>(["all", "today", "this_week", "this_month", "this_year"]);
@@ -147,7 +155,8 @@ function isNotificationTypeParam(v: string): v is NotificationType {
     v === "dispose_request" ||
     v === "delete_request" ||
     v === "quarantine_request" ||
-    v === "label_refund_request"
+    v === "label_refund_request" ||
+    v === "label_wallet_topup"
   );
 }
 
@@ -212,6 +221,7 @@ function typeIcon(type: NotificationType) {
     case "delete_request": return <Eraser className="h-4 w-4 shrink-0" />;
     case "quarantine_request": return <ShieldAlert className="h-4 w-4 shrink-0" />;
     case "label_refund_request": return <Tag className="h-4 w-4 shrink-0" />;
+    case "label_wallet_topup": return <Wallet className="h-4 w-4 shrink-0" />;
   }
 }
 
@@ -233,6 +243,8 @@ function isProcessComplete(type: NotificationType, status: string): boolean {
       // "approved" still needs the warehouse to move the stock, so it stays actionable.
       return ["completed", "rejected", "cancelled"].includes(s);
     case "label_refund_request":
+      return ["approved", "rejected", "cancelled"].includes(s);
+    case "label_wallet_topup":
       return ["approved", "rejected", "cancelled"].includes(s);
     default:
       return false;
@@ -323,9 +335,15 @@ export default function AdminNotificationsPage() {
   const [deleteRequests, setDeleteRequests] = useState<NotificationRow[]>([]);
   const [quarantineRequests, setQuarantineRequests] = useState<NotificationRow[]>([]);
   const [labelRefundRequests, setLabelRefundRequests] = useState<NotificationRow[]>([]);
+  const [labelWalletTopups, setLabelWalletTopups] = useState<NotificationRow[]>([]);
   const [refundReview, setRefundReview] = useState<{
     userId: string;
     refundRequestId: string;
+    viewOnly: boolean;
+  } | null>(null);
+  const [topupReview, setTopupReview] = useState<{
+    userId: string;
+    topupRequestId: string;
     viewOnly: boolean;
   } | null>(null);
 
@@ -734,6 +752,66 @@ export default function AdminNotificationsPage() {
             }
           }
         })(),
+
+        // Wallet top-up requests
+        (async () => {
+          try {
+            const snap = await getDocs(query(collectionGroup(db, LABEL_WALLET_TOPUP_COLLECTION)));
+            const managed = new Set(userIds);
+            const rows = snap.docs
+              .map((d) => {
+                const data = d.data() as Omit<LabelWalletTopupRequest, "id">;
+                const uid = String(data.userId || d.ref.parent.parent?.id || "");
+                return { id: d.id, ...data, userId: uid };
+              })
+              .filter((r) => managed.has(String(r.userId || "")))
+              .map((r) => ({
+                type: "label_wallet_topup" as const,
+                id: r.id,
+                userId: String(r.userId || ""),
+                status: String(r.status || ""),
+                createdAtMs: toMs(r.requestedAt),
+                title: `Wallet top-up${
+                  r.claimedAmountCents
+                    ? ` • ${formatLabelBillingMoney(r.claimedAmountCents)}`
+                    : ""
+                }`,
+                subtitle: (r.note || "Receipt uploaded").substring(0, 50),
+              }));
+            setLabelWalletTopups(rows);
+          } catch (e) {
+            console.warn("Notifications: collectionGroup labelWalletTopupRequests failed, using per-user.", e);
+            try {
+              const results = await Promise.all(
+                userIds.map(async (uid) => {
+                  const snap = await getDocs(
+                    query(collection(db, `users/${uid}/${LABEL_WALLET_TOPUP_COLLECTION}`))
+                  );
+                  return snap.docs.map((d) => {
+                    const data = d.data() as Omit<LabelWalletTopupRequest, "id">;
+                    return {
+                      type: "label_wallet_topup" as const,
+                      id: d.id,
+                      userId: uid,
+                      status: String(data.status || ""),
+                      createdAtMs: toMs(data.requestedAt),
+                      title: `Wallet top-up${
+                        data.claimedAmountCents
+                          ? ` • ${formatLabelBillingMoney(data.claimedAmountCents)}`
+                          : ""
+                      }`,
+                      subtitle: (data.note || "Receipt uploaded").substring(0, 50),
+                    };
+                  });
+                })
+              );
+              setLabelWalletTopups(results.flat());
+            } catch (err) {
+              console.warn("Notifications: Could not fetch wallet top-ups.", err);
+              setLabelWalletTopups([]);
+            }
+          }
+        })(),
         ]);
 
         // Note: If anyFailed is true, we used per-user fallback instead of collectionGroup
@@ -751,6 +829,7 @@ export default function AdminNotificationsPage() {
         setDeleteRequests([]);
         setQuarantineRequests([]);
         setLabelRefundRequests([]);
+        setLabelWalletTopups([]);
       } finally {
         setLoading(false);
       }
@@ -780,6 +859,7 @@ export default function AdminNotificationsPage() {
       ...deleteRequests,
       ...quarantineRequests,
       ...labelRefundRequests,
+      ...labelWalletTopups,
     ].sort((a, b) => b.createdAtMs - a.createdAtMs);
   }, [
     shipmentRequests,
@@ -789,6 +869,7 @@ export default function AdminNotificationsPage() {
     deleteRequests,
     quarantineRequests,
     labelRefundRequests,
+    labelWalletTopups,
   ]);
 
   const statusCounts = useMemo(() => {
@@ -852,6 +933,14 @@ export default function AdminNotificationsPage() {
       });
       return;
     }
+    if (row.type === "label_wallet_topup") {
+      setTopupReview({
+        userId: row.userId,
+        topupRequestId: row.id,
+        viewOnly,
+      });
+      return;
+    }
     const params = new URLSearchParams({
       userId: row.userId,
       section: "user-requests",
@@ -895,6 +984,8 @@ export default function AdminNotificationsPage() {
                             ? "Quarantine"
                             : r.type === "label_refund_request"
                               ? "Label refund"
+                              : r.type === "label_wallet_topup"
+                                ? "Wallet top-up"
                               : "Delete"}
                 </Badge>
               </div>
@@ -1024,6 +1115,7 @@ export default function AdminNotificationsPage() {
                   <SelectItem value="delete_request">Delete Requests</SelectItem>
                   <SelectItem value="quarantine_request">Quarantine Requests</SelectItem>
                   <SelectItem value="label_refund_request">Label Refunds</SelectItem>
+                  <SelectItem value="label_wallet_topup">Wallet top-ups</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1166,6 +1258,16 @@ export default function AdminNotificationsPage() {
         viewOnly={refundReview?.viewOnly}
         onOpenChange={(open) => {
           if (!open) setRefundReview(null);
+        }}
+        onResolved={() => setNotificationsRefreshKey((k) => k + 1)}
+      />
+      <LabelWalletTopupReviewDialog
+        open={Boolean(topupReview)}
+        userId={topupReview?.userId ?? null}
+        topupRequestId={topupReview?.topupRequestId ?? null}
+        viewOnly={topupReview?.viewOnly}
+        onOpenChange={(open) => {
+          if (!open) setTopupReview(null);
         }}
         onResolved={() => setNotificationsRefreshKey((k) => k + 1)}
       />

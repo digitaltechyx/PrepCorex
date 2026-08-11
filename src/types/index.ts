@@ -549,6 +549,72 @@ export interface UserProfile {
    * Every 10 pending cartons creates 1 storage pallet.
    */
   pendingStorageCartons?: number | null;
+  /** Buy Labels: purchase limit (default) or prepaid wallet + period spend cap. */
+  labelBilling?: LabelBillingSettings | null;
+}
+
+export type LabelBillingMode = "limit" | "wallet";
+export type LabelBillingPeriod = "daily" | "weekly" | "monthly" | "yearly";
+
+/** Per-user Buy Labels billing (stored on `users/{uid}.labelBilling`). */
+export interface LabelBillingSettings {
+  mode: LabelBillingMode;
+  /** Cap for the current calendar period (limit mode = purchase cap; wallet mode = spend-from-wallet cap). Cents. */
+  limitAmountCents: number;
+  period: LabelBillingPeriod;
+  /** Spend counted in the current `periodKey`. */
+  periodUsedCents: number;
+  /** Calendar key for the active period (e.g. `2026-08`, `2026-W32`). */
+  periodKey: string;
+  /** Prepaid wallet balance in cents (wallet mode only). */
+  walletBalanceCents?: number;
+}
+
+export type LabelWalletTopupStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+export interface LabelWalletTopupRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  status: LabelWalletTopupStatus;
+  /** Optional amount the client claims they sent (cents). Admin enters final credit on approve. */
+  claimedAmountCents?: number | null;
+  note?: string | null;
+  receiptUrls: string[];
+  adminEvidenceUrls?: string[];
+  creditedAmountCents?: number | null;
+  rejectionReason?: string | null;
+  requestedAt: any;
+  requestedBy: string;
+  reviewedBy?: string | null;
+  reviewedByName?: string | null;
+  reviewedAt?: any;
+}
+
+export type LabelWalletLedgerType =
+  | "topup"
+  | "reissue_credit"
+  | "admin_adjust"
+  | "purchase"
+  | "purchase_refund"
+  | "period_reset";
+
+export interface LabelWalletLedgerEntry {
+  id: string;
+  userId: string;
+  type: LabelWalletLedgerType;
+  /** Signed cents: +credit / −debit. */
+  amountCents: number;
+  balanceAfterCents?: number | null;
+  periodUsedAfterCents?: number | null;
+  reason?: string | null;
+  receiptUrls?: string[];
+  adminEvidenceUrls?: string[];
+  topupRequestId?: string | null;
+  labelPurchaseId?: string | null;
+  createdAt: any;
+  createdBy: string;
+  createdByName?: string | null;
 }
 
 /** User account audit trail event types (`users/{uid}/auditTrail`). */
@@ -1820,6 +1886,8 @@ export interface LabelPurchase {
     originalAmount?: string;
   };
   stripePaymentIntentId: string;
+  /** How the label was paid. Defaults to stripe when omitted. */
+  paymentMethod?: "stripe" | "wallet";
   stripeChargeId?: string;
   paymentStatus: 'pending' | 'succeeded' | 'failed' | 'canceled';
   paymentAmount: number;

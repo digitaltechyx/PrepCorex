@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { BuyLabelsForm } from "@/components/dashboard/buy-labels-form";
+import { LabelBillingCard } from "@/components/labels/label-billing-card";
 import { Button } from "@/components/ui/button";
 import { Package } from "lucide-react";
 import Link from "next/link";
@@ -51,6 +52,7 @@ function BuyLabelsPageContent() {
           </Button>
         </Link>
       </div>
+      <LabelBillingCard />
       <BuyLabelsForm
         initialParcel={parcelPrefill}
         parcelPrefillBanner={parcelBanner}

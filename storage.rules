@@ -100,6 +100,25 @@ service firebase.storage {
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
 
+    // Wallet top-up receipts (client)
+    match /label-wallet-topup/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 5 * 1024 * 1024;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Admin evidence on wallet top-up approve/reject
+    match /label-wallet-admin-evidence/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 5 * 1024 * 1024;
+      allow delete: if request.auth != null;
+    }
+
     match /{allPaths=**} {
       // Allow authenticated users to read any file
       allow read: if request.auth != null;

@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BuyLabelsForm } from "@/components/dashboard/buy-labels-form";
 import { AdminPurchasedLabelsSection } from "@/components/admin/admin-purchased-labels-section";
+import { AdminLabelBillingPanel } from "@/components/admin/admin-label-billing-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Package, Tag } from "lucide-react";
+import { Package, Tag, Wallet } from "lucide-react";
 import { useManagedUsers } from "@/hooks/use-managed-users";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { hasRole } from "@/lib/permissions";
@@ -21,7 +22,7 @@ import {
   type BuyLabelParcelPrefill,
 } from "@/lib/buy-label-parcel-prefill";
 
-type LabelsTab = "buy" | "purchased";
+type LabelsTab = "buy" | "purchased" | "billing";
 
 export default function AdminBuyLabelsPageContent() {
   const router = useRouter();
@@ -30,7 +31,7 @@ export default function AdminBuyLabelsPageContent() {
   const fromShopify = searchParams.get("from") === "shopify";
   const fromOutbound = searchParams.get("from") === "outbound";
   const [activeTab, setActiveTab] = useState<LabelsTab>(
-    tabParam === "purchased" ? "purchased" : "buy"
+    tabParam === "purchased" ? "purchased" : tabParam === "billing" ? "billing" : "buy"
   );
   const [shopifyPrefill, setShopifyPrefill] = useState<BuyLabelShopifyPrefill | null>(null);
   const [parcelPrefill, setParcelPrefill] = useState<BuyLabelParcelPrefill | null>(null);
@@ -51,7 +52,9 @@ export default function AdminBuyLabelsPageContent() {
   );
 
   useEffect(() => {
-    setActiveTab(tabParam === "purchased" ? "purchased" : "buy");
+    setActiveTab(
+      tabParam === "purchased" ? "purchased" : tabParam === "billing" ? "billing" : "buy"
+    );
   }, [tabParam]);
 
   useEffect(() => {
@@ -84,11 +87,13 @@ export default function AdminBuyLabelsPageContent() {
     const url =
       tab === "purchased"
         ? "/admin/dashboard/buy-labels?tab=purchased"
-        : fromShopify
-          ? "/admin/dashboard/buy-labels?from=shopify"
-          : fromOutbound
-            ? "/admin/dashboard/buy-labels?from=outbound"
-            : "/admin/dashboard/buy-labels";
+        : tab === "billing"
+          ? "/admin/dashboard/buy-labels?tab=billing"
+          : fromShopify
+            ? "/admin/dashboard/buy-labels?from=shopify"
+            : fromOutbound
+              ? "/admin/dashboard/buy-labels?from=outbound"
+              : "/admin/dashboard/buy-labels";
     router.replace(url, { scroll: false });
   };
 
@@ -102,7 +107,7 @@ export default function AdminBuyLabelsPageContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-        <TabsList className="grid h-auto w-full max-w-md grid-cols-2">
+        <TabsList className="grid h-auto w-full max-w-xl grid-cols-3">
           <TabsTrigger value="buy" className="gap-2">
             <Tag className="h-4 w-4" />
             Buy Label
@@ -110,6 +115,10 @@ export default function AdminBuyLabelsPageContent() {
           <TabsTrigger value="purchased" className="gap-2">
             <Package className="h-4 w-4" />
             Purchased Labels
+          </TabsTrigger>
+          <TabsTrigger value="billing" className="gap-2">
+            <Wallet className="h-4 w-4" />
+            Label billing
           </TabsTrigger>
         </TabsList>
 
@@ -178,6 +187,10 @@ export default function AdminBuyLabelsPageContent() {
 
         <TabsContent value="purchased" className="mt-0">
           <AdminPurchasedLabelsSection />
+        </TabsContent>
+
+        <TabsContent value="billing" className="mt-0">
+          <AdminLabelBillingPanel />
         </TabsContent>
       </Tabs>
     </div>

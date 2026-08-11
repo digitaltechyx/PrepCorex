@@ -5,6 +5,7 @@ import {
   buildShipBestCustomNo,
   purchaseLabelFromShipBest,
 } from '@/lib/shipbest-purchase';
+import { applyLabelBillingSpend } from '@/lib/label-billing-admin';
 import Stripe from 'stripe';
 
 const SHIPPO_API_BASE = 'https://api.goshippo.com';
@@ -203,6 +204,25 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
       stripeChargeId: paymentIntent.latest_charge as string,
       paymentCompletedAt: new Date(),
     });
+
+    // Track period usage for limit-mode accounts (wallet pays via separate API).
+    try {
+      const payAmount = Math.max(
+        0,
+        Math.floor(Number(labelPurchaseData.paymentAmount) || paymentIntent.amount || 0)
+      );
+      if (payAmount > 0 && labelPurchaseData.paymentMethod !== "wallet") {
+        await applyLabelBillingSpend(adminDb(), {
+          userId,
+          amountCents: payAmount,
+          preferWallet: false,
+          labelPurchaseId: labelPurchaseDoc.id,
+          actorUid: userId,
+        });
+      }
+    } catch (billingErr) {
+      console.error("Label billing period usage update failed:", billingErr);
+    }
 
     const selectedRate = labelPurchaseData.selectedRate;
     const labelProvider =

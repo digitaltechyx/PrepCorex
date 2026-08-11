@@ -40,7 +40,8 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import { getStripePublishableKey } from "@/lib/stripe";
 import { PaymentDialog } from "./payment-dialog";
-import type { InventoryItem, ShippingAddress, ParcelDetails, ShippingRate } from "@/types";
+import type { InventoryItem, ShippingAddress, ParcelDetails, ShippingRate, LabelBillingSettings } from "@/types";
+import { normalizeLabelBillingSettings } from "@/lib/label-billing";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { findDefaultWarehouseLocationIdInList } from "@/lib/default-warehouse";
 import {
@@ -333,6 +334,7 @@ export function BuyLabelsForm({
   const [paymentCurrency, setPaymentCurrency] = useState("usd");
   const [cartItems, setCartItems] = useState<LabelCartItem[]>([]);
   const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
+  const [labelBilling, setLabelBilling] = useState<LabelBillingSettings | null>(null);
   const [selectedFromLocationId, setSelectedFromLocationId] = useState("");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [selectedInventoryProductId, setSelectedInventoryProductId] = useState<string>("");
@@ -363,6 +365,60 @@ export function BuyLabelsForm({
     : (user?.uid || "").trim();
   const inventoryPath = inventoryOwnerId ? `users/${inventoryOwnerId}/inventory` : "";
   const { data: inventoryItems } = useCollection<InventoryItem>(inventoryPath);
+
+  useEffect(() => {
+    if (!user) {
+      setLabelBilling(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`/api/label-billing?userId=${encodeURIComponent(user.uid)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (res.ok && data.settings) {
+          setLabelBilling(normalizeLabelBillingSettings(data.settings));
+        } else {
+          setLabelBilling(normalizeLabelBillingSettings(null));
+        }
+      } catch {
+        if (!cancelled) setLabelBilling(normalizeLabelBillingSettings(null));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const payWithWallet = labelBilling?.mode === "wallet";
+
+  const purchaseItemWithWallet = async (item: LabelCartItem) => {
+    if (!user) throw new Error("You must be logged in to purchase labels.");
+    const token = await user.getIdToken();
+    const res = await fetch("/api/labels/purchase-with-wallet", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        fromAddress: item.fromAddress,
+        toAddress: item.toAddress,
+        parcel: item.parcel,
+        selectedRate: toPaymentSelectedRate(
+          item.selectedRate,
+          item.shipmentId || item.selectedRate.shipment || null
+        ),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Wallet purchase failed");
+    return data as { labelPurchaseId?: string };
+  };
 
   const resolvedClientOptions = useMemo(() => {
     if (
@@ -753,6 +809,16 @@ export function BuyLabelsForm({
       throw new Error("You must be logged in to purchase labels.");
     }
 
+    if (payWithWallet) {
+      await purchaseItemWithWallet(item);
+      toast({
+        title: "Label purchased",
+        description: "Paid from your Buy Labels wallet.",
+      });
+      router.push(successRedirect);
+      return;
+    }
+
     const amount = Math.round(parseFloat(item.selectedRate.amount) * 100);
     const paymentResponse = await fetch("/api/stripe/create-payment", {
       method: "POST",
@@ -874,6 +940,22 @@ export function BuyLabelsForm({
     setLoading(true);
     try {
       if (!user) throw new Error("You must be logged in to purchase labels.");
+
+      if (payWithWallet) {
+        const count = cartItems.length;
+        setCheckoutMode("bulk");
+        for (const item of cartItems) {
+          await purchaseItemWithWallet(item);
+        }
+        setCartItems([]);
+        toast({
+          title: "Labels purchased",
+          description: `${count} label(s) paid from your wallet.`,
+        });
+        router.push(successRedirect);
+        return;
+      }
+
       const response = await fetch("/api/stripe/create-bulk-payment", {
         method: "POST",
         headers: {
