@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useManagedUsers } from "@/hooks/use-managed-users";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { hasRole } from "@/lib/permissions";
+import { cn } from "@/lib/utils";
 import {
   formatLabelBillingMoney,
   formatLabelBillingPeriod,
@@ -25,13 +26,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
 
 export function AdminLabelBillingPanel() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { managedUsers } = useManagedUsers();
   const [userId, setUserId] = useState("");
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<LabelBillingSettings | null>(null);
@@ -42,18 +46,44 @@ export function AdminLabelBillingPanel() {
   const [reissueDollars, setReissueDollars] = useState("");
   const [reason, setReason] = useState("");
 
-  const clientOptions = useMemo(
-    () =>
-      (managedUsers || [])
-        .filter((u) => hasRole(u, "user") || hasRole(u, "commission_agent"))
-        .filter((u) => u.status === "approved" || !u.status)
-        .filter((u) => u.status !== "deleted")
-        .map((u) => ({
-          uid: u.uid,
-          label: formatUserDisplayName(u, { showEmail: true }),
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" })),
-    [managedUsers]
+  const clientOptions = useMemo(() => {
+    const rows = (managedUsers || [])
+      .filter((u) => hasRole(u, "user") || hasRole(u, "commission_agent"))
+      .filter((u) => u.status === "approved" || !u.status)
+      .filter((u) => u.status !== "deleted")
+      .map((u) => ({
+        uid: u.uid,
+        clientId: String(u.clientId || "").trim(),
+        name: String(u.name || u.email || u.uid || "").trim(),
+        email: String(u.email || "").trim(),
+        label: formatUserDisplayName(u, { showEmail: true }),
+      }));
+
+    rows.sort((a, b) => {
+      const aId = Number(a.clientId);
+      const bId = Number(b.clientId);
+      const aHas = Number.isFinite(aId) && a.clientId !== "";
+      const bHas = Number.isFinite(bId) && b.clientId !== "";
+      if (aHas && bHas && aId !== bId) return aId - bId;
+      if (aHas && !bHas) return -1;
+      if (!aHas && bHas) return 1;
+      return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
+    });
+    return rows;
+  }, [managedUsers]);
+
+  const filteredClientOptions = useMemo(() => {
+    const q = clientSearchQuery.trim().toLowerCase();
+    if (!q) return clientOptions;
+    return clientOptions.filter((opt) => {
+      const hay = `${opt.label} ${opt.clientId} ${opt.name} ${opt.email} ${opt.uid}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [clientOptions, clientSearchQuery]);
+
+  const selectedClient = useMemo(
+    () => clientOptions.find((c) => c.uid === userId) || null,
+    [clientOptions, userId]
   );
 
   const load = useCallback(async () => {
@@ -130,21 +160,81 @@ export function AdminLabelBillingPanel() {
           calendar spend cap.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 overflow-visible">
         <div className="space-y-2">
           <Label>Client</Label>
-          <Select value={userId || undefined} onValueChange={setUserId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select client…" />
-            </SelectTrigger>
-            <SelectContent>
-              {clientOptions.map((c) => (
-                <SelectItem key={c.uid} value={c.uid}>
-                  {c.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Popover
+            open={clientPickerOpen}
+            modal={false}
+            onOpenChange={(open) => {
+              setClientPickerOpen(open);
+              if (!open) setClientSearchQuery("");
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                role="combobox"
+                aria-expanded={clientPickerOpen}
+                className="relative z-10 w-full max-w-xl justify-between font-normal pointer-events-auto"
+              >
+                <span className="truncate text-left">
+                  {selectedClient ? selectedClient.label : "Select client…"}
+                </span>
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="z-[200] w-[min(100vw-2rem,36rem)] p-0 pointer-events-auto"
+              align="start"
+              side="bottom"
+              sideOffset={4}
+              collisionPadding={16}
+              onOpenAutoFocus={(e) => e.preventDefault()}
+              onCloseAutoFocus={(e) => e.preventDefault()}
+            >
+              <div className="flex items-center gap-2 border-b px-3 py-2">
+                <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <Input
+                  value={clientSearchQuery}
+                  onChange={(e) => setClientSearchQuery(e.target.value)}
+                  placeholder="Search by client ID, name, or email…"
+                  className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                  autoFocus
+                />
+              </div>
+              <div className="max-h-[280px] overflow-y-auto overscroll-contain p-1">
+                {filteredClientOptions.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">No clients found.</p>
+                ) : (
+                  filteredClientOptions.map((opt) => {
+                    const selected = userId === opt.uid;
+                    return (
+                      <button
+                        key={opt.uid}
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                          selected && "bg-accent"
+                        )}
+                        onClick={() => {
+                          setUserId(opt.uid);
+                          setClientPickerOpen(false);
+                          setClientSearchQuery("");
+                        }}
+                      >
+                        <Check
+                          className={cn("h-4 w-4 shrink-0", selected ? "opacity-100" : "opacity-0")}
+                        />
+                        <span className="min-w-0 flex-1 truncate">{opt.label}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
         {!userId ? (
@@ -266,9 +356,9 @@ export function AdminLabelBillingPanel() {
                       void patch(
                         {
                           walletBalanceDollars: Number(walletDollars),
-                          reason: reason || "Wallet Balance Adjusted by Admin",
+                          reason: reason || "Wallet balance adjusted by admin",
                         },
-                        "Wallet Balance Updated"
+                        "Wallet balance updated"
                       )
                     }
                   >
