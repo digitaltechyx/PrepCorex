@@ -5,6 +5,7 @@ import {
   applyLabelBillingSpend,
   appendLabelWalletLedger,
   ensureLabelBillingPeriodRolled,
+  isLabelBillingExemptUser,
 } from "@/lib/label-billing-admin";
 import {
   buildShipBestCustomNo,
@@ -117,6 +118,13 @@ export async function POST(request: NextRequest) {
     const userId = decoded.uid;
     if (!fromAddress || !toAddress || !parcel || !selectedRate) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    if (await isLabelBillingExemptUser(adminDb(), userId)) {
+      return NextResponse.json(
+        { error: "Admin accounts pay by card and are not limited by wallet or trial caps." },
+        { status: 400 }
+      );
     }
 
     const amount = Math.round(Number.parseFloat(String(selectedRate.amount || "0")) * 100);

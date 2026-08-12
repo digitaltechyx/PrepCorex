@@ -1,4 +1,5 @@
-import { FieldValue, type DocumentReference, type Firestore, type Transaction } from "firebase-admin/firestore";
+import { FieldValue, type DocumentReference, type Firestore } from "firebase-admin/firestore";
+import { isAdminLikeUserDoc } from "@/lib/api-admin-auth";
 import {
   canSpendLabelBilling,
   labelBillingPeriodKey,
@@ -8,6 +9,12 @@ import {
 import type { LabelBillingPeriod, LabelBillingSettings, LabelWalletLedgerType } from "@/types";
 
 type AdminDb = Firestore;
+
+/** Admin / sub-admin buy labels with no trial cap and no wallet deduction. */
+export async function isLabelBillingExemptUser(db: AdminDb, userId: string): Promise<boolean> {
+  const snap = await db.collection("users").doc(userId).get();
+  return isAdminLikeUserDoc(snap.exists ? snap.data() : null);
+}
 
 export async function loadNormalizedLabelBilling(
   db: AdminDb,
@@ -98,6 +105,10 @@ export async function assertCanSpendLabelBilling(
   db: AdminDb,
   opts: { userId: string; amountCents: number; preferWallet: boolean }
 ): Promise<LabelBillingSettings> {
+  if (await isLabelBillingExemptUser(db, opts.userId)) {
+    const { settings } = await loadNormalizedLabelBilling(db, opts.userId);
+    return settings;
+  }
   const settings = await ensureLabelBillingPeriodRolled(db, opts.userId);
   const gate = canSpendLabelBilling(settings, opts.amountCents, {
     preferWallet: opts.preferWallet,
@@ -134,6 +145,10 @@ export async function applyLabelBillingSpend(
     actorName?: string | null;
   }
 ): Promise<{ settings: LabelBillingSettings }> {
+  if (await isLabelBillingExemptUser(db, opts.userId)) {
+    const { settings } = await loadNormalizedLabelBilling(db, opts.userId);
+    return { settings };
+  }
   const userRef = db.collection("users").doc(opts.userId);
   const amount = Math.max(0, Math.floor(opts.amountCents));
 

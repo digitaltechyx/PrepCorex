@@ -5,6 +5,8 @@ import { requireAdmin, verifyBearerToken } from "@/lib/api-admin-auth";
 import {
   ensureLabelBillingPeriodRolled,
   adminUpdateLabelBilling,
+  isLabelBillingExemptUser,
+  loadNormalizedLabelBilling,
 } from "@/lib/label-billing-admin";
 import {
   formatLabelBillingPeriod,
@@ -31,10 +33,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const settings = await ensureLabelBillingPeriodRolled(adminDb(), userId);
+    const exempt = await isLabelBillingExemptUser(adminDb(), userId);
+    const settings = exempt
+      ? (await loadNormalizedLabelBilling(adminDb(), userId)).settings
+      : await ensureLabelBillingPeriodRolled(adminDb(), userId);
     const ends = labelBillingPeriodEndsAt(settings.period);
     return NextResponse.json({
       settings,
+      exempt,
       summary: labelBillingSummaryLine(settings),
       remainingCents: labelBillingRemainingCents(settings),
       periodEndsAtIso: ends.toISOString(),

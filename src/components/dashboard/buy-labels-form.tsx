@@ -42,6 +42,7 @@ import { getStripePublishableKey } from "@/lib/stripe";
 import { PaymentDialog } from "./payment-dialog";
 import type { InventoryItem, ShippingAddress, ParcelDetails, ShippingRate, LabelBillingSettings } from "@/types";
 import { normalizeLabelBillingSettings } from "@/lib/label-billing";
+import { hasRole } from "@/lib/permissions";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { findDefaultWarehouseLocationIdInList } from "@/lib/default-warehouse";
 import {
@@ -394,7 +395,10 @@ export function BuyLabelsForm({
     };
   }, [user]);
 
-  const payWithWallet = labelBilling?.mode === "wallet";
+  const payWithWallet =
+    !hasRole(userProfile, "admin") &&
+    !hasRole(userProfile, "sub_admin") &&
+    labelBilling?.mode === "wallet";
 
   const purchaseItemWithWallet = async (item: LabelCartItem) => {
     if (!user) throw new Error("You must be logged in to purchase labels.");
