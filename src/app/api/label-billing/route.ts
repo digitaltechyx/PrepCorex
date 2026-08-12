@@ -74,6 +74,10 @@ export async function PATCH(request: NextRequest) {
       walletBalanceDollars?: number;
       reissueCreditCents?: number;
       reissueCreditDollars?: number;
+      markupCents?: number;
+      markupDollars?: number;
+      allowShippo?: boolean;
+      allowShipbest?: boolean;
       reason?: string;
     };
 
@@ -103,8 +107,27 @@ export async function PATCH(request: NextRequest) {
           ? Math.round(Number(body.reissueCreditDollars) * 100)
           : undefined;
 
+    const markupCents =
+      body.markupCents != null
+        ? Math.round(Number(body.markupCents))
+        : body.markupDollars != null
+          ? Math.round(Number(body.markupDollars) * 100)
+          : undefined;
+
     if (body.period && !["daily", "weekly", "monthly", "yearly"].includes(body.period)) {
       return NextResponse.json({ error: "Invalid period." }, { status: 400 });
+    }
+
+    if (
+      typeof body.allowShippo === "boolean" &&
+      typeof body.allowShipbest === "boolean" &&
+      !body.allowShippo &&
+      !body.allowShipbest
+    ) {
+      return NextResponse.json(
+        { error: "Enable at least one courier (Shippo or PrepCorex GOFO)." },
+        { status: 400 }
+      );
     }
 
     const settings = await adminUpdateLabelBilling(adminDb(), {
@@ -115,6 +138,9 @@ export async function PATCH(request: NextRequest) {
       resetPeriodUsed: Boolean(body.resetPeriodUsed),
       walletBalanceCents,
       reissueCreditCents,
+      markupCents,
+      allowShippo: body.allowShippo,
+      allowShipbest: body.allowShipbest,
       reason: body.reason || null,
       actorUid: admin.uid,
       actorName: admin.name || null,

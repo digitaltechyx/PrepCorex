@@ -2,6 +2,8 @@ import type { LabelBillingPeriod, LabelBillingSettings } from "@/types";
 
 export const LABEL_BILLING_DEFAULT_LIMIT_CENTS = 5000; // $50
 export const LABEL_BILLING_DEFAULT_PERIOD: LabelBillingPeriod = "monthly";
+/** Default Buy Labels rate markup ($0.15). */
+export const LABEL_BILLING_DEFAULT_MARKUP_CENTS = 15;
 
 export const LABEL_WALLET_TOPUP_COLLECTION = "labelWalletTopupRequests";
 export const LABEL_WALLET_LEDGER_COLLECTION = "labelWalletLedger";
@@ -134,6 +136,20 @@ export function normalizeLabelBillingSettings(
     ? 0
     : Math.max(0, Math.floor(Number(raw?.periodUsedCents) || 0));
   const walletBalanceCents = Math.max(0, Math.floor(Number(raw?.walletBalanceCents) || 0));
+  const markupCents = Math.max(
+    0,
+    Math.floor(
+      Number.isFinite(Number(raw?.markupCents))
+        ? Number(raw?.markupCents)
+        : LABEL_BILLING_DEFAULT_MARKUP_CENTS
+    )
+  );
+  let allowShippo = raw?.allowShippo !== false;
+  let allowShipbest = raw?.allowShipbest !== false;
+  if (!allowShippo && !allowShipbest) {
+    allowShippo = true;
+    allowShipbest = true;
+  }
 
   return {
     mode,
@@ -143,6 +159,9 @@ export function normalizeLabelBillingSettings(
     periodUsedCents,
     periodKey: currentKey,
     walletBalanceCents,
+    markupCents,
+    allowShippo,
+    allowShipbest,
   };
 }
 

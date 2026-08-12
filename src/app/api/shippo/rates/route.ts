@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { applyBuyLabelsMarkup } from '@/lib/buy-labels-markup';
+import { verifyBearerToken } from '@/lib/api-admin-auth';
+import { adminDb } from '@/lib/firebase-admin';
+import { resolveBuyLabelsRateOptions } from '@/lib/label-billing-admin';
 
 const SHIPPO_API_BASE = 'https://api.goshippo.com';
 
@@ -46,6 +49,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Missing required fields: fromAddress, toAddress, parcel' },
         { status: 400, headers: corsHeaders }
+      );
+    }
+
+    const decoded = await verifyBearerToken(request);
+    const rateOpts = await resolveBuyLabelsRateOptions(adminDb(), decoded?.uid);
+    if (!rateOpts.allowShippo) {
+      return NextResponse.json(
+        { error: 'Shippo rates are not enabled for this account.' },
+        { status: 403, headers: corsHeaders }
       );
     }
 
@@ -147,10 +159,10 @@ export async function POST(request: NextRequest) {
     const ratesData = await ratesResponse.json();
     const rates = Array.isArray(ratesData.results) ? ratesData.results : ratesData;
 
-    // Format rates for frontend and add admin markup (same as ShipBest)
+    // Format rates for frontend and add per-client (or default) admin markup
     const formattedRates = rates.map((rate: any) => {
       const baseAmount = parseFloat(rate.amount) || 0;
-      const markedUpAmount = applyBuyLabelsMarkup(baseAmount);
+      const markedUpAmount = applyBuyLabelsMarkup(baseAmount, rateOpts.markupDollars);
       
       return {
         object_id: rate.object_id,

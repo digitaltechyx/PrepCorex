@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyBuyLabelsMarkup } from "@/lib/buy-labels-markup";
+import { verifyBearerToken } from "@/lib/api-admin-auth";
+import { adminDb } from "@/lib/firebase-admin";
+import { resolveBuyLabelsRateOptions } from "@/lib/label-billing-admin";
 import {
   shipbestGetProducts,
   shipbestTrialOrderPrice,
@@ -15,6 +18,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Missing required fields: fromAddress, toAddress, parcel" },
         { status: 400 }
+      );
+    }
+
+    const decoded = await verifyBearerToken(request);
+    const rateOpts = await resolveBuyLabelsRateOptions(adminDb(), decoded?.uid);
+    if (!rateOpts.allowShipbest) {
+      return NextResponse.json(
+        { error: "PrepCorex GOFO rates are not enabled for this account." },
+        { status: 403 }
       );
     }
 
@@ -135,7 +147,7 @@ export async function POST(request: NextRequest) {
         const code = q.logisticsProductCode || String(q.logisticsProductId || "unknown");
         return {
           object_id: `shipbest:${q.logisticsProductId || 0}:${code}`,
-          amount: applyBuyLabelsMarkup(baseAmount),
+          amount: applyBuyLabelsMarkup(baseAmount, rateOpts.markupDollars),
           originalAmount: baseAmount.toFixed(2),
           currency: (q.currency || "USD").toLowerCase() === "usd" ? "USD" : q.currency || "USD",
           provider: "ShipBest",

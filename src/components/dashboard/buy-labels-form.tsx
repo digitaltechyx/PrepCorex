@@ -709,20 +709,46 @@ export function BuyLabelsForm({
         parcel: parcelData,
       });
 
+      const token = await user.getIdToken();
+      const allowShippo = labelBilling?.allowShippo !== false;
+      const allowShipbest = labelBilling?.allowShipbest !== false;
       const hasRecipientPhone = Boolean(data.toAddress.phone?.trim());
       const providerRequests = [
-        { name: "Shippo", url: "/api/shippo/rates" },
-        ...(hasRecipientPhone
+        ...(allowShippo ? [{ name: "Shippo", url: "/api/shippo/rates" }] : []),
+        ...(allowShipbest && hasRecipientPhone
           ? [{ name: "ShipBest", url: "/api/shipbest/rates" }]
           : []),
       ];
+
+      if (providerRequests.length === 0) {
+        if (allowShipbest && !hasRecipientPhone) {
+          toast({
+            variant: "destructive",
+            title: "PrepCorex GOFO rates need a phone",
+            description:
+              "Shippo is disabled for your account. Add the recipient phone number to get PrepCorex GOFO rates.",
+          });
+        } else {
+          toast({
+            variant: "destructive",
+            title: "No couriers enabled",
+            description: "Contact an administrator to enable Shippo or PrepCorex GOFO rates for your account.",
+          });
+        }
+        setRates([]);
+        setSelectedRate(null);
+        return;
+      }
 
       const providerResults = await Promise.all(
         providerRequests.map(async ({ name, url }) => {
           try {
             const response = await fetch(url, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
               body: requestBody,
             });
             const result = await response.json().catch(() => ({}));
@@ -771,7 +797,7 @@ export function BuyLabelsForm({
           title: "Rates Retrieved",
           description: `Found ${combinedRates.length} shipping options.`,
         });
-        if (!hasRecipientPhone) {
+        if (allowShipbest && !hasRecipientPhone) {
           toast({
             title: "PrepCorex GOFO rates unavailable",
             description: "Add the recipient phone number to view PrepCorex GOFO rates.",

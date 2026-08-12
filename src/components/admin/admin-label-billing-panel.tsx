@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
 
 export function AdminLabelBillingPanel() {
@@ -44,6 +45,9 @@ export function AdminLabelBillingPanel() {
   const [limitDollars, setLimitDollars] = useState("50");
   const [walletDollars, setWalletDollars] = useState("0");
   const [reissueDollars, setReissueDollars] = useState("");
+  const [markupDollars, setMarkupDollars] = useState("0.15");
+  const [allowShippo, setAllowShippo] = useState(true);
+  const [allowShipbest, setAllowShipbest] = useState(true);
   const [reason, setReason] = useState("");
 
   const clientOptions = useMemo(() => {
@@ -105,6 +109,9 @@ export function AdminLabelBillingPanel() {
       setPeriod(s.period);
       setLimitDollars((s.limitAmountCents / 100).toFixed(2));
       setWalletDollars(((s.walletBalanceCents || 0) / 100).toFixed(2));
+      setMarkupDollars(((s.markupCents ?? 15) / 100).toFixed(2));
+      setAllowShippo(s.allowShippo !== false);
+      setAllowShipbest(s.allowShipbest !== false);
     } catch (error: unknown) {
       toast({
         variant: "destructive",
@@ -156,8 +163,8 @@ export function AdminLabelBillingPanel() {
       <CardHeader>
         <CardTitle>Label billing settings</CardTitle>
         <CardDescription>
-          Default is a $50 monthly purchase limit. Switch a user to wallet for ACH/Zelle top-ups, with a
-          calendar spend cap.
+          Default is a $50 monthly purchase limit, $0.15 rate markup, and both Shippo + PrepCorex GOFO
+          rates. Adjust billing, markup, and couriers per client.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 overflow-visible">
@@ -305,6 +312,41 @@ export function AdminLabelBillingPanel() {
                   />
                 </div>
               ) : null}
+              <div className="space-y-2">
+                <Label>Rate markup (USD)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={markupDollars}
+                  onChange={(e) => setMarkupDollars(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Added on top of every quoted rate. Default $0.15.
+                </p>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Courier rates available to this client</Label>
+                <div className="flex flex-wrap gap-4 rounded-md border px-3 py-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={allowShippo}
+                      onCheckedChange={(v) => setAllowShippo(v === true)}
+                    />
+                    Shippo
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={allowShipbest}
+                      onCheckedChange={(v) => setAllowShipbest(v === true)}
+                    />
+                    PrepCorex GOFO (ShipBest)
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Default is both. At least one courier must stay enabled.
+                </p>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -319,13 +361,16 @@ export function AdminLabelBillingPanel() {
 
             <div className="flex flex-wrap gap-2">
               <Button
-                disabled={saving}
+                disabled={saving || (!allowShippo && !allowShipbest)}
                 onClick={() =>
                   void patch(
                     {
                       mode,
                       period,
                       limitAmountDollars: Number(limitDollars),
+                      markupDollars: Number(markupDollars),
+                      allowShippo,
+                      allowShipbest,
                       reason: reason || undefined,
                     },
                     "Billing settings saved"
@@ -333,7 +378,7 @@ export function AdminLabelBillingPanel() {
                 }
               >
                 {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Save mode / limit / period
+                Save billing settings
               </Button>
               <Button
                 variant="outline"

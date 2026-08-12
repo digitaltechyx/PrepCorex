@@ -2,13 +2,46 @@ import { FieldValue, type DocumentReference, type Firestore } from "firebase-adm
 import { isAdminLikeUserDoc } from "@/lib/api-admin-auth";
 import {
   canSpendLabelBilling,
+  LABEL_BILLING_DEFAULT_MARKUP_CENTS,
   labelBillingPeriodKey,
   labelWalletLedgerPath,
   normalizeLabelBillingSettings,
 } from "@/lib/label-billing";
+import { markupCentsToDollars } from "@/lib/buy-labels-markup";
 import type { LabelBillingPeriod, LabelBillingSettings, LabelWalletLedgerType } from "@/types";
 
 type AdminDb = Firestore;
+
+export type BuyLabelsRateOptions = {
+  markupDollars: number;
+  allowShippo: boolean;
+  allowShipbest: boolean;
+};
+
+const DEFAULT_RATE_OPTIONS: BuyLabelsRateOptions = {
+  markupDollars: markupCentsToDollars(LABEL_BILLING_DEFAULT_MARKUP_CENTS),
+  allowShippo: true,
+  allowShipbest: true,
+};
+
+/** Resolve per-user markup / courier flags for Buy Labels rate APIs. */
+export async function resolveBuyLabelsRateOptions(
+  db: AdminDb,
+  userId: string | null | undefined
+): Promise<BuyLabelsRateOptions> {
+  const uid = String(userId || "").trim();
+  if (!uid) return DEFAULT_RATE_OPTIONS;
+  try {
+    const { settings } = await loadNormalizedLabelBilling(db, uid);
+    return {
+      markupDollars: markupCentsToDollars(settings.markupCents),
+      allowShippo: settings.allowShippo !== false,
+      allowShipbest: settings.allowShipbest !== false,
+    };
+  } catch {
+    return DEFAULT_RATE_OPTIONS;
+  }
+}
 
 /** Admin / sub-admin buy labels with no trial cap and no wallet deduction. */
 export async function isLabelBillingExemptUser(db: AdminDb, userId: string): Promise<boolean> {
@@ -233,6 +266,9 @@ export async function adminUpdateLabelBilling(
     resetPeriodUsed?: boolean;
     walletBalanceCents?: number;
     reissueCreditCents?: number;
+    markupCents?: number;
+    allowShippo?: boolean;
+    allowShipbest?: boolean;
     reason?: string | null;
     actorUid: string;
     actorName?: string | null;
@@ -275,6 +311,22 @@ export async function adminUpdateLabelBilling(
         ...settings,
         limitAmountCents: Math.max(0, Math.floor(opts.limitAmountCents)),
       };
+    }
+    if (opts.markupCents != null && Number.isFinite(opts.markupCents)) {
+      settings = {
+        ...settings,
+        markupCents: Math.max(0, Math.floor(opts.markupCents)),
+      };
+    }
+    if (typeof opts.allowShippo === "boolean" || typeof opts.allowShipbest === "boolean") {
+      const allowShippo =
+        typeof opts.allowShippo === "boolean" ? opts.allowShippo : settings.allowShippo;
+      const allowShipbest =
+        typeof opts.allowShipbest === "boolean" ? opts.allowShipbest : settings.allowShipbest;
+      if (!allowShippo && !allowShipbest) {
+        throw new Error("Enable at least one courier (Shippo or PrepCorex GOFO).");
+      }
+      settings = { ...settings, allowShippo, allowShipbest };
     }
     if (opts.resetPeriodUsed) {
       settings = { ...settings, periodUsedCents: 0 };

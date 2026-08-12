@@ -568,6 +568,12 @@ export interface LabelBillingSettings {
   periodKey: string;
   /** Prepaid wallet balance in cents (wallet mode only). */
   walletBalanceCents?: number;
+  /** Admin margin added to carrier rates (cents). Default 15 ($0.15). */
+  markupCents: number;
+  /** When true, client can fetch Shippo rates. Default true. */
+  allowShippo: boolean;
+  /** When true, client can fetch ShipBest / PrepCorex GOFO rates. Default true. */
+  allowShipbest: boolean;
 }
 
 export type LabelWalletTopupStatus = "pending" | "approved" | "rejected" | "cancelled";
