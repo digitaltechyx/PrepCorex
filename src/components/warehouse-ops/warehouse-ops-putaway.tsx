@@ -92,7 +92,6 @@ import {
   Boxes,
   Trash2,
   Truck,
-  Box,
   Plus,
   Keyboard,
 } from "lucide-react";
@@ -2425,35 +2424,10 @@ function CrossdockDispositionPicker({
         <CardHeader>
           <CardTitle className="text-base">{code}</CardTitle>
           <CardDescription className="text-xs">
-            Cross-dock {unitLabel} — choose what happens next. Area labels can be scanned later;
-            pick the zone for now.
+            Cross-dock {unitLabel} — choose next step after receive.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-3">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-auto flex-col items-start gap-2 p-4 border-indigo-200 hover:bg-indigo-50"
-            onClick={() => onPick("forward")}
-          >
-            <Truck className="h-5 w-5 text-indigo-600" />
-            <span className="font-semibold text-sm">Forward</span>
-            <span className="text-xs text-muted-foreground text-left">
-              Ship now — direct dispatch, no pick/pack
-            </span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-auto flex-col items-start gap-2 p-4 border-indigo-200 hover:bg-indigo-50"
-            onClick={() => onPick("keep_closed")}
-          >
-            <Box className="h-5 w-5 text-indigo-600" />
-            <span className="font-semibold text-sm">Keep closed</span>
-            <span className="text-xs text-muted-foreground text-left">
-              Hold for client outbound — link later on Dispatch
-            </span>
-          </Button>
+        <CardContent className="grid gap-3 sm:grid-cols-2">
           <Button
             type="button"
             variant="outline"
@@ -2461,9 +2435,21 @@ function CrossdockDispositionPicker({
             onClick={() => onPick("open_for_storage")}
           >
             <PackageOpen className="h-5 w-5 text-orange-600" />
-            <span className="font-semibold text-sm">Open for storage</span>
+            <span className="font-semibold text-sm">Putaway</span>
             <span className="text-xs text-muted-foreground text-left">
-              Enter SKUs (if needed), then scan bins
+              Open if needed, then scan into bins
+            </span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-auto flex-col items-start gap-2 p-4 border-indigo-200 hover:bg-indigo-50"
+            onClick={() => onPick("forward")}
+          >
+            <Truck className="h-5 w-5 text-indigo-600" />
+            <span className="font-semibold text-sm">Send to Pack</span>
+            <span className="text-xs text-muted-foreground text-left">
+              Pack scans the label, then Dispatch scans out
             </span>
           </Button>
         </CardContent>
@@ -2513,7 +2499,7 @@ function CrossdockAreaPicker({
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">{DISPOSITION_LABELS[disposition]}</CardTitle>
           <CardDescription className="text-xs">
-            {code} — select warehouse area (no bin scan).
+            {code} — select staging area, then Pack will scan this label.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

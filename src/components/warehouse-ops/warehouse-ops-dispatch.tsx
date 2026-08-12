@@ -580,7 +580,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
             <StatCard
               label="Ready cross-dock"
               value={crossdockDispatchQueue.length}
-              hint="Forward / return units"
+              hint="Send to Pack / return units"
               icon={<Package className="h-4 w-4" />}
               accent="text-sky-700 dark:text-sky-400"
               loading={crossdockLoading}
@@ -1112,7 +1112,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                 </div>
               ) : crossdockDispatchQueue.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">
-                  No cross-dock units ready. Forward at putaway or link a held unit to outbound.
+                  No cross-dock units ready. Send to Pack at putaway, then pack complete.
                 </p>
               ) : (
                 <div className="max-h-[28rem] space-y-2 overflow-y-auto">
@@ -1139,7 +1139,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                         </div>
                         <Badge variant="outline">
                           {unit.disposition === "forward"
-                            ? "Forward"
+                            ? "Send to Pack"
                             : unit.disposition === "return"
                               ? "Return"
                               : "Linked hold"}

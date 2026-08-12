@@ -69,7 +69,7 @@ const EVENT_BADGE: Record<string, string> = {
 
 const EVENT_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: "all", label: "All events" },
-  { value: "received", label: "Received / inbound" },
+  { value: "received", label: "Inbound approved" },
   { value: "inbound_request", label: "Inbound requests" },
   { value: "restock", label: "Restock" },
   { value: "shipped", label: "Shipped" },
@@ -265,7 +265,7 @@ export function InventoryHistoryDialog({
                   <span className="text-muted-foreground"> · SKU {item.sku}</span>
                 ) : null}
                 <span className="block text-xs">
-                  Filter events below. Table shows newest first; CSV export uses filtered rows
+                  Includes inbound, restocks, and shipments. Newest first; CSV uses filtered rows
                   (oldest → newest).
                 </span>
               </>

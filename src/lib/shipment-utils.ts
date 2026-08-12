@@ -78,10 +78,18 @@ export function getShipmentSummary(shipment: ShippedItem) {
   const totalUnits = items.reduce((sum, item) => sum + (item.shippedQty || 0), 0);
   const totalSkus = items.length;
 
+  const code = String(
+    (shipment as ShippedItem & { crossdockUnitCode?: string | null }).crossdockUnitCode || ""
+  ).trim();
+  const primaryName = items[0]?.productName || shipment.productName || "Shipment";
   const title =
-    totalSkus <= 1
-      ? items[0]?.productName || shipment.productName || "Shipment"
-      : `${items[0]?.productName || "Shipment"} + ${totalSkus - 1} more`;
+    code && !primaryName.includes(code)
+      ? totalSkus <= 1
+        ? `${code} · ${primaryName}`
+        : `${code} · ${primaryName} + ${totalSkus - 1} more`
+      : totalSkus <= 1
+        ? primaryName
+        : `${primaryName} + ${totalSkus - 1} more`;
 
   return {
     items,

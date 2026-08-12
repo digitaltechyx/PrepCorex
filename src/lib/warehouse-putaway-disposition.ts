@@ -301,9 +301,9 @@ export async function listWarehouseAreas(warehouseId: string): Promise<Warehouse
 }
 
 export const DISPOSITION_LABELS: Record<WarehousePutawayDisposition, string> = {
-  forward: "Forward — ship now (direct dispatch)",
+  forward: "Send to Pack",
   keep_closed: "Keep closed — hold for client outbound",
-  open_for_storage: "Open for storage (bins)",
+  open_for_storage: "Putaway (bins)",
   return: "Return — pack area, then dispatch",
 };
 

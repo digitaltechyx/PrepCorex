@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   runTransaction,
   serverTimestamp,
   Timestamp,
@@ -19,6 +20,11 @@ import {
   isCrossdockClosedCarton,
 } from "@/lib/warehouse-crossdock";
 import type { WarehouseQcUnitType } from "@/lib/warehouse-pack";
+import {
+  getPricingProfileCollectionPath,
+  LEGACY_DEFAULT_COLLECTIONS,
+  resolveUserPricingProfileId,
+} from "@/lib/pricing-profiles";
 import type {
   UserProfile,
   WarehouseCartonDoc,
@@ -289,6 +295,87 @@ export function isCrossdockFulfillmentShipment(data: Record<string, unknown>): b
   return data.crossdockFulfillment === true || !!String(data.crossdockLinkedUnitId ?? "").trim();
 }
 
+function pricingUpdatedAtMs(value: unknown): number {
+  if (!value) return 0;
+  if (typeof value === "object" && value !== null && "seconds" in value) {
+    const sec = Number((value as { seconds: number }).seconds);
+    return Number.isFinite(sec) ? sec * 1000 : 0;
+  }
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "string") {
+    const t = new Date(value).getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  return 0;
+}
+
+/** Latest box/pallet forwarding unit price from the client's pricing profile. */
+export async function loadCrossdockForwardingUnitPrice(
+  clientUserId: string,
+  unitKind: CrossdockDispatchUnitKind
+): Promise<number> {
+  const uid = String(clientUserId || "").trim();
+  if (!uid) return 0;
+
+  const userSnap = await getDoc(doc(db, "users", uid));
+  const userData = userSnap.exists() ? userSnap.data() : null;
+  const profileId = resolveUserPricingProfileId({
+    uid,
+    pricingProfileId:
+      typeof userData?.pricingProfileId === "string" ? userData.pricingProfileId : null,
+  });
+
+  const category = unitKind === "pallet" ? "palletForwarding" : "boxForwarding";
+  const paths = [
+    getPricingProfileCollectionPath(profileId, category),
+    LEGACY_DEFAULT_COLLECTIONS[category],
+  ];
+
+  for (const path of paths) {
+    try {
+      const snap = await getDocs(collection(db, path));
+      if (snap.empty) continue;
+      let bestPrice = 0;
+      let bestAt = -1;
+      for (const row of snap.docs) {
+        const data = row.data() as { price?: unknown; updatedAt?: unknown; createdAt?: unknown };
+        const price = Number(data.price);
+        if (!Number.isFinite(price) || price <= 0) continue;
+        const at = Math.max(pricingUpdatedAtMs(data.updatedAt), pricingUpdatedAtMs(data.createdAt));
+        if (at >= bestAt) {
+          bestAt = at;
+          bestPrice = price;
+        }
+      }
+      if (bestPrice > 0) return bestPrice;
+    } catch {
+      // try next path
+    }
+  }
+  return 0;
+}
+
+function crossdockShippedDisplayName(input: {
+  unitCode: string;
+  unitKind: CrossdockDispatchUnitKind;
+  productLabel?: string | null;
+  isClosed?: boolean;
+}): string {
+  const code = String(input.unitCode || "").trim() || "Cross-dock";
+  const kindLabel = input.unitKind === "pallet" ? "Pallet" : "Carton";
+  const raw = String(input.productLabel || "").trim();
+  const isClosedLabel =
+    input.isClosed ||
+    !raw ||
+    raw.toLowerCase().startsWith("closed cross-dock") ||
+    raw.toLowerCase().startsWith("closed —") ||
+    raw.toLowerCase() === "closed — contents at putaway";
+  if (isClosedLabel) {
+    return `${code} · ${kindLabel} cross-dock`;
+  }
+  return `${code} · ${raw}`;
+}
+
 async function createCrossdockShippedRecord(input: {
   clientUserId: string;
   productName: string;
@@ -299,14 +386,17 @@ async function createCrossdockShippedRecord(input: {
   shippedQty: number;
   unitCode: string;
   unitKind: CrossdockDispatchUnitKind;
+  unitPrice: number;
   shipmentRequestId?: string | null;
   remarks?: string | null;
 }): Promise<string> {
   const shippedRef = doc(collection(db, `users/${input.clientUserId}/shipped`));
   const now = Timestamp.now();
+  const unitPrice = Math.max(0, Number(input.unitPrice) || 0);
+  const displayName = input.productName.trim() || input.unitCode;
   await runTransaction(db, async (transaction) => {
     transaction.set(shippedRef, {
-      productName: input.productName,
+      productName: displayName,
       date: now,
       createdAt: now,
       shippedQty: input.shippedQty,
@@ -314,15 +404,18 @@ async function createCrossdockShippedRecord(input: {
       totalBoxes: input.boxesShipped,
       totalUnits: input.shippedQty,
       totalSkus: 1,
+      packOf: 1,
+      unitPrice,
       shipTo: input.shipTo,
       service: input.service,
       remarks: input.remarks ?? "",
       items: [
         {
-          productName: input.productName,
+          productName: displayName,
           boxesShipped: input.boxesShipped,
           shippedQty: input.shippedQty,
           packOf: 1,
+          unitPrice,
         },
       ],
       crossdockUnitCode: input.unitCode,
@@ -592,16 +685,29 @@ export async function completeCrossdockDispatch(input: {
   }
 
   const isReturn = input.unit.disposition === "return";
+  const unitPrice = isReturn
+    ? 0
+    : await loadCrossdockForwardingUnitPrice(input.unit.clientUserId, input.unit.kind);
+  const displayName = crossdockShippedDisplayName({
+    unitCode: input.unit.code,
+    unitKind: input.unit.kind,
+    productLabel: productName,
+    isClosed: input.unit.isClosed,
+  });
+  const serviceLabel =
+    input.unit.kind === "pallet" ? "Pallet Forwarding" : "Box Forwarding";
+
   await createCrossdockShippedRecord({
     clientUserId: input.unit.clientUserId,
-    productName,
-    service: isReturn ? "Quarantine / Return outbound" : "Cross-dock Forwarding",
+    productName: displayName,
+    service: isReturn ? "Quarantine / Return outbound" : serviceLabel,
     shipTo: isReturn ? "Return outbound" : "Cross-dock forward",
     courierTracking: tracking,
     boxesShipped: 1,
     shippedQty: input.unit.isClosed ? 1 : shippedQty,
     unitCode: input.unit.code,
     unitKind: input.unit.kind,
+    unitPrice,
     remarks: isReturn
       ? `Return/quarantine ${input.unit.code} dispatched · qty ${input.unit.isClosed ? 1 : shippedQty}`
       : `Cross-dock ${input.unit.code} dispatched`,

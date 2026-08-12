@@ -561,8 +561,8 @@ export function WarehouseOpsPack({ warehouse }: Props) {
               Cross-dock carton / pallet ({crossdockPackQueue.length})
             </CardTitle>
             <CardDescription className="text-xs">
-              Forward after receive, or after linking a held unit. Download labels if attached,
-              then pack complete → dispatch.
+              After Send to Pack: scan / mark packed here, then Dispatch scans the unit and courier
+              label out.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -586,7 +586,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                             {unit.clientDisplayName}
                             {unit.stagingArea ? ` · ${unit.stagingArea}` : ""}
                             {` · ${unit.kind}`}
-                            {unit.disposition === "keep_closed" ? " · held link" : " · forward"}
+                            {unit.disposition === "keep_closed" ? " · held link" : " · send to pack"}
                           </p>
                           <p className="text-xs text-muted-foreground">{unit.productLabel}</p>
                           {(unit.labelUrls?.length ?? 0) > 0 ? (

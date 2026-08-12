@@ -205,13 +205,20 @@ function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
     } else if (qtyBefore != null && qtyChange != null && qtyAfter == null) {
       qtyAfter = qtyBefore + qtyChange;
     } else if (qtyAfter != null && qtyChange != null && qtyBefore == null) {
-      qtyBefore = qtyAfter - qtyChange;
-    } else if (qtyChange != null && qtyBefore == null && qtyAfter == null && running != null) {
-      qtyBefore = running;
-      qtyAfter = running + qtyChange;
+      // Prefer continuous running stock when the event only has a delta-shaped after
+      // (legacy inbound set qtyAfter = received units, not on-hand total).
+      if (running != null && qtyChange !== 0 && qtyAfter === qtyChange) {
+        qtyBefore = running;
+        qtyAfter = running + qtyChange;
+      } else {
+        qtyBefore = qtyAfter - qtyChange;
+      }
+    } else if (qtyChange != null && qtyBefore == null && qtyAfter == null) {
+      qtyBefore = running != null ? running : 0;
+      qtyAfter = qtyBefore + qtyChange;
     } else if (qtyAfter != null && qtyBefore == null && qtyChange == null) {
       qtyChange = running != null ? qtyAfter - running : qtyAfter;
-      qtyBefore = running;
+      qtyBefore = running != null ? running : 0;
     }
 
     if (qtyAfter != null) running = qtyAfter;
@@ -247,21 +254,25 @@ export function buildInventoryHistory(
 
   for (const req of sources.inventoryRequests) {
     const linked = sourceRequestId && req.id === sourceRequestId;
+    const byProductId = Boolean(req.productId && req.productId === item.id);
     const byName = namesMatch(item, req.productName) || skusMatch(item, req.sku);
-    if (!linked && !byName) continue;
+    if (!linked && !byName && !byProductId) continue;
 
     const ts = toTimestamp(req.approvedAt ?? req.rejectedAt ?? req.requestedAt ?? req.addDate);
     const qty = req.receivedQuantity ?? req.quantity ?? 0;
 
     if (req.status === "approved") {
+      const isRestock = req.productSubType === "restock";
       raw.push({
         timestamp: ts,
-        event: "Inbound approved",
-        eventType: "received",
+        // receivedQuantity is units added this receive — not the on-hand total.
+        // Leave qtyAfter unset so applyRunningBalances keeps a continuous stock line.
+        event: isRestock ? "Restock" : "Inbound approved",
+        eventType: isRestock ? "restock" : "received",
         qtyChange: qty > 0 ? qty : null,
-        qtyAfter: req.receivedQuantity ?? null,
         details: [
           req.inventoryType ? `Type: ${req.inventoryType}` : "",
+          isRestock ? "Inbound restock" : "",
           req.remarks?.trim() ? `Remarks: ${req.remarks.trim()}` : "",
         ]
           .filter(Boolean)
