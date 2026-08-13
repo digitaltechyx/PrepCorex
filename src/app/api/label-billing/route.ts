@@ -10,6 +10,7 @@ import {
 } from "@/lib/label-billing-admin";
 import {
   formatLabelBillingPeriod,
+  isLabelApiFeeBlocking,
   labelBillingRemainingCents,
   labelBillingPeriodEndsAt,
   labelBillingSummaryLine,
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       settings,
       exempt,
+      apiFeeBlocking: !exempt && isLabelApiFeeBlocking(settings),
       summary: labelBillingSummaryLine(settings),
       remainingCents: labelBillingRemainingCents(settings),
       periodEndsAtIso: ends.toISOString(),
@@ -78,6 +80,10 @@ export async function PATCH(request: NextRequest) {
       markupDollars?: number;
       allowShippo?: boolean;
       allowShipbest?: boolean;
+      apiFeeEnabled?: boolean;
+      apiFeeCadence?: "monthly" | "onetime";
+      apiFeeAmountCents?: number;
+      apiFeeAmountDollars?: number;
       reason?: string;
     };
 
@@ -114,8 +120,23 @@ export async function PATCH(request: NextRequest) {
           ? Math.round(Number(body.markupDollars) * 100)
           : undefined;
 
+    const apiFeeAmountCents =
+      body.apiFeeAmountCents != null
+        ? Math.round(Number(body.apiFeeAmountCents))
+        : body.apiFeeAmountDollars != null
+          ? Math.round(Number(body.apiFeeAmountDollars) * 100)
+          : undefined;
+
     if (body.period && !["daily", "weekly", "monthly", "yearly"].includes(body.period)) {
       return NextResponse.json({ error: "Invalid period." }, { status: 400 });
+    }
+
+    if (
+      body.apiFeeCadence != null &&
+      body.apiFeeCadence !== "monthly" &&
+      body.apiFeeCadence !== "onetime"
+    ) {
+      return NextResponse.json({ error: "Invalid API fee cadence." }, { status: 400 });
     }
 
     if (
@@ -141,6 +162,9 @@ export async function PATCH(request: NextRequest) {
       markupCents,
       allowShippo: body.allowShippo,
       allowShipbest: body.allowShipbest,
+      apiFeeEnabled: body.apiFeeEnabled,
+      apiFeeCadence: body.apiFeeCadence,
+      apiFeeAmountCents,
       reason: body.reason || null,
       actorUid: admin.uid,
       actorName: admin.name || null,

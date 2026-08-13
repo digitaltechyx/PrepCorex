@@ -18,11 +18,14 @@ import {
   formatLabelBillingPeriodAdjective,
   formatLabelBillingPeriodNoun,
   formatSignedLabelBillingMoney,
+  isLabelApiFeeBlocking,
+  labelApiFeeBlockMessage,
   labelBillingPeriodEndsAt,
   labelBillingRemainingCents,
   labelBillingSummaryLine,
   labelWalletLedgerPath,
   labelWalletTopupPath,
+  normalizeLabelApiFeeSettings,
   normalizeLabelBillingSettings,
 } from "@/lib/label-billing";
 import type {
@@ -32,6 +35,7 @@ import type {
   LabelWalletTopupRequest,
 } from "@/types";
 import { LabelWalletTopupDialog } from "@/components/labels/label-wallet-topup-dialog";
+import { LabelApiFeePayDialog } from "@/components/labels/label-api-fee-pay-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -108,6 +112,8 @@ function ledgerTypeLabel(type: LabelWalletLedgerType | string): string {
       return "Purchase";
     case "purchase_refund":
       return "Purchase Refund";
+    case "api_fee":
+      return "API fee";
     default:
       return String(type).replace(/_/g, " ");
   }
@@ -145,6 +151,7 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
   const [settings, setSettings] = useState<LabelBillingSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [topupOpen, setTopupOpen] = useState(false);
+  const [apiFeeOpen, setApiFeeOpen] = useState(false);
   const [historyKind, setHistoryKind] = useState<HistoryKind>(null);
   const [ledger, setLedger] = useState<LabelWalletLedgerEntry[]>([]);
   const [topups, setTopups] = useState<LabelWalletTopupRequest[]>([]);
@@ -256,7 +263,7 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
   const topupLike = useMemo(
     () =>
       ledger.filter((e) =>
-        ["topup", "reissue_credit", "admin_adjust", "period_reset"].includes(e.type)
+        ["topup", "reissue_credit", "admin_adjust", "period_reset", "api_fee"].includes(e.type)
       ),
     [ledger]
   );
@@ -310,6 +317,42 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
   }, [purchases, filterType, filterFrom, filterTo, filterQuery]);
 
   const ends = settings ? labelBillingPeriodEndsAt(settings.period) : null;
+  const apiFeeBlocking = settings ? isLabelApiFeeBlocking(settings) : false;
+  const apiFee = settings ? normalizeLabelApiFeeSettings(settings.apiFee) : null;
+
+  const apiFeeBanner =
+    apiFee?.enabled && apiFee.amountCents > 0 ? (
+      <div
+        className={`mb-3 rounded-md border px-3 py-2 text-sm ${
+          apiFeeBlocking
+            ? "border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100"
+            : "border-emerald-500/30 bg-emerald-500/10"
+        }`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="font-medium">
+              API fee · {formatLabelBillingMoney(apiFee.amountCents)} ·{" "}
+              {apiFee.cadence === "onetime" ? "One-time" : "Monthly (30 days)"}
+            </p>
+            <p className="text-xs opacity-90">
+              {apiFeeBlocking
+                ? labelApiFeeBlockMessage(apiFee)
+                : apiFee.cadence === "onetime"
+                  ? "Paid — Buy Labels unlocked."
+                  : apiFee.paidUntilIso
+                    ? `Paid until ${format(new Date(apiFee.paidUntilIso), "PPp")}`
+                    : "Paid."}
+            </p>
+          </div>
+          {apiFeeBlocking ? (
+            <Button type="button" size="sm" onClick={() => setApiFeeOpen(true)}>
+              Pay API fee
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    ) : null;
 
   const downloadCurrentHistory = () => {
     if (historyKind === "topups") {
@@ -364,23 +407,32 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
 
   if (settings.mode === "limit") {
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg">Trial Label Purchase Limit</CardTitle>
-          <CardDescription>
-            {labelBillingSummaryLine(settings)}
-            {ends ? ` · Resets ${format(ends, "PPp")}` : null}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          When your trial {formatLabelBillingPeriod(settings.period)} label purchase limit is used up,
-          purchases are blocked until the period resets or an administrator raises your limit.
-          Remaining:{" "}
-          <span className="font-medium text-foreground">
-            {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
-          </span>
-        </CardContent>
-      </Card>
+      <>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Trial Label Purchase Limit</CardTitle>
+            <CardDescription>
+              {labelBillingSummaryLine(settings)}
+              {ends ? ` · Resets ${format(ends, "PPp")}` : null}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {apiFeeBanner}
+            When your trial {formatLabelBillingPeriod(settings.period)} label purchase limit is used up,
+            purchases are blocked until the period resets or an administrator raises your limit.
+            Remaining:{" "}
+            <span className="font-medium text-foreground">
+              {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
+            </span>
+          </CardContent>
+        </Card>
+        <LabelApiFeePayDialog
+          open={apiFeeOpen}
+          onOpenChange={setApiFeeOpen}
+          settings={settings}
+          onPaid={() => void loadBilling()}
+        />
+      </>
     );
   }
 
@@ -408,6 +460,7 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
           </div>
         </CardHeader>
         <CardContent>
+          {apiFeeBanner}
           <div className="grid gap-3 sm:grid-cols-3 text-sm">
             <div className="rounded-md border px-3 py-2">
               <p className="text-muted-foreground">Available Balance</p>
@@ -635,6 +688,15 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
         open={topupOpen}
         onOpenChange={setTopupOpen}
         onSubmitted={() => {
+          void loadBilling();
+          void loadHistory();
+        }}
+      />
+      <LabelApiFeePayDialog
+        open={apiFeeOpen}
+        onOpenChange={setApiFeeOpen}
+        settings={settings}
+        onPaid={() => {
           void loadBilling();
           void loadHistory();
         }}

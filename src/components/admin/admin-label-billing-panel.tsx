@@ -48,6 +48,9 @@ export function AdminLabelBillingPanel() {
   const [markupDollars, setMarkupDollars] = useState("0.15");
   const [allowShippo, setAllowShippo] = useState(true);
   const [allowShipbest, setAllowShipbest] = useState(true);
+  const [apiFeeEnabled, setApiFeeEnabled] = useState(false);
+  const [apiFeeCadence, setApiFeeCadence] = useState<"monthly" | "onetime">("monthly");
+  const [apiFeeDollars, setApiFeeDollars] = useState("0");
   const [reason, setReason] = useState("");
 
   const clientOptions = useMemo(() => {
@@ -112,6 +115,10 @@ export function AdminLabelBillingPanel() {
       setMarkupDollars(((s.markupCents ?? 15) / 100).toFixed(2));
       setAllowShippo(s.allowShippo !== false);
       setAllowShipbest(s.allowShipbest !== false);
+      const fee = s.apiFee;
+      setApiFeeEnabled(fee?.enabled === true);
+      setApiFeeCadence(fee?.cadence === "onetime" ? "onetime" : "monthly");
+      setApiFeeDollars((((fee?.amountCents ?? 0) || 0) / 100).toFixed(2));
     } catch (error: unknown) {
       toast({
         variant: "destructive",
@@ -164,7 +171,7 @@ export function AdminLabelBillingPanel() {
         <CardTitle>Label billing settings</CardTitle>
         <CardDescription>
           Default is a $50 monthly purchase limit, $0.15 rate markup, and both Shippo + PrepCorex GOFO
-          rates. Adjust billing, markup, and couriers per client.
+          rates. Adjust billing, markup, couriers, and optional API fee per client.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 overflow-visible">
@@ -347,6 +354,65 @@ export function AdminLabelBillingPanel() {
                   Default is both. At least one courier must stay enabled.
                 </p>
               </div>
+
+              <div className="space-y-3 sm:col-span-2 rounded-md border px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label>API fee (Buy Labels access)</Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      When enabled, the client must pay this fee before buying labels (wallet or
+                      ACH/Zelle). Monthly renews every 30 days; one-time unlocks permanently.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm shrink-0">
+                    <Checkbox
+                      checked={apiFeeEnabled}
+                      onCheckedChange={(v) => setApiFeeEnabled(v === true)}
+                    />
+                    Enable
+                  </label>
+                </div>
+                {apiFeeEnabled ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Fee type</Label>
+                      <Select
+                        value={apiFeeCadence}
+                        onValueChange={(v) => setApiFeeCadence(v as "monthly" | "onetime")}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="monthly">Monthly (every 30 days)</SelectItem>
+                          <SelectItem value="onetime">One-time</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>API fee amount (USD)</Label>
+                      <Input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={apiFeeDollars}
+                        onChange={(e) => setApiFeeDollars(e.target.value)}
+                      />
+                    </div>
+                    {settings.apiFee?.enabled ? (
+                      <p className="text-xs text-muted-foreground sm:col-span-2">
+                        Current status: {settings.apiFee.status}
+                        {settings.apiFee.paidUntilIso
+                          ? ` · Paid until ${new Date(settings.apiFee.paidUntilIso).toLocaleString()}`
+                          : settings.apiFee.status === "paid" &&
+                              settings.apiFee.cadence === "onetime"
+                            ? " · One-time paid"
+                            : ""}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -371,6 +437,9 @@ export function AdminLabelBillingPanel() {
                       markupDollars: Number(markupDollars),
                       allowShippo,
                       allowShipbest,
+                      apiFeeEnabled,
+                      apiFeeCadence,
+                      apiFeeAmountDollars: Number(apiFeeDollars),
                       reason: reason || undefined,
                     },
                     "Billing settings saved"

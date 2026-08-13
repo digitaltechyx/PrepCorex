@@ -1,12 +1,20 @@
-import type { LabelBillingPeriod, LabelBillingSettings } from "@/types";
+import type {
+  LabelApiFeeCadence,
+  LabelApiFeeSettings,
+  LabelBillingPeriod,
+  LabelBillingSettings,
+} from "@/types";
 
 export const LABEL_BILLING_DEFAULT_LIMIT_CENTS = 5000; // $50
 export const LABEL_BILLING_DEFAULT_PERIOD: LabelBillingPeriod = "monthly";
 /** Default Buy Labels rate markup ($0.15). */
 export const LABEL_BILLING_DEFAULT_MARKUP_CENTS = 15;
+/** Monthly API fee access window (30 days). */
+export const LABEL_API_FEE_MONTHLY_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const LABEL_WALLET_TOPUP_COLLECTION = "labelWalletTopupRequests";
 export const LABEL_WALLET_LEDGER_COLLECTION = "labelWalletLedger";
+export const LABEL_API_FEE_PAYMENT_COLLECTION = "labelApiFeePaymentRequests";
 
 export function labelWalletTopupPath(userId: string): string {
   return `users/${userId}/${LABEL_WALLET_TOPUP_COLLECTION}`;
@@ -14,6 +22,138 @@ export function labelWalletTopupPath(userId: string): string {
 
 export function labelWalletLedgerPath(userId: string): string {
   return `users/${userId}/${LABEL_WALLET_LEDGER_COLLECTION}`;
+}
+
+export function labelApiFeePaymentPath(userId: string): string {
+  return `users/${userId}/${LABEL_API_FEE_PAYMENT_COLLECTION}`;
+}
+
+export function defaultLabelApiFeeSettings(): LabelApiFeeSettings {
+  return {
+    enabled: false,
+    cadence: "monthly",
+    amountCents: 0,
+    status: "unpaid",
+    paidAtIso: null,
+    paidUntilIso: null,
+    lastPaymentRequestId: null,
+    lastRejectionReason: null,
+  };
+}
+
+export function normalizeLabelApiFeeSettings(
+  raw: Partial<LabelApiFeeSettings> | null | undefined,
+  now = new Date()
+): LabelApiFeeSettings {
+  const base = defaultLabelApiFeeSettings();
+  const enabled = raw?.enabled === true;
+  const cadence: LabelApiFeeCadence = raw?.cadence === "onetime" ? "onetime" : "monthly";
+  const amountCents = Math.max(0, Math.floor(Number(raw?.amountCents) || 0));
+  let status = raw?.status;
+  if (
+    status !== "unpaid" &&
+    status !== "pending" &&
+    status !== "paid" &&
+    status !== "rejected"
+  ) {
+    status = "unpaid";
+  }
+  const paidAtIso = raw?.paidAtIso ? String(raw.paidAtIso) : null;
+  let paidUntilIso = raw?.paidUntilIso ? String(raw.paidUntilIso) : null;
+
+  if (enabled && cadence === "monthly" && status === "paid" && paidUntilIso) {
+    const until = Date.parse(paidUntilIso);
+    if (Number.isFinite(until) && until <= now.getTime()) {
+      status = "unpaid";
+      paidUntilIso = null;
+    }
+  }
+
+  if (!enabled) {
+    return {
+      ...base,
+      enabled: false,
+      cadence,
+      amountCents,
+      status: "unpaid",
+      paidAtIso: null,
+      paidUntilIso: null,
+      lastPaymentRequestId: raw?.lastPaymentRequestId
+        ? String(raw.lastPaymentRequestId)
+        : null,
+      lastRejectionReason: null,
+    };
+  }
+
+  return {
+    enabled: true,
+    cadence,
+    amountCents,
+    status,
+    paidAtIso,
+    paidUntilIso,
+    lastPaymentRequestId: raw?.lastPaymentRequestId
+      ? String(raw.lastPaymentRequestId)
+      : null,
+    lastRejectionReason: raw?.lastRejectionReason
+      ? String(raw.lastRejectionReason).slice(0, 500)
+      : null,
+  };
+}
+
+/** True when Buy Labels must stay blocked until the API fee is paid. */
+export function isLabelApiFeeBlocking(
+  settings: Pick<LabelBillingSettings, "apiFee"> | null | undefined,
+  now = new Date()
+): boolean {
+  const fee = normalizeLabelApiFeeSettings(settings?.apiFee, now);
+  if (!fee.enabled) return false;
+  if (fee.amountCents < 1) return false;
+  if (fee.status === "pending") return true;
+  if (fee.cadence === "onetime") return fee.status !== "paid";
+  if (fee.status === "paid" && fee.paidUntilIso) {
+    const until = Date.parse(fee.paidUntilIso);
+    return !(Number.isFinite(until) && until > now.getTime());
+  }
+  return true;
+}
+
+export function labelApiFeePaidUntilAfterPayment(now = new Date()): string {
+  return new Date(now.getTime() + LABEL_API_FEE_MONTHLY_MS).toISOString();
+}
+
+export function applyLabelApiFeePaid(
+  fee: LabelApiFeeSettings,
+  now = new Date()
+): LabelApiFeeSettings {
+  const paidAtIso = now.toISOString();
+  if (fee.cadence === "onetime") {
+    return {
+      ...fee,
+      status: "paid",
+      paidAtIso,
+      paidUntilIso: null,
+      lastRejectionReason: null,
+    };
+  }
+  return {
+    ...fee,
+    status: "paid",
+    paidAtIso,
+    paidUntilIso: labelApiFeePaidUntilAfterPayment(now),
+    lastRejectionReason: null,
+  };
+}
+
+export function labelApiFeeBlockMessage(fee: LabelApiFeeSettings): string {
+  const amount = formatLabelBillingMoney(fee.amountCents);
+  if (fee.status === "pending") {
+    return `API fee payment of ${amount} is pending admin review. Buy Labels stays locked until approved.`;
+  }
+  if (fee.cadence === "monthly") {
+    return `API fee of ${amount} is required every 30 days before you can buy labels.`;
+  }
+  return `One-time API fee of ${amount} is required before you can buy labels.`;
 }
 
 export function formatLabelBillingPeriod(period?: LabelBillingPeriod | null): string {
@@ -162,6 +302,7 @@ export function normalizeLabelBillingSettings(
     markupCents,
     allowShippo,
     allowShipbest,
+    apiFee: normalizeLabelApiFeeSettings(raw?.apiFee, now),
   };
 }
 
@@ -171,7 +312,16 @@ export function labelBillingRemainingCents(settings: LabelBillingSettings): numb
 
 export type LabelPurchaseGateResult =
   | { ok: true; settings: LabelBillingSettings }
-  | { ok: false; error: string; code: "LIMIT_EXCEEDED" | "WALLET_INSUFFICIENT" | "WALLET_PERIOD_LIMIT" | "WRONG_MODE" };
+  | {
+      ok: false;
+      error: string;
+      code:
+        | "LIMIT_EXCEEDED"
+        | "WALLET_INSUFFICIENT"
+        | "WALLET_PERIOD_LIMIT"
+        | "WRONG_MODE"
+        | "API_FEE_REQUIRED";
+    };
 
 /** Gate a spend of `amountCents` against current billing settings (already normalized / rolled). */
 export function canSpendLabelBilling(
@@ -182,6 +332,15 @@ export function canSpendLabelBilling(
   const amount = Math.max(0, Math.floor(amountCents || 0));
   if (amount < 1) {
     return { ok: false, error: "Invalid purchase amount.", code: "LIMIT_EXCEEDED" };
+  }
+
+  if (isLabelApiFeeBlocking(settings)) {
+    const fee = normalizeLabelApiFeeSettings(settings.apiFee);
+    return {
+      ok: false,
+      error: labelApiFeeBlockMessage(fee),
+      code: "API_FEE_REQUIRED",
+    };
   }
 
   if (settings.mode === "limit") {

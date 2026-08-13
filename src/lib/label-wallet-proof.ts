@@ -41,6 +41,19 @@ export async function uploadLabelWalletTopupReceipt(ownerUid: string, file: File
   return getDownloadURL(storageRef);
 }
 
+/** Client receipt for Buy Labels API fee ACH/Zelle payment. */
+export async function uploadLabelApiFeeReceipt(ownerUid: string, file: File): Promise<string> {
+  const err = validateLabelWalletProofFile(file);
+  if (err) throw new Error(err);
+
+  const compressed = await compressImage(file);
+  const cleanName = file.name.replace(/\s+/g, "_");
+  const path = `label-api-fee/${ownerUid}/${Date.now()}_${Math.random().toString(36).slice(2, 9)}_${cleanName}`;
+  const storageRef = ref(storage, path);
+  await uploadBytes(storageRef, compressed);
+  return getDownloadURL(storageRef);
+}
+
 /** Admin evidence attached when approving or rejecting a top-up. */
 export async function uploadLabelWalletAdminEvidence(ownerUid: string, file: File): Promise<string> {
   const err = validateLabelWalletProofFile(file);

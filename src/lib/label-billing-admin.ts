@@ -1,14 +1,24 @@
 import { FieldValue, type DocumentReference, type Firestore } from "firebase-admin/firestore";
 import { isAdminLikeUserDoc } from "@/lib/api-admin-auth";
 import {
+  applyLabelApiFeePaid,
   canSpendLabelBilling,
+  isLabelApiFeeBlocking,
   LABEL_BILLING_DEFAULT_MARKUP_CENTS,
+  labelApiFeeBlockMessage,
   labelBillingPeriodKey,
   labelWalletLedgerPath,
+  normalizeLabelApiFeeSettings,
   normalizeLabelBillingSettings,
 } from "@/lib/label-billing";
 import { markupCentsToDollars } from "@/lib/buy-labels-markup";
-import type { LabelBillingPeriod, LabelBillingSettings, LabelWalletLedgerType } from "@/types";
+import type {
+  LabelApiFeeCadence,
+  LabelApiFeeSettings,
+  LabelBillingPeriod,
+  LabelBillingSettings,
+  LabelWalletLedgerType,
+} from "@/types";
 
 type AdminDb = Firestore;
 
@@ -143,6 +153,12 @@ export async function assertCanSpendLabelBilling(
     return settings;
   }
   const settings = await ensureLabelBillingPeriodRolled(db, opts.userId);
+  if (isLabelApiFeeBlocking(settings)) {
+    const fee = normalizeLabelApiFeeSettings(settings.apiFee);
+    throw Object.assign(new Error(labelApiFeeBlockMessage(fee)), {
+      code: "API_FEE_REQUIRED",
+    });
+  }
   const gate = canSpendLabelBilling(settings, opts.amountCents, {
     preferWallet: opts.preferWallet,
   });
@@ -269,6 +285,9 @@ export async function adminUpdateLabelBilling(
     markupCents?: number;
     allowShippo?: boolean;
     allowShipbest?: boolean;
+    apiFeeEnabled?: boolean;
+    apiFeeCadence?: LabelApiFeeCadence;
+    apiFeeAmountCents?: number;
     reason?: string | null;
     actorUid: string;
     actorName?: string | null;
@@ -328,6 +347,61 @@ export async function adminUpdateLabelBilling(
       }
       settings = { ...settings, allowShippo, allowShipbest };
     }
+    if (
+      typeof opts.apiFeeEnabled === "boolean" ||
+      opts.apiFeeCadence != null ||
+      opts.apiFeeAmountCents != null
+    ) {
+      const prev = normalizeLabelApiFeeSettings(settings.apiFee);
+      const enabled =
+        typeof opts.apiFeeEnabled === "boolean" ? opts.apiFeeEnabled : prev.enabled;
+      const cadence =
+        opts.apiFeeCadence === "onetime" || opts.apiFeeCadence === "monthly"
+          ? opts.apiFeeCadence
+          : prev.cadence;
+      const amountCents =
+        opts.apiFeeAmountCents != null && Number.isFinite(opts.apiFeeAmountCents)
+          ? Math.max(0, Math.floor(opts.apiFeeAmountCents))
+          : prev.amountCents;
+      if (enabled && amountCents < 1) {
+        throw new Error("Enter an API fee amount greater than $0 when enabling.");
+      }
+      let nextFee: LabelApiFeeSettings = {
+        ...prev,
+        enabled,
+        cadence,
+        amountCents,
+      };
+      if (!enabled) {
+        nextFee = normalizeLabelApiFeeSettings({
+          ...nextFee,
+          enabled: false,
+          status: "unpaid",
+          paidAtIso: null,
+          paidUntilIso: null,
+          lastRejectionReason: null,
+        });
+      } else if (!prev.enabled && enabled) {
+        // Freshly enabled — require payment even if an old paidUntil remains.
+        nextFee = {
+          ...nextFee,
+          status: "unpaid",
+          paidAtIso: null,
+          paidUntilIso: null,
+          lastRejectionReason: null,
+        };
+      } else if (prev.cadence !== cadence) {
+        // Cadence change resets entitlement until paid again.
+        nextFee = {
+          ...nextFee,
+          status: "unpaid",
+          paidAtIso: null,
+          paidUntilIso: null,
+          lastRejectionReason: null,
+        };
+      }
+      settings = { ...settings, apiFee: normalizeLabelApiFeeSettings(nextFee) };
+    }
     if (opts.resetPeriodUsed) {
       settings = { ...settings, periodUsedCents: 0 };
       ledgerDraft = {
@@ -386,4 +460,111 @@ export async function adminUpdateLabelBilling(
   }
 
   return next;
+}
+
+/** Instantly pay outstanding API fee from label wallet balance. */
+export async function payLabelApiFeeFromWallet(
+  db: AdminDb,
+  opts: { userId: string; actorUid: string; actorName?: string | null }
+): Promise<LabelBillingSettings> {
+  const userRef = db.collection("users").doc(opts.userId);
+
+  const { next, amountPaid } = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists) throw new Error("User not found.");
+    const data = snap.data() || {};
+    let settings = normalizeLabelBillingSettings(
+      (data.labelBilling as Partial<LabelBillingSettings> | undefined) || null
+    );
+    const fee = normalizeLabelApiFeeSettings(settings.apiFee);
+    if (!fee.enabled || fee.amountCents < 1) {
+      throw Object.assign(new Error("No API fee is required on this account."), {
+        code: "API_FEE_NOT_REQUIRED",
+      });
+    }
+    if (!isLabelApiFeeBlocking(settings)) {
+      throw Object.assign(new Error("API fee is already paid."), {
+        code: "API_FEE_ALREADY_PAID",
+      });
+    }
+    if (fee.status === "pending") {
+      throw Object.assign(
+        new Error("An ACH/Zelle API fee payment is already pending admin review."),
+        { code: "API_FEE_PENDING" }
+      );
+    }
+    const bal = settings.walletBalanceCents || 0;
+    if (bal < fee.amountCents) {
+      throw Object.assign(
+        new Error(
+          `Insufficient wallet balance. Need ${(fee.amountCents / 100).toFixed(2)} USD, have ${(bal / 100).toFixed(2)}.`
+        ),
+        { code: "WALLET_INSUFFICIENT" }
+      );
+    }
+    const newBal = bal - fee.amountCents;
+    settings = {
+      ...settings,
+      walletBalanceCents: newBal,
+      apiFee: applyLabelApiFeePaid(fee),
+    };
+    settings = normalizeLabelBillingSettings(settings);
+    tx.set(
+      userRef,
+      { labelBilling: { ...settings, updatedAt: FieldValue.serverTimestamp() } },
+      { merge: true }
+    );
+    return { next: settings, amountPaid: fee.amountCents };
+  });
+
+  await appendLabelWalletLedger(db, {
+    userId: opts.userId,
+    type: "api_fee",
+    amountCents: -Math.abs(amountPaid),
+    balanceAfterCents: next.walletBalanceCents || 0,
+    periodUsedAfterCents: next.periodUsedCents,
+    reason: `API fee (${normalizeLabelApiFeeSettings(next.apiFee).cadence})`,
+    createdBy: opts.actorUid,
+    createdByName: opts.actorName || null,
+  });
+
+  return next;
+}
+
+/** Mark API fee paid after admin approves ACH/Zelle receipt (or manual grant). */
+export async function markLabelApiFeePaid(
+  db: AdminDb,
+  opts: {
+    userId: string;
+    paymentRequestId?: string | null;
+    actorUid: string;
+  }
+): Promise<LabelBillingSettings> {
+  const userRef = db.collection("users").doc(opts.userId);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists) throw new Error("User not found.");
+    const data = snap.data() || {};
+    let settings = normalizeLabelBillingSettings(
+      (data.labelBilling as Partial<LabelBillingSettings> | undefined) || null
+    );
+    const fee = normalizeLabelApiFeeSettings(settings.apiFee);
+    if (!fee.enabled) {
+      throw new Error("API fee is not enabled for this user.");
+    }
+    settings = {
+      ...settings,
+      apiFee: {
+        ...applyLabelApiFeePaid(fee),
+        lastPaymentRequestId: opts.paymentRequestId || fee.lastPaymentRequestId || null,
+      },
+    };
+    settings = normalizeLabelBillingSettings(settings);
+    tx.set(
+      userRef,
+      { labelBilling: { ...settings, updatedAt: FieldValue.serverTimestamp() } },
+      { merge: true }
+    );
+    return settings;
+  });
 }

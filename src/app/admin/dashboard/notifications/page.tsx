@@ -17,6 +17,7 @@ import type {
   InboundTrackingEntry,
   LabelRefundRequest,
   LabelWalletTopupRequest,
+  LabelApiFeePaymentRequest,
 } from "@/types";
 import {
   QUARANTINE_REQUESTS,
@@ -25,11 +26,13 @@ import {
 } from "@/lib/quarantine-request-ops";
 import { LABEL_REFUND_REQUESTS_COLLECTION, formatLabelMoney } from "@/lib/label-refund";
 import {
+  LABEL_API_FEE_PAYMENT_COLLECTION,
   LABEL_WALLET_TOPUP_COLLECTION,
   formatLabelBillingMoney,
 } from "@/lib/label-billing";
 import { LabelRefundReviewDialog } from "@/components/admin/label-refund-review-dialog";
 import { LabelWalletTopupReviewDialog } from "@/components/admin/label-wallet-topup-review-dialog";
+import { LabelApiFeePaymentReviewDialog } from "@/components/admin/label-api-fee-payment-review-dialog";
 import { summarizeInboundTrackings, resolveInboundTrackings } from "@/lib/inbound-tracking";
 import { db } from "@/lib/firebase";
 import { collection, collectionGroup, getDocs, query } from "firebase/firestore";
@@ -64,7 +67,8 @@ type NotificationType =
   | "delete_request"
   | "quarantine_request"
   | "label_refund_request"
-  | "label_wallet_topup";
+  | "label_wallet_topup"
+  | "label_api_fee";
 type StatusFilter = "all" | "pending" | "paid" | "approved" | "confirmed" | "rejected" | "in_progress" | "closed" | "cancelled";
 
 type NotificationRow = {
@@ -143,6 +147,7 @@ const NOTIFICATION_TYPE_URL_VALUES = new Set<string>([
   "quarantine_request",
   "label_refund_request",
   "label_wallet_topup",
+  "label_api_fee",
 ]);
 
 const PERIOD_URL_VALUES = new Set<string>(["all", "today", "this_week", "this_month", "this_year"]);
@@ -156,7 +161,8 @@ function isNotificationTypeParam(v: string): v is NotificationType {
     v === "delete_request" ||
     v === "quarantine_request" ||
     v === "label_refund_request" ||
-    v === "label_wallet_topup"
+    v === "label_wallet_topup" ||
+    v === "label_api_fee"
   );
 }
 
@@ -222,6 +228,7 @@ function typeIcon(type: NotificationType) {
     case "quarantine_request": return <ShieldAlert className="h-4 w-4 shrink-0" />;
     case "label_refund_request": return <Tag className="h-4 w-4 shrink-0" />;
     case "label_wallet_topup": return <Wallet className="h-4 w-4 shrink-0" />;
+    case "label_api_fee": return <Wallet className="h-4 w-4 shrink-0" />;
   }
 }
 
@@ -245,6 +252,8 @@ function isProcessComplete(type: NotificationType, status: string): boolean {
     case "label_refund_request":
       return ["approved", "rejected", "cancelled"].includes(s);
     case "label_wallet_topup":
+      return ["approved", "rejected", "cancelled"].includes(s);
+    case "label_api_fee":
       return ["approved", "rejected", "cancelled"].includes(s);
     default:
       return false;
@@ -336,6 +345,7 @@ export default function AdminNotificationsPage() {
   const [quarantineRequests, setQuarantineRequests] = useState<NotificationRow[]>([]);
   const [labelRefundRequests, setLabelRefundRequests] = useState<NotificationRow[]>([]);
   const [labelWalletTopups, setLabelWalletTopups] = useState<NotificationRow[]>([]);
+  const [labelApiFeePayments, setLabelApiFeePayments] = useState<NotificationRow[]>([]);
   const [refundReview, setRefundReview] = useState<{
     userId: string;
     refundRequestId: string;
@@ -344,6 +354,11 @@ export default function AdminNotificationsPage() {
   const [topupReview, setTopupReview] = useState<{
     userId: string;
     topupRequestId: string;
+    viewOnly: boolean;
+  } | null>(null);
+  const [apiFeeReview, setApiFeeReview] = useState<{
+    userId: string;
+    paymentRequestId: string;
     viewOnly: boolean;
   } | null>(null);
 
@@ -812,6 +827,68 @@ export default function AdminNotificationsPage() {
             }
           }
         })(),
+
+        // Buy Labels API fee payment requests
+        (async () => {
+          try {
+            const snap = await getDocs(query(collectionGroup(db, LABEL_API_FEE_PAYMENT_COLLECTION)));
+            const managed = new Set(userIds);
+            const rows = snap.docs
+              .map((d) => {
+                const data = d.data() as Omit<LabelApiFeePaymentRequest, "id">;
+                const uid = String(data.userId || d.ref.parent.parent?.id || "");
+                return { id: d.id, ...data, userId: uid };
+              })
+              .filter((r) => managed.has(String(r.userId || "")))
+              .map((r) => ({
+                type: "label_api_fee" as const,
+                id: r.id,
+                userId: String(r.userId || ""),
+                status: String(r.status || ""),
+                createdAtMs: toMs(r.requestedAt),
+                title: `API fee${
+                  r.amountCents ? ` • ${formatLabelBillingMoney(r.amountCents)}` : ""
+                }`,
+                subtitle: (r.note || `${r.cadence === "onetime" ? "One-time" : "Monthly"} · Receipt uploaded`).substring(
+                  0,
+                  50
+                ),
+              }));
+            setLabelApiFeePayments(rows);
+          } catch (e) {
+            console.warn("Notifications: collectionGroup labelApiFeePaymentRequests failed, using per-user.", e);
+            try {
+              const results = await Promise.all(
+                userIds.map(async (uid) => {
+                  const snap = await getDocs(
+                    query(collection(db, `users/${uid}/${LABEL_API_FEE_PAYMENT_COLLECTION}`))
+                  );
+                  return snap.docs.map((d) => {
+                    const data = d.data() as Omit<LabelApiFeePaymentRequest, "id">;
+                    return {
+                      type: "label_api_fee" as const,
+                      id: d.id,
+                      userId: uid,
+                      status: String(data.status || ""),
+                      createdAtMs: toMs(data.requestedAt),
+                      title: `API fee${
+                        data.amountCents ? ` • ${formatLabelBillingMoney(data.amountCents)}` : ""
+                      }`,
+                      subtitle: (
+                        data.note ||
+                        `${data.cadence === "onetime" ? "One-time" : "Monthly"} · Receipt uploaded`
+                      ).substring(0, 50),
+                    };
+                  });
+                })
+              );
+              setLabelApiFeePayments(results.flat());
+            } catch (err) {
+              console.warn("Notifications: Could not fetch API fee payments.", err);
+              setLabelApiFeePayments([]);
+            }
+          }
+        })(),
         ]);
 
         // Note: If anyFailed is true, we used per-user fallback instead of collectionGroup
@@ -860,6 +937,7 @@ export default function AdminNotificationsPage() {
       ...quarantineRequests,
       ...labelRefundRequests,
       ...labelWalletTopups,
+      ...labelApiFeePayments,
     ].sort((a, b) => b.createdAtMs - a.createdAtMs);
   }, [
     shipmentRequests,
@@ -870,6 +948,7 @@ export default function AdminNotificationsPage() {
     quarantineRequests,
     labelRefundRequests,
     labelWalletTopups,
+    labelApiFeePayments,
   ]);
 
   const statusCounts = useMemo(() => {
@@ -941,6 +1020,14 @@ export default function AdminNotificationsPage() {
       });
       return;
     }
+    if (row.type === "label_api_fee") {
+      setApiFeeReview({
+        userId: row.userId,
+        paymentRequestId: row.id,
+        viewOnly,
+      });
+      return;
+    }
     const params = new URLSearchParams({
       userId: row.userId,
       section: "user-requests",
@@ -986,7 +1073,9 @@ export default function AdminNotificationsPage() {
                               ? "Label refund"
                               : r.type === "label_wallet_topup"
                                 ? "Wallet top-up"
-                              : "Delete"}
+                                : r.type === "label_api_fee"
+                                  ? "API fee"
+                                  : "Delete"}
                 </Badge>
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -1116,6 +1205,7 @@ export default function AdminNotificationsPage() {
                   <SelectItem value="quarantine_request">Quarantine Requests</SelectItem>
                   <SelectItem value="label_refund_request">Label Refunds</SelectItem>
                   <SelectItem value="label_wallet_topup">Wallet top-ups</SelectItem>
+                  <SelectItem value="label_api_fee">API fee payments</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1268,6 +1358,16 @@ export default function AdminNotificationsPage() {
         viewOnly={topupReview?.viewOnly}
         onOpenChange={(open) => {
           if (!open) setTopupReview(null);
+        }}
+        onResolved={() => setNotificationsRefreshKey((k) => k + 1)}
+      />
+      <LabelApiFeePaymentReviewDialog
+        open={Boolean(apiFeeReview)}
+        userId={apiFeeReview?.userId ?? null}
+        paymentRequestId={apiFeeReview?.paymentRequestId ?? null}
+        viewOnly={apiFeeReview?.viewOnly}
+        onOpenChange={(open) => {
+          if (!open) setApiFeeReview(null);
         }}
         onResolved={() => setNotificationsRefreshKey((k) => k + 1)}
       />

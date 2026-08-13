@@ -560,6 +560,23 @@ export interface UserProfile {
 export type LabelBillingMode = "limit" | "wallet";
 export type LabelBillingPeriod = "daily" | "weekly" | "monthly" | "yearly";
 
+export type LabelApiFeeCadence = "monthly" | "onetime";
+export type LabelApiFeeStatus = "unpaid" | "pending" | "paid" | "rejected";
+
+/** Admin-configured Buy Labels API access fee (nested under `labelBilling.apiFee`). */
+export interface LabelApiFeeSettings {
+  enabled: boolean;
+  cadence: LabelApiFeeCadence;
+  amountCents: number;
+  status: LabelApiFeeStatus;
+  /** When the current paid period started (ISO). */
+  paidAtIso?: string | null;
+  /** Monthly: access valid until this ISO instant. One-time: null after paid. */
+  paidUntilIso?: string | null;
+  lastPaymentRequestId?: string | null;
+  lastRejectionReason?: string | null;
+}
+
 /** Per-user Buy Labels billing (stored on `users/{uid}.labelBilling`). */
 export interface LabelBillingSettings {
   mode: LabelBillingMode;
@@ -578,6 +595,30 @@ export interface LabelBillingSettings {
   allowShippo: boolean;
   /** When true, client can fetch ShipBest / PrepCorex GOFO rates. Default true. */
   allowShipbest: boolean;
+  /** Optional API fee gate for Buy Labels access. */
+  apiFee?: LabelApiFeeSettings;
+}
+
+export type LabelApiFeePaymentStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+/** Client ACH/Zelle API-fee payment request (`users/{uid}/labelApiFeePaymentRequests`). */
+export interface LabelApiFeePaymentRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  status: LabelApiFeePaymentStatus;
+  amountCents: number;
+  cadence: LabelApiFeeCadence;
+  note?: string | null;
+  receiptUrls: string[];
+  adminEvidenceUrls?: string[];
+  rejectionReason?: string | null;
+  paymentMethod: "ach_zelle";
+  requestedAt: any;
+  requestedBy: string;
+  reviewedBy?: string | null;
+  reviewedByName?: string | null;
+  reviewedAt?: any;
 }
 
 export type LabelWalletTopupStatus = "pending" | "approved" | "rejected" | "cancelled";
@@ -607,7 +648,8 @@ export type LabelWalletLedgerType =
   | "admin_adjust"
   | "purchase"
   | "purchase_refund"
-  | "period_reset";
+  | "period_reset"
+  | "api_fee";
 
 export interface LabelWalletLedgerEntry {
   id: string;
