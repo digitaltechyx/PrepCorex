@@ -222,7 +222,9 @@ export function LabelApiFeePayDialog({ open, onOpenChange, settings, onPaid }: P
 
           <div className="space-y-3 rounded-md border p-3">
             <p className="font-medium">Pay with ACH / Zelle</p>
-            <p className="text-xs text-muted-foreground">{LABEL_WALLET_TOPUP_DISCLAIMER}</p>
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-950 dark:text-amber-100">
+              {LABEL_WALLET_TOPUP_DISCLAIMER}
+            </p>
             <div className="space-y-2 rounded-md border-2 border-violet-500/70 bg-violet-500/5 px-3 py-3">
               <p className="font-medium text-violet-800 dark:text-violet-200">Zelle (Preferred)</p>
               <p>
@@ -235,20 +237,25 @@ export function LabelApiFeePayDialog({ open, onOpenChange, settings, onPaid }: P
               <img
                 src={LABEL_WALLET_ZELLE.qrImageSrc}
                 alt="Zelle QR code"
-                className="mx-auto max-h-40 w-auto rounded-md border border-violet-200 bg-white p-2"
+                className="mx-auto max-h-56 w-auto rounded-md border border-violet-200 bg-white p-2"
               />
             </div>
-            <div className="space-y-1 rounded-md border-2 border-sky-500/70 bg-sky-500/5 px-3 py-3 text-xs">
+            <div className="space-y-1 rounded-md border-2 border-sky-500/70 bg-sky-500/5 px-3 py-3">
               <p className="font-medium text-sky-800 dark:text-sky-200">ACH / Bank transfer</p>
               <p>
-                Routing: <span className="font-mono">{LABEL_WALLET_ACH.abaRoutingNumber}</span>
+                Routing Number:{" "}
+                <span className="font-mono">{LABEL_WALLET_ACH.abaRoutingNumber}</span>
               </p>
               <p>
-                Account: <span className="font-mono">{LABEL_WALLET_ACH.accountNumber}</span> (
+                Account Number:{" "}
+                <span className="font-mono">{LABEL_WALLET_ACH.accountNumber}</span> (
                 {LABEL_WALLET_ACH.accountKind})
               </p>
-              <p>Bank: {LABEL_WALLET_ACH.bankName}</p>
-              <p>Beneficiary: {LABEL_WALLET_ACH.beneficiaryName}</p>
+              <p>Bank Name: {LABEL_WALLET_ACH.bankName}</p>
+              <p className="text-xs text-muted-foreground">{LABEL_WALLET_ACH.bankNote}</p>
+              <p>Bank Address: {LABEL_WALLET_ACH.bankAddress}</p>
+              <p>Beneficiary Name: {LABEL_WALLET_ACH.beneficiaryName}</p>
+              <p>Beneficiary Address: {LABEL_WALLET_ACH.beneficiaryAddress}</p>
             </div>
             <div className="space-y-2">
               <Label>Receipt screenshot(s)</Label>
