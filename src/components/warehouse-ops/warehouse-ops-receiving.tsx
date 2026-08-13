@@ -177,6 +177,8 @@ type CartonDraft = {
   crossdockLot?: string;
   /** Client inventory request linked at dock intake */
   inventoryRequestId?: string;
+  /** Client inbound name/ID (e.g. KS-BOX-7758) */
+  inboundProductName?: string;
 };
 
 type Props = {
@@ -284,6 +286,7 @@ function cartonsFromInboundRequests(rows: InboundRequestRow[], crossdock: boolea
         clientId: pre.clientUserId,
         clientLabel: pre.clientDisplayName,
         inventoryRequestId: pre.inventoryRequestId,
+        inboundProductName: pre.productName,
       };
     });
   }
@@ -1134,6 +1137,7 @@ function ReceiveForm({
         next.clientId = pre.clientUserId;
         next.clientLabel = pre.clientDisplayName;
         next.inventoryRequestId = pre.inventoryRequestId;
+        next.inboundProductName = pre.productName;
       }
       return [...prev, next];
     });
@@ -1652,10 +1656,18 @@ function ReceiveForm({
           isCrossdockClosedUnit || receiveModule === "loose" ? resolveCartonClient(c) : null;
         const requestId =
           c.inventoryRequestId?.trim() || inboundRequests[0]?.id?.trim() || null;
+        const inboundProductName =
+          c.inboundProductName?.trim() ||
+          (requestId
+            ? inboundQueue.find((r) => r.id === requestId)?.productName?.trim() ||
+              inboundRequests.find((r) => r.id === requestId)?.productName?.trim() ||
+              null
+            : null);
         return {
           copies,
           lines: flatLines,
           inventoryRequestId: requestId,
+          inboundProductName,
           ...(client && (client.clientId || client.clientDisplayName)
             ? {
                 clientId: client.clientId,
@@ -1837,14 +1849,14 @@ function ReceiveForm({
 
       for (const c of created) {
         for (const line of c.lines ?? []) {
-          const rid = line.inventoryRequestId?.trim();
-          const cid = line.clientId?.trim();
+          const rid = line.inventoryRequestId?.trim() || c.inventoryRequestId?.trim();
+          const cid = line.clientId?.trim() || c.clientId?.trim();
           if (!rid || !cid) continue;
           const m = draftMeasurementsByRequest.get(`${cid}:${rid}`);
           receiveEntries.push({
             clientUserId: cid,
             inventoryRequestId: rid,
-            productName: line.productTitle ?? null,
+            productName: c.inboundProductName ?? line.productTitle ?? null,
             cartonId: c.id,
             cartonCode: c.cartonCode,
             sku: line.sku,
@@ -1853,6 +1865,33 @@ function ReceiveForm({
             unitWidthIn: m?.unitWidthIn ?? null,
             unitHeightIn: m?.unitHeightIn ?? null,
             unitWeightLb: m?.unitWeightLb ?? null,
+          });
+        }
+      }
+
+      // Closed cross-dock may only have root client/request (no open SKU lines with ids).
+      if (isCrossdockClosedUnit && receiveEntries.length === 0) {
+        for (const c of created) {
+          const rid =
+            c.inventoryRequestId?.trim() ||
+            inboundRequests[0]?.id?.trim() ||
+            null;
+          const cid =
+            c.clientId?.trim() ||
+            inboundRequests[0]?.clientUserId?.trim() ||
+            null;
+          if (!rid || !cid) continue;
+          receiveEntries.push({
+            clientUserId: cid,
+            inventoryRequestId: rid,
+            productName:
+              c.inboundProductName ??
+              inboundRequests.find((r) => r.id === rid)?.productName ??
+              null,
+            cartonId: c.id,
+            cartonCode: c.cartonCode,
+            sku: "CLOSED",
+            quantity: Math.max(1, Number(c.quantity) || 1),
           });
         }
       }

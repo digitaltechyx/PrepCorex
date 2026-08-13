@@ -186,8 +186,12 @@ export interface WarehouseCartonDoc {
   /** Optional pallet grouping */
   palletId?: string | null;
   productTitle?: string | null;
-  /** Client user uid when received against an inventory request */
+  /** Client inventory request doc id when received against an inbound request. */
   inventoryRequestId?: string | null;
+  /**
+   * Client inbound name/ID (e.g. KS-BOX-7758) for matching shipped orders to inbound.
+   */
+  inboundProductName?: string | null;
   /** Client product return doc id when received as RMA */
   productReturnId?: string | null;
   /** Encoded on printed label QR */

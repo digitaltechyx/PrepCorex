@@ -34,6 +34,42 @@ export function inboundRequestPrefill(row: InboundRequestRow): InboundReceivePre
   };
 }
 
+/**
+ * Force-close an inbound request that was physically handled at the warehouse
+ * (dock receive for box/pallet, Send to Pack, or cross-dock dispatch) so admin
+ * status leaves "Pending receive" even when nothing was put into storage bins.
+ */
+export async function closeInboundFulfillmentIfOpen(input: {
+  clientUserId: string;
+  inventoryRequestId: string;
+  /** Minimum good qty to record when closing (e.g. 1 for a closed unit). */
+  receivedQtyHint?: number;
+}): Promise<void> {
+  const requestId = input.inventoryRequestId?.trim();
+  const clientUserId = input.clientUserId?.trim();
+  if (!requestId || !clientUserId) return;
+
+  const requestRef = doc(db, "users", clientUserId, "inventoryRequests", requestId);
+  const snap = await getDoc(requestRef);
+  if (!snap.exists()) return;
+
+  const data = snap.data() as InventoryRequest;
+  if (String(data.fulfillmentStatus ?? "").toLowerCase() === "closed") return;
+
+  const expected = expectedRequestQty(data);
+  const prevGood = Math.max(0, Number(data.warehouseGoodReceivedQty ?? 0));
+  const hint = Math.max(0, Number(input.receivedQtyHint) || 0);
+  const patch: Record<string, unknown> = {
+    fulfillmentStatus: "closed",
+    warehouseGoodReceivedQty: Math.max(expected, prevGood, hint, expected > 0 ? expected : 1),
+    updatedAt: serverTimestamp(),
+  };
+  if (!data.receivingDate) {
+    patch.receivingDate = serverTimestamp();
+  }
+  await updateDoc(requestRef, patch);
+}
+
 export async function reloadInboundRequestRow(input: {
   warehouse: WarehouseDoc;
   clients: UserProfile[];
@@ -210,10 +246,34 @@ export async function recordInboundReceiveEvents(input: {
     "inventoryRequests",
     input.inventoryRequestId
   );
+  const snap = await getDoc(requestRef);
+  const data = snap.exists() ? (snap.data() as InventoryRequest) : null;
+  const addQty = input.entries.reduce((sum, e) => sum + Math.max(0, Number(e.quantity) || 0), 0);
+  const prevGood = Math.max(0, Number(data?.warehouseGoodReceivedQty ?? 0));
+  const nextGood = prevGood + addQty;
+  const expected = data ? expectedRequestQty(data) : addQty;
+  const invType = String(data?.inventoryType ?? "")
+    .trim()
+    .toLowerCase();
+  // Box/pallet (and closed cross-dock) are received as physical units at the dock —
+  // they may go Send to Pack without bin putaway, so close fulfillment here.
+  const isStorageUnit = invType === "box" || invType === "pallet";
+  const hasClosedCrossdockLine = input.entries.some(
+    (e) => String(e.sku || "").trim().toUpperCase() === "CLOSED"
+  );
+  const shouldClose =
+    data?.fulfillmentStatus === "closed" ||
+    (expected > 0 && nextGood >= expected) ||
+    ((isStorageUnit || hasClosedCrossdockLine) && addQty > 0);
+
   const patch: Record<string, unknown> = {
     receivingDate: serverTimestamp(),
+    warehouseGoodReceivedQty: nextGood,
     updatedAt: serverTimestamp(),
   };
+  if (shouldClose) {
+    patch.fulfillmentStatus = "closed";
+  }
   if (input.unitLengthIn != null && input.unitLengthIn > 0) patch.unitLengthIn = input.unitLengthIn;
   if (input.unitWidthIn != null && input.unitWidthIn > 0) patch.unitWidthIn = input.unitWidthIn;
   if (input.unitHeightIn != null && input.unitHeightIn > 0) patch.unitHeightIn = input.unitHeightIn;

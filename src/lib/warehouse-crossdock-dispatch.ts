@@ -19,6 +19,7 @@ import {
   closedCrossdockProductTitle,
   isCrossdockClosedCarton,
 } from "@/lib/warehouse-crossdock";
+import { closeInboundFulfillmentIfOpen } from "@/lib/warehouse-inbound-receive";
 import type { WarehouseQcUnitType } from "@/lib/warehouse-pack";
 import {
   getPricingProfileCollectionPath,
@@ -164,6 +165,7 @@ export function buildCrossdockDispatchQueue(input: {
         carton.receivedForClient
       ),
       productLabel:
+        carton.inboundProductName?.trim() ||
         carton.productTitle?.trim() ||
         (isCrossdockClosedCarton(carton)
           ? closedCrossdockProductTitle(carton.receivedForClient)
@@ -232,6 +234,7 @@ export function buildCrossdockHoldQueue(input: {
       clientUserId,
       clientDisplayName: clientDisplayFor(input.clients, clientUserId, carton.receivedForClient),
       productLabel:
+        carton.inboundProductName?.trim() ||
         carton.productTitle?.trim() ||
         (isCrossdockClosedCarton(carton)
           ? closedCrossdockProductTitle(carton.receivedForClient)
@@ -360,8 +363,13 @@ function crossdockShippedDisplayName(input: {
   unitKind: CrossdockDispatchUnitKind;
   productLabel?: string | null;
   isClosed?: boolean;
+  inboundProductName?: string | null;
 }): string {
   const code = String(input.unitCode || "").trim() || "Cross-dock";
+  const inbound = String(input.inboundProductName || "").trim();
+  if (inbound) {
+    return inbound.includes(code) ? inbound : `${inbound} · ${code}`;
+  }
   const kindLabel = input.unitKind === "pallet" ? "Pallet" : "Carton";
   const raw = String(input.productLabel || "").trim();
   const isClosedLabel =
@@ -374,6 +382,23 @@ function crossdockShippedDisplayName(input: {
     return `${code} · ${kindLabel} cross-dock`;
   }
   return `${code} · ${raw}`;
+}
+
+async function resolveInboundProductNameFromRequest(
+  clientUserId: string,
+  inventoryRequestId: string | null | undefined
+): Promise<string | null> {
+  const uid = String(clientUserId || "").trim();
+  const rid = String(inventoryRequestId || "").trim();
+  if (!uid || !rid) return null;
+  try {
+    const snap = await getDoc(doc(db, "users", uid, "inventoryRequests", rid));
+    if (!snap.exists()) return null;
+    const name = String(snap.data()?.productName ?? "").trim();
+    return name || null;
+  } catch {
+    return null;
+  }
 }
 
 async function createCrossdockShippedRecord(input: {
@@ -618,11 +643,18 @@ export async function completeCrossdockDispatch(input: {
 
   let shippedQty = 1;
   let productName = input.unit.productLabel;
+  let inboundProductName: string | null = null;
+  let inventoryRequestId: string | null = null;
 
   if (input.unit.kind === "carton") {
     const carton = { id: unitSnap.id, ...(unitSnap.data() as Omit<WarehouseCartonDoc, "id">) };
     assertCartonStatusTransition(carton.status, "closed");
     const lines = Array.isArray(carton.lines) ? carton.lines : [];
+    inventoryRequestId =
+      String(carton.inventoryRequestId || "").trim() ||
+      String(lines.find((l) => l.inventoryRequestId?.trim())?.inventoryRequestId || "").trim() ||
+      null;
+    inboundProductName = String(carton.inboundProductName || "").trim() || null;
     if (lines.length > 0) {
       shippedQty = Math.max(
         1,
@@ -645,6 +677,8 @@ export async function completeCrossdockDispatch(input: {
   } else {
     const pallet = unitSnap.data() as Record<string, unknown>;
     shippedQty = Math.max(1, Number(pallet.quantity) || 1);
+    inventoryRequestId = String(pallet.inventoryRequestId || "").trim() || null;
+    inboundProductName = String(pallet.inboundProductName || "").trim() || null;
     batch.update(unitRef, {
       status: "dispatched",
       crossdockDispatchStatus: "dispatched",
@@ -684,6 +718,27 @@ export async function completeCrossdockDispatch(input: {
     return;
   }
 
+  if (!inboundProductName) {
+    inboundProductName = await resolveInboundProductNameFromRequest(
+      input.unit.clientUserId,
+      inventoryRequestId
+    );
+  }
+
+  // Safety: cross-dock ship means the physical inbound unit left the dock —
+  // close any still-open linked inbound request so it doesn't stay "Pending receive".
+  if (inventoryRequestId) {
+    try {
+      await closeInboundFulfillmentIfOpen({
+        clientUserId: input.unit.clientUserId,
+        inventoryRequestId,
+        receivedQtyHint: input.unit.isClosed ? 1 : shippedQty,
+      });
+    } catch (err) {
+      console.warn("[crossdock-dispatch] close inbound request failed", err);
+    }
+  }
+
   const isReturn = input.unit.disposition === "return";
   const unitPrice = isReturn
     ? 0
@@ -693,6 +748,7 @@ export async function completeCrossdockDispatch(input: {
     unitKind: input.unit.kind,
     productLabel: productName,
     isClosed: input.unit.isClosed,
+    inboundProductName,
   });
   const serviceLabel =
     input.unit.kind === "pallet" ? "Pallet Forwarding" : "Box Forwarding";
@@ -710,6 +766,8 @@ export async function completeCrossdockDispatch(input: {
     unitPrice,
     remarks: isReturn
       ? `Return/quarantine ${input.unit.code} dispatched · qty ${input.unit.isClosed ? 1 : shippedQty}`
-      : `Cross-dock ${input.unit.code} dispatched`,
+      : inboundProductName
+        ? `Cross-dock ${input.unit.code} · inbound ${inboundProductName} dispatched`
+        : `Cross-dock ${input.unit.code} dispatched`,
   });
 }

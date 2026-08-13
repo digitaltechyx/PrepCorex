@@ -9,6 +9,7 @@ import {
   createWarehouseCarton,
   warehousePalletDocRef,
 } from "@/lib/warehouse-carton-firestore";
+import { closeInboundFulfillmentIfOpen } from "@/lib/warehouse-inbound-receive";
 import { resolveReceiveLot } from "@/lib/warehouse-receive-lot";
 import type { OpenCrossdockLineInput } from "@/lib/warehouse-putaway-disposition";
 import type {
@@ -85,6 +86,22 @@ export async function applyPalletCrossdockAreaPutaway(input: {
   });
 
   await batch.commit();
+
+  if (input.disposition === "forward") {
+    const rid = input.pallet.inventoryRequestId?.trim();
+    const cid = input.pallet.clientId?.trim();
+    if (rid && cid) {
+      try {
+        await closeInboundFulfillmentIfOpen({
+          clientUserId: cid,
+          inventoryRequestId: rid,
+          receivedQtyHint: 1,
+        });
+      } catch (err) {
+        console.warn("[pallet-putaway] close inbound after Send to Pack failed", err);
+      }
+    }
+  }
 }
 
 /** Open a closed cross-dock pallet — capture SKU manifest and create a carton on the pallet. */

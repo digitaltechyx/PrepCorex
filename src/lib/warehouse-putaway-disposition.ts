@@ -13,6 +13,7 @@ import {
   CROSSDOCK_CLOSED_SKU,
   isCrossdockClosedCarton,
 } from "@/lib/warehouse-crossdock";
+import { closeInboundFulfillmentIfOpen } from "@/lib/warehouse-inbound-receive";
 import { resolveReceiveLot } from "@/lib/warehouse-receive-lot";
 import type {
   WarehouseAreaDoc,
@@ -105,6 +106,23 @@ export async function applyCrossdockAreaPutaway(input: {
   });
 
   await batch.commit();
+
+  // Send to Pack never puts into bins — close linked inbound so it isn't "Pending receive".
+  if (input.disposition === "forward") {
+    const rid = input.carton.inventoryRequestId?.trim();
+    const cid = input.carton.clientId?.trim();
+    if (rid && cid) {
+      try {
+        await closeInboundFulfillmentIfOpen({
+          clientUserId: cid,
+          inventoryRequestId: rid,
+          receivedQtyHint: Math.max(1, Number(input.carton.quantity) || 1),
+        });
+      } catch (err) {
+        console.warn("[putaway] close inbound after Send to Pack failed", err);
+      }
+    }
+  }
 }
 
 export type OpenCrossdockLineInput = {

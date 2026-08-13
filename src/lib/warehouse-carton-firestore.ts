@@ -190,6 +190,8 @@ function docToCarton(id: string, data: Record<string, unknown>): WarehouseCarton
     palletId: data.palletId != null ? String(data.palletId) : null,
     productTitle: data.productTitle != null ? String(data.productTitle) : null,
     inventoryRequestId: data.inventoryRequestId != null ? String(data.inventoryRequestId) : null,
+    inboundProductName:
+      data.inboundProductName != null ? String(data.inboundProductName) : null,
     productReturnId: data.productReturnId != null ? String(data.productReturnId) : null,
     barcode: String(data.barcode ?? ""),
     lines: parseLines(data.lines),
@@ -393,6 +395,8 @@ export async function createWarehouseCarton(input: {
   palletId?: string | null;
   productTitle?: string | null;
   inventoryRequestId?: string | null;
+  /** Client inbound name/ID (e.g. KS-BOX-7758) for shipped-order matching. */
+  inboundProductName?: string | null;
   productReturnId?: string | null;
   cartonCode?: string;
   lines?: WarehouseCartonLine[];
@@ -455,6 +459,7 @@ export async function createWarehouseCarton(input: {
     palletId: input.palletId?.trim() || null,
     productTitle: input.productTitle?.trim() || null,
     inventoryRequestId: input.inventoryRequestId?.trim() || null,
+    inboundProductName: input.inboundProductName?.trim() || null,
     productReturnId: input.productReturnId?.trim() || null,
     barcode,
     ...(linesPayload ? { lines: linesPayload } : {}),
@@ -664,6 +669,8 @@ export async function createReceiveBatch(input: {
     clientDisplayName?: string | null;
     /** Link received stock to client inventory request (dock receive against request). */
     inventoryRequestId?: string | null;
+    /** Client inbound product name/ID (e.g. KS-BOX-7758). */
+    inboundProductName?: string | null;
   }>;
 }): Promise<{ palletId: string | null; cartonIds: string[] }> {
   if (!input.cartons || input.cartons.length === 0) {
@@ -770,6 +777,9 @@ export async function createReceiveBatch(input: {
         : isMixed
         ? `Mixed — ${new Set(lines.map((l) => l.sku)).size} SKUs`
         : lines[0].productTitle ?? null;
+      const inboundProductName =
+        cfg.inboundProductName?.trim() ||
+        (!useClosedCrossdock ? lines[0]?.productTitle?.trim() || null : null);
 
       const cartonId = await createWarehouseCarton({
         warehouseId: input.warehouseId,
@@ -783,6 +793,7 @@ export async function createReceiveBatch(input: {
         clientId: rootClientId,
         receivedForClient: cfg.clientDisplayName?.trim() || null,
         inventoryRequestId: rootRequestId,
+        inboundProductName,
         lines,
         isMixed,
         isLoose: input.isLoose ?? false,
