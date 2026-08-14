@@ -81,6 +81,7 @@ export function DashboardSidebar() {
   const {
     pendingInvoicesCount,
     pendingShopifyOrdersCount,
+    pendingEbayOrdersCount,
     pendingInboundCount,
     pendingOutboundCount,
     inventoryActionCount,
@@ -364,6 +365,15 @@ export function DashboardSidebar() {
       badge: pendingShopifyOrdersCount > 0 ? pendingShopifyOrdersCount : null,
       requiredRole: "user" as const,
       requiredFeature: "view_shopify_orders" as const,
+    },
+    {
+      title: "eBay Orders",
+      url: "/dashboard/ebay-orders",
+      icon: ShoppingBag,
+      color: "text-blue-600",
+      badge: pendingEbayOrdersCount > 0 ? pendingEbayOrdersCount : null,
+      requiredRole: "user" as const,
+      requiredFeature: "view_ebay_orders" as const,
     },
     {
       title: "TikTok Shop Orders",

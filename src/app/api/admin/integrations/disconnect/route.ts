@@ -71,7 +71,31 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Connection not found" }, { status: 404 });
       }
       await ref.delete();
-      return NextResponse.json({ ok: true, platform: "ebay" });
+
+      let removedInventoryCount = 0;
+      if (removeInventory) {
+        const invSnap = await db
+          .collection("users")
+          .doc(uid)
+          .collection("inventory")
+          .where("source", "==", "ebay")
+          .where("ebayConnectionId", "==", id)
+          .get();
+        const lookupSnap = await db
+          .collection("ebayInventoryLookup")
+          .where("userId", "==", uid)
+          .where("connectionId", "==", id)
+          .get();
+        const batch = db.batch();
+        for (const d of invSnap.docs) batch.delete(d.ref);
+        for (const d of lookupSnap.docs) batch.delete(d.ref);
+        if (invSnap.docs.length > 0 || lookupSnap.docs.length > 0) {
+          await batch.commit();
+          removedInventoryCount = invSnap.docs.length;
+        }
+      }
+
+      return NextResponse.json({ ok: true, platform: "ebay", removedInventoryCount });
     }
 
     const ref = db.collection("users").doc(uid).collection("shopifyConnections").doc(id);

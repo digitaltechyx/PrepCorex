@@ -11,7 +11,10 @@ import {
 } from "@/lib/warehouse-carton-firestore";
 import { recordInboundReceiveBatch } from "@/lib/warehouse-inbound-receive";
 import { applyPutawayAssignments } from "@/lib/warehouse-putaway";
-import type { ShopifyInventoryPushHint } from "@/lib/client-inventory-inbound-sync";
+import type {
+  ShopifyInventoryPushHint,
+  EbayInventoryPushHint,
+} from "@/lib/client-inventory-inbound-sync";
 import {
   findBinByPath,
   inspectBinContents,
@@ -96,6 +99,7 @@ export type AdminInboundCompleteResult = {
   cartons: WarehouseCartonDoc[];
   pallets: WarehousePalletDoc[];
   shopifyPushHints: ShopifyInventoryPushHint[];
+  ebayPushHints: EbayInventoryPushHint[];
 };
 
 /**
@@ -364,6 +368,7 @@ export async function adminCompleteInboundReceiveAndPutaway(
   });
 
   const shopifyPushHints: ShopifyInventoryPushHint[] = [];
+  const ebayPushHints: EbayInventoryPushHint[] = [];
   for (const carton of receivedCartons) {
     const lines = carton.lines ?? [];
     if (lines.length === 0) {
@@ -405,6 +410,7 @@ export async function adminCompleteInboundReceiveAndPutaway(
       { operatorId: input.operatorId ?? null, warehouseAreas: areas }
     );
     shopifyPushHints.push(...(putResult.shopifyPushHints ?? []));
+    ebayPushHints.push(...(putResult.ebayPushHints ?? []));
   }
 
   let receivedPallet: WarehousePalletDoc | null = null;
@@ -464,6 +470,7 @@ export async function adminCompleteInboundReceiveAndPutaway(
     cartons: putawayCartons,
     pallets: receivedPallet ? [receivedPallet] : [],
     shopifyPushHints,
+    ebayPushHints,
   };
 }
 

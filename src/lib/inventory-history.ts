@@ -362,6 +362,8 @@ export function buildInventoryHistory(
             ? "Disposed"
             : log.eventType === "shopify_quick_fulfill"
               ? "Shopify quick fulfill"
+              : log.eventType === "ebay_quick_fulfill"
+                ? "eBay quick fulfill"
               : "Stock removed";
 
     const shippedLine = findShippedLineForChangeLog(sources.shipped, log, item);

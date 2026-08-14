@@ -512,7 +512,8 @@ export async function assignClientAndOpenClosedCarton(input: {
   synced: boolean;
   cartonCode: string;
   lineCount: number;
-  shopifyPushHints: Awaited<ReturnType<typeof syncClientInventoryFromPutaway>>;
+  shopifyPushHints: Awaited<ReturnType<typeof syncClientInventoryFromPutaway>>["shopifyPushHints"];
+  ebayPushHints: Awaited<ReturnType<typeof syncClientInventoryFromPutaway>>["ebayPushHints"];
 }> {
   const clientId = input.clientId.trim();
   if (!clientId) throw new Error("Select a registered client.");
@@ -550,9 +551,11 @@ export async function assignClientAndOpenClosedCarton(input: {
     Boolean(stagingArea) || lines.some((l) => Boolean(l.binId?.trim() || l.stagingArea?.trim()));
 
   let synced = false;
-  let shopifyPushHints: Awaited<ReturnType<typeof syncClientInventoryFromPutaway>> = [];
+  let shopifyPushHints: Awaited<ReturnType<typeof syncClientInventoryFromPutaway>>["shopifyPushHints"] =
+    [];
+  let ebayPushHints: Awaited<ReturnType<typeof syncClientInventoryFromPutaway>>["ebayPushHints"] = [];
   if (hasPlacement && lines.length > 0) {
-    shopifyPushHints = await syncClientInventoryFromPutaway({
+    const hints = await syncClientInventoryFromPutaway({
       warehouseId: input.warehouseId,
       cartonId: input.cartonId,
       carton: opened,
@@ -564,6 +567,8 @@ export async function assignClientAndOpenClosedCarton(input: {
       })),
       operatorId: input.operatorId ?? null,
     });
+    shopifyPushHints = hints.shopifyPushHints;
+    ebayPushHints = hints.ebayPushHints;
     synced = true;
   }
 
@@ -572,6 +577,7 @@ export async function assignClientAndOpenClosedCarton(input: {
     cartonCode: opened.cartonCode,
     lineCount: lines.length,
     shopifyPushHints,
+    ebayPushHints,
   };
 }
 

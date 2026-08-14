@@ -17,6 +17,11 @@ import {
   type BuyLabelShopifyPrefill,
 } from "@/lib/shopify-order-buy-label-prefill";
 import {
+  clearBuyLabelEbayPrefill,
+  loadBuyLabelEbayPrefill,
+  type BuyLabelEbayPrefill,
+} from "@/lib/ebay-order-buy-label-prefill";
+import {
   clearBuyLabelParcelPrefillFromSession,
   loadBuyLabelParcelPrefillFromSession,
   type BuyLabelParcelPrefill,
@@ -29,11 +34,13 @@ export default function AdminBuyLabelsPageContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const fromShopify = searchParams.get("from") === "shopify";
+  const fromEbay = searchParams.get("from") === "ebay";
   const fromOutbound = searchParams.get("from") === "outbound";
   const [activeTab, setActiveTab] = useState<LabelsTab>(
     tabParam === "purchased" ? "purchased" : tabParam === "billing" ? "billing" : "buy"
   );
   const [shopifyPrefill, setShopifyPrefill] = useState<BuyLabelShopifyPrefill | null>(null);
+  const [ebayPrefill, setEbayPrefill] = useState<BuyLabelEbayPrefill | null>(null);
   const [parcelPrefill, setParcelPrefill] = useState<BuyLabelParcelPrefill | null>(null);
   const { managedUsers } = useManagedUsers();
 
@@ -70,6 +77,18 @@ export default function AdminBuyLabelsPageContent() {
   }, [fromShopify]);
 
   useEffect(() => {
+    if (!fromEbay) {
+      setEbayPrefill(null);
+      return;
+    }
+    const prefill = loadBuyLabelEbayPrefill();
+    if (prefill) {
+      setEbayPrefill(prefill);
+      clearBuyLabelEbayPrefill();
+    }
+  }, [fromEbay]);
+
+  useEffect(() => {
     if (!fromOutbound) {
       setParcelPrefill(null);
       return;
@@ -91,6 +110,8 @@ export default function AdminBuyLabelsPageContent() {
           ? "/admin/dashboard/buy-labels?tab=billing"
           : fromShopify
             ? "/admin/dashboard/buy-labels?from=shopify"
+            : fromEbay
+              ? "/admin/dashboard/buy-labels?from=ebay"
             : fromOutbound
               ? "/admin/dashboard/buy-labels?from=outbound"
               : "/admin/dashboard/buy-labels";
@@ -144,7 +165,7 @@ export default function AdminBuyLabelsPageContent() {
               <BuyLabelsForm
                 successRedirect="/admin/dashboard/buy-labels?tab=purchased"
                 enableClientInventoryPicker
-                initialToAddress={shopifyPrefill?.toAddress ?? null}
+                initialToAddress={shopifyPrefill?.toAddress ?? ebayPrefill?.toAddress ?? null}
                 shopifyOrderContext={
                   shopifyPrefill?.ownerUserId
                     ? {
@@ -168,8 +189,38 @@ export default function AdminBuyLabelsPageContent() {
                               .join(", ")
                           : null,
                         lineItems: shopifyPrefill.lineItems || [],
+                        platform: "shopify",
                       }
-                    : null
+                    : ebayPrefill?.ownerUserId
+                      ? {
+                          orderId: ebayPrefill.orderId,
+                          orderName: `#${ebayPrefill.orderId}`,
+                          shop: "ebay",
+                          shopName: "eBay",
+                          ownerUserId: ebayPrefill.ownerUserId,
+                          ownerName: ebayPrefill.ownerName,
+                          customerName: ebayPrefill.customerName ?? null,
+                          email: ebayPrefill.email ?? null,
+                          shipToSummary: ebayPrefill.toAddress
+                            ? [
+                                ebayPrefill.toAddress.name,
+                                ebayPrefill.toAddress.street1,
+                                ebayPrefill.toAddress.city,
+                                ebayPrefill.toAddress.state,
+                                ebayPrefill.toAddress.zip,
+                              ]
+                                .filter(Boolean)
+                                .join(", ")
+                            : null,
+                          lineItems: (ebayPrefill.lineItems || []).map((li) => ({
+                            title: li.title,
+                            sku: li.sku,
+                            quantity: li.quantity,
+                          })),
+                          platform: "ebay" as const,
+                          connectionId: ebayPrefill.connectionId,
+                        }
+                      : null
                 }
                 clientOptions={clientOptions}
                 initialParcel={parcelPrefill}

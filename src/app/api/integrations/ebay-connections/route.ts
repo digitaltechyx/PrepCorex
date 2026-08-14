@@ -88,22 +88,44 @@ export async function DELETE(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
+  const removeInventory = searchParams.get("removeInventory") === "true";
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
   try {
-    const ref = adminDb()
-      .collection("users")
-      .doc(uid)
-      .collection("ebayConnections")
-      .doc(id);
+    const db = adminDb();
+    const ref = db.collection("users").doc(uid).collection("ebayConnections").doc(id);
     const snap = await ref.get();
     if (!snap.exists) {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     }
     await ref.delete();
-    return NextResponse.json({ ok: true });
+
+    let removedInventoryCount = 0;
+    if (removeInventory) {
+      const invSnap = await db
+        .collection("users")
+        .doc(uid)
+        .collection("inventory")
+        .where("source", "==", "ebay")
+        .where("ebayConnectionId", "==", id)
+        .get();
+      const lookupSnap = await db
+        .collection("ebayInventoryLookup")
+        .where("userId", "==", uid)
+        .where("connectionId", "==", id)
+        .get();
+      const batch = db.batch();
+      for (const d of invSnap.docs) batch.delete(d.ref);
+      for (const d of lookupSnap.docs) batch.delete(d.ref);
+      if (invSnap.docs.length > 0 || lookupSnap.docs.length > 0) {
+        await batch.commit();
+        removedInventoryCount = invSnap.docs.length;
+      }
+    }
+
+    return NextResponse.json({ ok: true, removedInventoryCount });
   } catch (err: unknown) {
     console.error("[ebay-connections DELETE]", err);
     return NextResponse.json(

@@ -190,7 +190,7 @@ function AdminIntegrationsContent() {
           platform,
           targetUid: selectedUid,
           connectionId,
-          removeInventory: platform === "shopify" ? !!removeInv : undefined,
+          removeInventory: !!removeInv,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -198,7 +198,7 @@ function AdminIntegrationsContent() {
       toast({
         title: "Disconnected",
         description:
-          platform === "shopify" && data.removedInventoryCount > 0
+          data.removedInventoryCount > 0
             ? `Removed ${data.removedInventoryCount} linked inventory item(s).`
             : `${platform === "shopify" ? "Shopify" : "eBay"} connection removed for this client.`,
       });

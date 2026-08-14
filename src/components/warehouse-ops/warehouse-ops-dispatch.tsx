@@ -483,6 +483,44 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                 description: e instanceof Error ? e.message : "Unknown error",
               });
             }
+            continue;
+          }
+
+          if (
+            hint.source === "ebay" &&
+            hint.ebayConnectionId &&
+            (hint.ebayOfferId || hint.ebayListingId)
+          ) {
+            try {
+              const res = await fetch("/api/integrations/ebay/sync-inventory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  userId: matchedOrder.clientUserId,
+                  connectionId: hint.ebayConnectionId,
+                  offerId: hint.ebayOfferId,
+                  listingId: hint.ebayListingId,
+                  newQuantity: hint.newQuantity,
+                }),
+              });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                toast({
+                  variant: "destructive",
+                  title: "Dispatched; eBay inventory did not update",
+                  description:
+                    typeof data.error === "string"
+                      ? data.error
+                      : "Reconnect eBay with write scopes in Integrations.",
+                });
+              }
+            } catch (e) {
+              toast({
+                variant: "destructive",
+                title: "Dispatched; eBay inventory did not update",
+                description: e instanceof Error ? e.message : "Unknown error",
+              });
+            }
           }
         }
       }

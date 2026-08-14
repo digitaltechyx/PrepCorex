@@ -39,6 +39,10 @@ export function useClientSidebarBadges() {
   const { data: shopifyOrders } = useCollection<ShopifyOrder>(
     pathPrefix ? `${pathPrefix}/shopifyOrders` : ""
   );
+  const { data: ebayOrders } = useCollection<{
+    id?: string;
+    orderFulfillmentStatus?: string | null;
+  }>(pathPrefix ? `${pathPrefix}/ebayOrders` : "");
   const { data: inventoryRequests } = useCollection<InventoryRequest>(
     pathPrefix ? `${pathPrefix}/inventoryRequests` : ""
   );
@@ -81,6 +85,15 @@ export function useClientSidebarBadges() {
   const pendingShopifyOrdersCount = useMemo(
     () => shopifyOrders.filter((order) => order.fulfillment_status !== "fulfilled").length,
     [shopifyOrders]
+  );
+
+  const pendingEbayOrdersCount = useMemo(
+    () =>
+      ebayOrders.filter((order) => {
+        const status = String(order.orderFulfillmentStatus || "").toUpperCase();
+        return status !== "FULFILLED" && status !== "COMPLETED";
+      }).length,
+    [ebayOrders]
   );
 
   const pendingInboundCount = useMemo(
@@ -140,6 +153,7 @@ export function useClientSidebarBadges() {
   return {
     pendingInvoicesCount,
     pendingShopifyOrdersCount,
+    pendingEbayOrdersCount,
     pendingInboundCount,
     pendingOutboundCount,
     inventoryActionCount,

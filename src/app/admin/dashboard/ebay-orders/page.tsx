@@ -19,10 +19,18 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { hasRole } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
-import { ShoppingBag, Users, ChevronsUpDown, RefreshCw, Truck, Loader2 } from "lucide-react";
+import { ShoppingBag, Users, ChevronsUpDown, RefreshCw, Truck, Loader2, Tag, Package } from "lucide-react";
 import type { UserProfile } from "@/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
+import { EbayQuickFulfillDialog } from "@/components/admin/ebay-quick-fulfill-dialog";
+import {
+  saveBuyLabelEbayPrefill,
+  ebayShipToBuyLabelsAddress,
+  loadEbayLabelFulfillHandoff,
+  clearEbayLabelFulfillHandoff,
+  type EbayShipToStored,
+} from "@/lib/ebay-order-buy-label-prefill";
 
 type LineItem = {
   lineItemId?: string;
@@ -36,11 +44,13 @@ type LineItem = {
 type EbayOrder = {
   id: string;
   orderId?: string;
+  connectionId?: string;
   creationDate?: string | null;
   lastModifiedDate?: string | null;
   orderFulfillmentStatus?: string | null;
   orderPaymentStatus?: string | null;
   buyer?: { email?: string; fullName?: string } | null;
+  shipTo?: EbayShipToStored | null;
   lineItems?: LineItem[];
   syncedAt?: string;
 };
@@ -60,6 +70,14 @@ function EbayOrdersContent() {
   const [fulfilling, setFulfilling] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [carrierCode, setCarrierCode] = useState("");
+  const [quickFulfillOrder, setQuickFulfillOrder] = useState<EbayOrder | null>(null);
+  const [labelHandoff, setLabelHandoff] = useState<{
+    inventoryProductId?: string | null;
+    trackingNumber?: string | null;
+    trackingCompany?: string | null;
+    labelPrice?: number | null;
+    labelPurchaseId?: string | null;
+  } | null>(null);
 
   const { managedUsers: users, loading: usersLoading } = useManagedUsers();
   const selectableUsers = useMemo(() => {
@@ -109,6 +127,30 @@ function EbayOrdersContent() {
     }
     fetchOrders();
   }, [selectedUser?.uid, authUser, fetchOrders]);
+
+  // Return from Buy Labels → open Quick Fulfill with tracking/product.
+  useEffect(() => {
+    const fromBuyLabels = searchParams.get("from") === "buy-labels";
+    const orderIdParam = searchParams.get("orderId")?.trim();
+    if (!fromBuyLabels || !orderIdParam || orders.length === 0) return;
+    const handoff = loadEbayLabelFulfillHandoff();
+    const match = orders.find((o) => (o.orderId || o.id) === orderIdParam);
+    if (match) {
+      setQuickFulfillOrder(match);
+      setLabelHandoff(
+        handoff
+          ? {
+              inventoryProductId: handoff.inventoryProductId,
+              trackingNumber: handoff.trackingNumber,
+              trackingCompany: handoff.trackingCompany,
+              labelPrice: handoff.labelPrice,
+              labelPurchaseId: handoff.labelPurchaseId,
+            }
+          : null
+      );
+      clearEbayLabelFulfillHandoff();
+    }
+  }, [searchParams, orders]);
 
   const handleSync = async () => {
     if (!selectedUser?.uid || !authUser) return;
@@ -211,6 +253,45 @@ function EbayOrdersContent() {
     } finally {
       setFulfilling(false);
     }
+  };
+
+  const openBuyLabels = (order: EbayOrder) => {
+    if (!selectedUser?.uid) return;
+    const orderId = order.orderId ?? order.id;
+    const connectionId = order.connectionId?.trim();
+    if (!connectionId) {
+      toast({
+        variant: "destructive",
+        title: "Missing connection",
+        description: "Sync this order again so the eBay connection id is stored.",
+      });
+      return;
+    }
+    const toAddress = ebayShipToBuyLabelsAddress(order.shipTo, {
+      customerName: order.buyer?.fullName,
+      email: order.buyer?.email,
+    });
+    saveBuyLabelEbayPrefill({
+      orderId,
+      connectionId,
+      ownerUserId: selectedUser.uid,
+      ownerName: formatUserDisplayName(selectedUser, { showEmail: true }),
+      customerName: order.buyer?.fullName ?? null,
+      email: order.buyer?.email ?? null,
+      toAddress,
+      lineItems: (order.lineItems ?? []).map((li) => ({
+        title: li.title || li.sku || li.lineItemId || "Item",
+        sku: li.sku ?? null,
+        quantity: li.quantity ?? 1,
+      })),
+    });
+    if (!toAddress) {
+      toast({
+        title: "Opening Buy Labels",
+        description: "No ship-to address on this order — enter it manually on Buy Labels.",
+      });
+    }
+    router.push("/admin/dashboard/buy-labels?from=ebay");
   };
 
   const formatDate = (raw: string | null | undefined) => {
@@ -348,12 +429,29 @@ function EbayOrdersContent() {
                       ))}
                     </ul>
                   </div>
-                  <div className="shrink-0">
+                  <div className="shrink-0 flex flex-col gap-2">
                     {canFulfill(order) ? (
-                      <Button variant="outline" size="sm" onClick={() => openFulfillDialog(order)}>
-                        <Truck className="h-4 w-4 mr-1" />
-                        Mark shipped
-                      </Button>
+                      <>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => {
+                            setLabelHandoff(null);
+                            setQuickFulfillOrder(order);
+                          }}
+                        >
+                          <Package className="h-4 w-4 mr-1" />
+                          Quick Fulfill
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => openBuyLabels(order)}>
+                          <Tag className="h-4 w-4 mr-1" />
+                          Buy Labels
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => openFulfillDialog(order)}>
+                          <Truck className="h-4 w-4 mr-1" />
+                          Mark shipped
+                        </Button>
+                      </>
                     ) : (
                       <span className="text-sm text-muted-foreground">
                         {order.orderFulfillmentStatus === "FULFILLED" ? "Fulfilled" : "—"}
@@ -404,6 +502,28 @@ function EbayOrdersContent() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <EbayQuickFulfillDialog
+        open={!!quickFulfillOrder}
+        onOpenChange={(open) => {
+          if (!open) {
+            setQuickFulfillOrder(null);
+            setLabelHandoff(null);
+          }
+        }}
+        order={quickFulfillOrder}
+        ownerUserId={selectedUser?.uid || ""}
+        getAuthToken={async () => {
+          if (!authUser) throw new Error("Not signed in");
+          return authUser.getIdToken();
+        }}
+        labelHandoff={labelHandoff}
+        onCompleted={() => {
+          setQuickFulfillOrder(null);
+          setLabelHandoff(null);
+          void fetchOrders();
+        }}
+      />
     </Card>
   );
 }

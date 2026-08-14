@@ -211,6 +211,12 @@ export default function EbayOrdersPage() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Link
+                  href="/dashboard/ebay-orders"
+                  className="text-muted-foreground hover:text-foreground sr-only"
+                >
+                  eBay Orders
+                </Link>
+                <Link
                   href="/dashboard/integrations"
                   className="text-muted-foreground hover:text-foreground"
                 >
@@ -219,7 +225,9 @@ export default function EbayOrdersPage() {
                 eBay Orders
               </CardTitle>
               <CardDescription>
-                Orders for your selected eBay listings. Sync to pull the latest from eBay, then mark as shipped when you fulfill.
+                Orders for your selected eBay listings. Sync to pull the latest from eBay, then mark as shipped when you
+                fulfill. Existing connections must reconnect once so PrepCorex gets write access for quantity updates
+                and fulfillment.
               </CardDescription>
             </div>
             <Button onClick={handleSync} disabled={syncing || !user}>

@@ -16,6 +16,7 @@ import { isCrossdockClosedCarton } from "@/lib/warehouse-crossdock";
 import { creditReturnInventory } from "@/lib/product-return-ops";
 import type { InventoryRequest, WarehouseCartonDoc, WarehouseCartonLine } from "@/types";
 import type { ShopifyInventoryPushHint } from "@/lib/shopify-inventory-sync";
+import type { EbayInventoryPushHint } from "@/lib/ebay-inventory-sync";
 
 export type PutawaySyncAssignment = {
   lineId: string;
@@ -25,7 +26,12 @@ export type PutawaySyncAssignment = {
   stagingArea?: string | null;
 };
 
-export type { ShopifyInventoryPushHint };
+export type ClientInventoryPutawayPushHints = {
+  shopifyPushHints: ShopifyInventoryPushHint[];
+  ebayPushHints: EbayInventoryPushHint[];
+};
+
+export type { ShopifyInventoryPushHint, EbayInventoryPushHint };
 
 function norm(value: string | undefined | null): string {
   return (value ?? "").trim().toLowerCase();
@@ -110,15 +116,16 @@ export async function syncClientInventoryFromPutaway(input: {
   carton: WarehouseCartonDoc;
   applied: PutawaySyncAssignment[];
   operatorId?: string | null;
-}): Promise<ShopifyInventoryPushHint[]> {
+}): Promise<ClientInventoryPutawayPushHints> {
   const shopifyHints: ShopifyInventoryPushHint[] = [];
+  const ebayHints: EbayInventoryPushHint[] = [];
   // Closed cross-dock (placeholder SKU only) never updates client inventory.
   // Opened / convert-to-open-receive cartons do sync once real SKUs exist.
   if (
     input.carton.receiveMode === "crossdock" &&
     (isCrossdockClosedCarton(input.carton) || input.carton.isClosedCrossdock === true)
   ) {
-    return shopifyHints;
+    return { shopifyPushHints: shopifyHints, ebayPushHints: ebayHints };
   }
 
   for (const assignment of input.applied) {
@@ -154,7 +161,7 @@ export async function syncClientInventoryFromPutaway(input: {
       continue;
     }
 
-    const hint = await syncPutawayLine({
+    const hints = await syncPutawayLine({
       warehouseId: input.warehouseId,
       cartonId: input.cartonId,
       carton: input.carton,
@@ -165,9 +172,10 @@ export async function syncClientInventoryFromPutaway(input: {
       stagingArea: assignment.stagingArea ?? null,
       operatorId: input.operatorId ?? null,
     });
-    if (hint) shopifyHints.push(hint);
+    if (hints.shopify) shopifyHints.push(hints.shopify);
+    if (hints.ebay) ebayHints.push(hints.ebay);
   }
-  return shopifyHints;
+  return { shopifyPushHints: shopifyHints, ebayPushHints: ebayHints };
 }
 
 async function syncPutawayLine(input: {
@@ -180,7 +188,7 @@ async function syncPutawayLine(input: {
   binPath: string | null;
   stagingArea: string | null;
   operatorId: string | null;
-}): Promise<ShopifyInventoryPushHint | null> {
+}): Promise<{ shopify: ShopifyInventoryPushHint | null; ebay: EbayInventoryPushHint | null }> {
   const clientUserId = input.line.clientId!.trim();
   const syncKey = buildSyncKey({
     warehouseId: input.warehouseId,
@@ -208,10 +216,10 @@ async function syncPutawayLine(input: {
   // Already synced qty — still backfill missing product photos / receiving date / remarks photos when possible.
   if (existingLog.exists()) {
     const inventoryId = String(existingLog.data()?.inventoryId ?? "").trim();
-    if (!inventoryId) return null;
+    if (!inventoryId) return { shopify: null, ebay: null };
     const invRef = doc(db, "users", clientUserId, "inventory", inventoryId);
     const invSnap = await getDoc(invRef);
-    if (!invSnap.exists()) return null;
+    if (!invSnap.exists()) return { shopify: null, ebay: null };
     const patch: Record<string, unknown> = {};
     const rawProductUrls = Array.isArray(invSnap.data()?.imageUrls)
       ? (invSnap.data()?.imageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
@@ -237,16 +245,16 @@ async function syncPutawayLine(input: {
     if (!invSnap.data()?.receivingDate) {
       patch.receivingDate = serverTimestamp();
     }
-    if (Object.keys(patch).length === 0) return null;
+    if (Object.keys(patch).length === 0) return { shopify: null, ebay: null };
     patch.updatedAt = serverTimestamp();
     await updateDoc(invRef, patch);
-    return null;
+    return { shopify: null, ebay: null };
   }
 
   const isDamaged = input.line.condition === "damaged";
   const goodQty = isDamaged ? 0 : Math.max(0, Math.floor(input.putawayQty));
   const damagedQty = isDamaged ? Math.max(0, Math.floor(input.putawayQty)) : 0;
-  if (goodQty === 0 && damagedQty === 0) return null;
+  if (goodQty === 0 && damagedQty === 0) return { shopify: null, ebay: null };
 
   const productName =
     input.line.productTitle?.trim() ||
@@ -429,23 +437,47 @@ async function syncPutawayLine(input: {
     console.error("[syncPutawayLine] storage billing link failed", err);
   }
 
-  if (goodQty <= 0) return null;
+  if (goodQty <= 0) return { shopify: null, ebay: null };
   const invAfter = await getDoc(inventoryRef);
-  if (!invAfter.exists()) return null;
+  if (!invAfter.exists()) return { shopify: null, ebay: null };
   const data = invAfter.data() || {};
-  if (data.source !== "shopify") return null;
-  const shop = typeof data.shop === "string" ? data.shop.trim() : "";
-  const shopifyVariantId =
-    data.shopifyVariantId != null ? String(data.shopifyVariantId).trim() : "";
-  if (!shop || !shopifyVariantId) return null;
-  return {
-    userId: clientUserId,
-    shop,
-    shopifyVariantId,
-    shopifyInventoryItemId:
-      data.shopifyInventoryItemId != null ? String(data.shopifyInventoryItemId) : null,
-    newQuantity: Math.max(0, Math.floor(Number(data.quantity) || 0)),
-  };
+  const newQuantity = Math.max(0, Math.floor(Number(data.quantity) || 0));
+
+  let shopify: ShopifyInventoryPushHint | null = null;
+  if (data.source === "shopify") {
+    const shop = typeof data.shop === "string" ? data.shop.trim() : "";
+    const shopifyVariantId =
+      data.shopifyVariantId != null ? String(data.shopifyVariantId).trim() : "";
+    if (shop && shopifyVariantId) {
+      shopify = {
+        userId: clientUserId,
+        shop,
+        shopifyVariantId,
+        shopifyInventoryItemId:
+          data.shopifyInventoryItemId != null ? String(data.shopifyInventoryItemId) : null,
+        newQuantity,
+      };
+    }
+  }
+
+  let ebay: EbayInventoryPushHint | null = null;
+  if (data.source === "ebay") {
+    const connectionId =
+      data.ebayConnectionId != null ? String(data.ebayConnectionId).trim() : "";
+    const offerId = data.ebayOfferId != null ? String(data.ebayOfferId).trim() : "";
+    const listingId = data.ebayListingId != null ? String(data.ebayListingId).trim() : "";
+    if (connectionId && (offerId || listingId)) {
+      ebay = {
+        userId: clientUserId,
+        connectionId,
+        offerId: offerId || null,
+        listingId: listingId || null,
+        newQuantity,
+      };
+    }
+  }
+
+  return { shopify, ebay };
 }
 
 async function findInventoryDocRef(

@@ -44,6 +44,7 @@ import type {
 import {
   syncClientInventoryFromPutaway,
   type ShopifyInventoryPushHint,
+  type EbayInventoryPushHint,
 } from "@/lib/client-inventory-inbound-sync";
 
 const WAREHOUSES = "warehouses";
@@ -483,6 +484,7 @@ export async function applyPutawayAssignments(
   allStowed: boolean;
   splitAcrossBins: boolean;
   shopifyPushHints: ShopifyInventoryPushHint[];
+  ebayPushHints: EbayInventoryPushHint[];
 }> {
   if (!carton.lines || carton.lines.length === 0) {
     throw new Error("This carton has no lines — cannot putaway.");
@@ -596,7 +598,7 @@ export async function applyPutawayAssignments(
     cartonForSync.lines = nextLines;
   }
 
-  const shopifyPushHints = await syncClientInventoryFromPutaway({
+  const { shopifyPushHints, ebayPushHints } = await syncClientInventoryFromPutaway({
     warehouseId,
     cartonId,
     carton: cartonForSync,
@@ -621,6 +623,7 @@ export async function applyPutawayAssignments(
     allStowed,
     splitAcrossBins,
     shopifyPushHints,
+    ebayPushHints,
   };
 }
 

@@ -623,6 +623,52 @@ export function ShipmentRequestsManagement({
               });
             }
           }
+
+          const ebayItem = invItem as InventoryItem & {
+            source?: string;
+            ebayConnectionId?: string;
+            ebayOfferId?: string;
+            ebayListingId?: string;
+          };
+          if (
+            ebayItem?.source === "ebay" &&
+            ebayItem.ebayConnectionId &&
+            (ebayItem.ebayOfferId || ebayItem.ebayListingId)
+          ) {
+            const totalRestore = (shipment.quantity || 0) * (shipment.packOf || 1);
+            const newQty = ebayItem.quantity + totalRestore;
+            try {
+              const token = await authUser.getIdToken();
+              const res = await fetch("/api/integrations/ebay/sync-inventory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  userId: targetUserId,
+                  connectionId: ebayItem.ebayConnectionId,
+                  offerId: ebayItem.ebayOfferId,
+                  listingId: ebayItem.ebayListingId,
+                  newQuantity: newQty,
+                }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                toast({
+                  variant: "destructive",
+                  title: "Quantities restored in PrepCorex; eBay did not update",
+                  description:
+                    typeof data.error === "string"
+                      ? data.error
+                      : "Reconnect eBay with write scopes in Integrations.",
+                });
+              }
+            } catch (e) {
+              toast({
+                variant: "destructive",
+                title: "Quantities restored in PrepCorex; eBay did not update",
+                description: e instanceof Error ? e.message : "Reconnect eBay in Integrations.",
+              });
+            }
+          }
         }
       }
 

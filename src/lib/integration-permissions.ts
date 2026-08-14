@@ -75,6 +75,7 @@ const PLATFORM_BY_ID = new Map(INTEGRATION_PLATFORMS.map((p) => [p.id, p]));
 
 const ORDER_PATH_TO_PLATFORM: Record<string, IntegrationPlatformId> = {
   "/dashboard/shopify-orders": "shopify",
+  "/dashboard/ebay-orders": "ebay",
   "/dashboard/tiktok-orders": "tiktok",
   "/dashboard/shipstation-orders": "shipstation",
   "/dashboard/woocommerce-orders": "woocommerce",

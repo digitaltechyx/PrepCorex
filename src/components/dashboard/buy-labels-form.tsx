@@ -14,6 +14,10 @@ import {
   saveShopifyLabelFulfillHandoff,
   shopifyQuickFulfillReturnUrl,
 } from "@/lib/shopify-order-buy-label-prefill";
+import {
+  saveEbayLabelFulfillHandoff,
+  ebayQuickFulfillReturnUrl,
+} from "@/lib/ebay-order-buy-label-prefill";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -299,6 +303,9 @@ type BuyLabelsFormProps = {
     email?: string | null;
     shipToSummary?: string | null;
     lineItems?: BuyLabelShopifyPrefillLine[];
+    /** When set to ebay, Buy Labels returns to eBay Quick Fulfill. */
+    platform?: "shopify" | "ebay";
+    connectionId?: string;
   } | null;
   /** Client list for the inventory-owner picker (admin Buy Labels). */
   clientOptions?: Array<{ uid: string; label: string }>;
@@ -1081,6 +1088,44 @@ export function BuyLabelsForm({
         }
       }
 
+      if (shopifyOrderContext.platform === "ebay") {
+        saveEbayLabelFulfillHandoff({
+          ownerUserId: inventoryOwnerId || shopifyOrderContext.ownerUserId,
+          orderId: shopifyOrderContext.orderId,
+          connectionId: shopifyOrderContext.connectionId || "",
+          inventoryProductId: selectedInventoryProductId || null,
+          inventoryProductName: selectedProduct?.productName || null,
+          labelPurchaseId: pendingLabelPurchaseId,
+          labelPrice: Number.isFinite(labelPrice) ? labelPrice : null,
+          trackingNumber,
+          trackingCompany,
+          purchasedByUserId: user.uid,
+        });
+
+        resetFormForNextLabel();
+        setRates([]);
+        setSelectedRate(null);
+        setShipmentId(null);
+        setClientSecret(null);
+        setCheckoutMode(null);
+        setPendingLabelPurchaseId(null);
+
+        toast({
+          title: trackingNumber ? "Label purchased" : "Payment succeeded",
+          description: trackingNumber
+            ? "Returning to eBay Quick Fulfill with tracking prefilled."
+            : "Returning to eBay Quick Fulfill. Tracking may appear shortly — refresh if needed.",
+        });
+
+        router.push(
+          ebayQuickFulfillReturnUrl({
+            ownerUserId: inventoryOwnerId || shopifyOrderContext.ownerUserId,
+            orderId: shopifyOrderContext.orderId,
+          })
+        );
+        return;
+      }
+
       saveShopifyLabelFulfillHandoff({
         ownerUserId: inventoryOwnerId || shopifyOrderContext.ownerUserId,
         orderId: shopifyOrderContext.orderId,
@@ -1139,7 +1184,7 @@ export function BuyLabelsForm({
           <CardHeader className="pb-3">
             <CardTitle className="flex flex-wrap items-center gap-2 text-base">
               <ShoppingBag className="h-5 w-5 text-emerald-600" />
-              Shopify order reference
+              {shopifyOrderContext.platform === "ebay" ? "eBay" : "Shopify"} order reference
               <Badge variant="secondary">{shopifyOrderContext.orderName}</Badge>
             </CardTitle>
             <CardDescription>

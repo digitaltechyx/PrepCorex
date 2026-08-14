@@ -39,6 +39,7 @@ import {
 import { completeDispatchHandoff } from "@/lib/warehouse-pack";
 import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
 import { pushShopifyInventoryHints } from "@/lib/shopify-inventory-sync";
+import { pushEbayInventoryHints } from "@/lib/ebay-inventory-sync";
 import { isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import type {
   InventoryRequest,
@@ -313,21 +314,33 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           clientDisplayName,
         });
         setLastInboundResult(result);
-        if (user && result.shopifyPushHints?.length) {
+        if (user && (result.shopifyPushHints?.length || result.ebayPushHints?.length)) {
           try {
             const token = await user.getIdToken();
-            const sync = await pushShopifyInventoryHints(token, result.shopifyPushHints);
-            if (sync.errors.length > 0) {
-              toast({
-                variant: "destructive",
-                title: "PrepCorex updated; Shopify did not update",
-                description: sync.errors[0],
-              });
+            if (result.shopifyPushHints?.length) {
+              const sync = await pushShopifyInventoryHints(token, result.shopifyPushHints);
+              if (sync.errors.length > 0) {
+                toast({
+                  variant: "destructive",
+                  title: "PrepCorex updated; Shopify did not update",
+                  description: sync.errors[0],
+                });
+              }
+            }
+            if (result.ebayPushHints?.length) {
+              const sync = await pushEbayInventoryHints(token, result.ebayPushHints);
+              if (sync.errors.length > 0) {
+                toast({
+                  variant: "destructive",
+                  title: "PrepCorex updated; eBay did not update",
+                  description: sync.errors[0],
+                });
+              }
             }
           } catch (e) {
             toast({
               variant: "destructive",
-              title: "PrepCorex updated; Shopify did not update",
+              title: "PrepCorex updated; channel inventory did not update",
               description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
             });
           }

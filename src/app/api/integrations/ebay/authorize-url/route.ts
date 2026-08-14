@@ -4,10 +4,11 @@ import { getRequestHost, resolveEbayRuName } from "@/lib/ebay-oauth";
 
 export const dynamic = "force-dynamic";
 
+/** Write scopes required for qty push + mark shipped. Users must reconnect after this upgrade. */
 const EBAY_SCOPES = [
   "https://api.ebay.com/oauth/api_scope",
-  "https://api.ebay.com/oauth/api_scope/sell.inventory.readonly",
-  "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly",
+  "https://api.ebay.com/oauth/api_scope/sell.inventory",
+  "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
   "https://api.ebay.com/oauth/api_scope/sell.account.readonly",
 ].join(" ");
 

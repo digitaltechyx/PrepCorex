@@ -177,6 +177,8 @@ export async function deductWarehouseStockForQuickFulfill(input: {
   operatorId?: string | null;
   shopifyOrderId?: string | null;
   shopifyOrderName?: string | null;
+  ebayOrderId?: string | null;
+  movementType?: "shopify_quick_fulfill" | "ebay_quick_fulfill";
 }): Promise<WarehouseQuickFulfillDeductResult> {
   const need = Math.max(0, Math.floor(input.quantity));
   const empty: WarehouseQuickFulfillDeductResult = { deducted: 0, shortfall: need, movements: [] };
@@ -316,7 +318,7 @@ export async function deductWarehouseStockForQuickFulfill(input: {
           .collection("movementEvents")
           .doc();
         tx.set(eventRef, {
-          type: "shopify_quick_fulfill",
+          type: input.movementType || "shopify_quick_fulfill",
           cartonId: candidate.cartonId,
           cartonCode: candidate.cartonCode,
           lineId: t.lineId,
@@ -327,6 +329,7 @@ export async function deductWarehouseStockForQuickFulfill(input: {
           operatorId: input.operatorId ?? null,
           shopifyOrderId: input.shopifyOrderId ?? null,
           shopifyOrderName: input.shopifyOrderName ?? null,
+          ebayOrderId: input.ebayOrderId ?? null,
           productName: input.productName ?? line.productTitle ?? null,
           at: FieldValue.serverTimestamp(),
         });

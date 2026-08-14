@@ -10,6 +10,18 @@ type EbayLineItem = {
   lineItemFulfillmentStatus?: string;
 };
 
+type EbayShipToAddress = {
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  stateOrProvince?: string;
+  postalCode?: string;
+  countryCode?: string;
+};
+
 type EbayOrder = {
   orderId?: string;
   creationDate?: string;
@@ -18,12 +30,46 @@ type EbayOrder = {
   orderPaymentStatus?: string;
   lineItems?: EbayLineItem[];
   buyer?: { email?: string; fullName?: string };
+  fulfillmentStartInstructions?: Array<{
+    shippingStep?: {
+      shipTo?: {
+        fullName?: string;
+        email?: string;
+        primaryPhone?: { phoneNumber?: string };
+        contactAddress?: {
+          addressLine1?: string;
+          addressLine2?: string;
+          city?: string;
+          stateOrProvince?: string;
+          postalCode?: string;
+          countryCode?: string;
+        };
+      };
+    };
+  }>;
 };
 
 type OrderSearchResponse = {
   orders?: EbayOrder[];
   next?: string;
 };
+
+function extractShipTo(order: EbayOrder): EbayShipToAddress | null {
+  const shipTo = order.fulfillmentStartInstructions?.[0]?.shippingStep?.shipTo;
+  if (!shipTo) return null;
+  const addr = shipTo.contactAddress;
+  return {
+    fullName: shipTo.fullName,
+    email: shipTo.email || order.buyer?.email,
+    phone: shipTo.primaryPhone?.phoneNumber,
+    addressLine1: addr?.addressLine1,
+    addressLine2: addr?.addressLine2,
+    city: addr?.city,
+    stateOrProvince: addr?.stateOrProvince,
+    postalCode: addr?.postalCode,
+    countryCode: addr?.countryCode,
+  };
+}
 
 export type SyncOrdersResult = {
   ok: boolean;
@@ -142,6 +188,7 @@ export async function syncEbayOrdersForConnection({
                   fullName: order.buyer.fullName,
                 }
               : null,
+            shipTo: extractShipTo(order),
             lineItems: selectedItems.map((li) => ({
               lineItemId: li.lineItemId,
               legacyItemId: li.legacyItemId,

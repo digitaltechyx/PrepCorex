@@ -258,6 +258,11 @@ export default function IntegrationsPage() {
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
   const [pendingDisconnect, setPendingDisconnect] = useState<{ id: string; shopName: string } | null>(null);
   const [ebayDisconnectId, setEbayDisconnectId] = useState<string | null>(null);
+  const [ebayDisconnectDialogOpen, setEbayDisconnectDialogOpen] = useState(false);
+  const [pendingEbayDisconnect, setPendingEbayDisconnect] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
   const [ebayConnectLoading, setEbayConnectLoading] = useState(false);
   const [shipstationDialogOpen, setShipstationDialogOpen] = useState(false);
   const [shipstationApiKey, setShipstationApiKey] = useState("");
@@ -506,12 +511,15 @@ export default function IntegrationsPage() {
     }
   };
 
-  const handleDisconnectEbay = async (id: string) => {
+  const handleDisconnectEbay = async (id: string, removeInventory: boolean) => {
     if (!user) return;
     setEbayDisconnectId(id);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`/api/integrations/ebay-connections?id=${encodeURIComponent(id)}`, {
+      const url = `/api/integrations/ebay-connections?id=${encodeURIComponent(id)}${
+        removeInventory ? "&removeInventory=true" : ""
+      }`;
+      const res = await fetch(url, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -519,7 +527,16 @@ export default function IntegrationsPage() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Failed to disconnect");
       }
-      toast({ title: "Disconnected", description: "eBay account has been disconnected." });
+      const data = await res.json().catch(() => ({}));
+      toast({
+        title: "Disconnected",
+        description:
+          removeInventory && data.removedInventoryCount
+            ? `eBay disconnected and ${data.removedInventoryCount} linked product(s) removed.`
+            : "eBay account has been disconnected.",
+      });
+      setEbayDisconnectDialogOpen(false);
+      setPendingEbayDisconnect(null);
       fetchConnections();
     } catch (err: unknown) {
       toast({
@@ -1366,7 +1383,7 @@ export default function IntegrationsPage() {
                                   </Button>
                                   <Button variant="secondary" size="sm" className="h-8" asChild>
                                     <Link
-                                      href={`/dashboard/integrations/ebay/orders?connectionId=${encodeURIComponent(conn.id)}`}
+                                      href={`/dashboard/ebay-orders?connectionId=${encodeURIComponent(conn.id)}`}
                                     >
                                       <ShoppingCart className="h-3.5 w-3.5 mr-1" />
                                       Orders
@@ -1376,7 +1393,13 @@ export default function IntegrationsPage() {
                                     variant="ghost"
                                     size="sm"
                                     className="h-8 text-destructive hover:text-destructive"
-                                    onClick={() => handleDisconnectEbay(conn.id)}
+                                    onClick={() => {
+                                      setPendingEbayDisconnect({
+                                        id: conn.id,
+                                        label: `eBay · ${conn.environment}`,
+                                      });
+                                      setEbayDisconnectDialogOpen(true);
+                                    }}
                                     disabled={ebayDisconnectId === conn.id}
                                   >
                                     {ebayDisconnectId === conn.id ? (
@@ -1706,6 +1729,56 @@ export default function IntegrationsPage() {
                 Connect & sync
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={ebayDisconnectDialogOpen}
+        onOpenChange={(open) => {
+          setEbayDisconnectDialogOpen(open);
+          if (!open) setPendingEbayDisconnect(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Disconnect eBay account?</DialogTitle>
+            <DialogDescription>
+              This will remove {pendingEbayDisconnect?.label ?? "this eBay account"}. You can keep linked listings in
+              PrepCorex inventory, or remove them.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={() =>
+                pendingEbayDisconnect && handleDisconnectEbay(pendingEbayDisconnect.id, false)
+              }
+              disabled={!pendingEbayDisconnect || ebayDisconnectId === pendingEbayDisconnect.id}
+            >
+              {pendingEbayDisconnect && ebayDisconnectId === pendingEbayDisconnect.id ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Disconnect only (keep linked products)
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() =>
+                pendingEbayDisconnect && handleDisconnectEbay(pendingEbayDisconnect.id, true)
+              }
+              disabled={!pendingEbayDisconnect || ebayDisconnectId === pendingEbayDisconnect.id}
+            >
+              Disconnect and remove linked products
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setEbayDisconnectDialogOpen(false);
+                setPendingEbayDisconnect(null);
+              }}
+            >
+              Cancel
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

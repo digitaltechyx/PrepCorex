@@ -311,6 +311,50 @@ export function DisposeRequestsManagement({
         });
       }
     }
+
+    const ebayItem = invItem as InventoryItem & {
+      source?: string;
+      ebayConnectionId?: string;
+      ebayOfferId?: string;
+      ebayListingId?: string;
+    };
+    if (
+      ebayItem.source === "ebay" &&
+      ebayItem.ebayConnectionId &&
+      (ebayItem.ebayOfferId || ebayItem.ebayListingId)
+    ) {
+      try {
+        const token = await authUser.getIdToken();
+        const res = await fetch("/api/integrations/ebay/sync-inventory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            userId,
+            connectionId: ebayItem.ebayConnectionId,
+            offerId: ebayItem.ebayOfferId,
+            listingId: ebayItem.ebayListingId,
+            newQuantity: newQtyAfterDispose,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            variant: "destructive",
+            title: "Disposed in PrepCorex; eBay did not update",
+            description:
+              typeof data.error === "string"
+                ? data.error
+                : "Reconnect eBay with write scopes in Integrations.",
+          });
+        }
+      } catch (e) {
+        toast({
+          variant: "destructive",
+          title: "Disposed in PrepCorex; eBay did not update",
+          description: e instanceof Error ? e.message : "Reconnect eBay in Integrations.",
+        });
+      }
+    }
   };
 
   const runBulkBatchAction = async (

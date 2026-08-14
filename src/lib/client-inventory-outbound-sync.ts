@@ -26,6 +26,9 @@ export type ShopifyInventorySyncHint = {
   tiktokProductId?: string;
   tiktokSkuId?: string;
   tiktokShopId?: string;
+  ebayConnectionId?: string;
+  ebayOfferId?: string;
+  ebayListingId?: string;
 };
 
 function removeUndefined(obj: unknown): unknown {
@@ -325,6 +328,21 @@ export async function applyClientInventoryOnDispatch(input: {
           tiktokProductId: currentInventory.tiktokProductId,
           tiktokSkuId: currentInventory.tiktokSkuId,
           tiktokShopId: currentInventory.tiktokShopId,
+        });
+      }
+
+      if (
+        currentInventory.source === "ebay" &&
+        currentInventory.ebayConnectionId &&
+        (currentInventory.ebayOfferId || currentInventory.ebayListingId)
+      ) {
+        shopifyHints.push({
+          productId: String(row.shipment.productId),
+          newQuantity,
+          source: currentInventory.source,
+          ebayConnectionId: currentInventory.ebayConnectionId,
+          ebayOfferId: currentInventory.ebayOfferId,
+          ebayListingId: currentInventory.ebayListingId,
         });
       }
 
