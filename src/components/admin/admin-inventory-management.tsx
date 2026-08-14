@@ -455,6 +455,7 @@ export function AdminInventoryManagement({
   const [detailsLines, setDetailsLines] = useState<string[]>([]);
   const [shipmentDetails, setShipmentDetails] = useState<ShippedOrderDetails | null>(null);
   const [isShipmentDetailsOpen, setIsShipmentDetailsOpen] = useState(false);
+  const [shipmentDetailsItem, setShipmentDetailsItem] = useState<ShippedItem | null>(null);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [deleteLogsSearch, setDeleteLogsSearch] = useState("");
   const [editLogsSearch, setEditLogsSearch] = useState("");
@@ -788,6 +789,7 @@ export function AdminInventoryManagement({
   };
 
   const handleShipmentDetailsClick = (item: ShippedItem) => {
+    setShipmentDetailsItem(item);
     setShipmentDetails(
       enrichShippedOrderDetailsFromInventory(
         buildShippedOrderDetails(item, {
@@ -4249,9 +4251,36 @@ export function AdminInventoryManagement({
         open={isShipmentDetailsOpen}
         onOpenChange={(open) => {
           setIsShipmentDetailsOpen(open);
-          if (!open) setShipmentDetails(null);
+          if (!open) {
+            setShipmentDetails(null);
+            setShipmentDetailsItem(null);
+          }
         }}
         details={shipmentDetails}
+        allowCorrectWarehouseProduct={Boolean(
+          shipmentDetailsItem &&
+            (shipmentDetailsItem.quickFulfill === true ||
+              String(shipmentDetailsItem.source || "").toLowerCase() === "shopify")
+        )}
+        correction={
+          selectedUser && shipmentDetailsItem?.id && authUser
+            ? {
+                userId: selectedUser.uid,
+                shippedId: shipmentDetailsItem.id,
+                inventory,
+                getAuthToken: () => authUser.getIdToken(),
+                onCorrected: () => {
+                  // Parent listeners refresh inventory/shipped; force local details close.
+                  setShipmentDetails(null);
+                  setShipmentDetailsItem(null);
+                  toast({
+                    title: "Shipped entry updated",
+                    description: "Refresh if the list does not update immediately.",
+                  });
+                },
+              }
+            : null
+        }
       />
 
       {/* Remarks Dialog */}

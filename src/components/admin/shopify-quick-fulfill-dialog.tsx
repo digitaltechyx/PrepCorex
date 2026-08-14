@@ -161,7 +161,12 @@ export function ShopifyQuickFulfillDialog({
   const selectableInventory = useMemo(() => {
     return inventory
       .filter((item) => item.status !== "Out of Stock" || item.quantity > 0)
-      .sort((a, b) => a.productName.localeCompare(b.productName));
+      .sort((a, b) => {
+        const aShopify = a.source === "shopify" ? 1 : 0;
+        const bShopify = b.source === "shopify" ? 1 : 0;
+        if (aShopify !== bShopify) return aShopify - bShopify;
+        return a.productName.localeCompare(b.productName);
+      });
   }, [inventory]);
 
   const filteredPickerInventory = useMemo(() => {
@@ -320,7 +325,7 @@ export function ShopifyQuickFulfillDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !submitting && onOpenChange(next)}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="flex max-h-[90vh] flex-col gap-4 overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck className="h-5 w-5 text-emerald-600" />
@@ -333,7 +338,7 @@ export function ShopifyQuickFulfillDialog({
         </DialogHeader>
 
         {order ? (
-          <div className="space-y-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
             <div className="rounded-md border bg-muted/30 p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-semibold">{order.name || `#${order.orderNumber}`}</span>
@@ -391,22 +396,35 @@ export function ShopifyQuickFulfillDialog({
                                   aria-expanded={pickerOpen}
                                   className="w-full justify-between font-normal"
                                 >
-                                  <span className="truncate">
-                                    {selected
-                                      ? `${selected.productName}${
-                                          selected.sku ? ` (${selected.sku})` : ""
-                                        }`
-                                      : "Select product…"}
+                                  <span className="flex min-w-0 flex-1 items-center gap-2 truncate text-left">
+                                    <span className="truncate">
+                                      {selected
+                                        ? `${selected.productName}${
+                                            selected.sku ? ` (${selected.sku})` : ""
+                                          }`
+                                        : "Select product…"}
+                                    </span>
+                                    {selected?.source === "shopify" ? (
+                                      <Badge
+                                        variant="secondary"
+                                        className="shrink-0 border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0 text-[10px] font-medium text-emerald-800 dark:text-emerald-200"
+                                      >
+                                        Shopify
+                                      </Badge>
+                                    ) : null}
                                   </span>
                                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                 </Button>
                               </PopoverTrigger>
                               <PopoverContent
-                                className="z-[200] w-[min(100vw-2rem,28rem)] p-0"
+                                className="z-[200] w-[min(100vw-2rem,28rem)] overflow-hidden p-0"
                                 align="start"
+                                side="bottom"
                                 sideOffset={4}
+                                collisionPadding={16}
                                 onOpenAutoFocus={(e) => e.preventDefault()}
                                 onCloseAutoFocus={(e) => e.preventDefault()}
+                                onWheel={(e) => e.stopPropagation()}
                               >
                                 <div className="flex items-center gap-2 border-b px-3 py-2">
                                   <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -415,9 +433,13 @@ export function ShopifyQuickFulfillDialog({
                                     onChange={(e) => setProductPickerSearch(e.target.value)}
                                     placeholder="Search warehouse products…"
                                     className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                                    autoFocus
                                   />
                                 </div>
-                                <div className="max-h-[280px] overflow-y-auto overscroll-contain p-1">
+                                <div
+                                  className="max-h-[240px] overflow-y-scroll overscroll-contain p-1 touch-pan-y"
+                                  onWheel={(e) => e.stopPropagation()}
+                                >
                                   {filteredPickerInventory.length === 0 ? (
                                     <p className="py-6 text-center text-sm text-muted-foreground">
                                       No inventory found
@@ -425,6 +447,7 @@ export function ShopifyQuickFulfillDialog({
                                   ) : (
                                     filteredPickerInventory.map((item) => {
                                       const isSelected = line.inventoryId === item.id;
+                                      const isShopifyLinked = item.source === "shopify";
                                       return (
                                         <button
                                           key={item.id}
@@ -446,13 +469,24 @@ export function ShopifyQuickFulfillDialog({
                                             )}
                                           />
                                           <div className="min-w-0 flex-1">
-                                            <div className="truncate font-medium">
-                                              {item.productName}
+                                            <div className="flex items-start gap-2">
+                                              <span className="min-w-0 flex-1 truncate font-medium">
+                                                {item.productName}
+                                              </span>
+                                              {isShopifyLinked ? (
+                                                <Badge
+                                                  variant="secondary"
+                                                  className="shrink-0 border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0 text-[10px] font-medium text-emerald-800 dark:text-emerald-200"
+                                                >
+                                                  Shopify
+                                                </Badge>
+                                              ) : null}
                                             </div>
                                             <div className="truncate text-xs text-muted-foreground">
                                               {[
                                                 item.sku ? `SKU: ${item.sku}` : null,
                                                 `${item.quantity} avail`,
+                                                isShopifyLinked ? "Linked catalog" : "Warehouse stock",
                                               ]
                                                 .filter(Boolean)
                                                 .join(" · ")}
@@ -468,7 +502,17 @@ export function ShopifyQuickFulfillDialog({
                             {selected ? (
                               <p className="text-[11px] text-muted-foreground">
                                 Available: {selected.quantity}
-                                {selected.source === "shopify" ? " · Shopify-linked" : ""}
+                                {selected.source === "shopify" ? (
+                                  <>
+                                    {" · "}
+                                    <span className="text-emerald-700 dark:text-emerald-300">
+                                      Shopify-linked — prefer a warehouse-only product if this was
+                                      selected by mistake
+                                    </span>
+                                  </>
+                                ) : (
+                                  " · Warehouse stock"
+                                )}
                               </p>
                             ) : null}
                           </div>

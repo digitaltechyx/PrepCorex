@@ -366,3 +366,192 @@ export async function deductWarehouseStockForQuickFulfill(input: {
     movements,
   };
 }
+
+export type WarehouseQuickFulfillRestoreResult = {
+  restored: number;
+  shortfall: number;
+};
+
+/**
+ * Best-effort restore of carton/bin qty previously deducted for a Quick Fulfill order.
+ * Prefers movementEvents for the Shopify order + SKU; falls back to putting qty on an
+ * eligible client carton line for that SKU.
+ */
+export async function restoreWarehouseStockForQuickFulfill(input: {
+  db: Firestore;
+  clientUserId: string;
+  sku: string | null | undefined;
+  quantity: number;
+  shopifyOrderId?: string | null;
+  operatorId?: string | null;
+  productName?: string | null;
+}): Promise<WarehouseQuickFulfillRestoreResult> {
+  const need = Math.max(0, Math.floor(input.quantity));
+  if (need <= 0) return { restored: 0, shortfall: 0 };
+
+  const clientUserId = String(input.clientUserId || "").trim();
+  const skuNorm = normSku(input.sku);
+  const orderId = String(input.shopifyOrderId || "").trim();
+  if (!clientUserId || !skuNorm) {
+    return { restored: 0, shortfall: need };
+  }
+
+  type RestoreTarget = {
+    warehouseId: string;
+    cartonId: string;
+    lineId: string | null;
+    qty: number;
+    cartonCode: string;
+  };
+
+  const targets: RestoreTarget[] = [];
+  let remaining = need;
+  const warehousesSnap = await input.db.collection(WAREHOUSES).get();
+
+  if (orderId) {
+    for (const wh of warehousesSnap.docs) {
+      if (remaining <= 0) break;
+      const eventsSnap = await wh.ref
+        .collection("movementEvents")
+        .where("type", "==", "shopify_quick_fulfill")
+        .where("shopifyOrderId", "==", orderId)
+        .get()
+        .catch(() => null);
+      if (!eventsSnap) continue;
+      for (const ev of eventsSnap.docs) {
+        if (remaining <= 0) break;
+        const data = (ev.data() || {}) as Record<string, unknown>;
+        if (normSku(String(data.sku || "")) !== skuNorm) continue;
+        const qty = Math.max(0, Math.floor(Number(data.quantity) || 0));
+        const cartonId = String(data.cartonId || "").trim();
+        if (!cartonId || qty <= 0) continue;
+        const take = Math.min(remaining, qty);
+        targets.push({
+          warehouseId: wh.id,
+          cartonId,
+          lineId: data.lineId != null ? String(data.lineId) : null,
+          qty: take,
+          cartonCode: String(data.cartonCode || cartonId),
+        });
+        remaining -= take;
+      }
+    }
+  }
+
+  // Fallback: add remaining onto any eligible carton for this client + SKU.
+  if (remaining > 0) {
+    for (const wh of warehousesSnap.docs) {
+      if (remaining <= 0) break;
+      const cartonsSnap = await wh.ref.collection("cartons").get();
+      for (const docSnap of cartonsSnap.docs) {
+        if (remaining <= 0) break;
+        const data = (docSnap.data() || {}) as Record<string, unknown>;
+        const status = String(data.status || "");
+        if (status === "voided") continue;
+        const cartonClientId = data.clientId != null ? String(data.clientId) : "";
+        const lines = parseLines(data);
+        const match = lines.find((l) => {
+          if (normSku(l.sku) !== skuNorm) return false;
+          if (l.condition === "damaged") return false;
+          const lineClient = l.clientId?.trim() || cartonClientId;
+          if (lineClient && lineClient !== clientUserId) return false;
+          return true;
+        });
+        if (!match) continue;
+        const take = remaining;
+        targets.push({
+          warehouseId: wh.id,
+          cartonId: docSnap.id,
+          lineId: match.lineId,
+          qty: take,
+          cartonCode: String(data.cartonCode || docSnap.id),
+        });
+        remaining = 0;
+      }
+    }
+  }
+
+  let restored = 0;
+  for (const t of targets) {
+    const cartonRef = input.db
+      .collection(WAREHOUSES)
+      .doc(t.warehouseId)
+      .collection("cartons")
+      .doc(t.cartonId);
+
+    await input.db.runTransaction(async (tx) => {
+      const snap = await tx.get(cartonRef);
+      if (!snap.exists) return;
+      const data = (snap.data() || {}) as Record<string, unknown>;
+      let nextLines = parseLines(data);
+      const idx = t.lineId
+        ? nextLines.findIndex((l) => l.lineId === t.lineId)
+        : nextLines.findIndex((l) => normSku(l.sku) === skuNorm);
+
+      if (idx >= 0) {
+        const line = nextLines[idx];
+        nextLines[idx] = { ...line, quantity: line.quantity + t.qty };
+      } else {
+        nextLines.push({
+          lineId: t.lineId || `L${nextLines.length + 1}`,
+          sku: input.sku || skuNorm,
+          productTitle: input.productName ?? null,
+          quantity: t.qty,
+          lot: null,
+          expiry: null,
+          condition: "good",
+          binId: data.binId != null ? String(data.binId) : null,
+          stagingArea: data.stagingArea != null ? String(data.stagingArea) : null,
+          allocationStatus: "unallocated",
+          clientId: clientUserId,
+          inventoryRequestId: null,
+          productReturnId: null,
+        });
+      }
+
+      const rolled = rollStatus(String(data.status || "stowed"), data.isMixed === true, nextLines);
+      // If carton was closed after QF empty, reopen as stowed when we restore stock.
+      const status =
+        rolled.status === "closed" && rolled.quantity > 0
+          ? rolled.binId
+            ? "stowed"
+            : "stowed_partial"
+          : rolled.status === "closed"
+            ? "closed"
+            : rolled.status;
+
+      tx.update(cartonRef, {
+        lines: linesToPayload(nextLines),
+        quantity: rolled.quantity,
+        status: status === "closed" && rolled.quantity > 0 ? "stowed" : status,
+        binId: rolled.binId ?? data.binId ?? null,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      const eventRef = input.db
+        .collection(WAREHOUSES)
+        .doc(t.warehouseId)
+        .collection("movementEvents")
+        .doc();
+      tx.set(eventRef, {
+        type: "shopify_quick_fulfill_restore",
+        cartonId: t.cartonId,
+        cartonCode: t.cartonCode,
+        lineId: t.lineId,
+        sku: input.sku || skuNorm,
+        quantity: t.qty,
+        operatorId: input.operatorId ?? null,
+        shopifyOrderId: orderId || null,
+        productName: input.productName ?? null,
+        at: FieldValue.serverTimestamp(),
+      });
+    });
+
+    restored += t.qty;
+  }
+
+  return {
+    restored,
+    shortfall: Math.max(0, need - restored),
+  };
+}
