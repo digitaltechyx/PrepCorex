@@ -45,6 +45,19 @@ export function normalizeShipmentItems(shipment: ShippedItem): NormalizedShipmen
       packOf: coerceNumber(item.packOf, 1),
       unitPrice: item.unitPrice,
       remainingQty: item.remainingQty,
+      sku: item.sku != null && String(item.sku).trim() ? String(item.sku).trim() : undefined,
+      retailIdentifier:
+        item.retailIdentifier != null && String(item.retailIdentifier).trim()
+          ? String(item.retailIdentifier).trim()
+          : undefined,
+      shopifyLineTitle:
+        item.shopifyLineTitle != null && String(item.shopifyLineTitle).trim()
+          ? String(item.shopifyLineTitle).trim()
+          : undefined,
+      shopifyLineSku:
+        item.shopifyLineSku != null && String(item.shopifyLineSku).trim()
+          ? String(item.shopifyLineSku).trim()
+          : undefined,
       ...(typeof (item as { totalPrice?: unknown }).totalPrice !== "undefined"
         ? { totalPrice: (item as { totalPrice?: unknown }).totalPrice }
         : {}),
@@ -56,6 +69,11 @@ export function normalizeShipmentItems(shipment: ShippedItem): NormalizedShipmen
     coerceNumber(shipment.unitsForPricing) ||
     coerceNumber(shipment.shippedQty);
   const fallbackUnits = coerceNumber(shipment.shippedQty, fallbackBoxes);
+  const rootSku =
+    (shipment as { sku?: unknown }).sku != null &&
+    String((shipment as { sku?: unknown }).sku).trim()
+      ? String((shipment as { sku?: unknown }).sku).trim()
+      : undefined;
 
   return [
     {
@@ -65,6 +83,7 @@ export function normalizeShipmentItems(shipment: ShippedItem): NormalizedShipmen
       packOf: coerceNumber(shipment.packOf, 1),
       unitPrice: shipment.unitPrice,
       remainingQty: shipment.remainingQty,
+      sku: rootSku,
       ...((shipment as { totalPrice?: unknown }).totalPrice != null
         ? { totalPrice: (shipment as { totalPrice?: unknown }).totalPrice }
         : {}),
@@ -189,6 +208,31 @@ export function buildShippedOrderDetails(
   };
 }
 
+/** Fill missing warehouse SKU / retail ID from live inventory (older shipped docs). */
+export function enrichShippedOrderDetailsFromInventory(
+  details: ShippedOrderDetails,
+  inventory: Array<{ id: string; sku?: string | null; retailIdentifier?: string | null }>
+): ShippedOrderDetails {
+  if (!inventory?.length) return details;
+  const byId = new Map(inventory.map((item) => [item.id, item]));
+  return {
+    ...details,
+    lines: details.lines.map((line) => {
+      const inv = line.productId ? byId.get(line.productId) : undefined;
+      if (!inv) return line;
+      return {
+        ...line,
+        sku: line.sku || (inv.sku != null && String(inv.sku).trim() ? String(inv.sku).trim() : undefined),
+        retailIdentifier:
+          line.retailIdentifier ||
+          (inv.retailIdentifier != null && String(inv.retailIdentifier).trim()
+            ? String(inv.retailIdentifier).trim()
+            : undefined),
+      };
+    }),
+  };
+}
+
 /** Map an outbound request into a ShippedItem-shaped payload for details. */
 export function shippedItemFromShipmentRequest(req: ShipmentRequest): ShippedItem {
   const items = (req.shipments || []).map((raw) => {
@@ -204,6 +248,19 @@ export function shippedItemFromShipmentRequest(req: ShipmentRequest): ShippedIte
       packOf,
       unitPrice: coerceNumber(s.unitPrice),
       totalPrice: coerceNumber(s.totalPrice),
+      sku: typeof s.sku === "string" && s.sku.trim() ? s.sku.trim() : undefined,
+      retailIdentifier:
+        typeof s.retailIdentifier === "string" && s.retailIdentifier.trim()
+          ? s.retailIdentifier.trim()
+          : undefined,
+      shopifyLineTitle:
+        typeof s.shopifyLineTitle === "string" && s.shopifyLineTitle.trim()
+          ? s.shopifyLineTitle.trim()
+          : undefined,
+      shopifyLineSku:
+        typeof s.shopifyLineSku === "string" && s.shopifyLineSku.trim()
+          ? s.shopifyLineSku.trim()
+          : undefined,
     } as ShipmentProductItem & { totalPrice?: number };
   });
 

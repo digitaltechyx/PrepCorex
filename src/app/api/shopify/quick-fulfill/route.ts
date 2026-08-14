@@ -84,6 +84,18 @@ export async function POST(request: NextRequest) {
     shopifyLineItemId: String(line.shopifyLineItemId || line.lineItemId || "").trim(),
     inventoryId: String(line.inventoryId || "").trim(),
     quantity: Math.floor(Number(line.quantity) || 0),
+    shopifyLineTitle:
+      typeof line.shopifyLineTitle === "string"
+        ? line.shopifyLineTitle.trim()
+        : typeof line.title === "string"
+          ? line.title.trim()
+          : undefined,
+    shopifyLineSku:
+      typeof line.shopifyLineSku === "string"
+        ? line.shopifyLineSku.trim()
+        : typeof line.sku === "string"
+          ? line.sku.trim()
+          : undefined,
   }));
 
   if (!userId || !shop || !orderId) {

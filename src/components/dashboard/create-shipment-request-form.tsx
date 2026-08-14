@@ -669,12 +669,16 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
 
       // Clean shipments array to remove undefined values
       requestData.shipments = values.shipments.map((shipment: any) => {
+        const productMeta = inventory.find((item) => item.id === shipment.productId);
         const cleaned: any = {
           productId: shipment.productId,
+          productName: productMeta?.productName || shipment.productName || "",
           quantity: shipment.quantity,
           packOf: shipment.packOf || 1,
           unitPrice: shipment.unitPrice || 0,
         };
+        if (productMeta?.sku) cleaned.sku = productMeta.sku;
+        if (productMeta?.retailIdentifier) cleaned.retailIdentifier = productMeta.retailIdentifier;
         // Only include optional fields
         if (shipment.selectedAdditionalServices && shipment.selectedAdditionalServices.length > 0) {
           cleaned.selectedAdditionalServices = shipment.selectedAdditionalServices;

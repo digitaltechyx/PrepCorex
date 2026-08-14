@@ -58,6 +58,7 @@ import { measurementFieldsForWrite } from "@/lib/box-suggestion";
 import { ShippedOrderDetailsDialog } from "@/components/dashboard/shipped-order-details-dialog";
 import {
   buildShippedOrderDetails,
+  enrichShippedOrderDetailsFromInventory,
   type ShippedOrderDetails,
 } from "@/lib/shipment-utils";
 
@@ -788,10 +789,13 @@ export function AdminInventoryManagement({
 
   const handleShipmentDetailsClick = (item: ShippedItem) => {
     setShipmentDetails(
-      buildShippedOrderDetails(item, {
-        status: "Shipped",
-        dateLabel: formatDate(item.date),
-      })
+      enrichShippedOrderDetailsFromInventory(
+        buildShippedOrderDetails(item, {
+          status: "Shipped",
+          dateLabel: formatDate(item.date),
+        }),
+        inventory
+      )
     );
     setIsShipmentDetailsOpen(true);
   };

@@ -1206,6 +1206,14 @@ export interface ShipmentProductItem {
   packOf: number;
   unitPrice?: number;
   remainingQty?: number;
+  /** Warehouse inventory SKU at ship time. */
+  sku?: string | null;
+  /** Warehouse retail / FNSKU-style identifier at ship time. */
+  retailIdentifier?: string | null;
+  /** Shopify order line title when fulfilled via Quick Fulfill. */
+  shopifyLineTitle?: string | null;
+  /** Shopify order line SKU when fulfilled via Quick Fulfill. */
+  shopifyLineSku?: string | null;
 }
 
 export interface LabelProductDetail {

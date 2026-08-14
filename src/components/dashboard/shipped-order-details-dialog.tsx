@@ -70,6 +70,45 @@ export function ShippedOrderDetailsDialog({ open, onOpenChange, details }: Props
               {details.lines.map((line, index) => (
                 <div key={`${line.productName}-${index}`} className="rounded-md border p-3 text-xs space-y-1.5">
                   <div className="font-medium text-sm">{line.productName}</div>
+                  {(line.sku ||
+                    line.retailIdentifier ||
+                    line.shopifyLineTitle ||
+                    line.shopifyLineSku) && (
+                    <div className="rounded-md border bg-muted/40 px-2.5 py-2 space-y-1 text-muted-foreground">
+                      <div className="font-medium text-foreground text-[11px] uppercase tracking-wide">
+                        Warehouse product
+                      </div>
+                      {line.sku ? (
+                        <div>
+                          SKU: <span className="text-foreground font-medium font-mono">{line.sku}</span>
+                        </div>
+                      ) : null}
+                      {line.retailIdentifier ? (
+                        <div>
+                          Retail ID:{" "}
+                          <span className="text-foreground font-medium font-mono">
+                            {line.retailIdentifier}
+                          </span>
+                        </div>
+                      ) : null}
+                      {line.shopifyLineTitle || line.shopifyLineSku ? (
+                        <div className="pt-1 border-t border-border/60">
+                          <div className="font-medium text-foreground text-[11px] uppercase tracking-wide mb-0.5">
+                            Shopify order line
+                          </div>
+                          {line.shopifyLineTitle ? <div>{line.shopifyLineTitle}</div> : null}
+                          {line.shopifyLineSku ? (
+                            <div>
+                              SKU:{" "}
+                              <span className="text-foreground font-medium font-mono">
+                                {line.shopifyLineSku}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-muted-foreground">
                     <span>
                       Qty:{" "}

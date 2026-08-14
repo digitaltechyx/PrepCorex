@@ -267,6 +267,8 @@ export function ShopifyQuickFulfillDialog({
             shopifyLineItemId: line.shopifyLineItemId,
             inventoryId: line.inventoryId,
             quantity: line.quantity,
+            shopifyLineTitle: line.title || undefined,
+            shopifyLineSku: line.sku || undefined,
           })),
           tracking_number: trackingNumber || undefined,
           tracking_company: trackingCompany || undefined,

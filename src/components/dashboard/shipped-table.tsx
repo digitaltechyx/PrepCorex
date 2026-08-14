@@ -11,6 +11,7 @@ import {
 import {
   getShipmentSummary,
   buildShippedOrderDetails,
+  enrichShippedOrderDetailsFromInventory,
   shippedItemFromShipmentRequest,
   type ShippedOrderDetails,
 } from "@/lib/shipment-utils";
@@ -279,10 +280,13 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         ? shippedItemFromShipmentRequest(rawRequest)
         : (item as ShippedItem);
     setShipmentDetails(
-      buildShippedOrderDetails(payload, {
-        status: item.status,
-        dateLabel: formatDate(item.date),
-      })
+      enrichShippedOrderDetailsFromInventory(
+        buildShippedOrderDetails(payload, {
+          status: item.status,
+          dateLabel: formatDate(item.date),
+        }),
+        inventory
+      )
     );
     setIsShipmentDetailsOpen(true);
   };

@@ -348,6 +348,8 @@ export async function applyClientInventoryOnDispatch(input: {
         packOfPrice: finalPackOfPrice,
         remainingQty: newQuantity,
         shippedFromLocationId: selectedSourceLocationId || "",
+        sku: currentInventory.sku ?? row.shipment.sku ?? null,
+        retailIdentifier: currentInventory.retailIdentifier ?? null,
       });
 
       totalBoxes += Math.max(0, Number(row.shipment.quantity) || 0);

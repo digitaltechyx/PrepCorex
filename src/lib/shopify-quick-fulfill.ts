@@ -18,6 +18,10 @@ export type QuickFulfillLineInput = {
   inventoryId: string;
   /** Units to ship from warehouse. */
   quantity: number;
+  /** Shopify order line title (for shipped details). */
+  shopifyLineTitle?: string | null;
+  /** Shopify order line SKU (for shipped details). */
+  shopifyLineSku?: string | null;
 };
 
 export type ShopifyInventorySyncHint = {
@@ -211,12 +215,25 @@ export async function executeShopifyQuickFulfill(input: {
 
   // Aggregate qty per inventory id (multiple Shopify lines can map to same warehouse SKU)
   const qtyByInventoryId = new Map<string, number>();
+  const shopifyMetaByInventoryId = new Map<
+    string,
+    { shopifyLineTitle?: string; shopifyLineSku?: string }
+  >();
   for (const line of input.lines) {
     const inventoryId = String(line.inventoryId || "").trim();
     const quantity = Math.floor(Number(line.quantity) || 0);
     if (!inventoryId) throw new Error("Each line must select a warehouse product");
     if (quantity <= 0) throw new Error("Quantity must be greater than 0");
     qtyByInventoryId.set(inventoryId, (qtyByInventoryId.get(inventoryId) || 0) + quantity);
+    const title = String(line.shopifyLineTitle || "").trim();
+    const lineSku = String(line.shopifyLineSku || "").trim();
+    if (title || lineSku) {
+      const prev = shopifyMetaByInventoryId.get(inventoryId);
+      shopifyMetaByInventoryId.set(inventoryId, {
+        shopifyLineTitle: prev?.shopifyLineTitle || title || undefined,
+        shopifyLineSku: prev?.shopifyLineSku || lineSku || undefined,
+      });
+    }
   }
 
   // Pre-validate inventory exists and has stock
@@ -319,7 +336,10 @@ export async function executeShopifyQuickFulfill(input: {
       const newQuantity = currentQty - shipQty;
       const newStatus = newQuantity > 0 ? "In Stock" : "Out of Stock";
       const productName = String(row.data.productName || "Product");
-      const sku = row.data.sku != null ? String(row.data.sku) : null;
+      const sku = row.data.sku != null ? String(row.data.sku).trim() : "";
+      const retailIdentifier =
+        row.data.retailIdentifier != null ? String(row.data.retailIdentifier).trim() : "";
+      const shopifyMeta = shopifyMetaByInventoryId.get(row.inventoryId);
 
       tx.update(row.ref, {
         quantity: newQuantity,
@@ -335,7 +355,7 @@ export async function executeShopifyQuickFulfill(input: {
       tx.set(changeLogRef, {
         inventoryId: row.inventoryId,
         productName,
-        sku,
+        sku: sku || null,
         eventType: "shopify_quick_fulfill",
         qtyBefore: currentQty,
         qtyAfter: newQuantity,
@@ -356,6 +376,10 @@ export async function executeShopifyQuickFulfill(input: {
         packOf: 1,
         unitPrice: dtcUnitPrice,
         remainingQty: newQuantity,
+        sku: sku || null,
+        retailIdentifier: retailIdentifier || null,
+        shopifyLineTitle: shopifyMeta?.shopifyLineTitle || null,
+        shopifyLineSku: shopifyMeta?.shopifyLineSku || null,
       });
       totalUnits += shipQty;
 
