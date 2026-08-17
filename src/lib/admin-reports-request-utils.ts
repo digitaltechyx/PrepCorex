@@ -9,6 +9,14 @@ export type ParsedReportRange = {
   to: Date;
 };
 
+function parseReportDay(value: string): Date {
+  const dayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (dayOnly) {
+    return new Date(Number(dayOnly[1]), Number(dayOnly[2]) - 1, Number(dayOnly[3]));
+  }
+  return new Date(value);
+}
+
 export function parseReportDateRange(request: NextRequest): ParsedReportRange {
   const fromParam = request.nextUrl.searchParams.get("from");
   const toParam = request.nextUrl.searchParams.get("to");
@@ -28,8 +36,8 @@ export function parseReportDateRange(request: NextRequest): ParsedReportRange {
   }
 
   if (fromParam && toParam) {
-    const from = new Date(fromParam);
-    const to = new Date(toParam);
+    const from = parseReportDay(fromParam);
+    const to = parseReportDay(toParam);
     return { allTime: false, from: reportStartOfDay(from), to: reportEndOfDay(to) };
   }
 

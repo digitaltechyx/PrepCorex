@@ -143,8 +143,8 @@ export function ClientReportsDashboard() {
       if (preset === "all") {
         params.set("preset", "all");
       } else if (fromDate && toDate) {
-        params.set("from", fromDate.toISOString());
-        params.set("to", toDate.toISOString());
+        params.set("from", format(fromDate, "yyyy-MM-dd"));
+        params.set("to", format(toDate, "yyyy-MM-dd"));
       } else {
         params.set("preset", "this_month");
       }
@@ -251,7 +251,11 @@ export function ClientReportsDashboard() {
           </TabsList>
 
           <p className="text-sm text-muted-foreground">
-            {summary.period.label}
+            {summary.period.allTime
+              ? "All time"
+              : fromDate && toDate
+                ? `${format(fromDate, "MMM d, yyyy")} – ${format(toDate, "MMM d, yyyy")}`
+                : summary.period.label}
             {loading ? (
               <Loader2 className="ml-2 inline h-3.5 w-3.5 animate-spin" />
             ) : null}
@@ -305,7 +309,7 @@ export function ClientReportsDashboard() {
               <StatCard
                 title="You paid on shipping"
                 value={money(summary.savings.paidTotal)}
-                hint={`${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"} · avg ${money(summary.savings.averagePaid)}`}
+                hint={`${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"}`}
                 icon={<Truck className="h-4 w-4" />}
               />
               <StatCard
@@ -433,19 +437,13 @@ export function ClientReportsDashboard() {
                 <StatCard
                   title="You paid"
                   value={money(summary.savings.paidTotal)}
-                  hint={`Avg ${money(summary.savings.averagePaid)}`}
+                  hint={`${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"}`}
                   icon={<PiggyBank className="h-4 w-4" />}
                 />
                 <StatCard
                   title="Your est. save on shipping"
                   value={money(summary.savings.savedOnShipping)}
                   hint="Estimated save"
-                  icon={<PiggyBank className="h-4 w-4" />}
-                />
-                <StatCard
-                  title="Saved vs USPS"
-                  value={money(summary.savings.savedVsUsps)}
-                  hint={`Would be ~${money(summary.savings.estimatedUsps)}`}
                   icon={<PiggyBank className="h-4 w-4" />}
                 />
               </CardContent>
