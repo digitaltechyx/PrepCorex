@@ -23,6 +23,7 @@ export async function PUT(request: NextRequest) {
   }
   const body = await request.json().catch(() => ({}));
   const benchmarks = await saveLabelSavingsBenchmarks({
+    bands: Array.isArray(body.bands) ? body.bands : undefined,
     usps: body.usps,
     ups: body.ups,
     fedex: body.fedex,

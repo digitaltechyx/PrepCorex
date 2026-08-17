@@ -11,9 +11,11 @@ import {
   reportToMs,
 } from "@/lib/admin-reports-utils";
 import {
+  benchmarksForWeight,
   estimatedSavings,
   isPrepCorexGofoPurchase,
   labelPurchasePaidDollars,
+  parcelWeightPounds,
 } from "@/lib/label-savings-benchmarks";
 import { loadLabelSavingsBenchmarks } from "@/lib/label-savings-benchmarks-server";
 import type {
@@ -255,6 +257,9 @@ export async function buildClientReport(
     const paid = labelPurchasePaidDollars(data);
     if (paid <= 0) continue;
 
+    const weightLb = parcelWeightPounds(data.parcel);
+    const band = benchmarksForWeight(benchmarks, weightLb);
+
     labelRows.push({
       id: doc.id,
       purchasedAt: new Date(ms).toISOString(),
@@ -263,12 +268,14 @@ export async function buildClientReport(
       service: display.service,
       paid,
       isGofo,
-      estimatedUsps: benchmarks.usps,
-      estimatedUps: benchmarks.ups,
-      estimatedFedex: benchmarks.fedex,
-      savedVsUsps: isGofo ? estimatedSavings(paid, benchmarks.usps) : 0,
-      savedVsUps: isGofo ? estimatedSavings(paid, benchmarks.ups) : 0,
-      savedVsFedex: isGofo ? estimatedSavings(paid, benchmarks.fedex) : 0,
+      weightLb: Math.round(weightLb * 100) / 100,
+      weightBand: band.label,
+      estimatedUsps: band.usps,
+      estimatedUps: band.ups,
+      estimatedFedex: band.fedex,
+      savedVsUsps: isGofo ? estimatedSavings(paid, band.usps) : 0,
+      savedVsUps: isGofo ? estimatedSavings(paid, band.ups) : 0,
+      savedVsFedex: isGofo ? estimatedSavings(paid, band.fedex) : 0,
     });
   }
   labelRows.sort((a, b) => reportToMs(b.purchasedAt) - reportToMs(a.purchasedAt));

@@ -71,9 +71,14 @@ export function buildClientReportCsv(summary: ClientReportSummary, tab: ClientRe
       `Approx FedEx total,${money(s.estimatedFedex)}`,
       `Saved vs FedEx (est.),${money(s.savedVsFedex)}`,
       `Average GOFO paid,${money(s.averagePaidGofo)}`,
-      `Benchmark USPS,${formatReportMoney(s.benchmarks.usps)}`,
-      `Benchmark UPS,${formatReportMoney(s.benchmarks.ups)}`,
-      `Benchmark FedEx,${formatReportMoney(s.benchmarks.fedex)}`,
+      "",
+      "=== WEIGHT RATE CARD (approx) ===",
+      ["Weight band", "USPS", "UPS", "FedEx"].map(csvEscape).join(","),
+      ...s.benchmarks.bands.map((b) =>
+        [b.label, formatReportMoney(b.usps), formatReportMoney(b.ups), formatReportMoney(b.fedex)]
+          .map(csvEscape)
+          .join(",")
+      ),
       "",
       "=== LABEL DETAIL ===",
       [
@@ -82,6 +87,8 @@ export function buildClientReportCsv(summary: ClientReportSummary, tab: ClientRe
         "Carrier",
         "Service",
         "Paid",
+        "Weight (lb)",
+        "Rate card",
         "GOFO",
         "Est. USPS",
         "Saved vs USPS",
@@ -99,6 +106,8 @@ export function buildClientReportCsv(summary: ClientReportSummary, tab: ClientRe
           r.carrier,
           r.service,
           money(r.paid),
+          String(r.weightLb),
+          r.weightBand,
           r.isGofo ? "yes" : "no",
           money(r.estimatedUsps),
           money(r.savedVsUsps),

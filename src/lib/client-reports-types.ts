@@ -30,6 +30,8 @@ export type ClientReportLabelRow = {
   service: string;
   paid: number;
   isGofo: boolean;
+  weightLb: number;
+  weightBand: string;
   estimatedUsps: number;
   estimatedUps: number;
   estimatedFedex: number;

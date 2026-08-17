@@ -384,9 +384,8 @@ export function ClientReportsDashboard() {
               <CardHeader>
                 <CardTitle className="text-base">Estimated savings vs typical courier rates</CardTitle>
                 <CardDescription>
-                  PrepCorex GOFO paid vs approximate USPS / UPS / FedEx Ground-style rates (
-                  {money(summary.savings.benchmarks.usps)} / {money(summary.savings.benchmarks.ups)} /{" "}
-                  {money(summary.savings.benchmarks.fedex)} per label). These are estimates, not live quotes.
+                  PrepCorex GOFO paid vs approximate USPS / UPS / FedEx Ground-style rates by package
+                  weight (not one flat $6.45 / $8.90 per label). These are estimates, not live quotes.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -412,6 +411,39 @@ export function ClientReportsDashboard() {
               </CardContent>
             </Card>
 
+            {summary.savings.benchmarks.bands.length > 0 ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">USPS / UPS / FedEx rate card</CardTitle>
+                  <CardDescription>
+                    Each GOFO label is compared to the band that matches its parcel weight.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Weight</TableHead>
+                        <TableHead className="text-right">USPS</TableHead>
+                        <TableHead className="text-right">UPS</TableHead>
+                        <TableHead className="text-right">FedEx</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {summary.savings.benchmarks.bands.map((band) => (
+                        <TableRow key={band.label}>
+                          <TableCell>{band.label}</TableCell>
+                          <TableCell className="text-right">{money(band.usps)}</TableCell>
+                          <TableCell className="text-right">{money(band.ups)}</TableCell>
+                          <TableCell className="text-right">{money(band.fedex)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            ) : null}
+
             {summary.savings.gofoLabelCount > 0 ? (
               <Card>
                 <CardHeader>
@@ -435,7 +467,8 @@ export function ClientReportsDashboard() {
               <CardHeader>
                 <CardTitle className="text-base">Label detail</CardTitle>
                 <CardDescription>
-                  Savings apply to PrepCorex GOFO labels only. Shippo / other carriers show $0 saved.
+                  Savings apply to PrepCorex GOFO labels only. USPS / UPS estimates follow the parcel
+                  weight on that label. Shippo / other carriers show $0 saved.
                 </CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto">
@@ -450,9 +483,12 @@ export function ClientReportsDashboard() {
                         <TableHead>Date</TableHead>
                         <TableHead>Tracking</TableHead>
                         <TableHead>Carrier</TableHead>
+                        <TableHead className="text-right">Weight</TableHead>
                         <TableHead className="text-right">Paid</TableHead>
                         <TableHead className="text-right">USPS est.</TableHead>
                         <TableHead className="text-right">Saved vs USPS</TableHead>
+                        <TableHead className="text-right">UPS est.</TableHead>
+                        <TableHead className="text-right">Saved vs UPS</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -468,12 +504,22 @@ export function ClientReportsDashboard() {
                               </Badge>
                             ) : null}
                           </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {row.weightLb} lb
+                            <span className="block text-[11px]">{row.weightBand}</span>
+                          </TableCell>
                           <TableCell className="text-right">{money(row.paid)}</TableCell>
                           <TableCell className="text-right text-muted-foreground">
                             {row.isGofo ? `~${money(row.estimatedUsps)}` : "—"}
                           </TableCell>
                           <TableCell className="text-right font-medium text-emerald-700">
                             {row.isGofo ? money(row.savedVsUsps) : money(0)}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {row.isGofo ? `~${money(row.estimatedUps)}` : "—"}
+                          </TableCell>
+                          <TableCell className="text-right font-medium text-emerald-700">
+                            {row.isGofo ? money(row.savedVsUps) : money(0)}
                           </TableCell>
                         </TableRow>
                       ))}
