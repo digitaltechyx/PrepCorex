@@ -30,6 +30,7 @@ export type ClientReportLabelRow = {
   service: string;
   paid: number;
   isGofo: boolean;
+  carrierFamily: "gofo" | "usps" | "ups" | "fedex" | "other";
   weightLb: number;
   weightBand: string;
   estimatedUsps: number;
@@ -66,7 +67,13 @@ export type ClientReportSummary = {
     benchmarks: LabelSavingsBenchmarks;
     gofoLabelCount: number;
     otherLabelCount: number;
+    labelCount: number;
     paidGofo: number;
+    paidUsps: number;
+    paidUps: number;
+    paidFedex: number;
+    paidOther: number;
+    paidTotal: number;
     estimatedUsps: number;
     estimatedUps: number;
     estimatedFedex: number;
@@ -74,6 +81,7 @@ export type ClientReportSummary = {
     savedVsUps: number;
     savedVsFedex: number;
     averagePaidGofo: number;
+    averagePaid: number;
     rows: ClientReportLabelRow[];
   };
 };

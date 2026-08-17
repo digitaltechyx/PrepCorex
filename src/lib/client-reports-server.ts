@@ -12,7 +12,8 @@ import {
 } from "@/lib/admin-reports-utils";
 import {
   benchmarksForWeight,
-  estimatedSavings,
+  classifyLabelSavingsCarrier,
+  estimatedSavingsVsCourier,
   isPrepCorexGofoPurchase,
   labelPurchasePaidDollars,
   parcelWeightPounds,
@@ -259,6 +260,11 @@ export async function buildClientReport(
 
     const weightLb = parcelWeightPounds(data.parcel);
     const band = benchmarksForWeight(benchmarks, weightLb);
+    const carrierFamily = classifyLabelSavingsCarrier({
+      isGofo,
+      provider: display.provider,
+      service: display.service,
+    });
 
     labelRows.push({
       id: doc.id,
@@ -268,23 +274,30 @@ export async function buildClientReport(
       service: display.service,
       paid,
       isGofo,
+      carrierFamily,
       weightLb: Math.round(weightLb * 100) / 100,
       weightBand: band.label,
       estimatedUsps: band.usps,
       estimatedUps: band.ups,
       estimatedFedex: band.fedex,
-      savedVsUsps: isGofo ? estimatedSavings(paid, band.usps) : 0,
-      savedVsUps: isGofo ? estimatedSavings(paid, band.ups) : 0,
-      savedVsFedex: isGofo ? estimatedSavings(paid, band.fedex) : 0,
+      savedVsUsps: estimatedSavingsVsCourier(paid, band.usps, carrierFamily === "usps"),
+      savedVsUps: estimatedSavingsVsCourier(paid, band.ups, carrierFamily === "ups"),
+      savedVsFedex: estimatedSavingsVsCourier(paid, band.fedex, carrierFamily === "fedex"),
     });
   }
   labelRows.sort((a, b) => reportToMs(b.purchasedAt) - reportToMs(a.purchasedAt));
 
-  const gofoRows = labelRows.filter((r) => r.isGofo);
-  const paidGofo = gofoRows.reduce((s, r) => s + r.paid, 0);
-  const estimatedUsps = gofoRows.reduce((s, r) => s + r.estimatedUsps, 0);
-  const estimatedUps = gofoRows.reduce((s, r) => s + r.estimatedUps, 0);
-  const estimatedFedex = gofoRows.reduce((s, r) => s + r.estimatedFedex, 0);
+  const gofoRows = labelRows.filter((r) => r.carrierFamily === "gofo");
+  const uspsRows = labelRows.filter((r) => r.carrierFamily === "usps");
+  const upsRows = labelRows.filter((r) => r.carrierFamily === "ups");
+  const fedexRows = labelRows.filter((r) => r.carrierFamily === "fedex");
+  const otherRows = labelRows.filter((r) => r.carrierFamily === "other");
+  const sumPaid = (rows: typeof labelRows) => rows.reduce((s, r) => s + r.paid, 0);
+  const paidGofo = sumPaid(gofoRows);
+  const paidTotal = sumPaid(labelRows);
+  const estimatedUsps = labelRows.reduce((s, r) => s + r.estimatedUsps, 0);
+  const estimatedUps = labelRows.reduce((s, r) => s + r.estimatedUps, 0);
+  const estimatedFedex = labelRows.reduce((s, r) => s + r.estimatedFedex, 0);
 
   const periodLabel = allTime
     ? "All time"
@@ -321,14 +334,21 @@ export async function buildClientReport(
       benchmarks,
       gofoLabelCount: gofoRows.length,
       otherLabelCount: labelRows.length - gofoRows.length,
+      labelCount: labelRows.length,
       paidGofo,
+      paidUsps: sumPaid(uspsRows),
+      paidUps: sumPaid(upsRows),
+      paidFedex: sumPaid(fedexRows),
+      paidOther: sumPaid(otherRows),
+      paidTotal,
       estimatedUsps,
       estimatedUps,
       estimatedFedex,
-      savedVsUsps: gofoRows.reduce((s, r) => s + r.savedVsUsps, 0),
-      savedVsUps: gofoRows.reduce((s, r) => s + r.savedVsUps, 0),
-      savedVsFedex: gofoRows.reduce((s, r) => s + r.savedVsFedex, 0),
+      savedVsUsps: labelRows.reduce((s, r) => s + r.savedVsUsps, 0),
+      savedVsUps: labelRows.reduce((s, r) => s + r.savedVsUps, 0),
+      savedVsFedex: labelRows.reduce((s, r) => s + r.savedVsFedex, 0),
       averagePaidGofo: gofoRows.length ? Math.round((paidGofo / gofoRows.length) * 100) / 100 : 0,
+      averagePaid: labelRows.length ? Math.round((paidTotal / labelRows.length) * 100) / 100 : 0,
       rows: labelRows,
     },
   };

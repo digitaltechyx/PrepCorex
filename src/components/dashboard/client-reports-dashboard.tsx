@@ -19,7 +19,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { buildClientReportCsv } from "@/lib/client-reports-csv";
-import type { ClientReportSummary, ClientReportTab } from "@/lib/client-reports-types";
+import type { ClientReportLabelRow, ClientReportSummary, ClientReportTab } from "@/lib/client-reports-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,6 +60,47 @@ const savingsChartConfig = {
 
 function money(n: number): string {
   return `$${n.toFixed(2)}`;
+}
+
+function carrierFamilyLabel(family: ClientReportLabelRow["carrierFamily"]): string {
+  if (family === "gofo") return "GOFO";
+  if (family === "usps") return "USPS";
+  if (family === "ups") return "UPS";
+  if (family === "fedex") return "FedEx";
+  return "Other";
+}
+
+function savingsDisplay(row: ClientReportLabelRow, courier: "usps" | "ups" | "fedex"): string {
+  if (row.carrierFamily === courier) return "—";
+  const amount =
+    courier === "usps" ? row.savedVsUsps : courier === "ups" ? row.savedVsUps : row.savedVsFedex;
+  return money(amount);
+}
+
+function paidBreakdown(savings: ClientReportSummary["savings"]): Array<{
+  title: string;
+  paid: number;
+  count: number;
+}> {
+  const items = [
+    { title: "Paid GOFO", paid: savings.paidGofo, count: savings.gofoLabelCount },
+    {
+      title: "Paid USPS",
+      paid: savings.paidUsps,
+      count: savings.rows.filter((r) => r.carrierFamily === "usps").length,
+    },
+    {
+      title: "Paid UPS",
+      paid: savings.paidUps,
+      count: savings.rows.filter((r) => r.carrierFamily === "ups").length,
+    },
+    {
+      title: "Paid FedEx",
+      paid: savings.paidFedex,
+      count: savings.rows.filter((r) => r.carrierFamily === "fedex").length,
+    },
+  ];
+  return items.filter((item) => item.count > 0);
 }
 
 function downloadCsv(filename: string, csv: string) {
@@ -142,7 +183,7 @@ export function ClientReportsDashboard() {
     if (!summary) return [];
     const s = summary.savings;
     return [
-      { name: "PrepCorex GOFO", amount: s.paidGofo },
+      { name: "You paid", amount: s.paidTotal },
       { name: "USPS (est.)", amount: s.estimatedUsps },
       { name: "UPS (est.)", amount: s.estimatedUps },
       { name: "FedEx (est.)", amount: s.estimatedFedex },
@@ -271,7 +312,7 @@ export function ClientReportsDashboard() {
               <StatCard
                 title="Est. saved vs USPS"
                 value={money(summary.savings.savedVsUsps)}
-                hint={`${summary.savings.gofoLabelCount} GOFO labels`}
+                hint={`${summary.savings.labelCount} labels`}
                 icon={<PiggyBank className="h-4 w-4" />}
               />
             </div>
@@ -384,16 +425,17 @@ export function ClientReportsDashboard() {
               <CardHeader>
                 <CardTitle className="text-base">Estimated savings vs typical courier rates</CardTitle>
                 <CardDescription>
-                  PrepCorex GOFO paid vs approximate USPS / UPS / FedEx Ground-style rates by package
-                  weight (not one flat $6.45 / $8.90 per label). These are estimates, not live quotes.
+                  Every completed label shows what you paid and the approximate USPS / UPS / FedEx
+                  price for that weight. Savings are vs the couriers you did not buy. Estimates, not
+                  live quotes.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <StatCard title="GOFO labels" value={summary.savings.gofoLabelCount} icon={<Truck className="h-4 w-4" />} />
+                <StatCard title="Labels" value={summary.savings.labelCount} icon={<Truck className="h-4 w-4" />} />
                 <StatCard
-                  title="You paid (GOFO)"
-                  value={money(summary.savings.paidGofo)}
-                  hint={`Avg ${money(summary.savings.averagePaidGofo)}`}
+                  title="You paid"
+                  value={money(summary.savings.paidTotal)}
+                  hint={`Avg ${money(summary.savings.averagePaid)}`}
                   icon={<PiggyBank className="h-4 w-4" />}
                 />
                 <StatCard
@@ -410,6 +452,20 @@ export function ClientReportsDashboard() {
                 />
               </CardContent>
             </Card>
+
+            {paidBreakdown(summary.savings).length > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {paidBreakdown(summary.savings).map((item) => (
+                  <StatCard
+                    key={item.title}
+                    title={item.title}
+                    value={money(item.paid)}
+                    hint={`${item.count} label${item.count === 1 ? "" : "s"}`}
+                    icon={<Truck className="h-4 w-4" />}
+                  />
+                ))}
+              </div>
+            ) : null}
 
             {summary.savings.benchmarks.bands.length > 0 ? (
               <Card>
@@ -444,7 +500,7 @@ export function ClientReportsDashboard() {
               </Card>
             ) : null}
 
-            {summary.savings.gofoLabelCount > 0 ? (
+            {summary.savings.labelCount > 0 ? (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Paid vs estimated courier totals</CardTitle>
@@ -467,14 +523,14 @@ export function ClientReportsDashboard() {
               <CardHeader>
                 <CardTitle className="text-base">Label detail</CardTitle>
                 <CardDescription>
-                  Savings apply to PrepCorex GOFO labels only. USPS / UPS estimates follow the parcel
-                  weight on that label. Shippo / other carriers show $0 saved.
+                  Each row shows what you paid and the estimated USPS / UPS / FedEx price for that
+                  weight. Savings vs the courier you bought is blank.
                 </CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto">
                 {summary.savings.rows.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No completed labels in this period. Buy a GOFO label to see estimated savings.
+                    No completed labels in this period.
                   </p>
                 ) : (
                   <Table>
@@ -489,6 +545,8 @@ export function ClientReportsDashboard() {
                         <TableHead className="text-right">Saved vs USPS</TableHead>
                         <TableHead className="text-right">UPS est.</TableHead>
                         <TableHead className="text-right">Saved vs UPS</TableHead>
+                        <TableHead className="text-right">FedEx est.</TableHead>
+                        <TableHead className="text-right">Saved vs FedEx</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -498,11 +556,9 @@ export function ClientReportsDashboard() {
                           <TableCell className="font-mono text-xs">{row.trackingNumber || "—"}</TableCell>
                           <TableCell>
                             {row.carrier} · {row.service}
-                            {row.isGofo ? (
-                              <Badge variant="secondary" className="ml-2">
-                                GOFO
-                              </Badge>
-                            ) : null}
+                            <Badge variant="secondary" className="ml-2">
+                              {carrierFamilyLabel(row.carrierFamily)}
+                            </Badge>
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">
                             {row.weightLb} lb
@@ -510,16 +566,22 @@ export function ClientReportsDashboard() {
                           </TableCell>
                           <TableCell className="text-right">{money(row.paid)}</TableCell>
                           <TableCell className="text-right text-muted-foreground">
-                            {row.isGofo ? `~${money(row.estimatedUsps)}` : "—"}
+                            ~{money(row.estimatedUsps)}
                           </TableCell>
                           <TableCell className="text-right font-medium text-emerald-700">
-                            {row.isGofo ? money(row.savedVsUsps) : money(0)}
+                            {savingsDisplay(row, "usps")}
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">
-                            {row.isGofo ? `~${money(row.estimatedUps)}` : "—"}
+                            ~{money(row.estimatedUps)}
                           </TableCell>
                           <TableCell className="text-right font-medium text-emerald-700">
-                            {row.isGofo ? money(row.savedVsUps) : money(0)}
+                            {savingsDisplay(row, "ups")}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            ~{money(row.estimatedFedex)}
+                          </TableCell>
+                          <TableCell className="text-right font-medium text-emerald-700">
+                            {savingsDisplay(row, "fedex")}
                           </TableCell>
                         </TableRow>
                       ))}
