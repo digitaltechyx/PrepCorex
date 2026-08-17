@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/api-admin-auth";
 import {
   loadLabelSavingsBenchmarks,
   saveLabelSavingsBenchmarks,
-} from "@/lib/label-savings-benchmarks";
+} from "@/lib/label-savings-benchmarks-server";
 
 export const dynamic = "force-dynamic";
 

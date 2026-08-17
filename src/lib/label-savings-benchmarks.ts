@@ -1,4 +1,3 @@
-import { adminDb } from "@/lib/firebase-admin";
 import { getBuyLabelRateDisplay } from "@/lib/buy-label-rate-display";
 
 export const LABEL_SAVINGS_BENCHMARKS_PATH = "appSettings/labelSavingsBenchmarks";
@@ -40,30 +39,6 @@ export function normalizeLabelSavingsBenchmarks(
     ups: money(raw?.ups, DEFAULT_LABEL_SAVINGS_BENCHMARKS.ups),
     fedex: money(raw?.fedex, DEFAULT_LABEL_SAVINGS_BENCHMARKS.fedex),
   };
-}
-
-export async function loadLabelSavingsBenchmarks(): Promise<LabelSavingsBenchmarks> {
-  try {
-    const snap = await adminDb().doc(LABEL_SAVINGS_BENCHMARKS_PATH).get();
-    if (!snap.exists) return { ...DEFAULT_LABEL_SAVINGS_BENCHMARKS };
-    return normalizeLabelSavingsBenchmarks(snap.data() as Partial<LabelSavingsBenchmarks>);
-  } catch {
-    return { ...DEFAULT_LABEL_SAVINGS_BENCHMARKS };
-  }
-}
-
-export async function saveLabelSavingsBenchmarks(
-  input: Partial<LabelSavingsBenchmarks>
-): Promise<LabelSavingsBenchmarks> {
-  const next = normalizeLabelSavingsBenchmarks(input);
-  await adminDb().doc(LABEL_SAVINGS_BENCHMARKS_PATH).set(
-    {
-      ...next,
-      updatedAt: new Date().toISOString(),
-    },
-    { merge: true }
-  );
-  return next;
 }
 
 /** True when the purchased label is PrepCorex GOFO (not Shippo / ShipBest USPS). */

@@ -14,8 +14,8 @@ import {
   estimatedSavings,
   isPrepCorexGofoPurchase,
   labelPurchasePaidDollars,
-  loadLabelSavingsBenchmarks,
 } from "@/lib/label-savings-benchmarks";
+import { loadLabelSavingsBenchmarks } from "@/lib/label-savings-benchmarks-server";
 import type {
   ClientReportInventoryRow,
   ClientReportInvoiceRow,

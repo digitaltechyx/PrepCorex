@@ -359,9 +359,9 @@ export default function RolesPermissionsPage() {
                         {filteredUsersForSelect.length === 0 ? (
                           <p className="py-6 text-center text-sm text-muted-foreground">No user found.</p>
                         ) : (
-                          filteredUsersForSelect.map((u) => (
+                          filteredUsersForSelect.map((u, index) => (
                             <button
-                              key={u.uid}
+                              key={u.uid || u.email || `user-${index}`}
                               type="button"
                               className="w-full text-left rounded-lg px-3 py-2.5 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
                               onClick={() => {
@@ -438,11 +438,11 @@ export default function RolesPermissionsPage() {
                   No users match your search.
                 </li>
               ) : (
-                filteredDialogUsers.map((u) => {
+                filteredDialogUsers.map((u, index) => {
                   const roles = getUserRoles(u);
                   return (
                     <li
-                      key={u.uid}
+                      key={u.uid || u.email || `dialog-user-${index}`}
                       className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5 hover:bg-muted/30 transition-colors"
                     >
                       <span className="font-medium text-foreground text-sm">
