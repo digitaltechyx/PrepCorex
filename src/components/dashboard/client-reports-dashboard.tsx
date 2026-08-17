@@ -70,13 +70,6 @@ function carrierFamilyLabel(family: ClientReportLabelRow["carrierFamily"]): stri
   return "Other";
 }
 
-function savingsDisplay(row: ClientReportLabelRow, courier: "usps" | "ups" | "fedex"): string {
-  if (row.carrierFamily === courier) return "—";
-  const amount =
-    courier === "usps" ? row.savedVsUsps : courier === "ups" ? row.savedVsUps : row.savedVsFedex;
-  return money(amount);
-}
-
 function paidBreakdown(savings: ClientReportSummary["savings"]): Array<{
   title: string;
   paid: number;
@@ -310,9 +303,15 @@ export function ClientReportsDashboard() {
                 icon={<Receipt className="h-4 w-4" />}
               />
               <StatCard
-                title="Est. saved vs USPS"
-                value={money(summary.savings.savedVsUsps)}
-                hint={`${summary.savings.labelCount} labels`}
+                title="You paid on shipping"
+                value={money(summary.savings.paidTotal)}
+                hint={`${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"} · avg ${money(summary.savings.averagePaid)}`}
+                icon={<Truck className="h-4 w-4" />}
+              />
+              <StatCard
+                title="Your est. save on shipping"
+                value={money(summary.savings.savedOnShipping)}
+                hint={`Estimated save · ${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"}`}
                 icon={<PiggyBank className="h-4 w-4" />}
               />
             </div>
@@ -425,9 +424,8 @@ export function ClientReportsDashboard() {
               <CardHeader>
                 <CardTitle className="text-base">Estimated savings vs typical courier rates</CardTitle>
                 <CardDescription>
-                  Every completed label shows what you paid and the approximate USPS / UPS / FedEx
-                  price for that weight. Savings are vs the couriers you did not buy. Estimates, not
-                  live quotes.
+                  What you paid in this period, plus estimated save vs approximate USPS / UPS / FedEx
+                  prices for the same weight. Estimates, not live quotes.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -439,15 +437,15 @@ export function ClientReportsDashboard() {
                   icon={<PiggyBank className="h-4 w-4" />}
                 />
                 <StatCard
-                  title="Saved vs USPS"
-                  value={money(summary.savings.savedVsUsps)}
-                  hint={`Would be ~${money(summary.savings.estimatedUsps)}`}
+                  title="Your est. save on shipping"
+                  value={money(summary.savings.savedOnShipping)}
+                  hint="Estimated save"
                   icon={<PiggyBank className="h-4 w-4" />}
                 />
                 <StatCard
-                  title="Saved vs UPS"
-                  value={money(summary.savings.savedVsUps)}
-                  hint={`Would be ~${money(summary.savings.estimatedUps)}`}
+                  title="Saved vs USPS"
+                  value={money(summary.savings.savedVsUsps)}
+                  hint={`Would be ~${money(summary.savings.estimatedUsps)}`}
                   icon={<PiggyBank className="h-4 w-4" />}
                 />
               </CardContent>
@@ -524,7 +522,7 @@ export function ClientReportsDashboard() {
                 <CardTitle className="text-base">Label detail</CardTitle>
                 <CardDescription>
                   Each row shows what you paid and the estimated USPS / UPS / FedEx price for that
-                  weight. Savings vs the courier you bought is blank.
+                  weight, with savings on all three.
                 </CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto">
@@ -569,19 +567,19 @@ export function ClientReportsDashboard() {
                             ~{money(row.estimatedUsps)}
                           </TableCell>
                           <TableCell className="text-right font-medium text-emerald-700">
-                            {savingsDisplay(row, "usps")}
+                            {money(row.savedVsUsps)}
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">
                             ~{money(row.estimatedUps)}
                           </TableCell>
                           <TableCell className="text-right font-medium text-emerald-700">
-                            {savingsDisplay(row, "ups")}
+                            {money(row.savedVsUps)}
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">
                             ~{money(row.estimatedFedex)}
                           </TableCell>
                           <TableCell className="text-right font-medium text-emerald-700">
-                            {savingsDisplay(row, "fedex")}
+                            {money(row.savedVsFedex)}
                           </TableCell>
                         </TableRow>
                       ))}

@@ -165,8 +165,6 @@ export function estimatedSavings(paid: number, benchmark: number): number {
   return Math.max(0, Math.round((benchmark - paid) * 100) / 100);
 }
 
-export type LabelSavingsCarrierFamily = "gofo" | "usps" | "ups" | "fedex" | "other";
-
 /** Which comparison courier this purchase belongs to (USPS substring must be checked before UPS). */
 export function classifyLabelSavingsCarrier(input: {
   isGofo: boolean;
@@ -179,13 +177,4 @@ export function classifyLabelSavingsCarrier(input: {
   if (blob.includes("fedex")) return "fedex";
   if (/(^|[^a-z])ups([^a-z]|$)/.test(blob)) return "ups";
   return "other";
-}
-
-export function estimatedSavingsVsCourier(
-  paid: number,
-  benchmark: number,
-  boughtThisCourier: boolean
-): number {
-  if (boughtThisCourier) return 0;
-  return estimatedSavings(paid, benchmark);
 }

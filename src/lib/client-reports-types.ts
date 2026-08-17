@@ -80,6 +80,7 @@ export type ClientReportSummary = {
     savedVsUsps: number;
     savedVsUps: number;
     savedVsFedex: number;
+    savedOnShipping: number;
     averagePaidGofo: number;
     averagePaid: number;
     rows: ClientReportLabelRow[];

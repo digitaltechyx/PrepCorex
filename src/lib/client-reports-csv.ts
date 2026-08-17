@@ -74,6 +74,7 @@ export function buildClientReportCsv(summary: ClientReportSummary, tab: ClientRe
       `Saved vs UPS (est.),${money(s.savedVsUps)}`,
       `Approx FedEx total,${money(s.estimatedFedex)}`,
       `Saved vs FedEx (est.),${money(s.savedVsFedex)}`,
+      `Est. save on shipping,${money(s.savedOnShipping)}`,
       `Average paid,${money(s.averagePaid)}`,
       "",
       "=== WEIGHT RATE CARD (approx) ===",

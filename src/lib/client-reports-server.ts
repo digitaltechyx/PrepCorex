@@ -13,7 +13,7 @@ import {
 import {
   benchmarksForWeight,
   classifyLabelSavingsCarrier,
-  estimatedSavingsVsCourier,
+  estimatedSavings,
   isPrepCorexGofoPurchase,
   labelPurchasePaidDollars,
   parcelWeightPounds,
@@ -280,9 +280,9 @@ export async function buildClientReport(
       estimatedUsps: band.usps,
       estimatedUps: band.ups,
       estimatedFedex: band.fedex,
-      savedVsUsps: estimatedSavingsVsCourier(paid, band.usps, carrierFamily === "usps"),
-      savedVsUps: estimatedSavingsVsCourier(paid, band.ups, carrierFamily === "ups"),
-      savedVsFedex: estimatedSavingsVsCourier(paid, band.fedex, carrierFamily === "fedex"),
+      savedVsUsps: estimatedSavings(paid, band.usps),
+      savedVsUps: estimatedSavings(paid, band.ups),
+      savedVsFedex: estimatedSavings(paid, band.fedex),
     });
   }
   labelRows.sort((a, b) => reportToMs(b.purchasedAt) - reportToMs(a.purchasedAt));
@@ -347,6 +347,12 @@ export async function buildClientReport(
       savedVsUsps: labelRows.reduce((s, r) => s + r.savedVsUsps, 0),
       savedVsUps: labelRows.reduce((s, r) => s + r.savedVsUps, 0),
       savedVsFedex: labelRows.reduce((s, r) => s + r.savedVsFedex, 0),
+      savedOnShipping: Math.round(
+        labelRows.reduce(
+          (s, r) => s + Math.max(r.savedVsUsps, r.savedVsUps, r.savedVsFedex),
+          0
+        ) * 100
+      ) / 100,
       averagePaidGofo: gofoRows.length ? Math.round((paidGofo / gofoRows.length) * 100) / 100 : 0,
       averagePaid: labelRows.length ? Math.round((paidTotal / labelRows.length) * 100) / 100 : 0,
       rows: labelRows,
