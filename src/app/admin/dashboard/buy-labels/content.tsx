@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { BuyLabelsForm } from "@/components/dashboard/buy-labels-form";
 import { AdminPurchasedLabelsSection } from "@/components/admin/admin-purchased-labels-section";
 import { AdminLabelBillingPanel } from "@/components/admin/admin-label-billing-panel";
+import { LabelMarketRatesPanel } from "@/components/admin/label-market-rates-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Package, Tag, Wallet } from "lucide-react";
@@ -240,8 +241,9 @@ export default function AdminBuyLabelsPageContent() {
           <AdminPurchasedLabelsSection />
         </TabsContent>
 
-        <TabsContent value="billing" className="mt-0">
+        <TabsContent value="billing" className="mt-0 space-y-6">
           <AdminLabelBillingPanel />
+          <LabelMarketRatesPanel />
         </TabsContent>
       </Tabs>
     </div>

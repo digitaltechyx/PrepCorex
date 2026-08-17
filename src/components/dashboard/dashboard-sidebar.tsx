@@ -36,6 +36,7 @@ import {
   FileUp,
   ArrowLeftRight,
   FolderOpen,
+  BarChart3,
   Plug,
   Ship,
   ChevronLeft,
@@ -437,6 +438,15 @@ export function DashboardSidebar() {
       badge: pendingInvoicesCount > 0 ? pendingInvoicesCount : null,
       requiredRole: "user" as const,
       requiredFeature: "view_invoices" as const,
+    },
+    {
+      title: "Reports",
+      url: "/dashboard/reports",
+      icon: BarChart3,
+      color: "text-slate-700",
+      badge: null,
+      requiredRole: "user" as const,
+      requiredFeature: "view_reports" as const,
     },
     {
       title: "Restock Summary",

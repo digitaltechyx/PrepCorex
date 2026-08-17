@@ -405,6 +405,7 @@ export type UserFeature =
   | "upload_labels"
   | "track_shipment"
   | "view_invoices"
+  | "view_reports"
   | "restock_summary"
   | "delete_logs"
   | "modification_logs"

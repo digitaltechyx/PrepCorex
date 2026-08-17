@@ -64,6 +64,7 @@ const CLIENT_FEATURES: { value: UserFeature; label: string; description: string 
   { value: "request_product_returns", label: "Product Returns", description: "Request and view product returns" },
   { value: "track_shipment", label: "Track Shipment", description: "Track shipment status" },
   { value: "view_invoices", label: "View Invoices", description: "View and manage invoices" },
+  { value: "view_reports", label: "Reports", description: "View account reports, inventory snapshot, invoices, and label savings" },
   { value: "my_pricing", label: "My Pricing", description: "View my pricing" },
   { value: "restock_summary", label: "Restock Summary", description: "View restock history" },
   { value: "modification_logs", label: "Modification Logs", description: "View edit history" },

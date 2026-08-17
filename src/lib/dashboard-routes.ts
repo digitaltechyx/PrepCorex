@@ -18,6 +18,8 @@ const PATH_FEATURE_MAP: { path: string; feature: UserFeature; exact?: boolean }[
   { path: "/dashboard/recycle-bin", feature: "disposed_inventory", exact: true },
   { path: "/dashboard/quarantine", feature: "quarantine_inventory", exact: true },
   { path: "/dashboard/invoices", feature: "view_invoices", exact: true },
+  { path: "/dashboard/ebay-orders", feature: "view_ebay_orders", exact: true },
+  { path: "/dashboard/reports", feature: "view_reports", exact: true },
   { path: "/dashboard/pricing", feature: "my_pricing", exact: true },
   { path: "/dashboard/documents", feature: "client_documents", exact: true },
   { path: "/dashboard/shopify-orders", feature: "view_shopify_orders", exact: true },

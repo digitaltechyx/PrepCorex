@@ -14,6 +14,7 @@ const DEFAULT_CLIENT_FEATURES_FOR_NEW_USERS: UserFeature[] = [
   "shipped_orders",
   "my_pricing",
   "view_invoices",
+  "view_reports",
   "restock_summary",
   "modification_logs",
   "delete_logs",
@@ -131,7 +132,12 @@ export function hasFeature(userProfile: UserProfile | null | undefined, feature:
 
   if (hasRole(userProfile, "user")) {
     if (!isAccountActivated(userProfile)) return false;
-    if (hasExplicitFeatures) return features.includes(feature);
+    if (hasExplicitFeatures) {
+      if (features.includes(feature)) return true;
+      // Existing clients: Reports ships with Dashboard until admin saves an explicit grant.
+      if (feature === "view_reports" && features.includes("view_dashboard")) return true;
+      return false;
+    }
     return DEFAULT_CLIENT_FEATURES_FOR_NEW_USERS.includes(feature);
   }
 
