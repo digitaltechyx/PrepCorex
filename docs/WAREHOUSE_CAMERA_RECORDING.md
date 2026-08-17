@@ -1,9 +1,9 @@
 # Warehouse Camera Recording — Purpose, Requirements & Implementation Guide
 
-Status: **Draft for review**  
+Status: **Mobile-camera pilot implementation**  
 Owner: Operations + Engineering  
 Product: PrepCorex / PSF StockFlow  
-Last updated: 2026-07-06
+Last updated: 2026-08-18
 
 ---
 
@@ -12,6 +12,39 @@ Last updated: 2026-07-06
 PrepCorex will integrate **event-based warehouse video recording** with warehouse operations. Cameras provide **live view** when no job is active. When an operator starts a defined workflow (starting with **inbound receiving**), the camera in that zone **starts recording**, and when the job ends the clip is **uploaded to cloud storage** and **linked to the client and job** (e.g. inbound request ID).
 
 This document defines **purpose**, **functional requirements**, and everything needed to implement the system: **hardware**, **software**, **APIs**, **cloud**, **network**, **data model**, and **phased rollout**.
+
+### 1.1 Current v1 decision — mobile recording
+
+This section supersedes older pilot statements below that assume an RTSP camera, NVR, or mini PC.
+
+- The warehouse operator records from the PrepCorex receiving page on a phone/tablet.
+- Entering a matched inbound receive shows a **Start recording** prompt.
+- Recording supports **pause, resume, stop, and multiple clips** for one inbound request.
+- The same phone video track publishes to a private **LiveKit Cloud** room while recording.
+- The client sees **Receiving live now** on Inventory and can watch only sessions linked to their account.
+- On stop, the complete clip is stored in **IndexedDB on that phone/browser**.
+- PrepCorex asks whether to upload immediately; **Later** leaves the phone copy available on the receive.
+- Confirmed upload uses a resumable browser-to-**admin Google Drive** transfer, avoiding Vercel body/disk limits.
+- Firestore stores session metadata and the private Drive file ID/link; it does not store MP4/WebM bytes.
+- The Drive hierarchy is:
+  `PrepCorex Warehouse Recordings/{warehouse}/{client} ({uid})/Receiving/{requestId}/{session file}`.
+- Google Drive is not the live relay. LiveKit handles live video; Drive stores completed clips.
+- Drive files remain private in v1. Warehouse/admin can open the Drive link; clients see live state and
+  recording/upload status in PrepCorex.
+
+Required server environment variables:
+
+```text
+LIVEKIT_URL
+LIVEKIT_API_KEY
+LIVEKIT_API_SECRET
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+GOOGLE_DRIVE_REFRESH_TOKEN (or system/googleDrive.refreshToken)
+GOOGLE_DRIVE_VIDEO_FOLDER_ID (optional dedicated parent folder)
+```
+
+The LiveKit API secret and Google OAuth credentials must never use a `NEXT_PUBLIC_` prefix.
 
 ---
 

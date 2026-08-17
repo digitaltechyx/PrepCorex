@@ -31,6 +31,8 @@ import { InventoryFefoTable } from "@/components/inventory/inventory-fefo-table"
 import { AddInboundTrackingDialog } from "@/components/inventory/add-inbound-tracking-dialog";
 import { InboundTrackingDetailDialog } from "@/components/inventory/inbound-tracking-detail-dialog";
 import { InboundTrackingStatusCell } from "@/components/inventory/inbound-tracking-status-cell";
+import { InboundReceiveVideoDialog } from "@/components/inventory/inbound-receive-video-dialog";
+import { ActiveReceiveLiveBanner } from "@/components/inventory/active-receive-live-banner";
 import {
   InventoryClosedRequestsSheet,
   type ClosedRequestMode,
@@ -1768,6 +1770,9 @@ export function InventoryTable({
         </div>
       </CardHeader>
       <CardContent className="p-0 sm:p-6">
+        <div className="mb-4 px-4 sm:px-0">
+          <ActiveReceiveLiveBanner clientUserId={effectiveUserId} />
+        </div>
         <div className="mb-4 px-6 sm:px-0">
           <Tabs
             value={inventoryView}
@@ -1868,6 +1873,13 @@ export function InventoryTable({
                         )}
                         onViewFull={setProductNamePreview}
                       />
+                      {(item as any).isRequest && (item as any).requestData?.id ? (
+                        <InboundReceiveVideoDialog
+                          requestId={String((item as any).requestData.id)}
+                          clientUserId={effectiveUserId}
+                          compact
+                        />
+                      ) : null}
                       {(item as any).isRequest && (item as any).requestData && item.status === "Pending" && (
                         <div className="flex shrink-0 items-center">
                           <Button
@@ -2150,6 +2162,13 @@ export function InventoryTable({
                             textClassName={isLowStockVisual ? lowStockTextClass : undefined}
                             onViewFull={setProductNamePreview}
                           />
+                          {(item as any).isRequest && (item as any).requestData?.id ? (
+                            <InboundReceiveVideoDialog
+                              requestId={String((item as any).requestData.id)}
+                              clientUserId={effectiveUserId}
+                              compact
+                            />
+                          ) : null}
                           {(item as any).isRequest && (item as any).requestData && item.status === "Pending" && (
                             <div className="inline-flex shrink-0 items-center">
                               <Button

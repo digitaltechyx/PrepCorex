@@ -14,7 +14,6 @@ import {
   ArrowUpFromLine,
   RotateCcw,
   Trash2,
-  Boxes,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -272,16 +271,6 @@ export function ClientReportsDashboard() {
                 title="Shipped"
                 value={summary.overview.unitsShipped}
                 icon={<ArrowUpFromLine className="h-4 w-4" />}
-              />
-              <StatCard
-                title="On hand"
-                value={summary.overview.currentOnHand}
-                hint={
-                  summary.overview.currentDamaged
-                    ? `${summary.overview.currentDamaged} damaged`
-                    : "Current snapshot"
-                }
-                icon={<Boxes className="h-4 w-4" />}
               />
               <StatCard
                 title="Invoices billed"

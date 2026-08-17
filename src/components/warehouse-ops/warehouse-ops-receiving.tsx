@@ -103,6 +103,7 @@ import type { UserProfile } from "@/types";
 import { generateCrossdockReceiveLot } from "@/lib/warehouse-crossdock";
 import { CrossdockClientCombobox } from "@/components/warehouse-ops/crossdock-client-combobox";
 import { WarehouseOpsDockIntake } from "@/components/warehouse-ops/warehouse-ops-dock-intake";
+import { WarehouseMobileCameraRecorder } from "@/components/warehouse-ops/warehouse-mobile-camera-recorder";
 import {
   ProductUnitMeasurementsFields,
 } from "@/components/inventory/product-unit-measurements-fields";
@@ -335,6 +336,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   const [restoreKey, setRestoreKey] = useState(0);
   const [selectedInbounds, setSelectedInbounds] = useState<InboundRequestRow[]>([]);
   const [dockTracking, setDockTracking] = useState("");
+  const [cameraRecordingActive, setCameraRecordingActive] = useState(false);
 
   function selectReceiveType(m: ReceiveModule, t: ReceiveType) {
     setModule(m);
@@ -388,6 +390,14 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
   }
 
   function backFromForm() {
+    if (cameraRecordingActive) {
+      toast({
+        title: "Stop the recording first",
+        description: "Finish and save the current clip before leaving this receive.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (fromContainer) {
       setPhase("pick-container-contents");
       setType(null);
@@ -403,7 +413,17 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
       <WarehouseOpsHeader title="Inspection / Receiving" />
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(v as "receive" | "correct" | "log")}
+        onValueChange={(v) => {
+          if (cameraRecordingActive && v !== "receive") {
+            toast({
+              title: "Stop the recording first",
+              description: "Finish and save the current clip before changing receiving tabs.",
+              variant: "destructive",
+            });
+            return;
+          }
+          setTab(v as "receive" | "correct" | "log");
+        }}
       >
         <TabsList className="grid h-auto w-full grid-cols-3 gap-1 rounded-xl border border-border bg-muted/80 p-1.5 shadow-sm">
           <TabsTrigger
@@ -680,39 +700,53 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
               </div>
             </>
           ) : type && module ? (
-            <ReceiveForm
-              key={`receive-${module}-${type}-${fromContainer ? "ctr" : "std"}-${restoreKey}-${selectedInbounds.map((r) => r.id).join(",") || "none"}`}
-              warehouse={warehouse}
-              type={type}
-              receiveModule={module}
-              receiveMode={module === "loose" ? "unpackaged" : "crossdock"}
-              inboundRequests={selectedInbounds}
-              dockTracking={dockTracking}
-              clients={clients}
-              fromContainer={fromContainer}
-              onInboundRequestsChange={setSelectedInbounds}
-              onBack={backFromForm}
-              onSwitchToOpenReceive={
-                module === "crossdock"
-                  ? () => {
-                      setModule("loose");
-                      setFormRestore(null);
-                      setPhase("hub");
-                      setType(null);
-                      setFromContainer(false);
-                    }
-                  : undefined
-              }
-              initialSnapshot={formRestore}
-              onSnapshotConsumed={() => setFormRestore(null)}
-              onRestoreForm={(snap) => {
-                setFormRestore(snap);
-                setModule(moduleFromSnapshot(snap));
-                setType(snap.type);
-                setPhase("form");
-                setRestoreKey((k) => k + 1);
-              }}
-            />
+            <div className="space-y-4">
+              {selectedInbounds.length > 0 &&
+              new Set(selectedInbounds.map((row) => row.clientUserId)).size === 1 ? (
+                <WarehouseMobileCameraRecorder
+                  clientUserId={selectedInbounds[0].clientUserId}
+                  clientDisplayName={selectedInbounds[0].clientDisplayName}
+                  inventoryRequestIds={selectedInbounds.map((row) => row.id)}
+                  warehouseId={warehouse.id}
+                  warehouseLabel={warehouse.code || warehouse.name}
+                  onRecordingChange={setCameraRecordingActive}
+                />
+              ) : null}
+              <ReceiveForm
+                key={`receive-${module}-${type}-${fromContainer ? "ctr" : "std"}-${restoreKey}-${selectedInbounds.map((r) => r.id).join(",") || "none"}`}
+                warehouse={warehouse}
+                type={type}
+                receiveModule={module}
+                receiveMode={module === "loose" ? "unpackaged" : "crossdock"}
+                inboundRequests={selectedInbounds}
+                dockTracking={dockTracking}
+                clients={clients}
+                fromContainer={fromContainer}
+                cameraRecordingActive={cameraRecordingActive}
+                onInboundRequestsChange={setSelectedInbounds}
+                onBack={backFromForm}
+                onSwitchToOpenReceive={
+                  module === "crossdock"
+                    ? () => {
+                        setModule("loose");
+                        setFormRestore(null);
+                        setPhase("hub");
+                        setType(null);
+                        setFromContainer(false);
+                      }
+                    : undefined
+                }
+                initialSnapshot={formRestore}
+                onSnapshotConsumed={() => setFormRestore(null)}
+                onRestoreForm={(snap) => {
+                  setFormRestore(snap);
+                  setModule(moduleFromSnapshot(snap));
+                  setType(snap.type);
+                  setPhase("form");
+                  setRestoreKey((k) => k + 1);
+                }}
+              />
+            </div>
           ) : null}
         </TabsContent>
         <TabsContent value="correct" className="mt-4">
@@ -771,6 +805,7 @@ function ReceiveForm({
   dockTracking,
   clients: clientsForReload,
   fromContainer = false,
+  cameraRecordingActive = false,
   onInboundRequestsChange,
   onBack,
   onSwitchToOpenReceive,
@@ -787,6 +822,7 @@ function ReceiveForm({
   clients: UserProfile[];
   /** True when counting units unloaded from a container. */
   fromContainer?: boolean;
+  cameraRecordingActive?: boolean;
   onInboundRequestsChange?: (rows: InboundRequestRow[]) => void;
   onBack: () => void;
   /** Cross-dock → open receiving (count SKUs into inventory). Keeps dock-matched requests. */
@@ -1445,6 +1481,14 @@ function ReceiveForm({
   }
 
   async function handleReceive() {
+    if (cameraRecordingActive) {
+      toast({
+        title: "Stop the recording first",
+        description: "Finish the current clip before completing this receive.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (isCrossdockPalletOnly) {
       setSaving(true);
       try {
@@ -2104,6 +2148,7 @@ function ReceiveForm({
         inboundRequests={inboundRequests}
         dockTracking={dockTracking}
         clients={clientsForReload}
+        cameraRecordingActive={cameraRecordingActive}
         onBack={onBack}
       />
     );
@@ -2896,12 +2941,14 @@ function ContainerReceiveForm({
   inboundRequests,
   dockTracking,
   clients,
+  cameraRecordingActive,
   onBack,
 }: {
   warehouse: WarehouseDoc;
   inboundRequests: InboundRequestRow[];
   dockTracking?: string;
   clients: UserProfile[];
+  cameraRecordingActive?: boolean;
   onBack: () => void;
 }) {
   const { toast } = useToast();
@@ -2923,6 +2970,14 @@ function ContainerReceiveForm({
   const [saving, setSaving] = useState(false);
 
   async function handleSubmit() {
+    if (cameraRecordingActive) {
+      toast({
+        title: "Stop the recording first",
+        description: "Finish the current clip before completing this receive.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSaving(true);
     try {
       const photoUrls =
