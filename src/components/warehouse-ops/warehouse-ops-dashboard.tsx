@@ -22,6 +22,7 @@ import type { LucideIcon } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useWarehouseOps } from "@/components/warehouse-ops/warehouse-ops-provider";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
+import { WarehouseOpsMobileHome } from "@/components/warehouse-ops/warehouse-ops-mobile-home";
 import { getOpsNavItems, isOpsSupervisor } from "@/lib/warehouse-ops-permissions";
 import { hasFeature } from "@/lib/permissions";
 import {
@@ -217,7 +218,12 @@ export function WarehouseOpsDashboard() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6 sm:space-y-8">
+    <>
+      <div className="md:hidden">
+        <WarehouseOpsMobileHome />
+      </div>
+      <div className="hidden md:block">
+        <div className="mx-auto w-full max-w-6xl space-y-6 sm:space-y-8">
       {/* Hero */}
       <div className="relative overflow-hidden rounded-2xl border border-orange-200/50 bg-gradient-to-br from-orange-50 via-background to-amber-50/30 p-5 sm:p-8 dark:border-orange-900/30 dark:from-orange-950/30 dark:via-background dark:to-amber-950/10">
         <div className="relative z-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -424,6 +430,8 @@ export function WarehouseOpsDashboard() {
           })}
         </div>
       </div>
-    </div>
+        </div>
+      </div>
+    </>
   );
 }

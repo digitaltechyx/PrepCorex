@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut, Shield, Warehouse } from "lucide-react";
+import { LogOut, Package, Shield, Warehouse } from "lucide-react";
 import { signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
@@ -47,7 +47,16 @@ export function WarehouseOpsTopbar() {
 
   return (
     <header className="sticky top-0 z-40 flex h-14 sm:h-16 shrink-0 items-center gap-2 sm:gap-4 border-b border-border/40 bg-background/95 px-3 sm:px-4 lg:px-6 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <SidebarTrigger className="-ml-1 shrink-0" />
+      <SidebarTrigger className="-ml-1 hidden shrink-0 md:inline-flex" />
+
+      <Link href="/warehouse-ops" className="flex shrink-0 items-center gap-1.5 md:hidden">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-600 text-white shadow-sm">
+          <Package className="h-4 w-4" />
+        </span>
+        <span className="hidden text-sm font-extrabold tracking-tight min-[390px]:inline">
+          Prep<span className="text-orange-600">Corex</span>
+        </span>
+      </Link>
 
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <div className="hidden min-w-0 sm:block">
@@ -58,14 +67,14 @@ export function WarehouseOpsTopbar() {
         {loading ? (
           <p className="ml-auto text-xs text-muted-foreground">Loading warehouses…</p>
         ) : warehouses.length > 0 ? (
-          <div className="ml-auto flex min-w-0 max-w-[min(100%,14rem)] sm:max-w-xs items-center gap-2">
+          <div className="ml-auto flex min-w-0 max-w-[min(100%,12rem)] sm:max-w-xs items-center gap-2">
             <Warehouse className="hidden h-4 w-4 shrink-0 text-orange-600 sm:block" />
             <Select
               value={selectedWarehouse?.id ?? ""}
               onValueChange={setSelectedWarehouseId}
               disabled={warehouses.length <= 1}
             >
-              <SelectTrigger className="h-9 w-full border-orange-200/60 bg-orange-50/40 dark:border-orange-900/40 dark:bg-orange-950/20">
+              <SelectTrigger className="h-9 w-full border-orange-200/60 bg-orange-50/40 text-xs sm:text-sm dark:border-orange-900/40 dark:bg-orange-950/20">
                 <SelectValue placeholder="Warehouse" />
               </SelectTrigger>
               <SelectContent>

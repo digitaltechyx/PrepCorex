@@ -9,6 +9,7 @@ import { WarehouseOpsSidebar } from "@/components/warehouse-ops/warehouse-ops-si
 import { WarehouseOpsProvider } from "@/components/warehouse-ops/warehouse-ops-provider";
 import { WarehouseOpsLiveProvider } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { WarehouseOpsTopbar } from "@/components/warehouse-ops/warehouse-ops-topbar";
+import { WarehouseOpsMobileBottomNav } from "@/components/warehouse-ops/warehouse-ops-mobile-bottom-nav";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 export default function WarehouseOpsLayout({ children }: { children: React.ReactNode }) {
@@ -39,7 +40,10 @@ export default function WarehouseOpsLayout({ children }: { children: React.React
           <WarehouseOpsSidebar />
           <SidebarInset className="flex min-w-0 flex-1 flex-col">
             <WarehouseOpsTopbar />
-            <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">{children}</main>
+            <main className="flex-1 overflow-auto p-3 pb-24 sm:p-6 sm:pb-24 md:pb-6 lg:p-8">
+              {children}
+            </main>
+            <WarehouseOpsMobileBottomNav />
           </SidebarInset>
         </div>
         </SidebarProvider>

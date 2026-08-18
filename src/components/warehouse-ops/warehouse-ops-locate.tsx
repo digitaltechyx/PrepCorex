@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,6 +80,8 @@ const EMPTY_FILTERS: InventorySearchFilters = {
 
 export function WarehouseOpsLocate({ warehouse }: Props) {
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const scannedQuery = searchParams.get("query")?.trim() || "";
   const { data: allUsers } = useCollection<UserProfile>("users");
   const clients = useMemo(() => {
     const base = allUsers.filter(
@@ -88,7 +91,10 @@ export function WarehouseOpsLocate({ warehouse }: Props) {
   }, [allUsers, warehouse]);
   const clientById = useMemo(() => new Map(clients.map((c) => [c.uid, c])), [clients]);
 
-  const [filters, setFilters] = useState<InventorySearchFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<InventorySearchFilters>({
+    ...EMPTY_FILTERS,
+    query: scannedQuery,
+  });
   const [results, setResults] = useState<InventorySearchRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -113,6 +119,24 @@ export function WarehouseOpsLocate({ warehouse }: Props) {
   useEffect(() => {
     void runSearch();
   }, [warehouse.id]);
+
+  useEffect(() => {
+    if (!scannedQuery) return;
+    const nextFilters = { ...EMPTY_FILTERS, query: scannedQuery };
+    setFilters(nextFilters);
+    setLoading(true);
+    setSearched(true);
+    void searchInventory(warehouse, nextFilters)
+      .then(setResults)
+      .catch((error) => {
+        toast({
+          title: "Scanned item lookup failed",
+          description: error instanceof Error ? error.message : "Unknown error",
+          variant: "destructive",
+        });
+      })
+      .finally(() => setLoading(false));
+  }, [scannedQuery, toast, warehouse]);
 
   const hasFilters =
     Boolean(filters.query?.trim()) ||

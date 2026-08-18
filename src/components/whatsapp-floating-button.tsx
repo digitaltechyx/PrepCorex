@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -17,6 +18,7 @@ const WhatsAppIcon = ({ className }: { className?: string }) => (
 );
 
 export function WhatsAppFloatingButton() {
+  const pathname = usePathname();
   const [isVisible, setIsVisible] = React.useState(true);
   const [isClicking, setIsClicking] = React.useState(false);
 
@@ -28,8 +30,8 @@ export function WhatsAppFloatingButton() {
     setTimeout(() => setIsClicking(false), 300);
   };
 
-  // Don't render if user has dismissed it
-  if (!isVisible) return null;
+  // Keep the warehouse mobile bottom navigation and scan action unobstructed.
+  if (!isVisible || pathname?.startsWith("/warehouse-ops")) return null;
 
   return (
     <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50">
