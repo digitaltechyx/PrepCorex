@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Radio, X } from "lucide-react";
-import { useAuth } from "@/hooks/use-auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { InboundReceiveVideoDialog } from "@/components/inventory/inbound-receive-video-dialog";
-import { listWarehouseCameraSessions } from "@/lib/warehouse-camera-client";
+import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
 import {
   isWarehouseCameraSessionActive,
   warehouseCameraSessionProductLabel,
@@ -18,38 +17,19 @@ export function ActiveReceiveLiveBanner({
 }: {
   clientUserId?: string;
 }) {
-  const { user } = useAuth();
-  const [active, setActive] = useState<WarehouseCameraSession | null>(null);
+  const { sessions } = useWarehouseCameraSessions(clientUserId);
   const [ended, setEnded] = useState<WarehouseCameraSession | null>(null);
   const previousActiveRef = useRef<WarehouseCameraSession | null>(null);
-
-  const refresh = useCallback(async () => {
-    if (!user) return;
-    const sessions = await listWarehouseCameraSessions(user, { clientUserId });
-    const nextActive = sessions.find((row) => isWarehouseCameraSessionActive(row)) ?? null;
-    const previous = previousActiveRef.current;
-    if (previous && !nextActive) {
-      setEnded(previous);
-    }
-    if (nextActive) setEnded(null);
-    previousActiveRef.current = nextActive;
-    setActive(nextActive);
-  }, [clientUserId, user]);
+  const active = sessions.find((row) => isWarehouseCameraSessionActive(row)) ?? null;
 
   useEffect(() => {
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") {
-        void refresh().catch(() => undefined);
-      }
-    };
-    refreshWhenVisible();
-    const timer = window.setInterval(refreshWhenVisible, 5000);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [refresh]);
+    const previous = previousActiveRef.current;
+    if (previous && !active) {
+      setEnded(previous);
+    }
+    if (active) setEnded(null);
+    previousActiveRef.current = active;
+  }, [active]);
 
   const requestId = active?.inventoryRequestIds[0] || ended?.inventoryRequestIds[0];
   if (!requestId || (!active && !ended)) return null;

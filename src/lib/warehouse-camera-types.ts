@@ -76,6 +76,25 @@ export function warehouseCameraSessionHasPlayback(session: WarehouseCameraSessio
   return session.status === "uploaded";
 }
 
+/** True when warehouse started a clip for this session (not discarded). */
+export function warehouseCameraSessionHasRecording(session: WarehouseCameraSession): boolean {
+  return session.status !== "discarded";
+}
+
+export function warehouseCameraRecordedRequestIds(
+  sessions: WarehouseCameraSession[]
+): Set<string> {
+  const ids = new Set<string>();
+  for (const session of sessions) {
+    if (!warehouseCameraSessionHasRecording(session)) continue;
+    for (const id of session.inventoryRequestIds) {
+      const requestId = String(id || "").trim();
+      if (requestId) ids.add(requestId);
+    }
+  }
+  return ids;
+}
+
 export type WarehouseCameraTokenResponse = {
   token: string;
   url: string;

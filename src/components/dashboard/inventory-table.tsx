@@ -33,6 +33,7 @@ import { InboundTrackingDetailDialog } from "@/components/inventory/inbound-trac
 import { InboundTrackingStatusCell } from "@/components/inventory/inbound-tracking-status-cell";
 import { InboundReceiveVideoDialog } from "@/components/inventory/inbound-receive-video-dialog";
 import { ActiveReceiveLiveBanner } from "@/components/inventory/active-receive-live-banner";
+import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
 import {
   InventoryClosedRequestsSheet,
   type ClosedRequestMode,
@@ -137,6 +138,19 @@ function inboundVideoRequestId(item: {
   if (item.isRequest && item.requestData?.id) return String(item.requestData.id);
   const source = String(item.sourceRequestId || item.requestId || "").trim();
   return source || null;
+}
+
+function inboundVideoRequestIdIfRecorded(
+  item: {
+    isRequest?: boolean;
+    requestData?: { id?: string };
+    sourceRequestId?: string;
+    requestId?: string;
+  },
+  recordedRequestIds: Set<string>
+): string | null {
+  const requestId = inboundVideoRequestId(item);
+  return requestId && recordedRequestIds.has(requestId) ? requestId : null;
 }
 
 function inventoryStatusBadge(status: string): { variant: "outline" | "secondary" | "destructive"; label: string } {
@@ -569,6 +583,7 @@ export function InventoryTable({
   const { user, userProfile } = useAuth();
   const effectiveUserId = ownerUserId || userProfile?.uid;
   const effectiveUserName = ownerUserName || userProfile?.name || "Unknown User";
+  const { recordedRequestIds } = useWarehouseCameraSessions(effectiveUserId);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
@@ -1884,9 +1899,9 @@ export function InventoryTable({
                         )}
                         onViewFull={setProductNamePreview}
                       />
-                      {inboundVideoRequestId(item as any) ? (
+                      {inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds) ? (
                         <InboundReceiveVideoDialog
-                          requestId={inboundVideoRequestId(item as any)!}
+                          requestId={inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds)!}
                           clientUserId={effectiveUserId}
                           compact
                         />
@@ -2055,9 +2070,10 @@ export function InventoryTable({
                       }}
                     />
                   )}
-                  {!(item as any).isRequest && inboundVideoRequestId(item as any) ? (
+                  {!(item as any).isRequest &&
+                  inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds) ? (
                     <InboundReceiveVideoDialog
-                      requestId={inboundVideoRequestId(item as any)!}
+                      requestId={inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds)!}
                       clientUserId={effectiveUserId}
                       triggerLabel="Watch receiving video"
                     />
@@ -2180,9 +2196,9 @@ export function InventoryTable({
                             textClassName={isLowStockVisual ? lowStockTextClass : undefined}
                             onViewFull={setProductNamePreview}
                           />
-                          {inboundVideoRequestId(item as any) ? (
+                          {inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds) ? (
                             <InboundReceiveVideoDialog
-                              requestId={inboundVideoRequestId(item as any)!}
+                              requestId={inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds)!}
                               clientUserId={effectiveUserId}
                               compact
                             />

@@ -55,6 +55,7 @@ import {
 } from "@/lib/inventory-history";
 import { cn } from "@/lib/utils";
 import { InboundReceiveVideoDialog } from "@/components/inventory/inbound-receive-video-dialog";
+import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
 
 const EVENT_BADGE: Record<string, string> = {
   created: "bg-slate-100 text-slate-800",
@@ -153,6 +154,12 @@ export function InventoryHistoryDialog({
   ownerLabel,
 }: Props) {
   const path = open && userId ? `users/${userId}` : "";
+  const { recordedRequestIds } = useWarehouseCameraSessions(userId, open);
+  const sourceRequestId = String(
+    (item as InventoryItem & { sourceRequestId?: string } | null)?.sourceRequestId || ""
+  ).trim();
+  const headerVideoRequestId =
+    sourceRequestId && recordedRequestIds.has(sourceRequestId) ? sourceRequestId : "";
 
   const [search, setSearch] = useState("");
   const [eventType, setEventType] = useState("all");
@@ -293,9 +300,9 @@ export function InventoryHistoryDialog({
                 Damaged on hand: {damagedOnHand}
               </Badge>
             ) : null}
-            {item && String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId || "").trim() ? (
+            {item && headerVideoRequestId ? (
               <InboundReceiveVideoDialog
-                requestId={String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId)}
+                requestId={headerVideoRequestId}
                 clientUserId={userId}
                 triggerLabel="Watch receiving video"
               />
@@ -442,7 +449,9 @@ export function InventoryHistoryDialog({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {inboundLogs.map((row) => (
+                    {inboundLogs.map((row) => {
+                      const rowRequestId = String(row.inventoryRequestId || "").trim();
+                      return (
                       <TableRow key={row.id}>
                         <TableCell className="text-xs whitespace-nowrap py-2.5">
                           {formatInboundLogDate(row)}
@@ -484,13 +493,9 @@ export function InventoryHistoryDialog({
                           )}
                         </TableCell>
                         <TableCell className="text-xs py-2.5">
-                          {row.inventoryRequestId ||
-                          String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId || "").trim() ? (
+                          {rowRequestId && recordedRequestIds.has(rowRequestId) ? (
                             <InboundReceiveVideoDialog
-                              requestId={
-                                row.inventoryRequestId ||
-                                String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId)
-                              }
+                              requestId={rowRequestId}
                               clientUserId={userId}
                               triggerLabel="Watch receiving video"
                             />
@@ -499,7 +504,8 @@ export function InventoryHistoryDialog({
                           )}
                         </TableCell>
                       </TableRow>
-                    ))}
+                    );
+                    })}
                   </TableBody>
                 </Table>
               </div>
