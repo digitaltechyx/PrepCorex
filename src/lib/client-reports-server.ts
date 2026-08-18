@@ -19,6 +19,11 @@ import {
   parcelWeightPounds,
 } from "@/lib/label-savings-benchmarks";
 import { loadLabelSavingsBenchmarks } from "@/lib/label-savings-benchmarks-server";
+import {
+  classifyPrepSavingsFamily,
+  marketPrepRate,
+} from "@/lib/prep-savings-benchmarks";
+import { loadPrepSavingsBenchmarks } from "@/lib/prep-savings-benchmarks-server";
 import type {
   ClientReportInventoryRow,
   ClientReportInvoiceRow,
@@ -107,6 +112,7 @@ export async function buildClientReport(
     invoicesSnap,
     labelsSnap,
     benchmarks,
+    prepBenchmarks,
   ] = await Promise.all([
     userRef.collection("inventory").get(),
     userRef.collection("inventoryRequests").get(),
@@ -116,6 +122,7 @@ export async function buildClientReport(
     userRef.collection("invoices").get(),
     userRef.collection("labelPurchases").get(),
     loadLabelSavingsBenchmarks(),
+    loadPrepSavingsBenchmarks(),
   ]);
 
   let currentOnHand = 0;
@@ -183,6 +190,13 @@ export async function buildClientReport(
   }
 
   let unitsShipped = 0;
+  let prepUnitCount = 0;
+  let prepFbaUnitCount = 0;
+  let prepFbmUnitCount = 0;
+  let paidPrepFba = 0;
+  let paidPrepFbm = 0;
+  let estimatedPrepFba = 0;
+  let estimatedPrepFbm = 0;
   for (const doc of shippedSnap.docs) {
     const data = doc.data() as Record<string, unknown>;
     const ms = pickReportDateMs(data, ["date", "createdAt", "dispatchedAt"]);
@@ -192,6 +206,24 @@ export async function buildClientReport(
     const key = bucketKey(ms, allTime);
     const bucket = activityBuckets.get(key);
     if (bucket) bucket.shipped += qty;
+
+    const unitPrice = Number(data.unitPrice) || 0;
+    if (qty > 0 && unitPrice > 0) {
+      const family = classifyPrepSavingsFamily(data.service);
+      const market = marketPrepRate(prepBenchmarks, family);
+      const paid = qty * unitPrice;
+      const estimated = qty * market;
+      prepUnitCount += qty;
+      if (family === "fba") {
+        prepFbaUnitCount += qty;
+        paidPrepFba += paid;
+        estimatedPrepFba += estimated;
+      } else {
+        prepFbmUnitCount += qty;
+        paidPrepFbm += paid;
+        estimatedPrepFbm += estimated;
+      }
+    }
   }
 
   let returnsHandled = 0;
@@ -356,6 +388,22 @@ export async function buildClientReport(
       averagePaidGofo: gofoRows.length ? Math.round((paidGofo / gofoRows.length) * 100) / 100 : 0,
       averagePaid: labelRows.length ? Math.round((paidTotal / labelRows.length) * 100) / 100 : 0,
       rows: labelRows,
+      prep: {
+        benchmarks: prepBenchmarks,
+        unitCount: prepUnitCount,
+        fbaUnitCount: prepFbaUnitCount,
+        fbmUnitCount: prepFbmUnitCount,
+        paidFba: Math.round(paidPrepFba * 100) / 100,
+        paidFbm: Math.round(paidPrepFbm * 100) / 100,
+        paidTotal: Math.round((paidPrepFba + paidPrepFbm) * 100) / 100,
+        estimatedFba: Math.round(estimatedPrepFba * 100) / 100,
+        estimatedFbm: Math.round(estimatedPrepFbm * 100) / 100,
+        estimatedMarket: Math.round((estimatedPrepFba + estimatedPrepFbm) * 100) / 100,
+        savedOnPrep:
+          Math.round(
+            Math.max(0, estimatedPrepFba + estimatedPrepFbm - paidPrepFba - paidPrepFbm) * 100
+          ) / 100,
+      },
     },
   };
 }

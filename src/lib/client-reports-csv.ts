@@ -26,6 +26,8 @@ export function buildClientReportCsv(summary: ClientReportSummary, tab: ClientRe
       `Invoices billed,${money(summary.overview.invoicesBilled)}`,
       `Invoices paid,${money(summary.overview.invoicesPaid)}`,
       `Invoices pending,${money(summary.overview.invoicesPending)}`,
+      `Est. save on shipping,${money(summary.savings.savedOnShipping)}`,
+      `Est. save on prep,${money(summary.savings.prep.savedOnPrep)}`,
       ""
     );
   }
@@ -76,6 +78,18 @@ export function buildClientReportCsv(summary: ClientReportSummary, tab: ClientRe
       `Saved vs FedEx (est.),${money(s.savedVsFedex)}`,
       `Est. save on shipping,${money(s.savedOnShipping)}`,
       `Average paid,${money(s.averagePaid)}`,
+      "",
+      "=== ESTIMATED PREP SAVINGS ===",
+      "Typical 3PL FBA / FBM per-unit rates set by PrepCorex, not live quotes.",
+      "Metric,Value",
+      `Units prepped,${s.prep.unitCount}`,
+      `You paid on prep,${money(s.prep.paidTotal)}`,
+      `Paid FBA prep,${money(s.prep.paidFba)}`,
+      `Paid FBM pick/pack,${money(s.prep.paidFbm)}`,
+      `Typical 3PL total (est.),${money(s.prep.estimatedMarket)}`,
+      `Est. save on prep,${money(s.prep.savedOnPrep)}`,
+      `Typical FBA / unit,${money(s.prep.benchmarks.fbaPerUnit)}`,
+      `Typical FBM / unit,${money(s.prep.benchmarks.fbmPerUnit)}`,
       "",
       "=== WEIGHT RATE CARD (approx) ===",
       ["Weight band", "USPS", "UPS", "FedEx"].map(csvEscape).join(","),

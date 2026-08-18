@@ -16,7 +16,7 @@ export default function ClientReportsPage() {
                 Reports
               </CardTitle>
               <CardDescription className="mt-2 text-slate-200">
-                Account overview, inventory snapshot, invoices, and estimated GOFO label savings
+                Account overview, inventory snapshot, invoices, estimated shipping savings, and prep savings
               </CardDescription>
             </div>
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm">

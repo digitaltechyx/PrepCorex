@@ -14,6 +14,7 @@ import {
   ArrowUpFromLine,
   RotateCcw,
   Trash2,
+  Scissors,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -245,7 +246,7 @@ export function ClientReportsDashboard() {
               <Receipt className="h-4 w-4" /> Invoices
             </TabsTrigger>
             <TabsTrigger value="savings" className="gap-1.5">
-              <PiggyBank className="h-4 w-4" /> Label savings
+              <PiggyBank className="h-4 w-4" /> Savings
             </TabsTrigger>
           </TabsList>
 
@@ -306,6 +307,12 @@ export function ClientReportsDashboard() {
                 value={money(summary.savings.savedOnShipping)}
                 hint={`Estimated save · ${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"}`}
                 icon={<PiggyBank className="h-4 w-4" />}
+              />
+              <StatCard
+                title="Your est. save on prep"
+                value={money(summary.savings.prep.savedOnPrep)}
+                hint={`Estimated save · ${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"}`}
+                icon={<Scissors className="h-4 w-4" />}
               />
             </div>
             {summary.charts.activityByDay.length > 0 ? (
@@ -413,6 +420,62 @@ export function ClientReportsDashboard() {
           </TabsContent>
 
           <TabsContent value="savings" className="space-y-4">
+            <Card className="border-violet-200 bg-violet-50/40 dark:border-violet-900 dark:bg-violet-950/20">
+              <CardHeader>
+                <CardTitle className="text-base">Estimated savings vs typical 3PL prep rates</CardTitle>
+                <CardDescription>
+                  PrepCorex prep billed on shipments in this period, compared with typical FBA prep
+                  and FBM pick/pack rates. Estimates, not live quotes.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard
+                  title="Units prepped"
+                  value={summary.savings.prep.unitCount}
+                  icon={<Scissors className="h-4 w-4" />}
+                />
+                <StatCard
+                  title="You paid on prep"
+                  value={money(summary.savings.prep.paidTotal)}
+                  hint={`${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"}`}
+                  icon={<Receipt className="h-4 w-4" />}
+                />
+                <StatCard
+                  title="Typical 3PL (est.)"
+                  value={money(summary.savings.prep.estimatedMarket)}
+                  hint={`FBA $${summary.savings.prep.benchmarks.fbaPerUnit.toFixed(2)} · FBM $${summary.savings.prep.benchmarks.fbmPerUnit.toFixed(2)} / unit`}
+                  icon={<Package className="h-4 w-4" />}
+                />
+                <StatCard
+                  title="Your est. save on prep"
+                  value={money(summary.savings.prep.savedOnPrep)}
+                  hint="Estimated save"
+                  icon={<PiggyBank className="h-4 w-4" />}
+                />
+              </CardContent>
+            </Card>
+
+            {summary.savings.prep.unitCount > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {summary.savings.prep.fbaUnitCount > 0 ? (
+                  <StatCard
+                    title="FBA prep"
+                    value={money(summary.savings.prep.paidFba)}
+                    hint={`${summary.savings.prep.fbaUnitCount} units · typical ${money(summary.savings.prep.estimatedFba)}`}
+                    icon={<Scissors className="h-4 w-4" />}
+                  />
+                ) : null}
+                {summary.savings.prep.fbmUnitCount > 0 ? (
+                  <StatCard
+                    title="FBM pick/pack"
+                    value={money(summary.savings.prep.paidFbm)}
+                    hint={`${summary.savings.prep.fbmUnitCount} units · typical ${money(summary.savings.prep.estimatedFbm)}`}
+                    icon={<Package className="h-4 w-4" />}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+
             <Card className="border-emerald-200 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/20">
               <CardHeader>
                 <CardTitle className="text-base">Estimated savings vs typical courier rates</CardTitle>

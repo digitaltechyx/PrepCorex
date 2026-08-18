@@ -1,4 +1,5 @@
 import type { LabelSavingsBenchmarks } from "@/lib/label-savings-benchmarks";
+import type { PrepSavingsBenchmarks } from "@/lib/prep-savings-benchmarks";
 
 export type ClientReportTab = "overview" | "inventory" | "invoices" | "savings";
 
@@ -84,5 +85,18 @@ export type ClientReportSummary = {
     averagePaidGofo: number;
     averagePaid: number;
     rows: ClientReportLabelRow[];
+    prep: {
+      benchmarks: PrepSavingsBenchmarks;
+      unitCount: number;
+      fbaUnitCount: number;
+      fbmUnitCount: number;
+      paidFba: number;
+      paidFbm: number;
+      paidTotal: number;
+      estimatedFba: number;
+      estimatedFbm: number;
+      estimatedMarket: number;
+      savedOnPrep: number;
+    };
   };
 };

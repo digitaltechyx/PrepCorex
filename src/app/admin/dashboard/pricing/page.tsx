@@ -6,6 +6,7 @@
  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
  import { Skeleton } from "@/components/ui/skeleton";
  import { PricingManagement } from "@/components/admin/pricing-management";
+ import { PrepMarketRatesPanel } from "@/components/admin/prep-market-rates-panel";
 
  export default function AdminPricingPage() {
    const { data: users, loading: usersLoading } = useCollection<UserProfile>("users");
@@ -40,6 +41,7 @@
            )}
          </CardContent>
        </Card>
+       <PrepMarketRatesPanel />
      </div>
    );
  }
