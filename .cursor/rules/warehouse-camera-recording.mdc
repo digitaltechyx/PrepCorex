@@ -1,0 +1,39 @@
+---
+description: Warehouse mobile camera pilot — receiving recording, private LiveKit view, local clips, and admin Drive upload
+alwaysApply: true
+---
+
+# Warehouse camera recording (PrepCorex)
+
+When the user asks about the **camera feature**, use this implementation as the current v1 baseline.
+
+## Goal
+
+Receiving start → operator phone records + client watches **live** → receive stop → local phone clip → confirmed upload to **admin Google Drive**.
+
+## Agreed architecture
+
+- **Camera:** phone/tablet browser camera on the warehouse receiving page
+- **Recording:** MediaRecorder; pause/resume/stop; multiple clips per inbound request
+- **Local storage:** completed Blob in IndexedDB on the same phone/browser until upload/removal
+- **Live:** the same camera track publishes to managed LiveKit Cloud with short-lived server-issued tokens
+- **Privacy:** client tokens work only for sessions whose `clientUserId` matches the signed-in user
+- **Cloud storage:** resumable direct browser upload to private admin Google Drive; no video bytes in Vercel or Firebase
+- **Metadata:** server-only `warehouseCameraSessions` collection stores lifecycle, request links, and Drive metadata
+- **Live relay:** Managed LiveKit Cloud + short-lived PrepCorex viewer tokens (not raw RTSP to browser)
+
+## Do not confuse with
+
+- Existing barcode **scan camera** UI (`scan-camera-button`, etc.) — not video recording
+- Receive **still photos** (Firebase Storage `warehouse-receive/…`)
+
+## Spec / hooks
+
+- Draft doc: `docs/WAREHOUSE_CAMERA_RECORDING.md` (update when implementing)
+- Recorder: `warehouse-mobile-camera-recorder.tsx`
+- Client viewer: Inventory live banner + per-inbound receive video dialog
+- APIs: `src/app/api/warehouse-camera/`
+
+## Status
+
+Mobile v1 implementation started 2026-08-18. Fixed RTSP cameras/mini-PC remain a possible later phase, not the current pilot.

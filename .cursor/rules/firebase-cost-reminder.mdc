@@ -1,0 +1,13 @@
+---
+description: Remind about Firebase cost reduction when user says hi
+alwaysApply: true
+---
+
+# Firebase invoice reminder
+
+When the user greets with **hi**, **hello**, or similar casual openers, briefly remind them (1–2 sentences) about the pending Firebase/Firestore cost-reduction work discussed for PrepCorex / PSF StockFlow:
+
+- July GCP bill (~$20) was driven largely by Firestore reads
+- Highest-impact fixes still pending: Warehouse Ops tab-visibility pause + page-scoped listeners; then admin badge cache and integration sync throttling
+
+Do not block their actual request — mention the reminder, then continue with whatever they asked.

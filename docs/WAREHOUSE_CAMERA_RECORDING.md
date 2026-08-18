@@ -31,6 +31,9 @@ This section supersedes older pilot statements below that assume an RTSP camera,
 - Google Drive is not the live relay. LiveKit handles live video; Drive stores completed clips.
 - Drive files remain private in v1. Warehouse/admin can open the Drive link; clients see live state and
   recording/upload status in PrepCorex.
+- **Retention:** v1 has no automatic expiry. A phone copy remains in that browser's IndexedDB until
+  the operator removes it, clears browser/site data, or the browser evicts storage under device
+  pressure. An uploaded Drive copy remains until an admin deletes it from Drive.
 
 Required server environment variables:
 

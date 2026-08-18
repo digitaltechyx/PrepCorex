@@ -76,6 +76,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       fileName,
       mimeType,
       sizeBytes,
+      origin: request.headers.get("origin") || request.nextUrl.origin,
     });
     await ref.update({
       status: "uploading",

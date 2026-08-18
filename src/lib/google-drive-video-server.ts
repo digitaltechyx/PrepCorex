@@ -106,6 +106,7 @@ export async function startGoogleDriveResumableVideoUpload(input: {
   fileName: string;
   mimeType: string;
   sizeBytes: number;
+  origin: string;
 }): Promise<string> {
   const response = await fetch(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,size,webViewLink",
@@ -116,6 +117,7 @@ export async function startGoogleDriveResumableVideoUpload(input: {
         "Content-Type": "application/json; charset=UTF-8",
         "X-Upload-Content-Type": input.mimeType,
         "X-Upload-Content-Length": String(input.sizeBytes),
+        Origin: input.origin,
       },
       body: JSON.stringify({
         name: input.fileName,

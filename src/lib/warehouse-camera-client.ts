@@ -122,12 +122,24 @@ export async function uploadWarehouseCameraClipToDrive(
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", start.uploadUrl);
       xhr.setRequestHeader("Content-Type", blob.type || "video/webm");
+      xhr.setRequestHeader(
+        "Content-Range",
+        `bytes 0-${Math.max(0, blob.size - 1)}/${blob.size}`
+      );
+      xhr.timeout = 30 * 60 * 1000;
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
           onProgress?.(Math.round((event.loaded / event.total) * 100));
         }
       };
-      xhr.onerror = () => reject(new Error("Network error while uploading video"));
+      xhr.onerror = () =>
+        reject(
+          new Error(
+            "Google Drive blocked or lost the browser upload. Check the page connection and allowed origin, then retry."
+          )
+        );
+      xhr.onabort = () => reject(new Error("Google Drive upload was cancelled"));
+      xhr.ontimeout = () => reject(new Error("Google Drive upload timed out"));
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
@@ -136,7 +148,12 @@ export async function uploadWarehouseCameraClipToDrive(
             reject(new Error("Google Drive returned an invalid upload response"));
           }
         } else {
-          reject(new Error(`Google Drive upload failed (${xhr.status})`));
+          const detail = xhr.responseText?.trim().slice(0, 300);
+          reject(
+            new Error(
+              `Google Drive upload failed (${xhr.status})${detail ? `: ${detail}` : ""}`
+            )
+          );
         }
       };
       xhr.send(blob);
