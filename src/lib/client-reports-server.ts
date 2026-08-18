@@ -20,7 +20,8 @@ import {
 } from "@/lib/label-savings-benchmarks";
 import { loadLabelSavingsBenchmarks } from "@/lib/label-savings-benchmarks-server";
 import {
-  classifyPrepSavingsFamily,
+  classifyPrepSavingsFamilyFromParts,
+  isPrepSavingsInvoice,
   marketPrepRate,
 } from "@/lib/prep-savings-benchmarks";
 import { loadPrepSavingsBenchmarks } from "@/lib/prep-savings-benchmarks-server";
@@ -49,6 +50,30 @@ function inventorySourceLabel(data: Record<string, unknown>): string {
 
 function isoOrNull(ms: number): string | null {
   return ms > 0 ? new Date(ms).toISOString() : null;
+}
+
+function invoiceLineAmount(item: Record<string, unknown>): number {
+  const amount = Number(item.amount);
+  if (Number.isFinite(amount) && amount > 0) return amount;
+  const qty = Number(item.quantity) || 0;
+  const unitPrice = Number(item.unitPrice) || 0;
+  const product = qty * unitPrice;
+  return Number.isFinite(product) && product > 0 ? product : 0;
+}
+
+function additionalInvoiceCharges(data: Record<string, unknown>): number {
+  const services =
+    data.additionalServices && typeof data.additionalServices === "object"
+      ? (data.additionalServices as Record<string, unknown>)
+      : {};
+  const servicesTotal = Number(services.total) || 0;
+  const extras = Array.isArray(data.adminAdditionalCharges)
+    ? data.adminAdditionalCharges.reduce((sum, row) => {
+        const amount = Number((row as Record<string, unknown>)?.amount) || 0;
+        return sum + (amount > 0 ? amount : 0);
+      }, 0)
+    : 0;
+  return servicesTotal + extras;
 }
 
 function buildActivityBuckets(from: Date, to: Date, allTime: boolean) {
@@ -190,15 +215,11 @@ export async function buildClientReport(
   }
 
   let unitsShipped = 0;
-  let prepUnitCount = 0;
-  let prepFbaUnitCount = 0;
-  let prepFbmUnitCount = 0;
-  let paidPrepFba = 0;
-  let paidPrepFbm = 0;
-  let estimatedPrepFba = 0;
-  let estimatedPrepFbm = 0;
+  const shippedServiceById = new Map<string, string>();
   for (const doc of shippedSnap.docs) {
     const data = doc.data() as Record<string, unknown>;
+    const service = String(data.service || "").trim();
+    if (service) shippedServiceById.set(doc.id, service);
     const ms = pickReportDateMs(data, ["date", "createdAt", "dispatchedAt"]);
     if (!ms || !isInReportRange(new Date(ms), from, to, allTime)) continue;
     const qty = Number(data.shippedQty) || Number(data.totalUnits) || Number(data.boxesShipped) || 0;
@@ -206,24 +227,6 @@ export async function buildClientReport(
     const key = bucketKey(ms, allTime);
     const bucket = activityBuckets.get(key);
     if (bucket) bucket.shipped += qty;
-
-    const unitPrice = Number(data.unitPrice) || 0;
-    if (qty > 0 && unitPrice > 0) {
-      const family = classifyPrepSavingsFamily(data.service);
-      const market = marketPrepRate(prepBenchmarks, family);
-      const paid = qty * unitPrice;
-      const estimated = qty * market;
-      prepUnitCount += qty;
-      if (family === "fba") {
-        prepFbaUnitCount += qty;
-        paidPrepFba += paid;
-        estimatedPrepFba += estimated;
-      } else {
-        prepFbmUnitCount += qty;
-        paidPrepFbm += paid;
-        estimatedPrepFbm += estimated;
-      }
-    }
   }
 
   let returnsHandled = 0;
@@ -247,18 +250,69 @@ export async function buildClientReport(
   }
 
   const invoices: ClientReportInvoiceRow[] = [];
+  let prepUnitCount = 0;
+  let prepFbaUnitCount = 0;
+  let prepFbmUnitCount = 0;
+  let paidPrepFba = 0;
+  let paidPrepFbm = 0;
+  let estimatedPrepFba = 0;
+  let estimatedPrepFbm = 0;
   for (const doc of invoicesSnap.docs) {
     const data = doc.data() as Record<string, unknown>;
     const ms = pickInvoiceDateMs(data);
-    if (!ms || !isInReportRange(new Date(ms), from, to, allTime)) continue;
+    if (!allTime && (!ms || !isInReportRange(new Date(ms), from, to, false))) continue;
+    const grandTotal = Number(data.grandTotal) || 0;
     invoices.push({
       id: doc.id,
       invoiceNumber: String(data.invoiceNumber || doc.id),
-      date: new Date(ms).toISOString(),
+      date: (ms ? new Date(ms) : from).toISOString(),
       status: String(data.status || "pending"),
       subtotal: Number(data.subtotal) || 0,
-      grandTotal: Number(data.grandTotal) || 0,
+      grandTotal,
     });
+
+    if (!isPrepSavingsInvoice(data)) continue;
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    let itemPaidFba = 0;
+    let itemPaidFbm = 0;
+    let qtyFba = 0;
+    let qtyFbm = 0;
+    for (const raw of items) {
+      const item =
+        raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+      const qty = Math.max(0, Number(item.quantity) || 0);
+      const paid = invoiceLineAmount(item);
+      const shipmentId = String(item.shipmentId || "").trim();
+      const family = classifyPrepSavingsFamilyFromParts(
+        shipmentId ? shippedServiceById.get(shipmentId) : "",
+        item.shipTo,
+        item.packaging,
+        data.fbm,
+        data.service
+      );
+      if (family === "fba") {
+        qtyFba += qty;
+        itemPaidFba += paid;
+      } else {
+        qtyFbm += qty;
+        itemPaidFbm += paid;
+      }
+    }
+
+    const linePaid = itemPaidFba + itemPaidFbm;
+    const billed = grandTotal > 0 ? grandTotal : linePaid + additionalInvoiceCharges(data);
+    if (linePaid > 0) {
+      paidPrepFba += billed * (itemPaidFba / linePaid);
+      paidPrepFbm += billed * (itemPaidFbm / linePaid);
+    } else if (billed > 0) {
+      paidPrepFbm += billed;
+    }
+    prepFbaUnitCount += qtyFba;
+    prepFbmUnitCount += qtyFbm;
+    prepUnitCount += qtyFba + qtyFbm;
+    estimatedPrepFba += qtyFba * marketPrepRate(prepBenchmarks, "fba");
+    estimatedPrepFbm += qtyFbm * marketPrepRate(prepBenchmarks, "fbm");
   }
   invoices.sort((a, b) => reportToMs(b.date) - reportToMs(a.date));
 

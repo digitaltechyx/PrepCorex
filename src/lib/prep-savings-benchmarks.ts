@@ -33,15 +33,30 @@ export function classifyPrepSavingsFamily(service: unknown): PrepSavingsFamily {
   const value = String(service || "")
     .trim()
     .toUpperCase();
-  if (
-    value === "FBA/WFS/TFS" ||
-    value === "FBA" ||
-    value === "WFS" ||
-    value === "TFS"
-  ) {
-    return "fba";
-  }
+  if (!value) return "fbm";
+  if (/(?:FBA|WFS|TFS)/.test(value)) return "fba";
   return "fbm";
+}
+
+export function classifyPrepSavingsFamilyFromParts(
+  ...parts: unknown[]
+): PrepSavingsFamily {
+  return classifyPrepSavingsFamily(parts.filter(Boolean).join(" "));
+}
+
+export function isPrepSavingsInvoice(data: Record<string, unknown>): boolean {
+  const type = String(data.type || "").trim().toLowerCase();
+  if (type === "storage" || type === "container_handling") return false;
+  if (data.isContainerHandling === true) return false;
+  const fbm = String(data.fbm || "").trim().toLowerCase();
+  if (
+    fbm.includes("storage") ||
+    fbm.includes("container") ||
+    fbm.includes("return")
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function marketPrepRate(

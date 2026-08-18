@@ -47,7 +47,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 
 const activityChartConfig = {
   received: { label: "Received", color: "hsl(142 76% 36%)" },
@@ -55,8 +55,49 @@ const activityChartConfig = {
 } satisfies ChartConfig;
 
 const savingsChartConfig = {
-  amount: { label: "Amount", color: "hsl(221 83% 53%)" },
+  amount: { label: "Amount", color: "hsl(142 71% 35%)" },
 } satisfies ChartConfig;
+
+type RankedBarRow = { name: string; amount: number; fill: string };
+
+function rankedBarFill(amount: number, amounts: number[]): string {
+  const unique = [...new Set(amounts.map((n) => Math.round(n * 100) / 100))].sort((a, b) => a - b);
+  const rounded = Math.round(amount * 100) / 100;
+  if (unique.length <= 1) return "hsl(142 71% 35%)";
+  const idx = Math.max(0, unique.indexOf(rounded));
+  const t = idx / (unique.length - 1);
+  if (t <= 0) return "hsl(142 71% 35%)";
+  if (t >= 1) return "hsl(0 72% 51%)";
+  if (t < 0.5) {
+    const p = t / 0.5;
+    return `hsl(${142 - 104 * p} 80% ${35 + 12 * p}%)`;
+  }
+  const p = (t - 0.5) / 0.5;
+  return `hsl(${38 - 38 * p} 80% ${47 + 4 * p}%)`;
+}
+
+function withRankedBarFills(rows: Array<{ name: string; amount: number }>): RankedBarRow[] {
+  const amounts = rows.map((row) => row.amount);
+  return rows.map((row) => ({ ...row, fill: rankedBarFill(row.amount, amounts) }));
+}
+
+function RankedAmountBarChart({ data }: { data: RankedBarRow[] }) {
+  return (
+    <ChartContainer config={savingsChartConfig} className="h-[240px] w-full">
+      <BarChart data={data}>
+        <CartesianGrid vertical={false} />
+        <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} />
+        <YAxis tickLine={false} axisLine={false} fontSize={12} />
+        <ChartTooltip content={<ChartTooltipContent />} />
+        <Bar dataKey="amount" radius={4}>
+          {data.map((row) => (
+            <Cell key={row.name} fill={row.fill} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
+}
 
 function money(n: number): string {
   return `$${n.toFixed(2)}`;
@@ -175,12 +216,29 @@ export function ClientReportsDashboard() {
   const savingsChartData = useMemo(() => {
     if (!summary) return [];
     const s = summary.savings;
-    return [
+    return withRankedBarFills([
       { name: "You paid", amount: s.paidTotal },
       { name: "USPS (est.)", amount: s.estimatedUsps },
       { name: "UPS (est.)", amount: s.estimatedUps },
       { name: "FedEx (est.)", amount: s.estimatedFedex },
+    ]);
+  }, [summary]);
+
+  const prepChartData = useMemo(() => {
+    if (!summary) return [];
+    const p = summary.savings.prep;
+    const rows = [
+      { name: "You paid", amount: p.paidTotal },
+      { name: "Typical 3PL (est.)", amount: p.estimatedMarket },
     ];
+    if (p.fbaUnitCount > 0) {
+      rows.push({ name: "Typical FBA (est.)", amount: p.estimatedFba });
+    }
+    if (p.fbmUnitCount > 0) {
+      rows.push({ name: "Typical FBM (est.)", amount: p.estimatedFbm });
+    }
+    rows.push({ name: "Your est. save", amount: p.savedOnPrep });
+    return withRankedBarFills(rows);
   }, [summary]);
 
   function handleExport() {
@@ -264,6 +322,30 @@ export function ClientReportsDashboard() {
           <TabsContent value="overview" className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <StatCard
+                title="Your est. save on shipping"
+                value={money(summary.savings.savedOnShipping)}
+                hint={`Estimated save · ${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"}`}
+                icon={<PiggyBank className="h-4 w-4" />}
+              />
+              <StatCard
+                title="You paid for shipping"
+                value={money(summary.savings.paidTotal)}
+                hint={`${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"}`}
+                icon={<Truck className="h-4 w-4" />}
+              />
+              <StatCard
+                title="Your est. save on prep"
+                value={money(summary.savings.prep.savedOnPrep)}
+                hint={`Estimated save · ${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"}`}
+                icon={<Scissors className="h-4 w-4" />}
+              />
+              <StatCard
+                title="You paid for prep"
+                value={money(summary.savings.prep.paidTotal)}
+                hint={`${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"}`}
+                icon={<Receipt className="h-4 w-4" />}
+              />
+              <StatCard
                 title="Received"
                 value={summary.overview.unitsReceived}
                 icon={<ArrowDownToLine className="h-4 w-4" />}
@@ -295,24 +377,6 @@ export function ClientReportsDashboard() {
                 value={money(summary.overview.invoicesPaid)}
                 hint={`${summary.overview.paidCount} paid`}
                 icon={<Receipt className="h-4 w-4" />}
-              />
-              <StatCard
-                title="You paid on shipping"
-                value={money(summary.savings.paidTotal)}
-                hint={`${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"}`}
-                icon={<Truck className="h-4 w-4" />}
-              />
-              <StatCard
-                title="Your est. save on shipping"
-                value={money(summary.savings.savedOnShipping)}
-                hint={`Estimated save · ${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"}`}
-                icon={<PiggyBank className="h-4 w-4" />}
-              />
-              <StatCard
-                title="Your est. save on prep"
-                value={money(summary.savings.prep.savedOnPrep)}
-                hint={`Estimated save · ${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"}`}
-                icon={<Scissors className="h-4 w-4" />}
               />
             </div>
             {summary.charts.activityByDay.length > 0 ? (
@@ -424,8 +488,8 @@ export function ClientReportsDashboard() {
               <CardHeader>
                 <CardTitle className="text-base">Estimated savings vs typical 3PL prep rates</CardTitle>
                 <CardDescription>
-                  PrepCorex prep billed on shipments in this period, compared with typical FBA prep
-                  and FBM pick/pack rates. Estimates, not live quotes.
+                  Prep billed on invoices in this period, compared with typical FBA prep and FBM
+                  pick/pack rates. Estimates, not live quotes.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -455,7 +519,7 @@ export function ClientReportsDashboard() {
               </CardContent>
             </Card>
 
-            {summary.savings.prep.unitCount > 0 ? (
+            {summary.savings.prep.unitCount > 0 || summary.savings.prep.paidTotal > 0 ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 {summary.savings.prep.fbaUnitCount > 0 ? (
                   <StatCard
@@ -474,6 +538,21 @@ export function ClientReportsDashboard() {
                   />
                 ) : null}
               </div>
+            ) : null}
+
+            {summary.savings.prep.unitCount > 0 || summary.savings.prep.paidTotal > 0 ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Paid vs typical 3PL prep totals</CardTitle>
+                  <CardDescription>
+                    Lowest total is green, highest is red. Your estimated prep save is the gap vs
+                    typical 3PL rates.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <RankedAmountBarChart data={prepChartData} />
+                </CardContent>
+              </Card>
             ) : null}
 
             <Card className="border-emerald-200 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/20">
@@ -552,17 +631,12 @@ export function ClientReportsDashboard() {
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Paid vs estimated courier totals</CardTitle>
+                  <CardDescription>
+                    Lowest total is green, highest is red.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ChartContainer config={savingsChartConfig} className="h-[240px] w-full">
-                    <BarChart data={savingsChartData}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} />
-                      <YAxis tickLine={false} axisLine={false} fontSize={12} />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="amount" fill="var(--color-amount)" radius={4} />
-                    </BarChart>
-                  </ChartContainer>
+                  <RankedAmountBarChart data={savingsChartData} />
                 </CardContent>
               </Card>
             ) : null}

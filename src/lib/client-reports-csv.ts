@@ -80,7 +80,7 @@ export function buildClientReportCsv(summary: ClientReportSummary, tab: ClientRe
       `Average paid,${money(s.averagePaid)}`,
       "",
       "=== ESTIMATED PREP SAVINGS ===",
-      "Typical 3PL FBA / FBM per-unit rates set by PrepCorex, not live quotes.",
+      "Billed prep from invoices in this period vs typical 3PL FBA / FBM per-unit rates.",
       "Metric,Value",
       `Units prepped,${s.prep.unitCount}`,
       `You paid on prep,${money(s.prep.paidTotal)}`,
