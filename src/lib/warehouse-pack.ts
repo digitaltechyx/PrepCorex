@@ -956,11 +956,15 @@ export async function completePackReadyToDispatch(input: {
   if (packStatusFromRequest(data) === "ready_to_dispatch") {
     throw new Error("Order is already ready to dispatch.");
   }
-  if (
-    isFbaLabelWorkflowRequest(data) &&
-    fbaPackPhaseFromRequest(data) !== "awaiting_courier"
-  ) {
-    throw new Error("Submit FBA master case details and wait for the client label first.");
+  if (isFbaLabelWorkflowRequest(data)) {
+    const phase = fbaPackPhaseFromRequest(data);
+    const hasMasterCases = fbaMasterCasesFromRequest(data).length > 0;
+    if (phase === "awaiting_label") {
+      throw new Error("Wait for the client FBA shipping label before finishing pack.");
+    }
+    if (phase !== "awaiting_courier" && !hasMasterCases) {
+      throw new Error("Submit FBA master case details and wait for the client label first.");
+    }
   }
 
   const lines = await orderLinesFromRequest(input.clientUserId, data);
@@ -1225,6 +1229,9 @@ export async function returnToPackFromDispatchQc(input: {
     warehouseQcFailedBy: input.operatorId ?? null,
     warehouseQcPassedAt: deleteField(),
     warehouseQcPassedBy: deleteField(),
+    ...(isFbaLabelWorkflowRequest(data) && fbaMasterCasesFromRequest(data).length > 0
+      ? { fbaPackPhase: "awaiting_courier" }
+      : {}),
     updatedAt: serverTimestamp(),
   });
 

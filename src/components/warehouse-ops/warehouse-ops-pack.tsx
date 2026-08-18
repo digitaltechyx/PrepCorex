@@ -205,9 +205,15 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const hasExistingFbaMasterCases = (selectedOrder?.fbaMasterCases?.length ?? 0) > 0;
   /** Dims already done (incl. QC return to pack) — skip master-case form. */
   const needsFbaMasterCaseEntry = isFbaLabelFlow && !hasExistingFbaMasterCases;
+  const waitingForFbaClientLabel =
+    Boolean(selectedOrder?.fbaLabelWorkflow) &&
+    selectedOrder?.fbaPackPhase === "awaiting_label";
   const showPackCompleteCourierStep =
     Boolean(plan?.readyToComplete) &&
-    (isFbaAwaitingCourier || !selectedOrder?.fbaLabelWorkflow || hasExistingFbaMasterCases);
+    !waitingForFbaClientLabel &&
+    (isFbaAwaitingCourier ||
+      !selectedOrder?.fbaLabelWorkflow ||
+      hasExistingFbaMasterCases);
 
   const refreshFbaAwaitingLabel = useCallback(async () => {
     const eligible = new Set(clients.map((c) => c.uid));
@@ -1249,6 +1255,18 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                   </p>
                 ))}
               </CardContent>
+            </Card>
+          ) : null}
+
+          {plan.readyToComplete && waitingForFbaClientLabel ? (
+            <Card className="border-violet-300/60">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Waiting for FBA shipping label</CardTitle>
+                <CardDescription className="text-xs">
+                  Master case details are on file. Finish pack after the client uploads the FBA
+                  label, or upload/buy the label from warehouse.
+                </CardDescription>
+              </CardHeader>
             </Card>
           ) : null}
 
