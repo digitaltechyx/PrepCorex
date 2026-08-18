@@ -20,6 +20,7 @@ import {
 } from "@/lib/label-savings-benchmarks";
 import { loadLabelSavingsBenchmarks } from "@/lib/label-savings-benchmarks-server";
 import {
+  classifyPrepSavingsFamily,
   classifyPrepSavingsFamilyFromParts,
   isPrepSavingsInvoice,
   marketPrepRate,
@@ -46,6 +47,15 @@ function inventorySourceLabel(data: Record<string, unknown>): string {
   if (source === "woocommerce") return "WooCommerce";
   if (source === "tiktok") return "TikTok Shop";
   return "Manual";
+}
+
+function shippedUnits(data: Record<string, unknown>): number {
+  return (
+    Number(data.shippedQty) ||
+    Number(data.totalUnits) ||
+    Number(data.boxesShipped) ||
+    0
+  );
 }
 
 function isoOrNull(ms: number): string | null {
@@ -215,6 +225,11 @@ export async function buildClientReport(
   }
 
   let unitsShipped = 0;
+  let prepUnitCount = 0;
+  let prepFbaUnitCount = 0;
+  let prepFbmUnitCount = 0;
+  let estimatedPrepFba = 0;
+  let estimatedPrepFbm = 0;
   const shippedServiceById = new Map<string, string>();
   for (const doc of shippedSnap.docs) {
     const data = doc.data() as Record<string, unknown>;
@@ -222,11 +237,24 @@ export async function buildClientReport(
     if (service) shippedServiceById.set(doc.id, service);
     const ms = pickReportDateMs(data, ["date", "createdAt", "dispatchedAt"]);
     if (!ms || !isInReportRange(new Date(ms), from, to, allTime)) continue;
-    const qty = Number(data.shippedQty) || Number(data.totalUnits) || Number(data.boxesShipped) || 0;
+    const qty = shippedUnits(data);
     unitsShipped += qty;
     const key = bucketKey(ms, allTime);
     const bucket = activityBuckets.get(key);
     if (bucket) bucket.shipped += qty;
+
+    if (qty > 0) {
+      const family = classifyPrepSavingsFamily(service);
+      const estimated = qty * marketPrepRate(prepBenchmarks, family);
+      prepUnitCount += qty;
+      if (family === "fba") {
+        prepFbaUnitCount += qty;
+        estimatedPrepFba += estimated;
+      } else {
+        prepFbmUnitCount += qty;
+        estimatedPrepFbm += estimated;
+      }
+    }
   }
 
   let returnsHandled = 0;
@@ -250,13 +278,8 @@ export async function buildClientReport(
   }
 
   const invoices: ClientReportInvoiceRow[] = [];
-  let prepUnitCount = 0;
-  let prepFbaUnitCount = 0;
-  let prepFbmUnitCount = 0;
   let paidPrepFba = 0;
   let paidPrepFbm = 0;
-  let estimatedPrepFba = 0;
-  let estimatedPrepFbm = 0;
   for (const doc of invoicesSnap.docs) {
     const data = doc.data() as Record<string, unknown>;
     const ms = pickInvoiceDateMs(data);
@@ -276,12 +299,9 @@ export async function buildClientReport(
     const items = Array.isArray(data.items) ? data.items : [];
     let itemPaidFba = 0;
     let itemPaidFbm = 0;
-    let qtyFba = 0;
-    let qtyFbm = 0;
     for (const raw of items) {
       const item =
         raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-      const qty = Math.max(0, Number(item.quantity) || 0);
       const paid = invoiceLineAmount(item);
       const shipmentId = String(item.shipmentId || "").trim();
       const family = classifyPrepSavingsFamilyFromParts(
@@ -291,13 +311,8 @@ export async function buildClientReport(
         data.fbm,
         data.service
       );
-      if (family === "fba") {
-        qtyFba += qty;
-        itemPaidFba += paid;
-      } else {
-        qtyFbm += qty;
-        itemPaidFbm += paid;
-      }
+      if (family === "fba") itemPaidFba += paid;
+      else itemPaidFbm += paid;
     }
 
     const linePaid = itemPaidFba + itemPaidFbm;
@@ -308,11 +323,6 @@ export async function buildClientReport(
     } else if (billed > 0) {
       paidPrepFbm += billed;
     }
-    prepFbaUnitCount += qtyFba;
-    prepFbmUnitCount += qtyFbm;
-    prepUnitCount += qtyFba + qtyFbm;
-    estimatedPrepFba += qtyFba * marketPrepRate(prepBenchmarks, "fba");
-    estimatedPrepFbm += qtyFbm * marketPrepRate(prepBenchmarks, "fbm");
   }
   invoices.sort((a, b) => reportToMs(b.date) - reportToMs(a.date));
 
