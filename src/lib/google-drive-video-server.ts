@@ -2,12 +2,14 @@ import { google, type drive_v3 } from "googleapis";
 import { adminDb } from "@/lib/firebase-admin";
 import { cleanCameraLabel } from "@/lib/warehouse-camera-server";
 
-async function getGoogleDriveRefreshToken(): Promise<string> {
-  if (process.env.GOOGLE_DRIVE_REFRESH_TOKEN) {
-    return process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
-  }
+export async function getGoogleDriveRefreshToken(): Promise<string> {
   const snap = await adminDb().collection("system").doc("googleDrive").get();
-  const token = snap.exists ? String(snap.data()?.refreshToken || "") : "";
+  const data = snap.exists ? snap.data() : null;
+  if (data?.disabled === true) {
+    throw new Error("Google Drive is disconnected");
+  }
+  const token =
+    String(data?.refreshToken || "") || process.env.GOOGLE_DRIVE_REFRESH_TOKEN || "";
   if (!token) {
     throw new Error("Google Drive is not connected");
   }

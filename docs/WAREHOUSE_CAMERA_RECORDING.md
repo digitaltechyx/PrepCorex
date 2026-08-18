@@ -40,11 +40,14 @@ LIVEKIT_API_KEY
 LIVEKIT_API_SECRET
 GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET
-GOOGLE_DRIVE_REFRESH_TOKEN (or system/googleDrive.refreshToken)
+GOOGLE_REDIRECT_URI
 GOOGLE_DRIVE_VIDEO_FOLDER_ID (optional dedicated parent folder)
 ```
 
 The LiveKit API secret and Google OAuth credentials must never use a `NEXT_PUBLIC_` prefix.
+After deployment, an admin connects Google Drive from **Admin dashboard → Integrations & Storage**.
+The OAuth callback automatically stores the refresh token server-side in
+`system/googleDrive`; `GOOGLE_DRIVE_REFRESH_TOKEN` remains only a legacy fallback.
 
 ---
 

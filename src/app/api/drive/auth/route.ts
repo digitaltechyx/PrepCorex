@@ -4,9 +4,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAdmin } from "@/lib/api-admin-auth";
+import { createGoogleDriveOAuthState } from "@/lib/google-drive-oauth-state";
 
 export async function GET(request: NextRequest) {
   try {
+    const admin = await requireAdmin(request);
+    if (!admin.ok) {
+      return NextResponse.json({ error: admin.error }, { status: admin.status });
+    }
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${request.nextUrl.origin}/api/drive/callback`;
     
@@ -29,6 +35,8 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('scope', scopes);
     authUrl.searchParams.set('access_type', 'offline');
     authUrl.searchParams.set('prompt', 'consent');
+    authUrl.searchParams.set('include_granted_scopes', 'true');
+    authUrl.searchParams.set('state', createGoogleDriveOAuthState(admin.uid));
 
     return NextResponse.json({
       authUrl: authUrl.toString(),

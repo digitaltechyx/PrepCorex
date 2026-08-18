@@ -4,14 +4,24 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from "@/lib/firebase-admin";
+import { verifyGoogleDriveOAuthState } from "@/lib/google-drive-oauth-state";
 
 export async function GET(request: NextRequest) {
   try {
     const code = request.nextUrl.searchParams.get('code');
     const error = request.nextUrl.searchParams.get('error');
     const errorDescription = request.nextUrl.searchParams.get('error_description');
+    const oauthState = verifyGoogleDriveOAuthState(
+      request.nextUrl.searchParams.get("state") || ""
+    );
+
+    if (!oauthState) {
+      return NextResponse.json(
+        { error: "Google Drive connection expired or was not started by an admin" },
+        { status: 403 }
+      );
+    }
 
     // Handle OAuth errors
     if (error) {
@@ -124,7 +134,10 @@ export async function GET(request: NextRequest) {
     }
 
     const tokenData = await tokenResponse.json();
-    const refreshToken = tokenData.refresh_token;
+    const driveRef = adminDb().collection("system").doc("googleDrive");
+    const existing = await driveRef.get();
+    const refreshToken =
+      tokenData.refresh_token || (existing.exists ? existing.data()?.refreshToken : null);
 
     if (!refreshToken) {
       return NextResponse.json(
@@ -133,19 +146,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Store refresh token in Firestore (or you can store in environment variable)
-    // For now, we'll store it in a system config document
-    try {
-      await setDoc(doc(db, 'system', 'googleDrive'), {
-        refreshToken: refreshToken,
-        accessToken: tokenData.access_token,
-        expiresAt: Date.now() + (tokenData.expires_in * 1000),
+    await driveRef.set(
+      {
+        refreshToken,
+        accessToken: tokenData.access_token || null,
+        expiresAt: Date.now() + (Number(tokenData.expires_in) || 3600) * 1000,
+        connectedAt: new Date(),
+        connectedBy: oauthState.uid,
         updatedAt: new Date(),
-      }, { merge: true });
-    } catch (firestoreError) {
-      console.error('Error storing refresh token:', firestoreError);
-      // Continue anyway - user can manually set it in environment variable
-    }
+        disabled: false,
+      },
+      { merge: true }
+    );
 
     // Return success page
     const html = `
@@ -170,7 +182,6 @@ export async function GET(request: NextRequest) {
             h1 { color: #34a853; }
             .success { color: #34a853; font-weight: bold; }
             .info { background: #e8f5e9; padding: 15px; border-radius: 4px; margin: 20px 0; }
-            code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; }
           </style>
         </head>
         <body>
@@ -178,15 +189,17 @@ export async function GET(request: NextRequest) {
             <h1>✅ Google Drive Connected Successfully!</h1>
             <p class="success">Your Google Drive account has been connected.</p>
             <div class="info">
-              <p><strong>Refresh Token:</strong></p>
-              <p><code>${refreshToken}</code></p>
-              <p style="margin-top: 15px; font-size: 14px;">
-                <strong>Important:</strong> Save this refresh token. You can also set it as an environment variable:
-              </p>
-              <p><code>GOOGLE_DRIVE_REFRESH_TOKEN=${refreshToken}</code></p>
+              <p>The refresh token was stored securely in Firestore at
+              <strong>system/googleDrive</strong>. No manual environment-variable update is required.</p>
             </div>
-            <p>You can now close this window and try uploading a file.</p>
+            <p>This window will close automatically.</p>
           </div>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ type: "google-drive-connected" }, window.location.origin);
+              window.setTimeout(() => window.close(), 1200);
+            }
+          </script>
         </body>
       </html>
     `;

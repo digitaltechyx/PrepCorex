@@ -25,6 +25,7 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
+  Cloud,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -235,7 +236,7 @@ function aggregateChartData(
 const initialChartData = { trend: [] as Array<{ label: string; shipped: number; added: number; returns: number; disposed: number }>, requestTrend: [], requestTypes: [], statusDonut: [{ name: "No data", value: 1, fill: "#94a3b8" }], topUsers: [], recentActivity: [] };
 
 export default function AdminDashboardPage() {
-  const { userProfile: adminUser } = useAuth();
+  const { user: firebaseUser, userProfile: adminUser } = useAuth();
   const { managedUsers: users, managedUserIds, loading: usersLoading } = useManagedUsers();
 
   const [dateRangeFrom, setDateRangeFrom] = useState<Date | undefined>();
@@ -293,6 +294,10 @@ export default function AdminDashboardPage() {
   const [oneDriveConnected, setOneDriveConnected] = useState<boolean | null>(null);
   const [oneDriveChecking, setOneDriveChecking] = useState(true);
   const [oneDriveDisconnecting, setOneDriveDisconnecting] = useState(false);
+  const [googleDriveConnected, setGoogleDriveConnected] = useState<boolean | null>(null);
+  const [googleDriveChecking, setGoogleDriveChecking] = useState(true);
+  const [googleDriveConnecting, setGoogleDriveConnecting] = useState(false);
+  const [googleDriveDisconnecting, setGoogleDriveDisconnecting] = useState(false);
 
   useEffect(() => {
     const run = async () => {
@@ -314,6 +319,40 @@ export default function AdminDashboardPage() {
     };
     run();
   }, []);
+
+  useEffect(() => {
+    if (!firebaseUser) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        setGoogleDriveChecking(true);
+        const token = await firebaseUser.getIdToken();
+        const response = await fetch("/api/drive/status", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!cancelled) setGoogleDriveConnected(response.ok && data.connected === true);
+      } catch {
+        if (!cancelled) setGoogleDriveConnected(false);
+      } finally {
+        if (!cancelled) setGoogleDriveChecking(false);
+      }
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (
+        event.origin === window.location.origin &&
+        event.data?.type === "google-drive-connected"
+      ) {
+        setGoogleDriveConnected(true);
+      }
+    };
+    void check();
+    window.addEventListener("message", onMessage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("message", onMessage);
+    };
+  }, [firebaseUser]);
 
   useEffect(() => {
     let cancelled = false;
@@ -738,7 +777,7 @@ export default function AdminDashboardPage() {
             </div>
           </CardHeader>
             <CardContent className="px-6 pb-6">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
                   <p className="text-xs uppercase tracking-wide text-slate-500">Order Integrations</p>
                   {integrationLoading ? (
@@ -811,6 +850,98 @@ export default function AdminDashboardPage() {
                       >
                         Connect OneDrive
                       </a>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                  <p className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-slate-500">
+                    <Cloud className="h-3.5 w-3.5" />
+                    Recording Storage (Google Drive)
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Warehouse receiving videos upload to the connected admin Drive
+                  </p>
+                  {googleDriveChecking ? (
+                    <p className="flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Checking…
+                    </p>
+                  ) : googleDriveConnected ? (
+                    <div className="space-y-2">
+                      <p className="flex items-center gap-2 text-sm font-medium text-emerald-600">
+                        <CheckCircle className="h-4 w-4" />
+                        Connected
+                      </p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!firebaseUser) return;
+                          setGoogleDriveDisconnecting(true);
+                          try {
+                            const token = await firebaseUser.getIdToken();
+                            const response = await fetch("/api/drive/disconnect", {
+                              method: "POST",
+                              headers: { Authorization: `Bearer ${token}` },
+                            });
+                            if (response.ok) setGoogleDriveConnected(false);
+                          } catch {
+                            setGoogleDriveConnected(true);
+                          } finally {
+                            setGoogleDriveDisconnecting(false);
+                          }
+                        }}
+                        disabled={googleDriveDisconnecting}
+                        className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {googleDriveDisconnecting ? (
+                          <>
+                            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                            Disconnecting…
+                          </>
+                        ) : (
+                          "Disconnect"
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="flex items-center gap-2 text-sm text-amber-600">
+                        <XCircle className="h-4 w-4" />
+                        Not connected
+                      </p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!firebaseUser) return;
+                          setGoogleDriveConnecting(true);
+                          try {
+                            const token = await firebaseUser.getIdToken();
+                            const response = await fetch("/api/drive/auth", {
+                              headers: { Authorization: `Bearer ${token}` },
+                            });
+                            const data = await response.json();
+                            if (!response.ok) {
+                              throw new Error(data.error || "Could not connect Google Drive");
+                            }
+                            window.open(data.authUrl, "google-drive-connect", "width=620,height=760");
+                          } catch {
+                            setGoogleDriveConnected(false);
+                          } finally {
+                            setGoogleDriveConnecting(false);
+                          }
+                        }}
+                        disabled={googleDriveConnecting}
+                        className="inline-flex items-center rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        {googleDriveConnecting ? (
+                          <>
+                            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                            Opening…
+                          </>
+                        ) : (
+                          "Connect Google Drive"
+                        )}
+                      </button>
                     </div>
                   )}
                 </div>
