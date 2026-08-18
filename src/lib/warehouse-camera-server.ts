@@ -1,9 +1,10 @@
 import { AccessToken } from "livekit-server-sdk";
-import { adminDb } from "@/lib/firebase-admin";
+import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { verifyBearerToken } from "@/lib/api-admin-auth";
 import { hasFeature, hasRole } from "@/lib/permissions";
 import type { UserProfile } from "@/types";
 import type {
+  WarehouseCameraRequestSummary,
   WarehouseCameraSession,
   WarehouseCameraSessionStatus,
 } from "@/lib/warehouse-camera-types";
@@ -26,7 +27,16 @@ export async function requireWarehouseCameraAuth(
   | { ok: true; auth: WarehouseCameraAuth }
   | { ok: false; status: number; error: string }
 > {
-  const decoded = await verifyBearerToken(request);
+  const header = request.headers.get("authorization") || "";
+  const bearer = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+  const queryToken = request.nextUrl.searchParams.get("token")?.trim() || "";
+  const decoded = bearer
+    ? await verifyBearerToken(request)
+    : queryToken
+      ? await adminAuth()
+          .verifyIdToken(queryToken)
+          .catch(() => null)
+      : null;
   if (!decoded?.uid) {
     return { ok: false, status: 401, error: "Unauthorized" };
   }
@@ -79,6 +89,9 @@ export function serializeCameraSession(
   data: FirebaseFirestore.DocumentData
 ): WarehouseCameraSession {
   const now = new Date().toISOString();
+  const inventoryRequestIds = Array.isArray(data.inventoryRequestIds)
+    ? data.inventoryRequestIds.map(String)
+    : [];
   const drive =
     data.driveFile && typeof data.driveFile === "object"
       ? (data.driveFile as Record<string, unknown>)
@@ -88,8 +101,14 @@ export function serializeCameraSession(
     roomName: String(data.roomName || ""),
     clientUserId: String(data.clientUserId || ""),
     clientDisplayName: String(data.clientDisplayName || "Client"),
-    inventoryRequestIds: Array.isArray(data.inventoryRequestIds)
-      ? data.inventoryRequestIds.map(String)
+    inventoryRequestIds,
+    inventoryRequestLabels: Array.isArray(data.inventoryRequestLabels)
+      ? data.inventoryRequestLabels.map(String)
+      : inventoryRequestIds.map((requestId) => `Request ${requestId}`),
+    inventoryRequestSummaries: Array.isArray(data.inventoryRequestSummaries)
+      ? data.inventoryRequestSummaries.map((row: unknown) =>
+          summarizeWarehouseCameraRequest(row, "")
+        )
       : [],
     warehouseId: String(data.warehouseId || ""),
     warehouseLabel: String(data.warehouseLabel || data.warehouseId || "Warehouse"),
@@ -179,9 +198,73 @@ export async function createWarehouseCameraToken(input: {
 }
 
 export function cleanCameraLabel(value: unknown, fallback: string): string {
+  return cleanDriveName(value, fallback, 100);
+}
+
+export function cleanDriveName(value: unknown, fallback: string, max = 180): string {
   const text = String(value || "")
     .replace(/[\u0000-\u001f<>:"/\\|?*]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return (text || fallback).slice(0, 100);
+  return (text || fallback).slice(0, max);
+}
+
+export function summarizeWarehouseCameraRequest(
+  data: unknown,
+  requestId: string
+): WarehouseCameraRequestSummary {
+  const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  const quantity = Number(record.requestedQuantity ?? record.quantity ?? 0);
+  const sku = cleanCameraLabel(record.sku, "");
+  return {
+    id: String(record.id || requestId || ""),
+    productName: cleanCameraLabel(record.productName, "Inbound request"),
+    sku: sku || null,
+    quantity: Number.isFinite(quantity) ? Math.max(0, Math.round(quantity)) : 0,
+  };
+}
+
+export function warehouseCameraRequestLabel(summary: WarehouseCameraRequestSummary): string {
+  const sku = summary.sku ? ` (${summary.sku})` : "";
+  return `${summary.productName}${sku} qty ${summary.quantity}`;
+}
+
+function recordingDateStamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString().slice(0, 10);
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+export function warehouseCameraDriveFolderName(
+  summaries: WarehouseCameraRequestSummary[],
+  startedAt: string
+): string {
+  const date = recordingDateStamp(startedAt);
+  const parts = (summaries.length ? summaries : [{ productName: "Inbound request", sku: null, quantity: 0, id: "" }]).map(
+    (row) => {
+      const sku = row.sku ? ` (${row.sku})` : "";
+      return `${row.productName}${sku} qty-${row.quantity}`;
+    }
+  );
+  return cleanDriveName(`${parts.join(" + ")} ${date}`, `Receiving ${date}`);
+}
+
+export function warehouseCameraDriveFileName(input: {
+  summaries: WarehouseCameraRequestSummary[];
+  startedAt: string;
+  clipNumber: number;
+  extension: string;
+}): string {
+  const date = recordingDateStamp(input.startedAt);
+  const first = input.summaries[0];
+  const product = first?.productName || "Inbound request";
+  const qty = first?.quantity ?? 0;
+  const extra = input.summaries.length > 1 ? ` +${input.summaries.length - 1}` : "";
+  const base = cleanDriveName(
+    `${product}${extra} qty-${qty} ${date} session-${input.clipNumber}`,
+    `receive ${date} session-${input.clipNumber}`
+  );
+  return `${base}.${input.extension}`;
 }

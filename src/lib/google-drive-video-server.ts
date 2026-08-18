@@ -78,7 +78,7 @@ export async function ensureWarehouseVideoFolder(input: {
   warehouseLabel: string;
   clientLabel: string;
   clientUserId: string;
-  inventoryRequestId: string;
+  requestFolderName: string;
 }): Promise<{ folderId: string; storagePath: string }> {
   let parentId = process.env.GOOGLE_DRIVE_VIDEO_FOLDER_ID || "root";
   const parts: string[] = [];
@@ -91,7 +91,7 @@ export async function ensureWarehouseVideoFolder(input: {
     input.warehouseLabel,
     `${input.clientLabel} (${input.clientUserId})`,
     "Receiving",
-    input.inventoryRequestId,
+    input.requestFolderName,
   ];
   for (const folderName of folderNames) {
     parentId = await ensureFolder(input.drive, parentId, folderName);

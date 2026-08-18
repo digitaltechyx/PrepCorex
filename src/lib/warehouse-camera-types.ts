@@ -7,6 +7,13 @@ export type WarehouseCameraSessionStatus =
   | "upload_failed"
   | "discarded";
 
+export type WarehouseCameraRequestSummary = {
+  id: string;
+  productName: string;
+  sku: string | null;
+  quantity: number;
+};
+
 export type WarehouseCameraDriveFile = {
   fileId: string;
   fileName: string;
@@ -22,6 +29,8 @@ export type WarehouseCameraSession = {
   clientUserId: string;
   clientDisplayName: string;
   inventoryRequestIds: string[];
+  inventoryRequestLabels: string[];
+  inventoryRequestSummaries: WarehouseCameraRequestSummary[];
   warehouseId: string;
   warehouseLabel: string;
   operatorId: string;
@@ -39,6 +48,33 @@ export type WarehouseCameraSession = {
   uploadError: string | null;
   driveFile: WarehouseCameraDriveFile | null;
 };
+
+export const WAREHOUSE_CAMERA_HEARTBEAT_TIMEOUT_MS = 30_000;
+
+export function isWarehouseCameraSessionActive(
+  session: WarehouseCameraSession,
+  now = Date.now()
+): boolean {
+  if (session.status !== "live" && session.status !== "paused") return false;
+  const updatedAt = new Date(session.updatedAt).getTime();
+  return Number.isFinite(updatedAt) && now - updatedAt <= WAREHOUSE_CAMERA_HEARTBEAT_TIMEOUT_MS;
+}
+
+export function warehouseCameraSessionProductLabel(session: WarehouseCameraSession): string {
+  if (session.inventoryRequestSummaries.length > 0) {
+    return session.inventoryRequestSummaries
+      .map((row) => `${row.productName}${row.sku ? ` (${row.sku})` : ""}`)
+      .join("; ");
+  }
+  if (session.inventoryRequestLabels.length > 0) {
+    return session.inventoryRequestLabels.join("; ");
+  }
+  return "this inbound request";
+}
+
+export function warehouseCameraSessionHasPlayback(session: WarehouseCameraSession): boolean {
+  return session.status === "uploaded";
+}
 
 export type WarehouseCameraTokenResponse = {
   token: string;

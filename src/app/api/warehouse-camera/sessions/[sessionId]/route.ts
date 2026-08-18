@@ -71,7 +71,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   const patch: Record<string, unknown> = { updatedAt: now };
   let nextStatus: WarehouseCameraSessionStatus;
 
-  if (action === "pause") {
+  if (action === "heartbeat") {
+    if (current.status !== "live" && current.status !== "paused") {
+      return NextResponse.json({ error: "Recording is no longer active" }, { status: 409 });
+    }
+    nextStatus = current.status;
+  } else if (action === "pause") {
     if (current.status !== "live") {
       return NextResponse.json({ error: "Only a live recording can be paused" }, { status: 409 });
     }
@@ -99,7 +104,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "Unsupported recording action" }, { status: 400 });
   }
 
-  patch.status = nextStatus;
+  if (action !== "heartbeat") patch.status = nextStatus;
   await ref.update(patch);
   const updated = await ref.get();
   return NextResponse.json({

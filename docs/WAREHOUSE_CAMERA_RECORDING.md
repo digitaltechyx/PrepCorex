@@ -19,15 +19,22 @@ This section supersedes older pilot statements below that assume an RTSP camera,
 
 - The warehouse operator records from the PrepCorex receiving page on a phone/tablet.
 - Entering a matched inbound receive shows a **Start recording** prompt.
+- Before each clip, the operator can choose the phone's **front or back camera**.
 - Recording supports **pause, resume, stop, and multiple clips** for one inbound request.
 - The same phone video track publishes to a private **LiveKit Cloud** room while recording.
-- The client sees **Receiving live now** on Inventory and can watch only sessions linked to their account.
+- The client sees **Receiving live now** with the product, SKU, and request ID, and can watch only
+  sessions linked to their account.
+- When live stops, Inventory shows **Live session ended for {product/SKU}** until dismissed.
+- After Drive upload, the client can **Watch receiving video** from the inbound request, the stock
+  row, and **History → Inbound & damage**. Playback is streamed through PrepCorex; Drive stays private.
+- Active recorders send an eight-second heartbeat. Client views refresh every five seconds and hide
+  a live notice after stop or after 30 seconds without a heartbeat.
 - On stop, the complete clip is stored in **IndexedDB on that phone/browser**.
 - PrepCorex asks whether to upload immediately; **Later** leaves the phone copy available on the receive.
 - Confirmed upload uses a resumable browser-to-**admin Google Drive** transfer, avoiding Vercel body/disk limits.
 - Firestore stores session metadata and the private Drive file ID/link; it does not store MP4/WebM bytes.
 - The Drive hierarchy is:
-  `PrepCorex Warehouse Recordings/{warehouse}/{client} ({uid})/Receiving/{requestId}/{session file}`.
+  `PrepCorex Warehouse Recordings/{warehouse}/{client} ({uid})/Receiving/{product name qty-N YYYY-MM-DD}/{product name qty-N date session-N.webm}`.
 - Google Drive is not the live relay. LiveKit handles live video; Drive stores completed clips.
 - Drive files remain private in v1. Warehouse/admin can open the Drive link; clients see live state and
   recording/upload status in PrepCorex.

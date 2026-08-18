@@ -54,6 +54,7 @@ import {
   type InventoryHistoryRow,
 } from "@/lib/inventory-history";
 import { cn } from "@/lib/utils";
+import { InboundReceiveVideoDialog } from "@/components/inventory/inbound-receive-video-dialog";
 
 const EVENT_BADGE: Record<string, string> = {
   created: "bg-slate-100 text-slate-800",
@@ -292,6 +293,13 @@ export function InventoryHistoryDialog({
                 Damaged on hand: {damagedOnHand}
               </Badge>
             ) : null}
+            {item && String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId || "").trim() ? (
+              <InboundReceiveVideoDialog
+                requestId={String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId)}
+                clientUserId={userId}
+                triggerLabel="Watch receiving video"
+              />
+            ) : null}
             {!loading && rows.length > 0 ? (
               <Badge variant="outline" className="text-xs">
                 Showing {filteredRows.length} of {rows.length} events
@@ -430,6 +438,7 @@ export function InventoryHistoryDialog({
                       </TableHead>
                       <TableHead className={stickyHeadClass}>Sellable qty</TableHead>
                       <TableHead className={stickyHeadClass}>Damaged qty</TableHead>
+                      <TableHead className={stickyHeadClass}>Receiving video</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -472,6 +481,21 @@ export function InventoryHistoryDialog({
                             </span>
                           ) : (
                             <span className="text-muted-foreground">0</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs py-2.5">
+                          {row.inventoryRequestId ||
+                          String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId || "").trim() ? (
+                            <InboundReceiveVideoDialog
+                              requestId={
+                                row.inventoryRequestId ||
+                                String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId)
+                              }
+                              clientUserId={userId}
+                              triggerLabel="Watch receiving video"
+                            />
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                       </TableRow>

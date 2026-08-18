@@ -14,6 +14,7 @@ import {
   Pause,
   Play,
   Square,
+  SwitchCamera,
   Trash2,
   Upload,
   Video,
@@ -60,6 +61,8 @@ type Props = {
   warehouseLabel: string;
   onRecordingChange?: (active: boolean) => void;
 };
+
+type CameraFacingMode = "environment" | "user";
 
 function preferredVideoMimeType(): string {
   if (typeof MediaRecorder === "undefined") return "";
@@ -116,6 +119,8 @@ export function WarehouseMobileCameraRecorder({
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadPrompt, setUploadPrompt] = useState<LocalWarehouseCameraClip | null>(null);
+  const [cameraFacingMode, setCameraFacingMode] =
+    useState<CameraFacingMode>("environment");
 
   const refreshLists = useCallback(async () => {
     if (!user || inventoryRequestIds.length === 0) return;
@@ -137,6 +142,16 @@ export function WarehouseMobileCameraRecorder({
   useEffect(() => {
     onRecordingChange?.(Boolean(session));
   }, [onRecordingChange, session]);
+
+  useEffect(() => {
+    if (!user || !session || (session.status !== "live" && session.status !== "paused")) return;
+    const sendHeartbeat = () => {
+      void updateWarehouseCameraSession(user, session.id, "heartbeat").catch(() => undefined);
+    };
+    sendHeartbeat();
+    const timer = window.setInterval(sendHeartbeat, 8_000);
+    return () => window.clearInterval(timer);
+  }, [session, user]);
 
   useEffect(() => {
     if (!session) return;
@@ -173,7 +188,7 @@ export function WarehouseMobileCameraRecorder({
     let createdSessionId = "";
     try {
       localTrack = await createLocalVideoTrack({
-        facingMode: "environment",
+        facingMode: cameraFacingMode,
         resolution: VideoPresets.h720.resolution,
       });
       await navigator.storage?.persist?.().catch(() => false);
@@ -311,7 +326,6 @@ export function WarehouseMobileCameraRecorder({
         createdAt: new Date().toISOString(),
         blob,
       };
-      await saveLocalWarehouseCameraClip(localClip);
       const updated = await updateWarehouseCameraSession(user, activeSession.id, "stop", {
         durationMs,
         sizeBytes: blob.size,
@@ -321,6 +335,7 @@ export function WarehouseMobileCameraRecorder({
         prev.map((row) => (row.id === updated.id ? updated : row))
       );
       setSession(null);
+      await saveLocalWarehouseCameraClip(localClip);
       setLocalClips((prev) => [localClip, ...prev.filter((c) => c.sessionId !== localClip.sessionId)]);
       setUploadPrompt(localClip);
     } catch (error) {
@@ -423,6 +438,9 @@ export function WarehouseMobileCameraRecorder({
                   <Wifi className="h-3 w-3" />
                   {session.status === "paused" ? "PAUSED" : "LIVE"}
                 </Badge>
+                <Badge className="absolute right-3 top-3 bg-black/70 text-white hover:bg-black/70">
+                  {cameraFacingMode === "environment" ? "Back camera" : "Front camera"}
+                </Badge>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {session.status === "paused" ? (
@@ -460,6 +478,18 @@ export function WarehouseMobileCameraRecorder({
                   create multiple clips. Keep this page open and the phone screen awake while
                   recording.
                 </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setCameraFacingMode((current) =>
+                      current === "environment" ? "user" : "environment"
+                    )
+                  }
+                >
+                  <SwitchCamera className="mr-2 h-4 w-4" />
+                  Use {cameraFacingMode === "environment" ? "front" : "back"} camera
+                </Button>
                 <Button onClick={() => void startRecording()} disabled={starting}>
                   {starting ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

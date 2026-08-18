@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminFieldValue } from "@/lib/firebase-admin";
+import { adminDb, adminFieldValue } from "@/lib/firebase-admin";
 import {
   getGoogleDriveClient,
   ensureWarehouseVideoFolder,
@@ -7,9 +7,11 @@ import {
 } from "@/lib/google-drive-video-server";
 import {
   cameraSessionRef,
-  cleanCameraLabel,
   requireWarehouseCameraAuth,
   serializeCameraSession,
+  summarizeWarehouseCameraRequest,
+  warehouseCameraDriveFileName,
+  warehouseCameraDriveFolderName,
 } from "@/lib/warehouse-camera-server";
 
 export const dynamic = "force-dynamic";
@@ -56,20 +58,40 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const { drive, accessToken } = await getGoogleDriveClient();
-    const requestId = session.inventoryRequestIds[0];
+    const requestSnaps = await Promise.all(
+      session.inventoryRequestIds.map((id) =>
+        adminDb().collection("users").doc(session.clientUserId).collection("inventoryRequests").doc(id).get()
+      )
+    );
+    const summaries = requestSnaps
+      .map((snap, index) =>
+        snap.exists
+          ? summarizeWarehouseCameraRequest(
+              { id: session.inventoryRequestIds[index], ...(snap.data() ?? {}) },
+              session.inventoryRequestIds[index]
+            )
+          : null
+      )
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+    const requestSummaries =
+      summaries.length > 0 ? summaries : session.inventoryRequestSummaries;
     const folder = await ensureWarehouseVideoFolder({
       drive,
       warehouseLabel: session.warehouseLabel,
       clientLabel: session.clientDisplayName,
       clientUserId: session.clientUserId,
-      inventoryRequestId: requestId,
+      requestFolderName: warehouseCameraDriveFolderName(
+        requestSummaries,
+        session.startedAt
+      ),
     });
     const extension = mimeType.includes("mp4") ? "mp4" : "webm";
-    const stamp = new Date(session.startedAt).toISOString().replace(/[:.]/g, "-");
-    const fileName = cleanCameraLabel(
-      `${session.clientDisplayName}_${requestId}_session-${session.clipNumber}_${stamp}`,
-      `receive-${session.id}`
-    ) + `.${extension}`;
+    const fileName = warehouseCameraDriveFileName({
+      summaries: requestSummaries,
+      startedAt: session.startedAt,
+      clipNumber: session.clipNumber,
+      extension,
+    });
     const uploadUrl = await startGoogleDriveResumableVideoUpload({
       accessToken,
       folderId: folder.folderId,

@@ -30,72 +30,128 @@
     {
       "collectionGroup": "inventoryRequests",
       "fieldPath": "status",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "inventory",
       "fieldPath": "sku",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "inventory",
       "fieldPath": "retailIdentifier",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "shipped",
       "fieldPath": "date",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "inventory",
       "fieldPath": "receivingDate",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "inventory",
       "fieldPath": "dateAdded",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "invoices",
       "fieldPath": "status",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "shipmentRequests",
       "fieldPath": "status",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "productReturns",
       "fieldPath": "status",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "disposeRequests",
       "fieldPath": "status",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "deleteRequests",
       "fieldPath": "status",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "labelRefundRequests",
       "fieldPath": "status",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "inboundBatches",
       "fieldPath": "status",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     },
     {
       "collectionGroup": "disposeBatches",
       "fieldPath": "status",
-      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
     }
   ]
 }

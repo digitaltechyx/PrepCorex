@@ -13,14 +13,19 @@ Receiving start → operator phone records + client watches **live** → receive
 
 ## Agreed architecture
 
-- **Camera:** phone/tablet browser camera on the warehouse receiving page
+- **Camera:** selectable front/back phone or tablet browser camera on the warehouse receiving page
 - **Recording:** MediaRecorder; pause/resume/stop; multiple clips per inbound request
 - **Local storage:** completed Blob in IndexedDB on the same phone/browser until upload/removal
 - **Live:** the same camera track publishes to managed LiveKit Cloud with short-lived server-issued tokens
 - **Privacy:** client tokens work only for sessions whose `clientUserId` matches the signed-in user
+- **Playback:** after Drive upload, clients watch through PrepCorex (`/playback`); no raw Drive link
+- **Ended notice:** Inventory shows live-ended for that product/SKU until dismissed
 - **Cloud storage:** resumable direct browser upload to private admin Google Drive; no video bytes in Vercel or Firebase
 - **Metadata:** server-only `warehouseCameraSessions` collection stores lifecycle, request links, and Drive metadata
 - **Live relay:** Managed LiveKit Cloud + short-lived PrepCorex viewer tokens (not raw RTSP to browser)
+- **Live state:** eight-second recorder heartbeat; client polling every five seconds; hide after stop
+  or 30 seconds without heartbeat
+- **Request context:** live client notices identify the product, SKU, and inbound request ID
 
 ## Do not confuse with
 

@@ -9,6 +9,8 @@ import {
   livekitConfigured,
   requireWarehouseCameraAuth,
   serializeCameraSession,
+  summarizeWarehouseCameraRequest,
+  warehouseCameraRequestLabel,
 } from "@/lib/warehouse-camera-server";
 import type { WarehouseCameraSession } from "@/lib/warehouse-camera-types";
 
@@ -115,6 +117,13 @@ export async function POST(request: NextRequest) {
       { status: 404 }
     );
   }
+  const inventoryRequestSummaries = requestSnaps.map((snap, index) =>
+    summarizeWarehouseCameraRequest(
+      { id: inventoryRequestIds[index], ...(snap.data() ?? {}) },
+      inventoryRequestIds[index]
+    )
+  );
+  const inventoryRequestLabels = inventoryRequestSummaries.map(warehouseCameraRequestLabel);
 
   const ref = adminDb().collection(WAREHOUSE_CAMERA_SESSIONS_COLLECTION).doc();
   const roomName = `prepcorex-receive-${ref.id}`;
@@ -124,6 +133,8 @@ export async function POST(request: NextRequest) {
     clientUserId,
     clientDisplayName: cleanCameraLabel(body.clientDisplayName, "Client"),
     inventoryRequestIds,
+    inventoryRequestLabels,
+    inventoryRequestSummaries,
     warehouseId,
     warehouseLabel: cleanCameraLabel(body.warehouseLabel, warehouseId),
     operatorId: auth.uid,

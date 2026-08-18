@@ -66,7 +66,7 @@ export async function listWarehouseCameraSessions(
 export async function updateWarehouseCameraSession(
   user: User,
   sessionId: string,
-  action: "pause" | "resume" | "stop" | "discard",
+  action: "heartbeat" | "pause" | "resume" | "stop" | "discard",
   details?: { durationMs?: number; sizeBytes?: number; mimeType?: string }
 ): Promise<WarehouseCameraSession> {
   const data = await cameraFetch<{ session: WarehouseCameraSession }>(
@@ -78,6 +78,11 @@ export async function updateWarehouseCameraSession(
     }
   );
   return data.session;
+}
+
+export function warehouseCameraPlaybackUrl(sessionId: string, idToken: string): string {
+  const params = new URLSearchParams({ token: idToken });
+  return `/api/warehouse-camera/sessions/${encodeURIComponent(sessionId)}/playback?${params.toString()}`;
 }
 
 export async function getWarehouseCameraToken(

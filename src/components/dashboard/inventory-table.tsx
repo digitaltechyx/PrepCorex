@@ -128,6 +128,17 @@ function formatRowQuantity(item: {
   });
 }
 
+function inboundVideoRequestId(item: {
+  isRequest?: boolean;
+  requestData?: { id?: string };
+  sourceRequestId?: string;
+  requestId?: string;
+}): string | null {
+  if (item.isRequest && item.requestData?.id) return String(item.requestData.id);
+  const source = String(item.sourceRequestId || item.requestId || "").trim();
+  return source || null;
+}
+
 function inventoryStatusBadge(status: string): { variant: "outline" | "secondary" | "destructive"; label: string } {
   switch (status) {
     case "Pending":
@@ -1873,9 +1884,9 @@ export function InventoryTable({
                         )}
                         onViewFull={setProductNamePreview}
                       />
-                      {(item as any).isRequest && (item as any).requestData?.id ? (
+                      {inboundVideoRequestId(item as any) ? (
                         <InboundReceiveVideoDialog
-                          requestId={String((item as any).requestData.id)}
+                          requestId={inboundVideoRequestId(item as any)!}
                           clientUserId={effectiveUserId}
                           compact
                         />
@@ -2044,6 +2055,13 @@ export function InventoryTable({
                       }}
                     />
                   )}
+                  {!(item as any).isRequest && inboundVideoRequestId(item as any) ? (
+                    <InboundReceiveVideoDialog
+                      requestId={inboundVideoRequestId(item as any)!}
+                      clientUserId={effectiveUserId}
+                      triggerLabel="Watch receiving video"
+                    />
+                  ) : null}
                   {!(item as any).isRequest && (
                     <Button
                       variant="outline"
@@ -2162,9 +2180,9 @@ export function InventoryTable({
                             textClassName={isLowStockVisual ? lowStockTextClass : undefined}
                             onViewFull={setProductNamePreview}
                           />
-                          {(item as any).isRequest && (item as any).requestData?.id ? (
+                          {inboundVideoRequestId(item as any) ? (
                             <InboundReceiveVideoDialog
-                              requestId={String((item as any).requestData.id)}
+                              requestId={inboundVideoRequestId(item as any)!}
                               clientUserId={effectiveUserId}
                               compact
                             />
