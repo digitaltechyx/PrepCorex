@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createLocalVideoTrack,
+  LocalVideoTrack,
   Room,
-  type LocalVideoTrack,
   VideoPresets,
 } from "livekit-client";
 import {
@@ -64,6 +64,47 @@ type Props = {
 
 type CameraFacingMode = "environment" | "user";
 
+async function createCameraTrack(facingMode: CameraFacingMode): Promise<LocalVideoTrack> {
+  const resolution = VideoPresets.h720.resolution;
+  const attempts: MediaTrackConstraints[] = [
+    {
+      facingMode: { exact: facingMode },
+      width: { ideal: resolution.width },
+      height: { ideal: resolution.height },
+    },
+    {
+      facingMode: { ideal: facingMode },
+      width: { ideal: resolution.width },
+      height: { ideal: resolution.height },
+    },
+    {
+      facingMode,
+      width: { ideal: resolution.width },
+      height: { ideal: resolution.height },
+    },
+  ];
+
+  for (const video of attempts) {
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video,
+        audio: false,
+      });
+      const mediaTrack = mediaStream.getVideoTracks()[0];
+      if (mediaTrack) {
+        return new LocalVideoTrack(mediaTrack);
+      }
+    } catch {
+      // Try the next constraint set.
+    }
+  }
+
+  return createLocalVideoTrack({
+    facingMode,
+    resolution,
+  });
+}
+
 function preferredVideoMimeType(): string {
   if (typeof MediaRecorder === "undefined") return "";
   return (
@@ -105,6 +146,7 @@ export function WarehouseMobileCameraRecorder({
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const roomRef = useRef<Room | null>(null);
   const videoTrackRef = useRef<LocalVideoTrack | null>(null);
+  const recorderStreamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startedAtRef = useRef(0);
@@ -121,6 +163,8 @@ export function WarehouseMobileCameraRecorder({
   const [uploadPrompt, setUploadPrompt] = useState<LocalWarehouseCameraClip | null>(null);
   const [cameraFacingMode, setCameraFacingMode] =
     useState<CameraFacingMode>("environment");
+  const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
+  const [switchingCamera, setSwitchingCamera] = useState(false);
 
   const refreshLists = useCallback(async () => {
     if (!user || inventoryRequestIds.length === 0) return;
@@ -172,6 +216,19 @@ export function WarehouseMobileCameraRecorder({
     };
   }, [onRecordingChange]);
 
+  useEffect(() => {
+    const videoEl = previewRef.current;
+    const track = videoTrackRef.current;
+    if (!session || !videoEl || !track) return;
+
+    track.attach(videoEl);
+    void videoEl.play().catch(() => undefined);
+
+    return () => {
+      track.detach(videoEl);
+    };
+  }, [session, activeTrackId]);
+
   async function startRecording() {
     if (!user || starting || session) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
@@ -187,10 +244,7 @@ export function WarehouseMobileCameraRecorder({
     let room: Room | null = null;
     let createdSessionId = "";
     try {
-      localTrack = await createLocalVideoTrack({
-        facingMode: cameraFacingMode,
-        resolution: VideoPresets.h720.resolution,
-      });
+      localTrack = await createCameraTrack(cameraFacingMode);
       await navigator.storage?.persist?.().catch(() => false);
       const created = await createWarehouseCameraSession(user, {
         clientUserId,
@@ -206,10 +260,7 @@ export function WarehouseMobileCameraRecorder({
       await room.localParticipant.publishTrack(localTrack);
 
       const stream = new MediaStream([localTrack.mediaStreamTrack]);
-      if (previewRef.current) {
-        previewRef.current.srcObject = stream;
-        await previewRef.current.play().catch(() => undefined);
-      }
+      recorderStreamRef.current = stream;
       const mimeType = preferredVideoMimeType();
       const recorder = new MediaRecorder(stream, {
         ...(mimeType ? { mimeType } : {}),
@@ -223,6 +274,7 @@ export function WarehouseMobileCameraRecorder({
       recorderRef.current = recorder;
       roomRef.current = room;
       videoTrackRef.current = localTrack;
+      setActiveTrackId(localTrack.mediaStreamTrack.id);
       startedAtRef.current = Date.now();
       pausedAtRef.current = 0;
       pausedTotalRef.current = 0;
@@ -247,6 +299,48 @@ export function WarehouseMobileCameraRecorder({
       });
     } finally {
       setStarting(false);
+    }
+  }
+
+  async function switchCamera() {
+    if (!user || !session || !roomRef.current || !videoTrackRef.current || switchingCamera) {
+      return;
+    }
+
+    const nextFacing: CameraFacingMode =
+      cameraFacingMode === "environment" ? "user" : "environment";
+    const room = roomRef.current;
+    const oldTrack = videoTrackRef.current;
+    const recorder = recorderRef.current;
+    const recorderStream = recorderStreamRef.current;
+
+    setSwitchingCamera(true);
+    let newTrack: LocalVideoTrack | null = null;
+    try {
+      newTrack = await createCameraTrack(nextFacing);
+      await room.localParticipant.unpublishTrack(oldTrack);
+      await room.localParticipant.publishTrack(newTrack);
+
+      if (recorderStream && recorder && recorder.state !== "inactive") {
+        recorderStream.getVideoTracks().forEach((track) => {
+          recorderStream.removeTrack(track);
+        });
+        recorderStream.addTrack(newTrack.mediaStreamTrack);
+      }
+
+      oldTrack.stop();
+      videoTrackRef.current = newTrack;
+      setCameraFacingMode(nextFacing);
+      setActiveTrackId(newTrack.mediaStreamTrack.id);
+    } catch (error) {
+      newTrack?.stop();
+      toast({
+        variant: "destructive",
+        title: "Could not switch camera",
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+    } finally {
+      setSwitchingCamera(false);
     }
   }
 
@@ -308,9 +402,13 @@ export function WarehouseMobileCameraRecorder({
         0,
         Date.now() - startedAtRef.current - pausedTotalRef.current - pauseInProgress
       );
-      videoTrackRef.current?.stop();
+      const activeTrack = videoTrackRef.current;
+      const previewEl = previewRef.current;
+      if (activeTrack && previewEl) {
+        activeTrack.detach(previewEl);
+      }
+      activeTrack?.stop();
       roomRef.current?.disconnect();
-      if (previewRef.current) previewRef.current.srcObject = null;
 
       const localClip: LocalWarehouseCameraClip = {
         sessionId: activeSession.id,
@@ -348,6 +446,8 @@ export function WarehouseMobileCameraRecorder({
       recorderRef.current = null;
       videoTrackRef.current = null;
       roomRef.current = null;
+      recorderStreamRef.current = null;
+      setActiveTrackId(null);
       setStopping(false);
     }
   }
@@ -428,6 +528,7 @@ export function WarehouseMobileCameraRecorder({
               <div className="relative overflow-hidden rounded-xl bg-black">
                 <video
                   ref={previewRef}
+                  autoPlay
                   muted
                   playsInline
                   className="aspect-video w-full object-cover"
@@ -442,7 +543,7 @@ export function WarehouseMobileCameraRecorder({
                   {cameraFacingMode === "environment" ? "Back camera" : "Front camera"}
                 </Badge>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {session.status === "paused" ? (
                   <Button onClick={() => void resumeRecording()} variant="outline">
                     <Play className="mr-2 h-4 w-4" />
@@ -454,6 +555,18 @@ export function WarehouseMobileCameraRecorder({
                     Pause
                   </Button>
                 )}
+                <Button
+                  onClick={() => void switchCamera()}
+                  disabled={switchingCamera}
+                  variant="outline"
+                >
+                  {switchingCamera ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <SwitchCamera className="mr-2 h-4 w-4" />
+                  )}
+                  {cameraFacingMode === "environment" ? "Front" : "Back"}
+                </Button>
                 <Button
                   onClick={() => void stopRecording()}
                   disabled={stopping}
@@ -474,7 +587,8 @@ export function WarehouseMobileCameraRecorder({
               <AlertTitle>Start a recording for this receive?</AlertTitle>
               <AlertDescription className="mt-2 space-y-3">
                 <p>
-                  Camera access is used only after you tap Start. You can pause, resume, stop, and
+                  Camera access is used only after you tap Start. Recording begins on the back camera
+                  by default. You can switch front/back while recording, pause, resume, stop, and
                   create multiple clips. Keep this page open and the phone screen awake while
                   recording.
                 </p>
@@ -488,7 +602,7 @@ export function WarehouseMobileCameraRecorder({
                   }
                 >
                   <SwitchCamera className="mr-2 h-4 w-4" />
-                  Use {cameraFacingMode === "environment" ? "front" : "back"} camera
+                  Starting camera: {cameraFacingMode === "environment" ? "Back" : "Front"}
                 </Button>
                 <Button onClick={() => void startRecording()} disabled={starting}>
                   {starting ? (

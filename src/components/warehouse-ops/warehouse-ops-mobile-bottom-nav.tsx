@@ -13,6 +13,7 @@ import {
   Move,
   Package,
   PackagePlus,
+  PauseCircle,
   RotateCcw,
   Search,
   ShoppingCart,
@@ -23,6 +24,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { getOpsNavItems } from "@/lib/warehouse-ops-permissions";
+import { hasFeature } from "@/lib/permissions";
 import {
   Sheet,
   SheetClose,
@@ -102,13 +104,8 @@ export function WarehouseOpsMobileBottomNav() {
   const { userProfile } = useAuth();
   const { stats } = useWarehouseOpsLive();
 
-  const totalTasks =
-    stats.inboundDock +
-    stats.awaitingPutaway +
-    stats.pickQueue +
-    stats.packQueue +
-    stats.dispatchReady +
-    stats.cycleCountOpen;
+  const canPutaway = hasFeature(userProfile, "ops_putaway");
+  const onHoldCount = stats.awaitingPutaway;
   const alertCount = stats.quarantineUnits > 0 ? 1 : 0;
   const moreItems = getOpsNavItems(userProfile).filter((item) => !PRIMARY_ROUTES.has(item.href));
 
@@ -123,13 +120,15 @@ export function WarehouseOpsMobileBottomNav() {
         icon={Home}
         active={pathname === "/warehouse-ops"}
       />
-      <BottomItem
-        href="/warehouse-ops#priority-tasks"
-        label="Tasks"
-        icon={ClipboardList}
-        active={false}
-        badge={totalTasks}
-      />
+      {canPutaway ? (
+        <BottomItem
+          href="/warehouse-ops/on-hold"
+          label="On hold"
+          icon={PauseCircle}
+          active={pathname?.startsWith("/warehouse-ops/on-hold") ?? false}
+          badge={onHoldCount}
+        />
+      ) : null}
 
       <div className="relative flex min-w-0 flex-1 items-center justify-center">
         <ScanCameraButton

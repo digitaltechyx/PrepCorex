@@ -157,6 +157,63 @@
   animation: shine 5s ease-in-out infinite;
 }
 
+.videoScan {
+  position: absolute;
+  inset-inline: 0;
+  top: 12%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 111, 26, 0.95), transparent);
+  box-shadow: 0 0 14px rgba(255, 90, 10, 0.75);
+  animation: videoScan 3.8s ease-in-out infinite;
+}
+
+.liveSignal {
+  position: relative;
+  background-size: 200% 100%;
+  animation: signalPulse 1.7s linear infinite;
+}
+
+.liveSignal::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 35%;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.55);
+  filter: blur(5px);
+  transform: translateY(-50%);
+}
+
+.savingsRange {
+  height: 8px;
+  appearance: none;
+  border-radius: 999px;
+  outline: none;
+  background: linear-gradient(90deg, #ff5a0a, #ff8a00);
+  cursor: pointer;
+}
+
+.savingsRange::-webkit-slider-thumb {
+  width: 24px;
+  height: 24px;
+  appearance: none;
+  border: 4px solid #fff;
+  border-radius: 999px;
+  background: #071a3d;
+  box-shadow: 0 3px 12px rgba(7, 26, 61, 0.28);
+}
+
+.savingsRange::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 4px solid #fff;
+  border-radius: 999px;
+  background: #071a3d;
+  box-shadow: 0 3px 12px rgba(7, 26, 61, 0.28);
+}
+
 @keyframes floatA {
   0%,
   100% {
@@ -218,6 +275,32 @@
   }
 }
 
+@keyframes videoScan {
+  0%,
+  100% {
+    top: 10%;
+    opacity: 0.25;
+  }
+  50% {
+    top: 84%;
+    opacity: 1;
+  }
+}
+
+@keyframes signalPulse {
+  0% {
+    opacity: 0.35;
+    background-position: 100% 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.35;
+    background-position: -100% 0;
+  }
+}
+
 @media (max-width: 1023px) {
   .hero {
     min-height: auto;
@@ -241,6 +324,8 @@
   .routeLine,
   .beamOne,
   .beamTwo,
+  .videoScan,
+  .liveSignal,
   .shine::after {
     animation: none !important;
     transform: none !important;

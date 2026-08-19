@@ -5,7 +5,6 @@ import {
   Archive,
   ArrowRight,
   Box,
-  ClipboardList,
   Loader2,
   PackagePlus,
   Search,
@@ -55,7 +54,6 @@ export function WarehouseOpsMobileHome() {
   const { userProfile } = useAuth();
   const { selectedWarehouse } = useWarehouseOps();
   const { stats, liveLoading, syncError } = useWarehouseOpsLive();
-
   const operations: MobileOperation[] = [
     {
       label: "Receiving",
@@ -103,10 +101,10 @@ export function WarehouseOpsMobileHome() {
       accent: "navy",
     },
     {
-      label: "Inventory",
+      label: "Find product",
       href: "/warehouse-ops/locate",
       feature: "ops_dashboard",
-      icon: ClipboardList,
+      icon: Search,
       count: stats.activeCartons,
       countLabel: "cartons",
       accent: "navy",
@@ -117,7 +115,7 @@ export function WarehouseOpsMobileHome() {
     hasFeature(userProfile, operation.feature)
   );
   const priorityTasks = enabledOperations
-    .filter((operation) => operation.label !== "Inventory" && operation.count > 0)
+    .filter((operation) => operation.href !== "/warehouse-ops/locate" && operation.count > 0)
     .sort((a, b) => b.count - a.count)
     .slice(0, 3);
   const firstName = String(userProfile?.name || "Operator").trim().split(/\s+/)[0];
@@ -157,6 +155,22 @@ export function WarehouseOpsMobileHome() {
           </Badge>
         </div>
       </section>
+
+      <Link
+        href="/warehouse-ops/locate"
+        className="flex min-h-[58px] items-center gap-3 rounded-2xl border border-orange-200/70 bg-card px-4 py-3 shadow-sm transition active:scale-[0.99] dark:border-orange-900/50"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-600 text-white shadow-sm">
+          <Search className="h-5 w-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold">Find product</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            Scan or search SKU, carton, pallet, or bin
+          </span>
+        </span>
+        <ArrowRight className="h-4 w-4 shrink-0 text-orange-600" />
+      </Link>
 
       <section aria-label="Warehouse operations">
         <div className="grid grid-cols-2 gap-3">

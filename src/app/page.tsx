@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     "shipping management",
   ],
   openGraph: {
-    title: "PrepCorex | Every warehouse movement under control",
+    title: "PrepCorex | From inbound to dispatched. Every unit under control.",
     description:
       "The connected operating platform for modern prep centers, warehouses, and fulfillment teams.",
     type: "website",

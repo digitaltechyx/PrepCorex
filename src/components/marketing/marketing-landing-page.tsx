@@ -19,6 +19,7 @@ import {
   FileText,
   Fingerprint,
   Globe2,
+  Eye,
   Layers3,
   LockKeyhole,
   Menu,
@@ -31,10 +32,15 @@ import {
   ScanLine,
   ShieldCheck,
   ShoppingCart,
+  Smartphone,
   Sparkles,
   Truck,
+  TrendingDown,
+  UploadCloud,
   Users,
+  Video,
   Warehouse,
+  Wifi,
   X,
   Zap,
 } from "lucide-react";
@@ -44,7 +50,7 @@ import { PlatformBrandLogo } from "@/components/integrations/platform-brand-logo
 import styles from "./marketing-landing.module.css";
 import { cn } from "@/lib/utils";
 
-type PortalKey = "client" | "warehouse" | "admin";
+type PortalKey = "client" | "warehouse" | "admin" | "affiliate";
 
 const workflow: Array<{
   number: string;
@@ -137,6 +143,18 @@ const portals: Record<
     ],
     icon: BarChart3,
   },
+  affiliate: {
+    label: "Affiliate dashboard",
+    eyebrow: "Referrals and commission clarity",
+    title: "Give affiliates a transparent view of every referral and earning.",
+    copy: "Commission agents can share their referral code, follow referred clients from approval through paid invoices, and understand pending and paid commission from one dedicated dashboard.",
+    bullets: [
+      "Live referral code, pending clients, approved clients, and rejected-client visibility",
+      "Qualified paid-invoice revenue and commission performance by month",
+      "Commission tier, rate, payout status, and client eligibility windows",
+    ],
+    icon: CircleDollarSign,
+  },
 };
 
 const integrations = [
@@ -226,11 +244,11 @@ function MarketingHeader() {
   }, []);
 
   const links = [
-    ["Platform", "#platform"],
-    ["Workflow", "#workflow"],
-    ["Capabilities", "#capabilities"],
+    ["Product", "#capabilities"],
+    ["Warehouse Ops", "#workflow"],
+    ["Client Portal", "#platform"],
+    ["Savings", "#label-savings"],
     ["Integrations", "#integrations"],
-    ["Security", "#security"],
   ];
 
   return (
@@ -316,119 +334,161 @@ function MarketingHeader() {
 }
 
 function HeroDashboard() {
-  const queues = [
-    { label: "Receiving", count: 12, icon: PackageOpen, color: "text-orange-600 bg-orange-50" },
-    { label: "Putaway", count: 18, icon: Warehouse, color: "text-blue-700 bg-blue-50" },
-    { label: "Picking", count: 27, icon: ShoppingCart, color: "text-violet-700 bg-violet-50" },
-    { label: "Packing", count: 14, icon: Box, color: "text-orange-600 bg-orange-50" },
-    { label: "Dispatch", count: 9, icon: Truck, color: "text-emerald-700 bg-emerald-50" },
-    { label: "Inventory", count: "18.8K", icon: ClipboardCheck, color: "text-slate-700 bg-slate-50" },
-  ];
-
   return (
-    <div className="relative mx-auto w-full max-w-[690px] lg:mx-0">
+    <div className="relative mx-auto aspect-[1.54/1] w-full max-w-[760px] lg:mx-0">
       <div
         className={cn(
           styles.dashboard,
-          "relative overflow-hidden rounded-[26px] border border-white/80 bg-white/95 p-3 shadow-2xl sm:p-4"
+          "absolute bottom-[7%] left-[9%] right-[15%] top-[3%] overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-2xl"
         )}
       >
-        <div className="flex items-center justify-between border-b px-1 pb-3">
-          <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-600 text-white">
-              <Box className="h-4 w-4" />
+        <aside className="absolute inset-y-0 left-0 w-[21%] bg-[#071a3d] p-[3%] text-white">
+          <div className="flex items-center gap-1.5">
+            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-orange-600">
+              <Box className="h-3 w-3" />
             </span>
-            <span className="text-xs font-bold text-slate-900">PrepCorex Operations</span>
+            <span className="text-[clamp(5px,1vw,9px)] font-bold">PrepCorex</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="hidden rounded-full border bg-slate-50 px-2.5 py-1 text-[9px] font-medium text-slate-600 sm:inline">
-              New Jersey Warehouse
-            </span>
-            <span className="h-7 w-7 rounded-full bg-gradient-to-br from-orange-400 to-orange-600" />
-          </div>
-        </div>
+          <nav className="mt-[22%] space-y-[5%]">
+            {[
+              ["Dashboard", BarChart3],
+              ["Receive", PackageOpen],
+              ["Inventory", Boxes],
+              ["Orders", ShoppingCart],
+              ["Returns", RotateCcw],
+              ["Reports", FileText],
+              ["Billing", CircleDollarSign],
+            ].map(([label, ItemIcon], index) => {
+              const Icon = ItemIcon as LucideIcon;
+              return (
+                <div
+                  key={String(label)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[clamp(4px,.72vw,7px)] font-medium",
+                    index === 0 ? "bg-orange-600 text-white" : "text-slate-300"
+                  )}
+                >
+                  <Icon className="h-2.5 w-2.5 shrink-0" />
+                  <span>{String(label)}</span>
+                </div>
+              );
+            })}
+          </nav>
+        </aside>
 
-        <div className="grid gap-3 pt-3 md:grid-cols-[1.4fr_0.9fr]">
-          <div>
-            <div className="mb-3 flex items-end justify-between">
-              <div>
-                <p className="text-[9px] font-medium uppercase tracking-[0.16em] text-slate-400">
-                  Live floor
-                </p>
-                <p className="text-base font-bold text-slate-900">Good morning, Alex</p>
-              </div>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[8px] font-semibold text-emerald-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> On shift
+        <div className="ml-[21%] h-full p-[3%]">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[clamp(7px,1.2vw,12px)] font-bold text-slate-900">Dashboard</h3>
+            <div className="flex items-center gap-1.5 text-[clamp(4px,.65vw,7px)] text-slate-500">
+              <span>PrepCorex Warehouse</span>
+              <Bell className="h-2.5 w-2.5" />
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-950 text-[6px] font-bold text-white">
+                JS
               </span>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {queues.map((queue) => {
-                const Icon = queue.icon;
-                return (
-                  <div key={queue.label} className="rounded-xl border bg-white p-2.5 shadow-sm">
-                    <span className={cn("inline-flex rounded-lg p-1.5", queue.color)}>
-                      <Icon className="h-3.5 w-3.5" />
-                    </span>
-                    <p className="mt-2 text-[10px] font-semibold text-slate-800">{queue.label}</p>
-                    <p className="text-sm font-bold tabular-nums text-slate-950">{queue.count}</p>
+          </div>
+
+          <div className="mt-[4%] grid grid-cols-4 gap-[2%]">
+            {[
+              ["Orders Shipped", "1,238", "+8%"],
+              ["Units Shipped", "2,567", "+21%"],
+              ["On-Time Ship", "98.6%", "+2.1%"],
+              ["Open Returns", "32", "-6%"],
+            ].map(([label, value, change]) => (
+              <div key={label} className="rounded-lg border border-slate-100 bg-white p-[8%] shadow-sm">
+                <p className="truncate text-[clamp(4px,.6vw,6px)] text-slate-500">{label}</p>
+                <p className="mt-1 text-[clamp(8px,1.4vw,14px)] font-bold text-slate-900">{value}</p>
+                <p className="mt-0.5 text-[clamp(3px,.5vw,5px)] font-medium text-emerald-500">
+                  ↑ {change} vs yesterday
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-[3%] grid h-[40%] grid-cols-[1.45fr_.9fr] gap-[2%]">
+            <div className="rounded-lg border border-slate-100 p-[4%] shadow-sm">
+              <div className="flex items-center justify-between">
+                <p className="text-[clamp(5px,.72vw,7px)] font-bold text-slate-800">Orders Over Time</p>
+                <span className="rounded border px-1.5 py-0.5 text-[clamp(3px,.5vw,5px)] text-slate-500">7 Days⌄</span>
+              </div>
+              <div className="relative mt-[4%] h-[72%]">
+                <div className="absolute inset-0 flex flex-col justify-between">
+                  {[0, 1, 2, 3].map((line) => (
+                    <span key={line} className="block border-t border-dashed border-slate-100" />
+                  ))}
+                </div>
+                <svg viewBox="0 0 260 90" preserveAspectRatio="none" className="relative h-full w-full overflow-visible">
+                  <defs>
+                    <linearGradient id="hero-chart-fill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#2563eb" stopOpacity=".18" />
+                      <stop offset="100%" stopColor="#2563eb" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <path d="M0 75 L25 66 L50 70 L76 42 L101 50 L127 38 L153 43 L178 31 L204 34 L230 18 L260 10 L260 90 L0 90 Z" fill="url(#hero-chart-fill)" />
+                  <polyline points="0,75 25,66 50,70 76,42 101,50 127,38 153,43 178,31 204,34 230,18 260,10" fill="none" stroke="#2563eb" strokeWidth="2.3" vectorEffect="non-scaling-stroke" />
+                </svg>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-100 p-[5%] shadow-sm">
+              <p className="text-[clamp(5px,.72vw,7px)] font-bold text-slate-800">Top SKUs by Units Shipped</p>
+              <div className="mt-[7%] space-y-[6%]">
+                {[["PCX-TEE-001", "1,234"], ["PCX-HOOD-002", "928"], ["PCX-MUG-001", "764"], ["PCX-TOTE-004", "642"], ["PCX-HAT-002", "517"]].map(([sku, units]) => (
+                  <div key={sku} className="flex justify-between text-[clamp(3px,.55vw,5px)] text-slate-600">
+                    <span>{sku}</span><span className="font-semibold">{units}</span>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+              <p className="mt-[7%] text-[clamp(3px,.55vw,5px)] font-semibold text-blue-600">View full report →</p>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-[#071a3d] p-3 text-white">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-semibold">Priority tasks</p>
-              <Bell className="h-3.5 w-3.5 text-orange-400" />
-            </div>
-            <div className="mt-3 space-y-2">
+          <div className="mt-[3%] rounded-lg border border-slate-100 p-[2.5%] shadow-sm">
+            <p className="text-[clamp(5px,.72vw,7px)] font-bold text-slate-800">Warehouse Activity</p>
+            <div className="mt-[2%] grid grid-cols-4 gap-[2%]">
               {[
-                ["ORD-10234", "Pick 24 units", "High"],
-                ["PUT-8891", "Putaway 48 units", "High"],
-                ["INB-5567", "Receive 12 units", "Next"],
-              ].map(([id, task, priority]) => (
-                <div key={id} className="rounded-xl border border-white/10 bg-white/5 p-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[9px] font-semibold">{id}</span>
-                    <span className="text-[7px] font-semibold uppercase text-orange-400">
-                      {priority}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[8px] text-slate-300">{task}</p>
+                ["Receiving", "12", "bg-emerald-50 text-emerald-700"],
+                ["In Progress", "28", "bg-blue-50 text-blue-700"],
+                ["Ready to Ship", "64", "bg-orange-50 text-orange-700"],
+                ["Shipped Today", "1,238", "bg-emerald-50 text-emerald-700"],
+              ].map(([label, value, color]) => (
+                <div key={label} className={cn("rounded-md p-[7%]", color)}>
+                  <p className="text-[clamp(3px,.5vw,5px)]">{label}</p>
+                  <p className="mt-0.5 text-[clamp(7px,1vw,10px)] font-bold">{value}</p>
                 </div>
               ))}
             </div>
           </div>
-        </div>
-
-        <div className="mt-3 grid grid-cols-3 gap-2 rounded-2xl border bg-slate-50 p-2.5">
-          {[
-            ["Live", "Inventory"],
-            ["Scan-first", "Accuracy"],
-            ["End-to-end", "Traceability"],
-          ].map(([value, label]) => (
-            <div key={label} className="text-center">
-              <p className="text-[10px] font-bold text-slate-900 sm:text-xs">{value}</p>
-              <p className="text-[7px] text-slate-500 sm:text-[8px]">{label}</p>
-            </div>
-          ))}
         </div>
       </div>
 
       <div
         className={cn(
           styles.floatCardA,
-          "absolute -bottom-9 -left-3 rounded-2xl border bg-white/95 p-3 shadow-xl backdrop-blur sm:-left-9"
+          "absolute bottom-0 left-0 w-[23%] -rotate-[7deg] rounded-[22px] border-[5px] border-[#071a3d] bg-white p-[1.3%] shadow-2xl"
         )}
       >
-        <div className="flex items-center gap-2">
-          <span className="rounded-lg bg-orange-50 p-2 text-orange-600">
-            <ScanLine className="h-4 w-4" />
-          </span>
-          <div>
-            <p className="text-[9px] font-bold text-slate-900">SKU: PCX-2334</p>
-            <p className="text-[8px] text-emerald-600">Scanned · Bin A12-03</p>
+        <div className="rounded-[14px] bg-[#fffaf5] p-[9%]">
+          <div className="flex items-center justify-between">
+            <span className="text-[clamp(4px,.65vw,7px)] font-bold text-slate-800">‹ Scan Item</span>
+            <ScanLine className="h-2.5 w-2.5 text-slate-600" />
+          </div>
+          <div className="relative mt-[12%] flex aspect-[1.7/1] items-center justify-center overflow-hidden rounded-md border bg-white">
+            <div className="flex h-[55%] w-[78%] items-center justify-center bg-[repeating-linear-gradient(90deg,#0f172a_0_1px,transparent_1px_3px)]">
+              <span className={cn(styles.videoScan, "!top-1/2 !bg-red-500")} />
+            </div>
+          </div>
+          <div className="mt-[8%]">
+            <p className="text-[clamp(5px,.8vw,8px)] font-bold text-slate-900">PCX-TEE-001</p>
+            <p className="text-[clamp(3px,.5vw,5px)] text-slate-500">T-Shirt · Black / L</p>
+            <div className="mt-[8%] space-y-[5%] text-[clamp(3px,.48vw,5px)] text-slate-500">
+              <div className="flex justify-between border-b pb-1"><span>SKU</span><b className="text-slate-700">PCX-TEE-001</b></div>
+              <div className="flex justify-between border-b pb-1"><span>Location</span><b className="text-slate-700">A12-03</b></div>
+              <div className="flex justify-between"><span>Quantity</span><b className="text-slate-700">− &nbsp; 1 &nbsp; +</b></div>
+            </div>
+            <div className="mt-[8%] rounded-md bg-orange-600 py-[6%] text-center text-[clamp(4px,.65vw,7px)] font-bold text-white">
+              Confirm
+            </div>
           </div>
         </div>
       </div>
@@ -436,17 +496,64 @@ function HeroDashboard() {
       <div
         className={cn(
           styles.floatCardB,
-          "absolute -right-2 -top-8 rounded-2xl border bg-white/95 p-3 shadow-xl backdrop-blur sm:-right-8"
+          "absolute right-0 top-[8%] w-[24%] rotate-[2deg] rounded-xl border bg-white p-[2.5%] shadow-2xl"
         )}
       >
-        <div className="flex items-center gap-2">
-          <span className="rounded-lg bg-emerald-50 p-2 text-emerald-600">
-            <Activity className="h-4 w-4" />
+        <div className="flex items-center justify-between">
+          <p className="text-[clamp(5px,.8vw,8px)] font-bold text-slate-900">Live Orders</p>
+          <span className="flex items-center gap-1 text-[clamp(3px,.5vw,5px)] font-semibold text-emerald-600">
+            <span className="h-1 w-1 rounded-full bg-emerald-500" /> Live
           </span>
-          <div>
-            <p className="text-[9px] font-bold text-slate-900">Real-time visibility</p>
-            <p className="text-[8px] text-slate-500">Every movement, one timeline</p>
-          </div>
+        </div>
+        <div className="mt-[8%] space-y-[6%]">
+          {[
+            ["#10293", "Ready to Ship", "8m"],
+            ["#10294", "Picking", "1h"],
+            ["#10295", "Packing", "1h"],
+            ["#10296", "Shipped", "2h"],
+          ].map(([order, status, time], index) => (
+            <div key={order} className="flex items-center justify-between text-[clamp(3px,.48vw,5px)]">
+              <span className="font-semibold text-slate-700">{order}</span>
+              <span
+                className={cn(
+                  "rounded px-1 py-0.5 font-medium",
+                  index === 3
+                    ? "bg-emerald-50 text-emerald-600"
+                    : index === 1
+                      ? "bg-orange-50 text-orange-600"
+                      : "bg-blue-50 text-blue-600"
+                )}
+              >
+                {status}
+              </span>
+              <span className="text-slate-400">{time}</span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-[9%] text-[clamp(3px,.5vw,5px)] font-semibold text-blue-600">View all orders →</p>
+      </div>
+
+      <div
+        className={cn(
+          styles.floatCardC,
+          "absolute bottom-[2%] right-[1%] w-[25%] rotate-[3deg] rounded-xl bg-[#071a3d] p-[3%] text-white shadow-2xl"
+        )}
+      >
+        <div className="flex items-center justify-between">
+          <p className="text-[clamp(5px,.78vw,8px)] font-semibold">Savings Report</p>
+          <span className="rounded bg-white/10 px-1 py-0.5 text-[clamp(3px,.45vw,5px)]">This Month⌄</span>
+        </div>
+        <p className="mt-[10%] text-[clamp(3px,.5vw,5px)] text-slate-300">Total Savings</p>
+        <p className="text-[clamp(12px,2.1vw,21px)] font-bold text-emerald-400">$43,680</p>
+        <p className="text-[clamp(3px,.45vw,5px)] text-emerald-300">↑ 28% vs last month</p>
+        <div className="mt-[8%] flex h-[50px] items-end gap-[4%]">
+          {[30, 45, 38, 57, 63, 52, 74, 88].map((height, index) => (
+            <span
+              key={index}
+              className="flex-1 rounded-t-sm bg-gradient-to-t from-orange-600 to-orange-400"
+              style={{ height: `${height}%` }}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -529,7 +636,7 @@ function PlatformPreview({ portal }: { portal: PortalKey }) {
                 </div>
               </div>
             </>
-          ) : (
+          ) : portal === "admin" ? (
             <>
               {[
                 ["Active clients", "24", Users],
@@ -578,10 +685,420 @@ function PlatformPreview({ portal }: { portal: PortalKey }) {
                 </div>
               </div>
             </>
+          ) : (
+            <>
+              {[
+                ["Referred clients", "18", Users],
+                ["Pending commission", "$2,840", CircleDollarSign],
+                ["Paid commission", "$12,460", BadgeCheck],
+              ].map(([label, value, CardIcon]) => {
+                const CIcon = CardIcon as LucideIcon;
+                return (
+                  <div key={String(label)} className="rounded-xl border p-3">
+                    <CIcon className="h-4 w-4 text-orange-600" />
+                    <p className="mt-3 text-[9px] text-slate-500">{String(label)}</p>
+                    <p className="text-lg font-bold">{String(value)}</p>
+                  </div>
+                );
+              })}
+              <div className="col-span-full grid gap-2 sm:grid-cols-[1.25fr_.75fr]">
+                <div className="rounded-xl border p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-semibold">Commission performance</p>
+                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[8px] font-semibold text-emerald-700">
+                      Tier 2 · 7%
+                    </span>
+                  </div>
+                  <div className="mt-5 flex h-20 items-end gap-2">
+                    {[36, 48, 42, 58, 67, 61, 78, 89].map((height, index) => (
+                      <span
+                        key={index}
+                        className="flex-1 rounded-t bg-gradient-to-t from-orange-600 to-orange-300"
+                        style={{ height: `${height}%` }}
+                      />
+                    ))}
+                  </div>
+                  <div className="mt-2 flex justify-between text-[7px] text-slate-400">
+                    <span>Jan</span><span>Aug</span>
+                  </div>
+                </div>
+                <div className="rounded-xl bg-slate-950 p-4 text-white">
+                  <p className="text-[9px] text-slate-400">Referral code</p>
+                  <p className="mt-2 text-base font-bold tracking-wider">PCX-ALEX24</p>
+                  <div className="mt-4 rounded-lg bg-orange-600 px-3 py-2 text-center text-[8px] font-semibold">
+                    Copy referral link
+                  </div>
+                  <p className="mt-3 text-[7px] leading-4 text-slate-400">
+                    Track every qualified referral from signup to commission.
+                  </p>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function LiveReceivingSection() {
+  const moments = [
+    {
+      icon: Video,
+      title: "Receiver starts the session",
+      copy: "The same phone used for receiving records the inspection and publishes the live view.",
+    },
+    {
+      icon: Eye,
+      title: "The right client watches live",
+      copy: "Access is matched to the client and inbound request, including the product and SKU context.",
+    },
+    {
+      icon: UploadCloud,
+      title: "The clip is saved privately",
+      copy: "After receiving ends, the completed clip uploads to private admin storage without routing video through Firebase.",
+    },
+    {
+      icon: LockKeyhole,
+      title: "Playback stays in PrepCorex",
+      copy: "Authorized clients return to their inventory record to watch—without receiving a raw storage link.",
+    },
+  ];
+
+  return (
+    <section id="live-video" className="relative overflow-hidden bg-[#071a3d] py-24 text-white sm:py-32">
+      <div className={styles.noise} />
+      <div className="absolute -left-40 top-10 h-96 w-96 rounded-full bg-orange-600/20 blur-3xl" />
+      <div className="absolute -right-40 bottom-0 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
+      <div className="relative mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
+        <div className="grid gap-14 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+          <div data-reveal className={cn(styles.reveal, "max-w-xl")}>
+            <div className="inline-flex items-center gap-2 rounded-full border border-red-400/25 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-300">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+              </span>
+              LIVE RECEIVING VIDEO
+            </div>
+            <h2 className="mt-6 font-headline text-4xl font-bold tracking-tight sm:text-6xl">
+              Don&apos;t just tell clients.{" "}
+              <span className="text-orange-400">Let them see.</span>
+            </h2>
+            <p className="mt-6 text-base leading-8 text-slate-300">
+              Turn receiving into a transparent client experience. Operators can record from a
+              phone while authorized clients watch the product inspection live—then return to the
+              inventory record for private playback.
+            </p>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              {[
+                ["Product + SKU context", PackageCheck],
+                ["Front or back camera", Smartphone],
+                ["Live client access", Wifi],
+                ["Multiple clips per inbound", Video],
+              ].map(([label, ItemIcon]) => {
+                const Icon = ItemIcon as LucideIcon;
+                return (
+                  <div
+                    key={String(label)}
+                    className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-xs font-semibold text-slate-200"
+                  >
+                    <Icon className="h-4 w-4 text-orange-400" />
+                    {String(label)}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div data-reveal className={cn(styles.reveal, "relative mx-auto w-full max-w-[680px]")}>
+            <div className="grid items-center gap-5 sm:grid-cols-[0.72fr_auto_1.28fr]">
+              <div className={cn(styles.floatCardB, "relative mx-auto w-[210px] rounded-[34px] border-[7px] border-slate-800 bg-slate-950 p-2 shadow-2xl")}>
+                <div className="relative aspect-[9/16] overflow-hidden rounded-[23px] bg-slate-900">
+                  <div
+                    className="absolute inset-0 bg-cover bg-center opacity-70"
+                    style={{
+                      backgroundImage:
+                        "linear-gradient(to top, rgba(2,10,25,.86), transparent 60%), url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=500&h=900&fit=crop')",
+                    }}
+                  />
+                  <div className={styles.videoScan} />
+                  <div className="absolute inset-x-3 top-3 flex items-center justify-between">
+                    <span className="rounded-full bg-red-600 px-2 py-1 text-[8px] font-bold">
+                      ● REC 02:18
+                    </span>
+                    <span className="rounded-full bg-black/45 p-1.5">
+                      <Wifi className="h-3 w-3" />
+                    </span>
+                  </div>
+                  <div className="absolute inset-x-3 bottom-3">
+                    <p className="text-[9px] font-bold">Inbound INB-2451</p>
+                    <p className="mt-0.5 text-[8px] text-slate-300">Wireless Headphones · PCX-2334</p>
+                    <div className="mt-3 flex items-center justify-center">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-red-600">
+                        <span className="h-3 w-3 rounded-sm bg-white" />
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="relative hidden w-12 sm:block">
+                <span className={cn(styles.liveSignal, "block h-px w-full bg-gradient-to-r from-orange-500 to-red-400")} />
+                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_16px_rgba(239,68,68,.9)]" />
+              </div>
+
+              <div className="overflow-hidden rounded-[24px] border border-white/15 bg-white/[0.07] p-3 shadow-2xl backdrop-blur">
+                <div className="flex items-center justify-between border-b border-white/10 px-1 pb-3">
+                  <div>
+                    <p className="text-[9px] uppercase tracking-wider text-slate-400">Client inventory</p>
+                    <p className="text-xs font-bold">Live receiving inspection</p>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-1 text-[8px] font-bold text-red-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-500" /> LIVE
+                  </span>
+                </div>
+                <div className="relative mt-3 aspect-video overflow-hidden rounded-xl bg-slate-900">
+                  <div
+                    className="absolute inset-0 bg-cover bg-center opacity-75"
+                    style={{
+                      backgroundImage:
+                        "linear-gradient(to top, rgba(2,10,25,.75), transparent 60%), url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&h=450&fit=crop')",
+                    }}
+                  />
+                  <div className={styles.videoScan} />
+                  <span className="absolute left-3 top-3 rounded-full bg-black/50 px-2 py-1 text-[8px] font-semibold">
+                    New Jersey Warehouse
+                  </span>
+                  <div className="absolute bottom-3 left-3">
+                    <p className="text-[10px] font-bold">Wireless Headphones</p>
+                    <p className="text-[8px] text-slate-300">SKU PCX-2334 · Inbound INB-2451</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center justify-between rounded-xl bg-white/[0.05] p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/15 text-orange-400">
+                      <Eye className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <p className="text-[9px] font-bold">Watching securely</p>
+                      <p className="text-[8px] text-slate-400">Available only to the matched client</p>
+                    </div>
+                  </div>
+                  <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-16 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {moments.map((moment, index) => {
+            const Icon = moment.icon;
+            return (
+              <article
+                key={moment.title}
+                data-reveal
+                style={{ transitionDelay: `${index * 70}ms` }}
+                className={cn(styles.reveal, "rounded-2xl border border-white/10 bg-white/[0.05] p-5 backdrop-blur")}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/15 text-orange-400">
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-500">0{index + 1}</span>
+                </div>
+                <h3 className="mt-5 text-sm font-bold">{moment.title}</h3>
+                <p className="mt-2 text-xs leading-5 text-slate-400">{moment.copy}</p>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LabelSavingsSection() {
+  const [monthlyLabels, setMonthlyLabels] = useState(1000);
+  const [carrier, setCarrier] = useState<"usps" | "ups" | "fedex">("usps");
+  const prepCorexRate = 3.45;
+  const comparisons = {
+    usps: { label: "USPS", rate: 6.45 },
+    ups: { label: "UPS", rate: 8.9 },
+    fedex: { label: "FedEx", rate: 9.2 },
+  };
+  const comparison = comparisons[carrier];
+  const annualLabels = monthlyLabels * 12;
+  const marketAnnual = annualLabels * comparison.rate;
+  const prepCorexAnnual = annualLabels * prepCorexRate;
+  const annualSavings = Math.max(0, marketAnnual - prepCorexAnnual);
+  const savingsPercent =
+    marketAnnual > 0 ? Math.round((annualSavings / marketAnnual) * 100) : 0;
+  const money = (value: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(value);
+
+  return (
+    <section id="label-savings" className="relative overflow-hidden bg-[#fffaf5] py-24 sm:py-32">
+      <div className="absolute left-1/2 top-0 h-72 w-[48rem] -translate-x-1/2 rounded-full bg-orange-200/30 blur-3xl" />
+      <div className="relative mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
+        <div className="grid gap-12 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
+          <div data-reveal className={cn(styles.reveal, "max-w-xl")}>
+            <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3 py-1.5 text-xs font-bold text-orange-700 shadow-sm">
+              <TrendingDown className="h-3.5 w-3.5" />
+              LOWER-COST SHIPPING LABELS
+            </div>
+            <h2 className="mt-6 font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-6xl">
+              Small savings per label.{" "}
+              <span className="text-orange-600">A big year-end number.</span>
+            </h2>
+            <p className="mt-6 text-base leading-8 text-slate-600">
+              Buy PrepCorex label rates inside the same workflow used to manage orders and
+              fulfillment. Clients can see what they paid, compare estimated market cost, and track
+              savings in their reports.
+            </p>
+            <div className="mt-8 space-y-3">
+              {[
+                "Buy and print labels without leaving the client portal",
+                "Compare actual paid cost with USPS, UPS, and FedEx benchmarks",
+                "See savings by label, period, carrier, and annual volume",
+                "Keep labels, orders, tracking, invoices, and reports connected",
+              ].map((item) => (
+                <div key={item} className="flex items-start gap-3 text-sm text-slate-700">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                    <Check className="h-3 w-3" />
+                  </span>
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div data-reveal className={cn(styles.reveal, "rounded-[30px] border border-orange-200 bg-white p-5 shadow-[0_35px_90px_rgba(255,90,10,.14)] sm:p-8")}>
+            <div className="flex flex-col gap-4 border-b border-slate-100 pb-6 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600">
+                  Annual savings calculator
+                </p>
+                <h3 className="mt-2 text-2xl font-bold tracking-tight text-[#071a3d]">
+                  What could lower-cost labels mean for you?
+                </h3>
+              </div>
+              <span className="inline-flex w-fit items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+                Up to 1 lb example
+              </span>
+            </div>
+
+            <div className="mt-7">
+              <div className="flex items-end justify-between gap-4">
+                <label htmlFor="monthly-label-volume" className="text-sm font-bold text-slate-800">
+                  Labels per month
+                </label>
+                <div className="text-right">
+                  <span className="text-3xl font-bold tabular-nums text-[#071a3d]">
+                    {monthlyLabels.toLocaleString()}
+                  </span>
+                  <span className="ml-1 text-xs text-slate-500">labels</span>
+                </div>
+              </div>
+              <input
+                id="monthly-label-volume"
+                type="range"
+                min={100}
+                max={10000}
+                step={100}
+                value={monthlyLabels}
+                onChange={(event) => setMonthlyLabels(Number(event.target.value))}
+                className={cn(styles.savingsRange, "mt-5 w-full")}
+              />
+              <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-400">
+                <span>100</span>
+                <span>10,000 / month</span>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <p className="text-xs font-semibold text-slate-500">Compare the illustrative rate with</p>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {(Object.keys(comparisons) as Array<keyof typeof comparisons>).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setCarrier(key)}
+                    className={cn(
+                      "rounded-xl border px-3 py-3 text-left transition",
+                      carrier === key
+                        ? "border-orange-400 bg-orange-50 shadow-sm"
+                        : "border-slate-200 hover:border-orange-200"
+                    )}
+                  >
+                    <span className="block text-xs font-bold text-slate-800">{comparisons[key].label}</span>
+                    <span className="mt-1 block text-[10px] text-slate-500">
+                      ${comparisons[key].rate.toFixed(2)} / label
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-7 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <p className="text-xs font-semibold text-slate-500">
+                  Est. annual {comparison.label} cost
+                </p>
+                <p className="mt-2 text-2xl font-bold tabular-nums text-slate-700">
+                  {money(marketAnnual)}
+                </p>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  {annualLabels.toLocaleString()} labels × ${comparison.rate.toFixed(2)}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
+                <p className="text-xs font-semibold text-orange-700">
+                  Est. annual PrepCorex cost
+                </p>
+                <p className="mt-2 text-2xl font-bold tabular-nums text-orange-700">
+                  {money(prepCorexAnnual)}
+                </p>
+                <p className="mt-1 text-[10px] text-orange-600/70">
+                  {annualLabels.toLocaleString()} labels × ${prepCorexRate.toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 overflow-hidden rounded-2xl bg-[#071a3d] p-5 text-white sm:p-6">
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-slate-300">Illustrative yearly savings</p>
+                  <p className="mt-1 font-headline text-4xl font-bold tabular-nums text-white sm:text-5xl">
+                    {money(annualSavings)}
+                  </p>
+                  <p className="mt-2 text-xs text-emerald-300">
+                    About {savingsPercent}% below the selected benchmark
+                  </p>
+                </div>
+                <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full border-[7px] border-orange-500 bg-white/5 text-center shadow-[0_0_35px_rgba(249,115,22,.25)]">
+                  <span>
+                    <span className="block text-xl font-bold">{savingsPercent}%</span>
+                    <span className="block text-[8px] uppercase text-slate-300">potential</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <p className="mt-4 text-[10px] leading-4 text-slate-400">
+              Illustration only: compares a $3.45 PrepCorex example with the selected default
+              light-package benchmark. Actual label prices and savings vary by weight, dimensions,
+              zone, destination, service, surcharges, and available rates.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -619,47 +1136,51 @@ export function MarketingLandingPage() {
       <main>
         <section ref={heroRef} className={styles.hero}>
           <div className={styles.heroGrid} />
-          <div className={styles.warehouseGlow} />
-          <div className="mx-auto grid max-w-7xl items-center gap-16 px-5 pb-24 pt-32 sm:px-7 sm:pt-36 lg:grid-cols-[0.86fr_1.14fr] lg:px-10 lg:pb-32 lg:pt-44">
+          <div className="mx-auto grid max-w-7xl items-center gap-16 px-5 pb-28 pt-32 sm:px-7 sm:pt-36 lg:grid-cols-[0.92fr_1.08fr] lg:px-10 lg:pb-40 lg:pt-44">
             <div className="relative z-10">
-              <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-semibold text-orange-700">
+              <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 shadow-sm">
                 <Sparkles className="h-3.5 w-3.5" />
-                The connected operating platform for modern fulfillment
+                Built to Scale. Backed by Prep.
               </div>
-              <h1 className="mt-7 max-w-[720px] font-headline text-[clamp(3rem,6.7vw,6.6rem)] font-bold leading-[0.92] tracking-[-0.055em] text-[#071a3d]">
-                Every warehouse movement.{" "}
+              <h1 className="mt-7 max-w-[520px] font-headline text-[clamp(2.35rem,4.1vw,3.85rem)] font-bold leading-[0.98] tracking-[-0.052em] text-[#071a3d] sm:max-w-[560px] lg:max-w-[580px]">
+                From inbound to
+                <br />
+                dispatched. Every
+                <br />
+                unit{" "}
                 <span className="bg-gradient-to-r from-orange-600 to-orange-400 bg-clip-text text-transparent">
-                  Under control.
+                  under control.
                 </span>
               </h1>
               <p className="mt-7 max-w-xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
-                PrepCorex connects receiving, inventory, prep, picking, packing, shipping, returns,
-                billing, and client visibility—so your team can move faster without losing the
-                details.
+                One connected platform for receiving, inventory, prep, shipping, returns, live
+                receiving video, lower-cost labels, and real-time client reporting.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <Link
-                  href="/register"
+                <a
+                  href="#platform"
                   className={cn(
                     styles.shine,
                     "inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-orange-600 px-6 text-sm font-bold text-white shadow-xl shadow-orange-600/20 transition hover:-translate-y-1 hover:bg-orange-700"
                   )}
                 >
-                  Start with PrepCorex
+                  <Play className="h-4 w-4 fill-current" />
+                  See PrepCorex in action
                   <ArrowRight className="h-4 w-4" />
-                </Link>
+                </a>
                 <a
-                  href="#platform"
+                  href="https://wa.link/771ry0"
+                  target="_blank"
+                  rel="noreferrer"
                   className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-slate-300 bg-white/80 px-6 text-sm font-bold text-slate-800 shadow-sm backdrop-blur transition hover:-translate-y-1 hover:border-orange-300"
                 >
-                  <Play className="h-4 w-4 fill-current" />
-                  Explore the platform
+                  Talk to us
                 </a>
               </div>
 
               <div className="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-xs font-medium text-slate-600">
-                {["Real-time visibility", "Scan-first accuracy", "Role-based control"].map((item) => (
+                {["No fragmented handoffs", "Real-time visibility", "Client-ready reporting"].map((item) => (
                   <span key={item} className="inline-flex items-center gap-1.5">
                     <Check className="h-3.5 w-3.5 text-emerald-600" />
                     {item}
@@ -668,12 +1189,9 @@ export function MarketingLandingPage() {
               </div>
             </div>
 
-            <div className="relative z-10 pt-7 lg:pt-0">
-              <div className="absolute -left-12 -top-8 h-36 w-36 rounded-full border border-orange-300/50">
-                <div className={cn(styles.orbit, "absolute inset-4 rounded-full border border-dashed border-orange-300")}>
-                  <span className="absolute -top-2 left-1/2 h-4 w-4 rounded-md bg-orange-500 shadow-lg shadow-orange-500/40" />
-                </div>
-              </div>
+            <div className="relative z-10 pb-14 pt-7 lg:pt-0">
+              <div className="absolute inset-x-8 bottom-2 top-12 -rotate-3 rounded-[34px] border border-orange-200 bg-orange-100/60" />
+              <div className="absolute inset-x-5 bottom-5 top-8 rotate-2 rounded-[32px] border border-blue-100 bg-blue-50/80 shadow-xl" />
               <HeroDashboard />
             </div>
           </div>
@@ -775,6 +1293,7 @@ export function MarketingLandingPage() {
                   return (
                     <button
                       key={key}
+                      id={key === "affiliate" ? "affiliate-dashboard" : undefined}
                       type="button"
                       onClick={() => setPortal(key)}
                       className={cn(
@@ -830,6 +1349,8 @@ export function MarketingLandingPage() {
             </div>
           </div>
         </section>
+
+        <LiveReceivingSection />
 
         <section id="capabilities" className="bg-slate-50 py-24 sm:py-32">
           <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
@@ -979,6 +1500,8 @@ export function MarketingLandingPage() {
             </div>
           </div>
         </section>
+
+        <LabelSavingsSection />
 
         <section id="security" className="bg-[#fffaf5] py-24 sm:py-32">
           <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
@@ -1158,6 +1681,8 @@ export function MarketingLandingPage() {
               <div className="mt-4 grid gap-3 text-sm text-slate-600">
                 <a href="#workflow" className="hover:text-orange-600">Workflow</a>
                 <a href="#platform" className="hover:text-orange-600">Portals</a>
+                <a href="#live-video" className="hover:text-orange-600">Live receiving video</a>
+                <a href="#label-savings" className="hover:text-orange-600">Label savings</a>
                 <a href="#capabilities" className="hover:text-orange-600">Capabilities</a>
                 <a href="#integrations" className="hover:text-orange-600">Integrations</a>
               </div>
