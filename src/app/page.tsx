@@ -1,37 +1,27 @@
-"use client";
+import type { Metadata } from "next";
+import { HomeGateway } from "@/components/marketing/home-gateway";
 
-import { useAuth } from "@/hooks/use-auth";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { Loader2 } from "lucide-react";
-import { getPostLoginPath } from "@/lib/auth-redirect";
+export const metadata: Metadata = {
+  title: "PrepCorex | Warehouse & Fulfillment Operations, Connected",
+  description:
+    "Run receiving, inventory, prep, picking, packing, shipping, returns, billing, and client visibility from one connected fulfillment platform.",
+  keywords: [
+    "warehouse management",
+    "3PL software",
+    "prep center software",
+    "inventory management",
+    "fulfillment operations",
+    "shipping management",
+  ],
+  openGraph: {
+    title: "PrepCorex | Every warehouse movement under control",
+    description:
+      "The connected operating platform for modern prep centers, warehouses, and fulfillment teams.",
+    type: "website",
+  },
+};
 
 export default function Home() {
-  const { user, loading, userProfile } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!loading) {
-      if (user && userProfile) {
-        const userStatus = userProfile.status || "approved";
-        
-        if (userStatus === "deleted") {
-          router.replace("/login");
-        } else if (userStatus === "pending") {
-          router.replace("/pending-approval");
-        } else {
-          router.replace(getPostLoginPath(userProfile));
-        }
-      } else {
-        router.replace("/login");
-      }
-    }
-  }, [user, userProfile, loading, router]);
-
-  return (
-    <div className="flex h-screen w-full items-center justify-center bg-background">
-      <Loader2 className="h-12 w-12 animate-spin text-primary" />
-    </div>
-  );
+  return <HomeGateway />;
 }
 
