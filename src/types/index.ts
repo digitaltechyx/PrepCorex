@@ -1076,6 +1076,8 @@ export interface InventoryChangeLog {
   productName: string;
   sku?: string | null;
   eventType:
+    | "outbound_awaiting_ship"
+    | "outbound_restored"
     | "outbound_dispatch"
     | "outbound_shipped"
     | "admin_ship"
@@ -1152,8 +1154,13 @@ export interface ShipmentRequest {
   warehouseDispatchStatus?: "ready" | "dispatched";
   warehouseDispatchedAt?: { seconds: number; nanoseconds: number } | string;
   warehouseDispatchedBy?: string | null;
-  /** When client sellable inventory was decremented (dispatch for warehouse orders). */
-  clientInventoryDeductionTiming?: "confirm" | "dispatch";
+  /**
+   * When client sellable inventory was decremented.
+   * - create: reserved when the outbound request was submitted (default for new requests)
+   * - dispatch: legacy — deducted only when warehouse dispatches
+   * - confirm: legacy confirm-time deduct
+   */
+  clientInventoryDeductionTiming?: "create" | "confirm" | "dispatch";
   clientInventoryDeductedAt?: { seconds: number; nanoseconds: number } | string;
   adminCustomProductPricing?: Record<number, { unitPrice: number; packOf: number; packOfPrice: number }>;
   /** Dispatch QC — package / carton / pallet condition before handoff. */

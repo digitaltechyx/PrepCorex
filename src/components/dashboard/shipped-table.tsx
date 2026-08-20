@@ -15,7 +15,9 @@ import {
   shippedItemFromShipmentRequest,
   type ShippedOrderDetails,
 } from "@/lib/shipment-utils";
-import { doc, updateDoc, Timestamp } from "firebase/firestore";
+import { doc, updateDoc, Timestamp, runTransaction } from "firebase/firestore";
+import { restoreClientInventoryForOutboundRequest } from "@/lib/client-inventory-outbound-sync";
+import { db } from "@/lib/firebase";
 import {
   Card,
   CardContent,
@@ -43,7 +45,6 @@ import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { ShippedOrderDetailsDialog } from "@/components/dashboard/shipped-order-details-dialog";
 
@@ -230,15 +231,31 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
 
     setIsCancelling(true);
     try {
-      await updateDoc(doc(db, `users/${userProfile.uid}/shipmentRequests`, cancellingRequest.id), {
-        status: "cancelled",
-        cancelledAt: Timestamp.now(),
-        cancelledBy: user?.uid || userProfile.uid,
-        cancellationReason: reason,
+      await runTransaction(db, async (transaction) => {
+        const requestRef = doc(db, `users/${userProfile.uid}/shipmentRequests`, cancellingRequest.id);
+        const snap = await transaction.get(requestRef);
+        if (!snap.exists()) throw new Error("Request not found.");
+        const status = String(snap.data()?.status || "");
+        if (status !== "pending" && status !== "awaiting_label_upload") {
+          throw new Error("Only pending outbound requests can be cancelled.");
+        }
+        transaction.update(requestRef, {
+          status: "cancelled",
+          cancelledAt: Timestamp.now(),
+          cancelledBy: user?.uid || userProfile.uid,
+          cancellationReason: reason,
+        });
       });
+
+      await restoreClientInventoryForOutboundRequest({
+        clientUserId: userProfile.uid,
+        shipmentRequestId: cancellingRequest.id,
+        reason,
+      });
+
       toast({
         title: "Request cancelled",
-        description: "Your outbound shipment request was cancelled.",
+        description: "Your outbound shipment request was cancelled and inventory was restored.",
       });
       setCancellingRequest(null);
       setCancellationReason("");

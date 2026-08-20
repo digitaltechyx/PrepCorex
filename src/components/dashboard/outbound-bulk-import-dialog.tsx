@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { collection, doc, Timestamp, writeBatch } from "firebase/firestore";
+import { Timestamp } from "firebase/firestore";
 import { Download, FileUp, Loader2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
-import { db } from "@/lib/firebase";
+import { createOutboundRequestWithClientReserve } from "@/lib/client-inventory-outbound-sync";
 import {
   getPricingProfileCollectionPath,
   resolveUserPricingProfileId,
@@ -168,26 +168,23 @@ export function OutboundBulkImportDialog({
 
     setSubmitting(true);
     try {
-      const batch = writeBatch(db);
       const requestedAt = Timestamp.now();
 
       for (const row of validRows) {
-        const ref = doc(collection(db, `users/${ownerId}/shipmentRequests`));
-        batch.set(
-          ref,
-          outboundBulkRowToFirestoreDoc(row, {
-            ownerId,
-            ownerDisplayName,
-            requestedAt,
-          })
-        );
+        const requestData = outboundBulkRowToFirestoreDoc(row, {
+          ownerId,
+          ownerDisplayName,
+          requestedAt,
+        });
+        await createOutboundRequestWithClientReserve({
+          clientUserId: ownerId,
+          requestData,
+        });
       }
-
-      await batch.commit();
 
       toast({
         title: "Import successful",
-        description: `${validRows.length} outbound shipment request${validRows.length === 1 ? "" : "s"} submitted for admin review. Upload labels from each shipment when ready.`,
+        description: `${validRows.length} outbound shipment request${validRows.length === 1 ? "" : "s"} submitted. Inventory reserved until ship or cancel.`,
       });
       onSuccess?.();
       handleOpenChange(false);

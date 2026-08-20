@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
-import { collection, doc, getDoc, Timestamp, writeBatch } from "firebase/firestore";
+import { Timestamp, doc, getDoc } from "firebase/firestore";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,7 @@ import {
   prepInboundIdsFromShipments,
   prepOutboundProductId,
 } from "@/lib/prep-outbound";
+import { createOutboundRequestWithClientReserve } from "@/lib/client-inventory-outbound-sync";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import {
   readProductUnitMeasurements,
@@ -883,7 +884,6 @@ export function CreateShipmentWithLabelsForm({
 
     setIsLoading(true);
     try {
-      const batch = writeBatch(db);
       const requestedAt = Timestamp.now();
       let totalRequestsCreated = 0;
 
@@ -1000,10 +1000,9 @@ export function CreateShipmentWithLabelsForm({
         ) => {
           const labelUrls = await uploadLabelsForShipmentIndices(shipmentIndices);
           const labelUrl = labelUrls.join(",");
-          const requestRef = doc(collection(db, `users/${ownerId}/shipmentRequests`));
           const mappedShipments = mapShipmentsForFirestore(shipmentsSlice);
           const prepIds = prepInboundIdsFromShipments(mappedShipments);
-          const requestData: any = {
+          const requestData: Record<string, unknown> = {
             userId: ownerId,
             userName: ownerDisplayName,
             date: dateTimestamp,
@@ -1047,7 +1046,10 @@ export function CreateShipmentWithLabelsForm({
           }
 
           requestData.shipments = mappedShipments;
-          batch.set(requestRef, removeUndefined(requestData));
+          await createOutboundRequestWithClientReserve({
+            clientUserId: ownerId,
+            requestData: removeUndefined(requestData) as Record<string, unknown>,
+          });
           totalRequestsCreated += 1;
         };
 
@@ -1087,13 +1089,11 @@ export function CreateShipmentWithLabelsForm({
         }
       }
 
-      await batch.commit();
-
       toast({
         title: "Success",
         description: targetUserId
-          ? `${totalRequestsCreated} shipment request(s) created for ${ownerDisplayName}.`
-          : `${totalRequestsCreated} shipment request(s) with labels submitted successfully. Admin will review them.`,
+          ? `${totalRequestsCreated} shipment request(s) created for ${ownerDisplayName}. Inventory reserved until ship or cancel.`
+          : `${totalRequestsCreated} shipment request(s) submitted. Inventory is reserved (awaiting ship) until warehouse dispatch or cancel.`,
       });
 
       form.reset({

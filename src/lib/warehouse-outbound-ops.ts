@@ -10,6 +10,7 @@ import { db } from "@/lib/firebase";
 import {
   getCommittedOutboundUnits,
   shipmentUnits,
+  restoreClientInventoryForOutboundRequest,
 } from "@/lib/client-inventory-outbound-sync";
 import {
   buildOrderLinesFromRequestData,
@@ -182,8 +183,7 @@ export function buildPendingOutboundQueueLive(input: {
 
 /**
  * Floor approve for outbound — confirms request so it enters the pick queue.
- * Inventory deducts later at dispatch (same timing as admin confirm).
- * Pre outbound: linked inbound must be received/put away first; productIds are resolved then.
+ * Client sellable inventory is reserved at request create; warehouse stock still deducts at dispatch.
  */
 export async function confirmOutboundRequestAtPick(input: {
   clientUserId: string;
@@ -219,36 +219,44 @@ export async function confirmOutboundRequestAtPick(input: {
 
   const resolvedData = { ...data, shipments: resolvedShipments };
 
+  const alreadyReserved = Boolean(data.clientInventoryDeductedAt);
+  const existingTiming = String(data.clientInventoryDeductionTiming || "");
+
   const committedByProduct = new Map<string, number>();
-  for (const shipment of resolvedShipments) {
-    const productId = String(shipment.productId ?? "").trim();
-    if (!productId || committedByProduct.has(productId)) continue;
-    committedByProduct.set(
-      productId,
-      await getCommittedOutboundUnits(clientUserId, productId, requestId)
-    );
+  if (!alreadyReserved) {
+    for (const shipment of resolvedShipments) {
+      const productId = String(shipment.productId ?? "").trim();
+      if (!productId || committedByProduct.has(productId)) continue;
+      committedByProduct.set(
+        productId,
+        await getCommittedOutboundUnits(clientUserId, productId, requestId)
+      );
+    }
   }
 
   await runTransaction(db, async (transaction) => {
-    for (let index = 0; index < resolvedShipments.length; index += 1) {
-      const shipment = resolvedShipments[index]!;
-      const productId = String(shipment.productId ?? "").trim();
-      if (!productId) throw new Error("Missing product on a shipment line.");
+    // Create-time reservations already reduced sellable qty — skip re-check.
+    if (!alreadyReserved) {
+      for (let index = 0; index < resolvedShipments.length; index += 1) {
+        const shipment = resolvedShipments[index]!;
+        const productId = String(shipment.productId ?? "").trim();
+        if (!productId) throw new Error("Missing product on a shipment line.");
 
-      const inventoryRef = doc(db, `users/${clientUserId}/inventory`, productId);
-      const inventorySnap = await transaction.get(inventoryRef);
-      if (!inventorySnap.exists()) {
-        throw new Error(`Product ${productId} not found in inventory.`);
-      }
+        const inventoryRef = doc(db, `users/${clientUserId}/inventory`, productId);
+        const inventorySnap = await transaction.get(inventoryRef);
+        if (!inventorySnap.exists()) {
+          throw new Error(`Product ${productId} not found in inventory.`);
+        }
 
-      const currentInventory = inventorySnap.data() as Omit<InventoryItem, "id">;
-      const totalUnits = shipmentUnits(resolvedData, shipment, index);
-      const committed = committedByProduct.get(productId) ?? 0;
-      const sellable = Math.max(0, Number(currentInventory.quantity) - committed);
-      if (sellable < totalUnits) {
-        throw new Error(
-          `Not enough stock for ${currentInventory.productName}. Available: ${sellable}, Requested: ${totalUnits}.`
-        );
+        const currentInventory = inventorySnap.data() as Omit<InventoryItem, "id">;
+        const totalUnits = shipmentUnits(resolvedData, shipment, index);
+        const committed = committedByProduct.get(productId) ?? 0;
+        const sellable = Math.max(0, Number(currentInventory.quantity) - committed);
+        if (sellable < totalUnits) {
+          throw new Error(
+            `Not enough stock for ${currentInventory.productName}. Available: ${sellable}, Requested: ${totalUnits}.`
+          );
+        }
       }
     }
 
@@ -256,7 +264,8 @@ export async function confirmOutboundRequestAtPick(input: {
       status: "confirmed",
       confirmedBy: input.confirmedBy,
       confirmedAt: Timestamp.now(),
-      clientInventoryDeductionTiming: "dispatch",
+      clientInventoryDeductionTiming:
+        alreadyReserved || existingTiming === "create" ? "create" : "dispatch",
       warehousePickStatus: "ready",
       shipments: resolvedShipments,
       updatedAt: serverTimestamp(),
@@ -283,11 +292,18 @@ export async function rejectOutboundRequestAtPick(input: {
     throw new Error("Only pending requests can be rejected.");
   }
 
+  const reason = input.reason?.trim() || "Rejected at warehouse pick";
   await updateDoc(requestRef, {
     status: "rejected",
     rejectedBy: input.rejectedBy,
     rejectedAt: serverTimestamp(),
-    rejectionReason: input.reason?.trim() || "Rejected at warehouse pick",
+    rejectionReason: reason,
     updatedAt: serverTimestamp(),
+  });
+
+  await restoreClientInventoryForOutboundRequest({
+    clientUserId: input.clientUserId,
+    shipmentRequestId: input.shipmentRequestId,
+    reason,
   });
 }

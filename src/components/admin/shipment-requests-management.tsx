@@ -47,7 +47,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { doc, updateDoc, collection, Timestamp, runTransaction, addDoc } from "firebase/firestore";
-import { getCommittedOutboundUnits } from "@/lib/client-inventory-outbound-sync";
+import { getCommittedOutboundUnits, restoreClientInventoryForOutboundRequest } from "@/lib/client-inventory-outbound-sync";
 import { resolvePrepOutboundShipmentsForConfirm, shipmentRequestIsPrepOutbound } from "@/lib/prep-outbound";
 import { format } from "date-fns";
 import { Check, X, Eye, Loader2, FileText } from "lucide-react";
@@ -266,6 +266,10 @@ export function ShipmentRequestsManagement({
       const extraServiceUnitPrices = additionalServices?.extraServiceUnitPrices;
       const crossdockHoldFulfillment = additionalServices?.crossdockHoldFulfillment === true;
 
+      const alreadyReservedAtCreate = Boolean(
+        (request as ShipmentRequest & { clientInventoryDeductedAt?: unknown }).clientInventoryDeductedAt
+      );
+
       const committedByProduct = new Map<string, number>();
       const requestData = request as unknown as Record<string, unknown>;
       const resolvedShipments = await resolvePrepOutboundShipmentsForConfirm({
@@ -275,7 +279,7 @@ export function ShipmentRequestsManagement({
           shipments: request.shipments as unknown as Array<Record<string, unknown>>,
         },
       });
-      if (!crossdockHoldFulfillment) {
+      if (!crossdockHoldFulfillment && !alreadyReservedAtCreate) {
       for (const shipment of resolvedShipments) {
         const productId = String(shipment.productId ?? "").trim();
         if (!productId || committedByProduct.has(productId)) continue;
@@ -290,12 +294,12 @@ export function ShipmentRequestsManagement({
         const requestRef = doc(db, `users/${targetUserId}/shipmentRequests`, request.id);
         const confirmedAt = Timestamp.now();
 
-        // Validate stock availability (deduction happens at warehouse dispatch, not here).
+        // Validate stock when not already reserved at create.
         const isCustomProduct =
           String(request.productType || "").toLowerCase() === "custom" &&
           String(request.shipmentType || "").toLowerCase() === "product";
 
-        if (!crossdockHoldFulfillment) {
+        if (!crossdockHoldFulfillment && !alreadyReservedAtCreate) {
         await Promise.all(
           resolvedShipments.map(async (shipment, index) => {
             const productId = String(shipment.productId ?? "").trim();
@@ -368,7 +372,11 @@ export function ShipmentRequestsManagement({
         );
         }
 
-        // Approve for warehouse — client inventory deducts at dispatch, not here.
+        // Approve for warehouse — client inventory already reserved at create when timing is "create".
+        const existingTiming = (request as ShipmentRequest).clientInventoryDeductionTiming;
+        const alreadyReserved = Boolean(
+          (request as ShipmentRequest & { clientInventoryDeductedAt?: unknown }).clientInventoryDeductedAt
+        );
         transaction.update(requestRef, {
           status: "confirmed",
           confirmedBy: adminProfile.uid,
@@ -376,7 +384,9 @@ export function ShipmentRequestsManagement({
           shipments: resolvedShipments,
           ...(crossdockHoldFulfillment
             ? { crossdockFulfillment: true }
-            : { clientInventoryDeductionTiming: "dispatch" }),
+            : alreadyReserved || existingTiming === "create"
+              ? { clientInventoryDeductionTiming: "create" }
+              : { clientInventoryDeductionTiming: "dispatch" }),
           adminRemarks: adminRemarks || "",
           ...(typeof (request as any).customDimensions === "string"
             ? { customDimensions: (request as any).customDimensions.trim() }
@@ -416,7 +426,9 @@ export function ShipmentRequestsManagement({
 
       toast({
         title: "Success",
-        description: "Shipment request confirmed — inventory will deduct when dispatched.",
+        description: alreadyReservedAtCreate
+          ? "Shipment request confirmed — inventory was already reserved at create; warehouse stock deducts at dispatch."
+          : "Shipment request confirmed — inventory will deduct when dispatched.",
       });
       setSelectedRequest(null);
     } catch (error: any) {
@@ -437,176 +449,91 @@ export function ShipmentRequestsManagement({
 
     setIsProcessing(true);
     try {
-      // Use transaction to ensure atomicity when restoring quantities
       await runTransaction(db, async (transaction) => {
         const requestRef = doc(db, `users/${targetUserId}/shipmentRequests`, request.id);
-        
-        // Update request status
         transaction.update(requestRef, {
           status: "rejected",
           rejectedBy: adminProfile.uid,
           rejectedAt: Timestamp.now(),
           rejectionReason: reason,
         });
-
-        // Restore inventory only if it was already deducted (legacy confirm or after dispatch).
-        if ((request as ShipmentRequest & { clientInventoryDeductedAt?: unknown }).clientInventoryDeductedAt && request.shipments) {
-          // Read all inventory documents first
-          const inventoryData = await Promise.all(
-            request.shipments.map(async (shipment) => {
-              if (!shipment.productId) return null;
-              const inventoryDocRef = doc(db, `users/${targetUserId}/inventory`, shipment.productId);
-              const inventoryDoc = await transaction.get(inventoryDocRef);
-              
-              if (!inventoryDoc.exists()) {
-                return null;
-              }
-
-              const currentInventory = inventoryDoc.data() as InventoryItem;
-              const totalUnitsToRestore = shipment.quantity * (shipment.packOf || 1);
-
-              return {
-                shipment,
-                inventoryDocRef,
-                currentInventory,
-                totalUnitsToRestore,
-              };
-            })
-          );
-
-          // Filter out null entries and restore quantities
-          const validInventoryData = inventoryData.filter((item): item is NonNullable<typeof item> => item !== null);
-          
-          for (const { inventoryDocRef, currentInventory, totalUnitsToRestore } of validInventoryData) {
-            const newQuantity = currentInventory.quantity + totalUnitsToRestore;
-            const newStatus = newQuantity > 0 ? "In Stock" : "Out of Stock";
-
-            transaction.update(inventoryDocRef, {
-              quantity: newQuantity,
-              status: newStatus,
-            });
-          }
-        }
       });
 
-      if ((request as ShipmentRequest & { clientInventoryDeductedAt?: unknown }).clientInventoryDeductedAt && request.shipments && authUser && targetUserId) {
-        for (const shipment of request.shipments) {
-          if (!shipment.productId) continue;
-          const invItem = inventory.find((i) => i.id === shipment.productId) as (InventoryItem & { source?: string; shop?: string; shopifyVariantId?: string; shopifyInventoryItemId?: string }) | undefined;
-          if (invItem?.source === "shopify" && invItem.shop && invItem.shopifyVariantId) {
-            const totalRestore = (shipment.quantity || 0) * (shipment.packOf || 1);
-            const newQty = invItem.quantity + totalRestore;
-            try {
-              const token = await authUser.getIdToken();
+      const restoreHints = await restoreClientInventoryForOutboundRequest({
+        clientUserId: targetUserId,
+        shipmentRequestId: request.id,
+        reason,
+      });
+
+      if (restoreHints.length > 0 && authUser) {
+        const token = await authUser.getIdToken();
+        for (const hint of restoreHints) {
+          try {
+            if (hint.source === "shopify" && hint.shop && hint.shopifyVariantId) {
               const res = await fetch("/api/shopify/sync-inventory", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                 body: JSON.stringify({
                   userId: targetUserId,
-                  shop: invItem.shop,
-                  shopifyVariantId: invItem.shopifyVariantId,
-                  shopifyInventoryItemId: invItem.shopifyInventoryItemId,
-                  newQuantity: newQty,
+                  shop: hint.shop,
+                  shopifyVariantId: hint.shopifyVariantId,
+                  shopifyInventoryItemId: hint.shopifyInventoryItemId,
+                  newQuantity: hint.newQuantity,
                 }),
               });
-              const data = await res.json().catch(() => ({}));
               if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
                 toast({
                   variant: "destructive",
                   title: "Quantities restored in PrepCorex; Shopify did not update",
-                  description: typeof data.error === "string" ? data.error : "Add write_inventory scope and re-connect the store.",
+                  description: typeof data.error === "string" ? data.error : "Re-connect the store.",
                 });
               }
-            } catch (e) {
-              toast({
-                variant: "destructive",
-                title: "Quantities restored in PrepCorex; Shopify did not update",
-                description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
-              });
-            }
-          }
-
-          const wooItem = inventory.find((i) => i.id === shipment.productId) as
-            | (InventoryItem & {
-                source?: string;
-                woocommerceConnectionId?: string;
-                woocommerceProductId?: string;
-                woocommerceVariationId?: string;
-              })
-            | undefined;
-          if (
-            wooItem?.source === "woocommerce" &&
-            wooItem.woocommerceConnectionId &&
-            wooItem.woocommerceProductId
-          ) {
-            const totalRestore = (shipment.quantity || 0) * (shipment.packOf || 1);
-            const newQty = wooItem.quantity + totalRestore;
-            try {
-              const token = await authUser.getIdToken();
+            } else if (
+              hint.source === "woocommerce" &&
+              hint.woocommerceConnectionId &&
+              hint.woocommerceProductId
+            ) {
               const res = await fetch("/api/integrations/woocommerce/sync-inventory", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                 body: JSON.stringify({
                   userId: targetUserId,
-                  connectionId: wooItem.woocommerceConnectionId,
-                  productId: wooItem.woocommerceProductId,
-                  variationId: wooItem.woocommerceVariationId,
-                  newQuantity: newQty,
+                  connectionId: hint.woocommerceConnectionId,
+                  productId: hint.woocommerceProductId,
+                  variationId: hint.woocommerceVariationId,
+                  newQuantity: hint.newQuantity,
                 }),
               });
-              const data = await res.json().catch(() => ({}));
               if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
                 toast({
                   variant: "destructive",
                   title: "Quantities restored in PrepCorex; WooCommerce did not update",
                   description:
-                    typeof data.error === "string"
-                      ? data.error
-                      : "Re-connect the store in Integrations.",
+                    typeof data.error === "string" ? data.error : "Re-connect the store.",
                 });
               }
-            } catch (e) {
-              toast({
-                variant: "destructive",
-                title: "Quantities restored in PrepCorex; WooCommerce did not update",
-                description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
-              });
-            }
-          }
-
-          const tiktokItem = inventory.find((i) => i.id === shipment.productId) as
-            | (InventoryItem & {
-                source?: string;
-                tiktokConnectionId?: string;
-                tiktokProductId?: string;
-                tiktokSkuId?: string;
-                tiktokShopId?: string;
-              })
-            | undefined;
-          if (
-            tiktokItem?.source === "tiktok" &&
-            tiktokItem.tiktokProductId &&
-            tiktokItem.tiktokSkuId &&
-            (tiktokItem.tiktokConnectionId || tiktokItem.tiktokShopId)
-          ) {
-            const totalRestore = (shipment.quantity || 0) * (shipment.packOf || 1);
-            const newQty = tiktokItem.quantity + totalRestore;
-            try {
-              const token = await authUser.getIdToken();
+            } else if (
+              hint.source === "tiktok" &&
+              hint.tiktokProductId &&
+              hint.tiktokSkuId &&
+              (hint.tiktokConnectionId || hint.tiktokShopId)
+            ) {
               const res = await fetch("/api/tiktok/sync-inventory", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                 body: JSON.stringify({
                   userId: targetUserId,
-                  connectionId: tiktokItem.tiktokConnectionId,
-                  tiktokShopId: tiktokItem.tiktokShopId,
-                  productId: tiktokItem.tiktokProductId,
-                  skuId: tiktokItem.tiktokSkuId,
-                  newQuantity: newQty,
+                  connectionId: hint.tiktokConnectionId,
+                  tiktokShopId: hint.tiktokShopId,
+                  productId: hint.tiktokProductId,
+                  skuId: hint.tiktokSkuId,
+                  newQuantity: hint.newQuantity,
                 }),
               });
-              const data = await res.json().catch(() => ({}));
               if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
                 toast({
                   variant: "destructive",
                   title: "Quantities restored in PrepCorex; TikTok Shop did not update",
@@ -615,43 +542,24 @@ export function ShipmentRequestsManagement({
                     "Re-connect TikTok in Integrations.",
                 });
               }
-            } catch (e) {
-              toast({
-                variant: "destructive",
-                title: "Quantities restored in PrepCorex; TikTok Shop did not update",
-                description: e instanceof Error ? e.message : "Re-connect TikTok in Integrations.",
-              });
-            }
-          }
-
-          const ebayItem = invItem as InventoryItem & {
-            source?: string;
-            ebayConnectionId?: string;
-            ebayOfferId?: string;
-            ebayListingId?: string;
-          };
-          if (
-            ebayItem?.source === "ebay" &&
-            ebayItem.ebayConnectionId &&
-            (ebayItem.ebayOfferId || ebayItem.ebayListingId)
-          ) {
-            const totalRestore = (shipment.quantity || 0) * (shipment.packOf || 1);
-            const newQty = ebayItem.quantity + totalRestore;
-            try {
-              const token = await authUser.getIdToken();
+            } else if (
+              hint.source === "ebay" &&
+              hint.ebayConnectionId &&
+              (hint.ebayOfferId || hint.ebayListingId)
+            ) {
               const res = await fetch("/api/integrations/ebay/sync-inventory", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                 body: JSON.stringify({
                   userId: targetUserId,
-                  connectionId: ebayItem.ebayConnectionId,
-                  offerId: ebayItem.ebayOfferId,
-                  listingId: ebayItem.ebayListingId,
-                  newQuantity: newQty,
+                  connectionId: hint.ebayConnectionId,
+                  offerId: hint.ebayOfferId,
+                  listingId: hint.ebayListingId,
+                  newQuantity: hint.newQuantity,
                 }),
               });
-              const data = await res.json().catch(() => ({}));
               if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
                 toast({
                   variant: "destructive",
                   title: "Quantities restored in PrepCorex; eBay did not update",
@@ -661,13 +569,13 @@ export function ShipmentRequestsManagement({
                       : "Reconnect eBay with write scopes in Integrations.",
                 });
               }
-            } catch (e) {
-              toast({
-                variant: "destructive",
-                title: "Quantities restored in PrepCorex; eBay did not update",
-                description: e instanceof Error ? e.message : "Reconnect eBay in Integrations.",
-              });
             }
+          } catch (e) {
+            toast({
+              variant: "destructive",
+              title: "Channel inventory sync failed after restore",
+              description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
+            });
           }
         }
       }

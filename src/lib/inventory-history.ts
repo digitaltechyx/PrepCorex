@@ -354,17 +354,21 @@ export function buildInventoryHistory(
       continue;
     }
     const eventLabel =
-      log.eventType === "outbound_dispatch"
-        ? "Outbound dispatched"
-        : log.eventType === "outbound_shipped"
-          ? "Outbound shipped"
-          : log.eventType === "dispose"
-            ? "Disposed"
-            : log.eventType === "shopify_quick_fulfill"
-              ? "Shopify quick fulfill"
-              : log.eventType === "ebay_quick_fulfill"
-                ? "eBay quick fulfill"
-              : "Stock removed";
+      log.eventType === "outbound_awaiting_ship"
+        ? "Outbound awaiting ship"
+        : log.eventType === "outbound_restored"
+          ? "Outbound cancelled — restored"
+          : log.eventType === "outbound_dispatch"
+            ? "Outbound dispatched"
+            : log.eventType === "outbound_shipped"
+              ? "Outbound shipped"
+              : log.eventType === "dispose"
+                ? "Disposed"
+                : log.eventType === "shopify_quick_fulfill"
+                  ? "Shopify quick fulfill"
+                  : log.eventType === "ebay_quick_fulfill"
+                    ? "eBay quick fulfill"
+                    : "Stock removed";
 
     const shippedLine = findShippedLineForChangeLog(sources.shipped, log, item);
     const packOf =
@@ -378,10 +382,14 @@ export function buildInventoryHistory(
       fallbackText: log.details,
     });
 
+    // Restored stock shows as inbound-style increase; awaiting/dispatch stay on outbound tab.
+    const historyEventType =
+      log.eventType === "outbound_restored" ? ("restock" as const) : ("shipped" as const);
+
     raw.push({
       timestamp: toTimestamp(log.at),
       event: eventLabel,
-      eventType: "shipped",
+      eventType: historyEventType,
       qtyBefore: log.qtyBefore,
       qtyAfter: log.qtyAfter,
       qtyChange: log.qtyChange,

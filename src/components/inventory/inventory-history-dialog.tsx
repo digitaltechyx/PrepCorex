@@ -74,7 +74,7 @@ const EVENT_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: "received", label: "Inbound approved" },
   { value: "inbound_request", label: "Inbound requests" },
   { value: "restock", label: "Restock" },
-  { value: "shipped", label: "Shipped" },
+  { value: "shipped", label: "Outbound / awaiting ship" },
   { value: "edited", label: "Edits" },
   { value: "disposed", label: "Disposed" },
   { value: "deleted", label: "Deleted" },
