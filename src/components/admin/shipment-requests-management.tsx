@@ -1011,6 +1011,10 @@ function ReviewShipmentDialog({
 
   const readOnly =
     request.status !== "pending" && request.status !== "awaiting_label_upload";
+  /** Client sellable qty was already reserved when this outbound was created. */
+  const alreadyReservedAtCreate =
+    Boolean((request as ShipmentRequest).clientInventoryDeductedAt) ||
+    (request as ShipmentRequest).clientInventoryDeductionTiming === "create";
   const storedAdminServices = (request as any).adminAdditionalServices as
     | {
         bubbleWrapFeet?: number;
@@ -1205,18 +1209,20 @@ function ReviewShipmentDialog({
       return;
     }
 
-    const invalidSourceQty = request.shipments.find((shipment: any, index: number) => {
-      const product = inventory.find((item) => item.id === shipment.productId);
-      if (!requiresSourceLocationSelection(product)) return false;
-      const selectedLocationId = shipFromLocationByIndex[index];
-      const options = getLocationBreakdownForProduct(product);
-      const selectedEntry = options.find((entry) => entry.locationId === selectedLocationId);
-      const effectivePackOf = isCustomProduct
-        ? (customProductPricing[index]?.packOf || shipment.packOf || 1)
-        : shipment.packOf;
-      const totalUnits = (shipment.quantity || 0) * (effectivePackOf || 1);
-      return !selectedEntry || selectedEntry.qty < totalUnits;
-    });
+    const invalidSourceQty = alreadyReservedAtCreate
+      ? undefined
+      : request.shipments.find((shipment: any, index: number) => {
+          const product = inventory.find((item) => item.id === shipment.productId);
+          if (!requiresSourceLocationSelection(product)) return false;
+          const selectedLocationId = shipFromLocationByIndex[index];
+          const options = getLocationBreakdownForProduct(product);
+          const selectedEntry = options.find((entry) => entry.locationId === selectedLocationId);
+          const effectivePackOf = isCustomProduct
+            ? (customProductPricing[index]?.packOf || shipment.packOf || 1)
+            : shipment.packOf;
+          const totalUnits = (shipment.quantity || 0) * (effectivePackOf || 1);
+          return !selectedEntry || selectedEntry.qty < totalUnits;
+        });
     if (invalidSourceQty) {
       toast({
         variant: "destructive",
@@ -1528,7 +1534,12 @@ function ReviewShipmentDialog({
                   ? (customProductPricing[index]?.packOf || shipment.packOf || 1)
                   : shipment.packOf;
                 const totalUnits = shipment.quantity * effectivePackOf;
-                const hasEnoughStock = product ? product.quantity >= totalUnits : false;
+                // After create-time reservation, on-hand qty is already reduced — this request still has enough.
+                const hasEnoughStock = alreadyReservedAtCreate
+                  ? true
+                  : product
+                    ? product.quantity >= totalUnits
+                    : false;
                 const locationBreakdown = getLocationBreakdownForProduct(product);
                 
                 // Get selected services for this shipment (new format) or use request-level (old format)
@@ -1816,9 +1827,26 @@ function ReviewShipmentDialog({
                       <div className="text-right ml-4">
                         {!readOnly && product ? (
                           <>
-                            <p className="text-sm">Stock: {product.quantity}</p>
+                            <p className="text-sm">
+                              {alreadyReservedAtCreate ? "Remaining stock" : "Stock"}:{" "}
+                              {product.quantity}
+                            </p>
+                            {alreadyReservedAtCreate ? (
+                              <p className="text-[11px] text-muted-foreground">
+                                {totalUnits} reserved for this request
+                              </p>
+                            ) : null}
                             {hasEnoughStock ? (
-                              <Badge variant="default" className="mt-1">Available</Badge>
+                              <Badge
+                                variant="default"
+                                className={
+                                  alreadyReservedAtCreate
+                                    ? "mt-1 bg-emerald-600 hover:bg-emerald-600"
+                                    : "mt-1"
+                                }
+                              >
+                                {alreadyReservedAtCreate ? "Reserved" : "Available"}
+                              </Badge>
                             ) : (
                               <Badge variant="destructive" className="mt-1">Insufficient</Badge>
                             )}
