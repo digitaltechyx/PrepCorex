@@ -1656,6 +1656,10 @@ function ReviewShipmentDialog({
                     packOfPrice = 0;
                   }
                 } else if (request.shipmentType === "box" && boxForwardingPricing && boxForwardingPricing.length > 0) {
+                  const storedUnitPrice = Number(shipment.unitPrice);
+                  if (Number.isFinite(storedUnitPrice) && storedUnitPrice > 0) {
+                    unitPrice = storedUnitPrice;
+                  } else {
                   // Get the most recent box forwarding pricing
                   const latestBoxPricing = [...boxForwardingPricing].sort((a, b) => {
                     const aUpdated = typeof a.updatedAt === 'string' 
@@ -1669,9 +1673,14 @@ function ReviewShipmentDialog({
                   if (latestBoxPricing) {
                     unitPrice = latestBoxPricing.price;
                   }
+                  }
                 } else if (request.shipmentType === "pallet") {
                   const palletSubType = request.palletSubType;
                   if (palletSubType === "forwarding" && palletForwardingPricing && palletForwardingPricing.length > 0) {
+                    const storedUnitPrice = Number(shipment.unitPrice);
+                    if (Number.isFinite(storedUnitPrice) && storedUnitPrice > 0) {
+                      unitPrice = storedUnitPrice;
+                    } else {
                     // Get the most recent pallet forwarding pricing
                     const latestPalletForwarding = [...palletForwardingPricing].sort((a, b) => {
                       const aUpdated = typeof a.updatedAt === 'string' 
@@ -1684,6 +1693,7 @@ function ReviewShipmentDialog({
                     })[0];
                     if (latestPalletForwarding) {
                       unitPrice = latestPalletForwarding.price;
+                    }
                     }
                   }
                 } else if (String(request.shipmentType || "").toLowerCase() === "product" && request.service && request.productType && pricingRules && pricingRules.length > 0) {
@@ -1699,15 +1709,21 @@ function ReviewShipmentDialog({
                       packOfPrice = 0;
                     }
                   } else {
-                    const calculatedPrice = calculatePrepUnitPrice(
-                      pricingRules,
-                      request.service,
-                      request.productType,
-                      shipment.quantity
-                    );
-                    if (calculatedPrice) {
-                      unitPrice = calculatedPrice.rate || shipment.unitPrice || 0;
+                    const storedUnitPrice = Number(shipment.unitPrice);
+                    if (Number.isFinite(storedUnitPrice) && storedUnitPrice > 0) {
+                      unitPrice = storedUnitPrice;
                       packOfPrice = 0;
+                    } else {
+                      const calculatedPrice = calculatePrepUnitPrice(
+                        pricingRules,
+                        request.service,
+                        request.productType,
+                        shipment.quantity
+                      );
+                      if (calculatedPrice) {
+                        unitPrice = calculatedPrice.rate || shipment.unitPrice || 0;
+                        packOfPrice = 0;
+                      }
                     }
                   }
                 }

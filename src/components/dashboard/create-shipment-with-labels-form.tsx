@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
 import { collection, doc, getDoc, Timestamp, writeBatch } from "firebase/firestore";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -158,6 +158,9 @@ export function CreateShipmentWithLabelsForm({
   const ownerId = targetUserId ?? user?.uid ?? "";
   const ownerDisplayName =
     (targetUserName ?? userProfile?.name ?? "").trim() || "Unknown User";
+  const isAdminCreatingForClient = Boolean(targetUserId);
+  const adminManualUnitPriceKeysRef = useRef<Set<string>>(new Set());
+  const [adminPriceOverrideVersion, setAdminPriceOverrideVersion] = useState(0);
 
   const { data: inboundRequests } = useCollection<InventoryRequest>(
     ownerId ? `users/${ownerId}/inventoryRequests` : ""
@@ -331,6 +334,56 @@ export function CreateShipmentWithLabelsForm({
     name: "shipmentGroups",
   });
 
+  const syncLineTotalFromUnitPrice = useCallback(
+    (
+      groupIndex: number,
+      shipmentIndex: number,
+      unitPrice: number,
+      quantity: number,
+      shipmentType: string,
+      lineProductType?: string
+    ) => {
+      let calculatedTotal = 0;
+      if (shipmentType === "product" && lineProductType === "Custom" && !isAdminCreatingForClient) {
+        calculatedTotal = 1;
+      } else if (unitPrice > 0 && quantity > 0) {
+        calculatedTotal = parseFloat((unitPrice * quantity).toFixed(2));
+      }
+      form.setValue(
+        `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice`,
+        calculatedTotal,
+        { shouldValidate: false }
+      );
+    },
+    [form, isAdminCreatingForClient]
+  );
+
+  const setAdminManualUnitPrice = useCallback(
+    (groupIndex: number, shipmentIndex: number, rawValue: string) => {
+      const lineKey = getLineKey(groupIndex, shipmentIndex);
+      const parsed = parseFloat(rawValue);
+      const unitPrice = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+      form.setValue(
+        `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`,
+        unitPrice,
+        { shouldValidate: true }
+      );
+      adminManualUnitPriceKeysRef.current.add(lineKey);
+      setAdminPriceOverrideVersion((version) => version + 1);
+      const group = form.getValues(`shipmentGroups.${groupIndex}`);
+      const shipment = group?.shipments?.[shipmentIndex];
+      syncLineTotalFromUnitPrice(
+        groupIndex,
+        shipmentIndex,
+        unitPrice,
+        shipment?.quantity || 0,
+        group?.shipmentType || "product",
+        shipment?.productType
+      );
+    },
+    [form, syncLineTotalFromUnitPrice]
+  );
+
   const latestAdditionalServicesPricingDoc = useMemo(() => {
     if (!effectiveAdditionalServicesPricing || effectiveAdditionalServicesPricing.length === 0) return null;
     const sorted = [...effectiveAdditionalServicesPricing].sort((a, b) => {
@@ -379,17 +432,39 @@ export function CreateShipmentWithLabelsForm({
         
         shipments.forEach((shipment, shipmentIndex) => {
           if (!shipment) return;
+        const lineKey = getLineKey(groupIndex, shipmentIndex);
+        const hasAdminPriceOverride =
+          isAdminCreatingForClient && adminManualUnitPriceKeysRef.current.has(lineKey);
         const lineProductType = shipment.productType;
         const quantity = shipment.quantity || 0;
         // Keep packOf for Custom too (admin needs full detail). Pricing stays placeholder for Custom.
         const packOf = shipmentType === "product" ? (shipment.packOf || 1) : 1;
         const totalUnits = quantity * packOf;
         
+        const currentUnitPrice = form.getValues(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`);
+        const currentTotalPrice = form.getValues(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice`);
+
+        if (hasAdminPriceOverride) {
+          const lockedUnitPrice = Number(currentUnitPrice) || 0;
+          let calculatedTotal = 0;
+          if (lockedUnitPrice > 0 && quantity > 0) {
+            calculatedTotal = parseFloat((lockedUnitPrice * quantity).toFixed(2));
+          }
+          if (currentTotalPrice !== calculatedTotal) {
+            form.setValue(
+              `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice`,
+              calculatedTotal,
+              { shouldValidate: false }
+            );
+          }
+          return;
+        }
+
         let finalUnitPrice = 0;
         
-        // Custom product pricing is a placeholder ($1). Admin will set final pricing during approval.
+        // Custom product pricing is a placeholder ($1). Admin can set final pricing when creating on behalf.
         if (shipmentType === "product" && lineProductType === "Custom") {
-          finalUnitPrice = 1;
+          finalUnitPrice = isAdminCreatingForClient ? Number(currentUnitPrice) || 0 : 1;
         } else if (
           shipmentType === "product" &&
           (service === "FBA/WFS/TFS" || isDtcFbmService(service)) &&
@@ -446,9 +521,8 @@ export function CreateShipmentWithLabelsForm({
             }
             if (!(finalUnitPrice > 0)) return;
           } else if (palletSubType === "existing_inventory") {
-            // Existing Inventory pallets are priced manually by admin at approval time.
-            // Keep pricing at 0 as a placeholder.
-            finalUnitPrice = 0;
+            // Existing Inventory pallets are priced manually by admin.
+            finalUnitPrice = isAdminCreatingForClient ? Number(currentUnitPrice) || 0 : 0;
           }
           // If no pricing found, keep finalUnitPrice at 0 to clear incorrect values
         }
@@ -464,7 +538,10 @@ export function CreateShipmentWithLabelsForm({
         let calculatedTotal = 0;
         // Custom product total shown to user is a placeholder ($1).
         if (shipmentType === "product" && lineProductType === "Custom") {
-          calculatedTotal = 1;
+          calculatedTotal =
+            isAdminCreatingForClient && finalUnitPrice > 0 && quantity > 0
+              ? parseFloat((finalUnitPrice * quantity).toFixed(2))
+              : 1;
         } else if (shipmentType === "product" && finalUnitPrice > 0 && quantity > 0) {
           calculatedTotal = parseFloat((finalUnitPrice * quantity).toFixed(2));
         } else if (finalUnitPrice > 0 && quantity > 0) {
@@ -472,9 +549,6 @@ export function CreateShipmentWithLabelsForm({
         }
 
         // Always update to ensure pricing is calculated correctly
-        const currentUnitPrice = form.getValues(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`);
-        const currentTotalPrice = form.getValues(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice`);
-        
         // Update unit price if it changed - always update when we have a calculated price (even if it's 0.10)
         // Use a small epsilon for floating point comparison
         if (Math.abs((currentUnitPrice || 0) - finalUnitPrice) > 0.001) {
@@ -487,7 +561,12 @@ export function CreateShipmentWithLabelsForm({
         }
 
         // For Custom products, ensure unitPrice is always set to 1 in form state (prevents submit validation issues)
-        if (shipmentType === "product" && lineProductType === "Custom" && Math.abs((currentUnitPrice || 0) - 1) > 0.001) {
+        if (
+          !isAdminCreatingForClient &&
+          shipmentType === "product" &&
+          lineProductType === "Custom" &&
+          Math.abs((currentUnitPrice || 0) - 1) > 0.001
+        ) {
           form.setValue(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`, 1, { shouldValidate: false });
         }
         });
@@ -495,7 +574,7 @@ export function CreateShipmentWithLabelsForm({
     } catch (error) {
       console.error("Error calculating pricing:", error);
     }
-  }, [watchedGroups, effectivePricingRules, effectiveBoxForwardingPricing, effectivePalletForwardingPricing, form, profilePricingLoading]);
+  }, [watchedGroups, effectivePricingRules, effectiveBoxForwardingPricing, effectivePalletForwardingPricing, form, profilePricingLoading, isAdminCreatingForClient, adminPriceOverrideVersion]);
 
   // Initialize label state when a new group is added
   const handleAddShipmentGroup = () => {
@@ -1084,6 +1163,14 @@ export function CreateShipmentWithLabelsForm({
   return (
     <div className="space-y-6">
       {/* Simple Fulfillment Notice */}
+      {isAdminCreatingForClient ? (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <p className="text-sm font-medium text-blue-900">
+            Creating outbound for {ownerDisplayName}. Unit prices default from their profile and can be edited before submit.
+          </p>
+        </div>
+      ) : null}
+
       {!targetUserId && (
         <div className="p-4 border border-green-200 rounded-lg bg-green-50">
           <p className="text-sm text-green-800 font-medium">
@@ -1582,7 +1669,7 @@ export function CreateShipmentWithLabelsForm({
                                     <div>Product</div>
                                     <div>Qty</div>
                                     <div>Pack</div>
-                                    <div>Price ($)</div>
+                                    <div>{isAdminCreatingForClient ? "Unit ($)" : "Price ($)"}</div>
                                     <div>Additional Services</div>
                                     <div>Labels</div>
                                     <div>Remove</div>
@@ -1666,15 +1753,36 @@ export function CreateShipmentWithLabelsForm({
                                             }}
                                             disabled={groupShipmentType !== "product"}
                                           />
-                                          <Input
-                                            className="h-8"
-                                            value={Number(
-                                              form.watch(
-                                                `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice`
-                                              ) || 0
-                                            ).toFixed(2)}
-                                            readOnly
-                                          />
+                                          {isAdminCreatingForClient ? (
+                                            <Input
+                                              type="number"
+                                              min="0"
+                                              step="0.01"
+                                              className="h-8"
+                                              value={
+                                                form.watch(
+                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`
+                                                ) ?? ""
+                                              }
+                                              onChange={(e) =>
+                                                setAdminManualUnitPrice(
+                                                  groupIndex,
+                                                  shipmentIndex,
+                                                  e.target.value
+                                                )
+                                              }
+                                            />
+                                          ) : (
+                                            <Input
+                                              className="h-8"
+                                              value={Number(
+                                                form.watch(
+                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice`
+                                                ) || 0
+                                              ).toFixed(2)}
+                                              readOnly
+                                            />
+                                          )}
                                           <Dialog
                                             open={openPopups[servicesPopupKey] || false}
                                             onOpenChange={(open) =>
@@ -2213,104 +2321,128 @@ export function CreateShipmentWithLabelsForm({
                                   />
                                 )}
 
-                                <FormField
-                                  control={form.control}
-                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice` as const}
-                                  render={({ field }) => {
-                                    if (groupShipmentType === "product" && lineProductType === "Custom") {
-                                      return (
-                                        <FormItem className="w-[180px] shrink-0">
-                                          <FormLabel className="text-xs">Price ($)</FormLabel>
+                                {isAdminCreatingForClient ? (
+                                  <>
+                                    <FormField
+                                      control={form.control}
+                                      name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice` as const}
+                                      render={({ field }) => (
+                                        <FormItem className="w-[140px] shrink-0">
+                                          <FormLabel className="text-xs">Unit ($)</FormLabel>
+                                          <FormControl>
+                                            <Input
+                                              type="number"
+                                              min="0"
+                                              step="0.01"
+                                              className="h-8 [appearance:textfield]"
+                                              value={field.value ?? ""}
+                                              onChange={(e) =>
+                                                setAdminManualUnitPrice(
+                                                  groupIndex,
+                                                  shipmentIndex,
+                                                  e.target.value
+                                                )
+                                              }
+                                            />
+                                          </FormControl>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                    <FormField
+                                      control={form.control}
+                                      name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice` as const}
+                                      render={({ field }) => (
+                                        <FormItem className="w-[140px] shrink-0">
+                                          <FormLabel className="text-xs">Line total ($)</FormLabel>
                                           <FormControl>
                                             <Input
                                               type="text"
                                               className="h-8 [appearance:textfield]"
                                               readOnly
-                                              value={"1.00"}
+                                              value={Number(field.value || 0).toFixed(2)}
                                             />
                                           </FormControl>
-                                          <div className="mt-2 rounded-md border-2 border-blue-200 border-dashed bg-blue-50 p-2">
-                                            <p className="text-center text-xs font-medium text-blue-700">
-                                              Admin can review your request and then charge
-                                            </p>
-                                          </div>
                                           <FormMessage />
                                         </FormItem>
-                                      );
-                                    }
+                                      )}
+                                    />
+                                  </>
+                                ) : (
+                                  <>
+                                    <FormField
+                                      control={form.control}
+                                      name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice` as const}
+                                      render={({ field }) => {
+                                        if (groupShipmentType === "product" && lineProductType === "Custom") {
+                                          return (
+                                            <FormItem className="w-[180px] shrink-0">
+                                              <FormLabel className="text-xs">Price ($)</FormLabel>
+                                              <FormControl>
+                                                <Input
+                                                  type="text"
+                                                  className="h-8 [appearance:textfield]"
+                                                  readOnly
+                                                  value={"1.00"}
+                                                />
+                                              </FormControl>
+                                              <div className="mt-2 rounded-md border-2 border-blue-200 border-dashed bg-blue-50 p-2">
+                                                <p className="text-center text-xs font-medium text-blue-700">
+                                                  Admin can review your request and then charge
+                                                </p>
+                                              </div>
+                                              <FormMessage />
+                                            </FormItem>
+                                          );
+                                        }
 
-                                    const lineQuantity =
-                                      form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`) || 0;
-                                    const linePackOf =
-                                      groupShipmentType === "product"
-                                        ? form.watch(
-                                            `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf`
-                                          ) || 1
-                                        : 1;
-                                    let unitPrice =
-                                      form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`) || 0;
+                                        const lineQuantity =
+                                          form.watch(
+                                            `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`
+                                          ) || 0;
+                                        const unitPrice =
+                                          form.watch(
+                                            `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`
+                                          ) || 0;
 
-                                    if (
-                                      groupShipmentType === "product" &&
-                                      groupService &&
-                                      (groupService === "FBA/WFS/TFS" || isDtcFbmService(groupService)) &&
-                                      lineProductType &&
-                                      lineQuantity > 0
-                                    ) {
-                                      const calculatedPrice = calculatePrepUnitPrice(
-                                        effectivePricingRules || [],
-                                        groupService,
-                                        lineProductType,
-                                        lineQuantity
-                                      );
+                                        let calculatedTotal = 0;
+                                        if (unitPrice > 0 && lineQuantity > 0) {
+                                          calculatedTotal = parseFloat((unitPrice * lineQuantity).toFixed(2));
+                                        }
 
-                                      if (
-                                        calculatedPrice &&
-                                        calculatedPrice.rate !== undefined &&
-                                        calculatedPrice.rate !== null
-                                      ) {
-                                        unitPrice = calculatedPrice.rate;
-                                      }
-                                    }
+                                        const displayValue = calculatedTotal > 0 ? calculatedTotal : field.value || 0;
+                                        const formattedValue =
+                                          typeof displayValue === "number"
+                                            ? displayValue.toFixed(2)
+                                            : parseFloat(displayValue || 0).toFixed(2);
 
-                                    let calculatedTotal = 0;
-                                    if (groupShipmentType === "product" && unitPrice > 0 && lineQuantity > 0) {
-                                      calculatedTotal = parseFloat((unitPrice * lineQuantity).toFixed(2));
-                                    } else if (unitPrice > 0 && lineQuantity > 0) {
-                                      calculatedTotal = parseFloat((unitPrice * lineQuantity).toFixed(2));
-                                    }
+                                        return (
+                                          <FormItem className="w-[180px] shrink-0">
+                                            <FormLabel className="text-xs">Price ($)</FormLabel>
+                                            <FormControl>
+                                              <Input
+                                                type="text"
+                                                placeholder="Auto"
+                                                className="h-8 [appearance:textfield]"
+                                                readOnly
+                                                value={formattedValue}
+                                              />
+                                            </FormControl>
+                                            <FormMessage />
+                                          </FormItem>
+                                        );
+                                      }}
+                                    />
 
-                                    const displayValue = calculatedTotal > 0 ? calculatedTotal : field.value || 0;
-                                    const formattedValue =
-                                      typeof displayValue === "number"
-                                        ? displayValue.toFixed(2)
-                                        : parseFloat(displayValue || 0).toFixed(2);
-
-                                    return (
-                                      <FormItem className="w-[180px] shrink-0">
-                                        <FormLabel className="text-xs">Price ($)</FormLabel>
-                                        <FormControl>
-                                          <Input
-                                            type="text"
-                                            placeholder="Auto"
-                                            className="h-8 [appearance:textfield]"
-                                            readOnly
-                                            value={formattedValue}
-                                          />
-                                        </FormControl>
-                                        <FormMessage />
-                                      </FormItem>
-                                    );
-                                  }}
-                                />
-
-                                <FormField
-                                  control={form.control}
-                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice` as const}
-                                  render={({ field }) => (
-                                    <input type="hidden" {...field} value={field.value ?? ""} />
-                                  )}
-                                />
+                                    <FormField
+                                      control={form.control}
+                                      name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice` as const}
+                                      render={({ field }) => (
+                                        <input type="hidden" {...field} value={field.value ?? ""} />
+                                      )}
+                                    />
+                                  </>
+                                )}
 
                                 <div className="w-[460px] shrink-0">
                                   <FormLabel className="mb-1 block text-xs text-muted-foreground">
