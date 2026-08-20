@@ -47,7 +47,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { doc, updateDoc, collection, Timestamp, runTransaction, addDoc } from "firebase/firestore";
-import { getCommittedOutboundUnits, restoreClientInventoryForOutboundRequest } from "@/lib/client-inventory-outbound-sync";
+import { getCommittedOutboundUnits, restoreClientInventoryForOutboundRequest, backfillClientInventoryReserveForOpenOutbounds, isOpenOutboundEligibleForReserveBackfill } from "@/lib/client-inventory-outbound-sync";
 import { resolvePrepOutboundShipmentsForConfirm, shipmentRequestIsPrepOutbound } from "@/lib/prep-outbound";
 import { format } from "date-fns";
 import { Check, X, Eye, Loader2, FileText } from "lucide-react";
@@ -118,6 +118,7 @@ export function ShipmentRequestsManagement({
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedRemarks, setSelectedRemarks] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [isBackfillingReserve, setIsBackfillingReserve] = useState(false);
 
   // Normalize user ID (handle both id and uid fields) - ensure it's a valid string
   const userId = selectedUser?.uid || selectedUser?.id;
@@ -705,7 +706,7 @@ export function ShipmentRequestsManagement({
       </div>
 
       {/* Filter */}
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Filter by status" />
@@ -718,6 +719,64 @@ export function ShipmentRequestsManagement({
             <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!isValidUserId || isBackfillingReserve || isProcessing}
+          onClick={() => {
+            void (async () => {
+              if (!isValidUserId || !userId) return;
+              const openCount = (requests || []).filter((req) =>
+                isOpenOutboundEligibleForReserveBackfill(req as unknown as Record<string, unknown>)
+              ).length;
+              if (
+                !window.confirm(
+                  `Reserve sellable stock for this client's open outbound requests only (pending / awaiting label / confirmed, not dispatched)?\n\nOpen requests found: ${openCount}\nAlready-reserved requests are skipped.`
+                )
+              ) {
+                return;
+              }
+              setIsBackfillingReserve(true);
+              try {
+                const result = await backfillClientInventoryReserveForOpenOutbounds({
+                  clientUserId: userId,
+                });
+                toast({
+                  title: "Open outbound reserve backfill finished",
+                  description: `Reserved: ${result.reserved}. Skipped: ${result.skipped}. Failed: ${result.failed}.`,
+                  variant: result.failed > 0 ? "destructive" : "default",
+                });
+                if (result.failed > 0) {
+                  const firstFail = result.results.find((r) => r.outcome === "failed");
+                  if (firstFail?.error) {
+                    toast({
+                      title: "Example failure",
+                      description: `${firstFail.requestId}: ${firstFail.error}`,
+                      variant: "destructive",
+                    });
+                  }
+                }
+              } catch (e) {
+                toast({
+                  title: "Backfill failed",
+                  description: e instanceof Error ? e.message : "Unknown error",
+                  variant: "destructive",
+                });
+              } finally {
+                setIsBackfillingReserve(false);
+              }
+            })();
+          }}
+        >
+          {isBackfillingReserve ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Reserving open…
+            </>
+          ) : (
+            "Reserve stock on open requests"
+          )}
+        </Button>
       </div>
 
       {/* Requests Table */}

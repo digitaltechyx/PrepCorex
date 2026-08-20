@@ -361,6 +361,298 @@ export async function createOutboundRequestWithClientReserve(input: {
   return { requestId: requestRef.id, reservedProductIds };
 }
 
+/** Open outbound statuses eligible for reserve backfill (not finished). */
+export const OPEN_OUTBOUND_STATUSES_FOR_RESERVE_BACKFILL = new Set([
+  "pending",
+  "awaiting_label_upload",
+  "awaiting_label",
+  "confirmed",
+]);
+
+export function isOpenOutboundEligibleForReserveBackfill(
+  data: Record<string, unknown>
+): boolean {
+  const status = String(data.status || "").toLowerCase();
+  if (!OPEN_OUTBOUND_STATUSES_FOR_RESERVE_BACKFILL.has(status)) return false;
+  if (data.warehouseDispatchStatus === "dispatched") return false;
+  return true;
+}
+
+export type ReserveBackfillItemResult = {
+  requestId: string;
+  outcome:
+    | "reserved"
+    | "skipped_already_reserved"
+    | "skipped_not_open"
+    | "skipped_no_deductible_lines"
+    | "failed";
+  error?: string;
+  reservedProductIds?: string[];
+};
+
+/**
+ * Reserve client sellable qty for one existing open outbound that predates create-time reserve.
+ * Only pending / awaiting_label_upload / confirmed (and not dispatched). Idempotent.
+ */
+export async function reserveClientInventoryForExistingOpenOutbound(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+}): Promise<ReserveBackfillItemResult & { shopifyHints: ShopifyInventorySyncHint[] }> {
+  const requestRef = doc(
+    db,
+    `users/${input.clientUserId}/shipmentRequests`,
+    input.shipmentRequestId
+  );
+  const shopifyHints: ShopifyInventorySyncHint[] = [];
+  let outcome: ReserveBackfillItemResult["outcome"] = "failed";
+  let reservedProductIds: string[] = [];
+  let error: string | undefined;
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const requestSnap = await transaction.get(requestRef);
+      if (!requestSnap.exists()) throw new Error("Order not found.");
+
+      const data = requestSnap.data() as Record<string, unknown>;
+      if (hasClientInventoryDeducted(data)) {
+        outcome = "skipped_already_reserved";
+        return;
+      }
+      if (!isOpenOutboundEligibleForReserveBackfill(data)) {
+        outcome = "skipped_not_open";
+        return;
+      }
+      if (
+        data.crossdockFulfillment === true ||
+        String(data.crossdockLinkedUnitId ?? "").trim()
+      ) {
+        outcome = "skipped_no_deductible_lines";
+        return;
+      }
+
+      const shipments = Array.isArray(data.shipments)
+        ? (data.shipments as Array<Record<string, unknown>>)
+        : [];
+      const deductible = shipments
+        .map((shipment, index) => ({ shipment, index }))
+        .filter(({ shipment }) => !shipmentLineIsPrepOnly(shipment));
+
+      if (deductible.length === 0) {
+        outcome = "skipped_no_deductible_lines";
+        return;
+      }
+
+      const inventoryReads = await Promise.all(
+        deductible.map(async ({ shipment, index }) => {
+          const productId = String(shipment.productId ?? "").trim();
+          if (!productId) throw new Error("Missing product on shipment line.");
+          const inventoryRef = doc(db, `users/${input.clientUserId}/inventory`, productId);
+          const inventorySnap = await transaction.get(inventoryRef);
+          if (!inventorySnap.exists()) {
+            throw new Error(`Product ${productId} not found in inventory.`);
+          }
+          return {
+            shipment,
+            index,
+            productId,
+            inventoryRef,
+            inventorySnap,
+            totalUnits: shipmentUnits(data, shipment, index),
+          };
+        })
+      );
+
+      const reservedAt = Timestamp.now();
+      const service = serviceLabelForRequest(data);
+
+      for (const row of inventoryReads) {
+        const currentInventory = row.inventorySnap.data() as Omit<InventoryItem, "id">;
+        if (currentInventory.quantity < row.totalUnits) {
+          throw new Error(
+            `Not enough stock for ${currentInventory.productName}. Available: ${currentInventory.quantity}, Requested: ${row.totalUnits}.`
+          );
+        }
+
+        const selectedSourceLocationId = String(
+          (row.shipment as Record<string, unknown>).sourceLocationId || ""
+        ).trim();
+        const applied = applyLocationDeduction(
+          currentInventory,
+          row.totalUnits,
+          selectedSourceLocationId
+        );
+
+        transaction.update(row.inventoryRef, {
+          quantity: applied.newQuantity,
+          status: applied.newStatus,
+          locationId: applied.nextPrimaryLocationId,
+          locationQuantities: applied.locationQuantities,
+        });
+
+        const changeLogRef = doc(
+          db,
+          "users",
+          input.clientUserId,
+          "inventoryChangeLogs",
+          `${input.shipmentRequestId}_${row.productId}`
+        );
+        transaction.set(changeLogRef, {
+          inventoryId: row.productId,
+          productName: currentInventory.productName,
+          sku: currentInventory.sku ?? null,
+          eventType: "outbound_awaiting_ship",
+          qtyBefore: currentInventory.quantity,
+          qtyAfter: applied.newQuantity,
+          qtyChange: -row.totalUnits,
+          shipmentRequestId: input.shipmentRequestId,
+          shippedId: null,
+          service,
+          shipTo: null,
+          details: [
+            "Outbound awaiting ship (legacy open-request reserve)",
+            service ? `Service: ${service}` : "",
+            applied.newStatus === "Out of Stock" ? "Now out of stock" : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          at: reservedAt,
+        });
+
+        reservedProductIds.push(row.productId);
+
+        if (
+          currentInventory.source === "shopify" &&
+          currentInventory.shop &&
+          currentInventory.shopifyVariantId
+        ) {
+          shopifyHints.push({
+            productId: row.productId,
+            newQuantity: applied.newQuantity,
+            source: currentInventory.source,
+            shop: currentInventory.shop,
+            shopifyVariantId: currentInventory.shopifyVariantId,
+            shopifyInventoryItemId: currentInventory.shopifyInventoryItemId,
+          });
+        }
+        if (
+          currentInventory.source === "woocommerce" &&
+          currentInventory.woocommerceConnectionId &&
+          currentInventory.woocommerceProductId
+        ) {
+          shopifyHints.push({
+            productId: row.productId,
+            newQuantity: applied.newQuantity,
+            source: currentInventory.source,
+            woocommerceConnectionId: currentInventory.woocommerceConnectionId,
+            woocommerceProductId: currentInventory.woocommerceProductId,
+            woocommerceVariationId: currentInventory.woocommerceVariationId,
+          });
+        }
+        if (
+          currentInventory.source === "tiktok" &&
+          currentInventory.tiktokProductId &&
+          currentInventory.tiktokSkuId &&
+          (currentInventory.tiktokConnectionId || currentInventory.tiktokShopId)
+        ) {
+          shopifyHints.push({
+            productId: row.productId,
+            newQuantity: applied.newQuantity,
+            source: currentInventory.source,
+            tiktokConnectionId: currentInventory.tiktokConnectionId,
+            tiktokProductId: currentInventory.tiktokProductId,
+            tiktokSkuId: currentInventory.tiktokSkuId,
+            tiktokShopId: currentInventory.tiktokShopId,
+          });
+        }
+        if (
+          currentInventory.source === "ebay" &&
+          currentInventory.ebayConnectionId &&
+          (currentInventory.ebayOfferId || currentInventory.ebayListingId)
+        ) {
+          shopifyHints.push({
+            productId: row.productId,
+            newQuantity: applied.newQuantity,
+            source: currentInventory.source,
+            ebayConnectionId: currentInventory.ebayConnectionId,
+            ebayOfferId: currentInventory.ebayOfferId,
+            ebayListingId: currentInventory.ebayListingId,
+          });
+        }
+      }
+
+      transaction.update(requestRef, {
+        clientInventoryDeductionTiming: "create",
+        clientInventoryDeductedAt: reservedAt,
+        clientInventoryReserveBackfilledAt: reservedAt,
+      });
+      outcome = "reserved";
+    });
+  } catch (e) {
+    outcome = "failed";
+    error = e instanceof Error ? e.message : "Reserve backfill failed.";
+  }
+
+  return {
+    requestId: input.shipmentRequestId,
+    outcome,
+    error,
+    reservedProductIds: reservedProductIds.length ? reservedProductIds : undefined,
+    shopifyHints,
+  };
+}
+
+/**
+ * Backfill create-time reserve for all open outbounds for one client.
+ * Only pending / awaiting_label_upload / confirmed and not yet dispatched.
+ */
+export async function backfillClientInventoryReserveForOpenOutbounds(input: {
+  clientUserId: string;
+}): Promise<{
+  reserved: number;
+  skipped: number;
+  failed: number;
+  results: ReserveBackfillItemResult[];
+  shopifyHints: ShopifyInventorySyncHint[];
+}> {
+  const snap = await getDocs(collection(db, `users/${input.clientUserId}/shipmentRequests`));
+  const results: ReserveBackfillItemResult[] = [];
+  const shopifyHints: ShopifyInventorySyncHint[] = [];
+  let reserved = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const reqDoc of snap.docs) {
+    const data = reqDoc.data() as Record<string, unknown>;
+    if (hasClientInventoryDeducted(data)) {
+      results.push({ requestId: reqDoc.id, outcome: "skipped_already_reserved" });
+      skipped += 1;
+      continue;
+    }
+    if (!isOpenOutboundEligibleForReserveBackfill(data)) {
+      results.push({ requestId: reqDoc.id, outcome: "skipped_not_open" });
+      skipped += 1;
+      continue;
+    }
+
+    const item = await reserveClientInventoryForExistingOpenOutbound({
+      clientUserId: input.clientUserId,
+      shipmentRequestId: reqDoc.id,
+    });
+    results.push({
+      requestId: item.requestId,
+      outcome: item.outcome,
+      error: item.error,
+      reservedProductIds: item.reservedProductIds,
+    });
+    shopifyHints.push(...item.shopifyHints);
+    if (item.outcome === "reserved") reserved += 1;
+    else if (item.outcome === "failed") failed += 1;
+    else skipped += 1;
+  }
+
+  return { reserved, skipped, failed, results, shopifyHints };
+}
+
 /**
  * Restore client sellable inventory when an outbound request is cancelled or rejected
  * before warehouse dispatch. Idempotent when inventory was never reserved.
