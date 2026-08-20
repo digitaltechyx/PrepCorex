@@ -37,6 +37,8 @@ import type { OutboundPickOrder } from "@/lib/warehouse-pick";
 import type { OutboundPackOrder } from "@/lib/warehouse-pack";
 import type {
   FbaMasterCase,
+  FbaPalletPack,
+  FbaShipMode,
   InventoryRequest,
   ProductReturn,
   UserProfile,
@@ -228,9 +230,20 @@ function buildPackOrder(
     service: data.service != null ? String(data.service) : undefined,
     fbaLabelWorkflow: isFbaLabelWorkflowRequest(data),
     fbaPackPhase: fbaPackPhaseFromRequest(data),
+    fbaShipMode: ((): FbaShipMode | null => {
+      const raw = String(data.fbaShipMode ?? "").trim().toLowerCase();
+      if (raw === "spd" || raw === "ltl") return raw;
+      return null;
+    })(),
     fbaMasterCases: Array.isArray(data.fbaMasterCases)
       ? (data.fbaMasterCases as FbaMasterCase[])
       : [],
+    fbaPallets: Array.isArray(data.fbaPallets) ? (data.fbaPallets as FbaPalletPack[]) : [],
+    shipmentPreference: ((): "box" | "pallet" | undefined => {
+      const raw = String(data.shipmentPreference ?? "").trim().toLowerCase();
+      if (raw === "box" || raw === "pallet") return raw;
+      return undefined;
+    })(),
     labelUrls: parseShipmentLabelUrls(data.labelUrl),
   };
 }

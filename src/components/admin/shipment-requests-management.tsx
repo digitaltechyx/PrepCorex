@@ -2105,16 +2105,68 @@ function ReviewShipmentDialog({
                   unitPrice = customPricing.unitPrice || 0;
                   packOfPrice = customPricing.packOfPrice || 0;
                 }
-              } else if (request.shipmentType === "product" && request.service && request.productType && pricingRules && pricingRules.length > 0) {
-                const calculatedPrice = calculatePrepUnitPrice(
-                  pricingRules,
-                  request.service,
-                  request.productType,
-                  shipment.quantity
-                );
-                if (calculatedPrice) {
-                  unitPrice = calculatedPrice.rate || shipment.unitPrice || 0;
+              } else {
+                // Prefer stored line price (includes admin override at create).
+                // Only fall back to live tariff when stored price is missing.
+                const storedUnitPrice = Number(shipment.unitPrice);
+                if (Number.isFinite(storedUnitPrice) && storedUnitPrice > 0) {
+                  unitPrice = storedUnitPrice;
                   packOfPrice = 0;
+                } else if (
+                  request.shipmentType === "product" &&
+                  request.service &&
+                  request.productType &&
+                  pricingRules &&
+                  pricingRules.length > 0
+                ) {
+                  const calculatedPrice = calculatePrepUnitPrice(
+                    pricingRules,
+                    request.service,
+                    request.productType,
+                    shipment.quantity
+                  );
+                  if (calculatedPrice) {
+                    unitPrice = calculatedPrice.rate || 0;
+                    packOfPrice = 0;
+                  }
+                } else if (request.shipmentType === "box" && boxForwardingPricing?.length) {
+                  const latestBoxPricing = [...boxForwardingPricing].sort((a, b) => {
+                    const aUpdated =
+                      typeof a.updatedAt === "string"
+                        ? new Date(a.updatedAt).getTime()
+                        : (a.updatedAt as any)?.seconds
+                          ? (a.updatedAt as any).seconds * 1000
+                          : 0;
+                    const bUpdated =
+                      typeof b.updatedAt === "string"
+                        ? new Date(b.updatedAt).getTime()
+                        : (b.updatedAt as any)?.seconds
+                          ? (b.updatedAt as any).seconds * 1000
+                          : 0;
+                    return bUpdated - aUpdated;
+                  })[0];
+                  if (latestBoxPricing) unitPrice = latestBoxPricing.price;
+                } else if (
+                  request.shipmentType === "pallet" &&
+                  request.palletSubType === "forwarding" &&
+                  palletForwardingPricing?.length
+                ) {
+                  const latestPalletForwarding = [...palletForwardingPricing].sort((a, b) => {
+                    const aUpdated =
+                      typeof a.updatedAt === "string"
+                        ? new Date(a.updatedAt).getTime()
+                        : (a.updatedAt as any)?.seconds
+                          ? (a.updatedAt as any).seconds * 1000
+                          : 0;
+                    const bUpdated =
+                      typeof b.updatedAt === "string"
+                        ? new Date(b.updatedAt).getTime()
+                        : (b.updatedAt as any)?.seconds
+                          ? (b.updatedAt as any).seconds * 1000
+                          : 0;
+                    return bUpdated - aUpdated;
+                  })[0];
+                  if (latestPalletForwarding) unitPrice = latestPalletForwarding.price;
                 }
               }
               const baseTotal = unitPrice * shipment.quantity;

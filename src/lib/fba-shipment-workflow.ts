@@ -12,9 +12,10 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import type { FbaMasterCase, FbaPackPhase } from "@/types";
+import type { FbaMasterCase, FbaPackPhase, FbaPalletPack, FbaShipMode } from "@/types";
 
 export const FBA_SERVICE = "FBA/WFS/TFS" as const;
+export const DEFAULT_FBA_PALLET_TARE_LB = 50;
 
 export function isFbaService(service: string | undefined | null): boolean {
   const value = String(service || "").trim();
@@ -33,9 +34,75 @@ export function fbaPackPhaseFromRequest(
   return null;
 }
 
+export function hasFbaPackDimsOnFile(data: {
+  fbaMasterCases?: FbaMasterCase[] | null;
+  fbaPallets?: FbaPalletPack[] | null;
+}): boolean {
+  return (data.fbaMasterCases?.length ?? 0) > 0 || (data.fbaPallets?.length ?? 0) > 0;
+}
+
+export function preferredFbaShipModeFromRequest(
+  data: Record<string, unknown>
+): FbaShipMode {
+  const stored = String(data.fbaShipMode ?? "").trim().toLowerCase();
+  if (stored === "spd" || stored === "ltl") return stored;
+  const pref = String(data.shipmentPreference ?? "").trim().toLowerCase();
+  if (pref === "pallet") return "ltl";
+  return "spd";
+}
+
 export function formatFbaMasterCaseSummary(masterCase: FbaMasterCase): string {
   const dims = `${masterCase.length}×${masterCase.width}×${masterCase.height} ${masterCase.dimensionUnit}`;
   return `Case ${masterCase.caseNumber}: ${masterCase.weight} ${masterCase.weightUnit} · ${dims}`;
+}
+
+export function formatFbaBoxGroupSummary(
+  group: FbaPalletPack["boxGroups"][number],
+  index: number
+): string {
+  const dims = `${group.length}×${group.width}×${group.height} ${group.dimensionUnit}`;
+  return `Group ${index + 1}: ${group.boxCount} box${group.boxCount === 1 ? "" : "es"} · ${group.weight} ${group.weightUnit} each · ${dims}`;
+}
+
+export function formatFbaPalletSummary(pallet: FbaPalletPack): string {
+  const unit = pallet.weightUnit || "lb";
+  return `Pallet ${pallet.palletNumber}: ${pallet.boxCount} box${pallet.boxCount === 1 ? "" : "es"} · tare ${pallet.palletTareWeight} ${unit} + boxes ${pallet.boxesWeight} ${unit} = ${pallet.totalWeight} ${unit}`;
+}
+
+export function formatFbaPackDimsForClient(data: {
+  fbaShipMode?: FbaShipMode | null;
+  fbaMasterCases?: FbaMasterCase[] | null;
+  fbaPallets?: FbaPalletPack[] | null;
+}): string[] {
+  const lines: string[] = [];
+  if (data.fbaShipMode === "ltl" || (data.fbaPallets?.length ?? 0) > 0) {
+    for (const pallet of data.fbaPallets ?? []) {
+      lines.push(formatFbaPalletSummary(pallet));
+      pallet.boxGroups.forEach((group, index) => {
+        lines.push(`  ${formatFbaBoxGroupSummary(group, index)}`);
+      });
+    }
+    return lines;
+  }
+  for (const masterCase of data.fbaMasterCases ?? []) {
+    lines.push(formatFbaMasterCaseSummary(masterCase));
+  }
+  return lines;
+}
+
+export function computePalletWeights(input: {
+  palletTareWeight: number;
+  boxGroups: Array<{ boxCount: number; weight: number }>;
+}): { boxesWeight: number; totalWeight: number } {
+  const boxesWeight = input.boxGroups.reduce(
+    (sum, g) => sum + Math.max(0, Number(g.boxCount) || 0) * Math.max(0, Number(g.weight) || 0),
+    0
+  );
+  const tare = Math.max(0, Number(input.palletTareWeight) || 0);
+  return {
+    boxesWeight: Number(boxesWeight.toFixed(2)),
+    totalWeight: Number((tare + boxesWeight).toFixed(2)),
+  };
 }
 
 async function notifyClient(input: {
@@ -75,17 +142,46 @@ async function notifyWarehouse(input: {
   });
 }
 
-/** After pack verify — warehouse posts master case details; client uploads label next. */
+/** After pack verify — warehouse posts SPD master cases or LTL pallet dims; client uploads label next. */
 export async function completeFbaPackWithMasterCases(input: {
   clientUserId: string;
   shipmentRequestId: string;
   warehouseId: string;
   operatorId?: string | null;
   verifiedKeys: string[];
-  masterCases: FbaMasterCase[];
+  shipMode: FbaShipMode;
+  masterCases?: FbaMasterCase[];
+  pallets?: FbaPalletPack[];
 }): Promise<void> {
-  if (!input.masterCases.length) {
+  const shipMode = input.shipMode;
+  const masterCases = shipMode === "spd" ? input.masterCases ?? [] : [];
+  const pallets = shipMode === "ltl" ? input.pallets ?? [] : [];
+
+  if (shipMode === "spd" && masterCases.length === 0) {
     throw new Error("Add at least one master case.");
+  }
+  if (shipMode === "ltl" && pallets.length === 0) {
+    throw new Error("Add at least one pallet.");
+  }
+
+  for (const pallet of pallets) {
+    const groupBoxes = pallet.boxGroups.reduce((s, g) => s + (Number(g.boxCount) || 0), 0);
+    if (groupBoxes !== pallet.boxCount) {
+      throw new Error(
+        `Pallet ${pallet.palletNumber}: box groups total ${groupBoxes} but pallet has ${pallet.boxCount} boxes.`
+      );
+    }
+    for (const group of pallet.boxGroups) {
+      if (
+        group.boxCount <= 0 ||
+        group.weight <= 0 ||
+        group.length <= 0 ||
+        group.width <= 0 ||
+        group.height <= 0
+      ) {
+        throw new Error(`Pallet ${pallet.palletNumber} has an incomplete box size group.`);
+      }
+    }
   }
 
   const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
@@ -100,13 +196,15 @@ export async function completeFbaPackWithMasterCases(input: {
     throw new Error("Order must be confirmed before completing FBA pack.");
   }
   if (fbaPackPhaseFromRequest(data) === "awaiting_label") {
-    throw new Error("Master case details were already submitted.");
+    throw new Error("Pack dimensions were already submitted.");
   }
 
   await updateDoc(ref, {
     status: "awaiting_label_upload",
     fbaPackPhase: "awaiting_label",
-    fbaMasterCases: input.masterCases,
+    fbaShipMode: shipMode,
+    fbaMasterCases: masterCases,
+    fbaPallets: pallets,
     fbaMasterCaseCompletedAt: serverTimestamp(),
     fbaMasterCaseCompletedBy: input.operatorId ?? null,
     warehouseId: input.warehouseId,
@@ -117,9 +215,14 @@ export async function completeFbaPackWithMasterCases(input: {
 
   await notifyClient({
     clientUserId: input.clientUserId,
-    title: "FBA master case details ready",
+    title:
+      shipMode === "ltl"
+        ? "FBA pallet details ready"
+        : "FBA master case details ready",
     message:
-      "Your FBA shipment has been packed. Review master case weight and dimensions, then upload your shipping label.",
+      shipMode === "ltl"
+        ? "Your FBA shipment has been packed on pallet(s). Review pallet and box dimensions/weights, then upload your shipping label."
+        : "Your FBA shipment has been packed. Review master case weight and dimensions, then upload your shipping label.",
     relatedRequestId: input.shipmentRequestId,
     createdBy: input.operatorId ?? null,
   });
@@ -273,7 +376,9 @@ export type FbaAwaitingLabelOrder = {
   clientUserId: string;
   clientDisplayName?: string;
   service?: string;
+  fbaShipMode?: FbaShipMode | null;
   fbaMasterCases?: FbaMasterCase[];
+  fbaPallets?: FbaPalletPack[];
   masterCaseCompletedAt: Date | null;
 };
 
@@ -307,9 +412,15 @@ export async function loadFbaAwaitingLabelOrders(
       id: d.id,
       clientUserId,
       service: String(data.service ?? ""),
+      fbaShipMode: (() => {
+        const raw = String(data.fbaShipMode ?? "").trim().toLowerCase();
+        if (raw === "spd" || raw === "ltl") return raw;
+        return null;
+      })(),
       fbaMasterCases: Array.isArray(data.fbaMasterCases)
         ? (data.fbaMasterCases as FbaMasterCase[])
         : [],
+      fbaPallets: Array.isArray(data.fbaPallets) ? (data.fbaPallets as FbaPalletPack[]) : [],
       masterCaseCompletedAt:
         dateFromUnknown(data.fbaMasterCaseCompletedAt) ??
         dateFromUnknown(data.updatedAt) ??

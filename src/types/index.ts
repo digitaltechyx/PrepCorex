@@ -1187,7 +1187,10 @@ export interface ShipmentRequest {
   /** New FBA/WFS/TFS requests — label after warehouse posts master case details. */
   fbaLabelWorkflow?: boolean;
   fbaPackPhase?: FbaPackPhase | null;
+  /** SPD = master cases / small parcel; LTL = pallet(s). */
+  fbaShipMode?: FbaShipMode | null;
   fbaMasterCases?: FbaMasterCase[];
+  fbaPallets?: FbaPalletPack[];
   fbaMasterCaseCompletedAt?: { seconds: number; nanoseconds: number } | string;
   fbaMasterCaseCompletedBy?: string | null;
   fbaLabelReadyAt?: { seconds: number; nanoseconds: number } | string;
@@ -1204,6 +1207,8 @@ export interface ShipmentRequest {
 export type FbaWeightUnit = "lb" | "kg";
 export type FbaDimensionUnit = "in" | "cm";
 export type FbaPackPhase = "awaiting_label" | "awaiting_courier";
+/** Warehouse pack ship mode for FBA label workflow. */
+export type FbaShipMode = "spd" | "ltl";
 
 export interface FbaMasterCase {
   id: string;
@@ -1214,6 +1219,35 @@ export interface FbaMasterCase {
   width: number;
   height: number;
   dimensionUnit: FbaDimensionUnit;
+  notes?: string;
+}
+
+/** Boxes that share the same size/weight on an LTL pallet. */
+export interface FbaBoxSizeGroup {
+  id: string;
+  boxCount: number;
+  weight: number;
+  weightUnit: FbaWeightUnit;
+  length: number;
+  width: number;
+  height: number;
+  dimensionUnit: FbaDimensionUnit;
+}
+
+export interface FbaPalletPack {
+  id: string;
+  palletNumber: number;
+  /** Expected total boxes on this pallet (groups must sum to this). */
+  boxCount: number;
+  allBoxesSameSize: boolean;
+  boxGroups: FbaBoxSizeGroup[];
+  /** Empty pallet / pallet tare weight (default 50 lb). */
+  palletTareWeight: number;
+  weightUnit: FbaWeightUnit;
+  /** Sum of (box weight × count) across groups. */
+  boxesWeight: number;
+  /** palletTareWeight + boxesWeight */
+  totalWeight: number;
   notes?: string;
 }
 

@@ -2,10 +2,10 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import type { InventoryItem, ShippedItem, ShipmentRequest, RestockHistory, FbaMasterCase } from "@/types";
+import type { InventoryItem, ShippedItem, ShipmentRequest, RestockHistory } from "@/types";
 import { formatServiceLabel } from "@/types";
 import {
-  formatFbaMasterCaseSummary,
+  formatFbaPackDimsForClient,
   recordFbaLabelUpload,
 } from "@/lib/fba-shipment-workflow";
 import {
@@ -792,8 +792,9 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                   )}
                   {(item as any).isRequest &&
                     ((item as any).requestStatus === "awaiting_label_upload" ||
-                      ((item as any).rawRequest?.fbaMasterCases?.length > 0 &&
-                        (item as any).rawRequest?.fbaLabelWorkflow)) && (
+                      ((((item as any).rawRequest?.fbaMasterCases?.length > 0 ||
+                        (item as any).rawRequest?.fbaPallets?.length > 0) &&
+                        (item as any).rawRequest?.fbaLabelWorkflow))) && (
                     <Button
                       size="sm"
                       className="mt-2 h-7 text-xs"
@@ -802,8 +803,9 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                         setUploadFiles([]);
                       }}
                     >
-                      {(item as any).rawRequest?.fbaMasterCases?.length
-                        ? "Upload label (master case ready)"
+                      {(item as any).rawRequest?.fbaMasterCases?.length ||
+                      (item as any).rawRequest?.fbaPallets?.length
+                        ? "Upload label (dims ready)"
                         : "Upload Label"}
                     </Button>
                   )}
@@ -1030,8 +1032,9 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                             </Badge>
                             {(item as any).isRequest &&
                               ((item as any).requestStatus === "awaiting_label_upload" ||
-                                ((item as any).rawRequest?.fbaMasterCases?.length > 0 &&
-                                  (item as any).rawRequest?.fbaLabelWorkflow)) && (
+                                ((((item as any).rawRequest?.fbaMasterCases?.length > 0 ||
+                                  (item as any).rawRequest?.fbaPallets?.length > 0) &&
+                                  (item as any).rawRequest?.fbaLabelWorkflow))) && (
                               <Button
                                 size="sm"
                                 className="h-7 text-xs"
@@ -1343,19 +1346,29 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
           <DialogHeader>
             <DialogTitle>Upload Shipping Label</DialogTitle>
             <DialogDescription>
-              {selectedUploadRequest?.fbaMasterCases?.length
-                ? "Use the master case details below to generate your label, then upload it here."
+              {selectedUploadRequest?.fbaMasterCases?.length ||
+              selectedUploadRequest?.fbaPallets?.length
+                ? "Use the pack dimensions below to generate your label, then upload it here."
                 : "Upload label directly for this approved request. No need to submit a new request."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 mt-2">
-            {selectedUploadRequest?.fbaMasterCases?.length ? (
+            {selectedUploadRequest?.fbaMasterCases?.length ||
+            selectedUploadRequest?.fbaPallets?.length ? (
               <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                <p className="text-sm font-medium">Master case details</p>
-                {selectedUploadRequest.fbaMasterCases.map((mc: FbaMasterCase) => (
-                  <p key={mc.id} className="text-xs text-muted-foreground">
-                    {formatFbaMasterCaseSummary(mc)}
-                    {mc.notes ? ` · ${mc.notes}` : ""}
+                <p className="text-sm font-medium">
+                  {selectedUploadRequest.fbaShipMode === "ltl" ||
+                  (selectedUploadRequest.fbaPallets?.length ?? 0) > 0
+                    ? "Pallet / LTL details"
+                    : "Master case details"}
+                </p>
+                {formatFbaPackDimsForClient({
+                  fbaShipMode: selectedUploadRequest.fbaShipMode,
+                  fbaMasterCases: selectedUploadRequest.fbaMasterCases,
+                  fbaPallets: selectedUploadRequest.fbaPallets,
+                }).map((line, idx) => (
+                  <p key={`upload-dim-${idx}`} className="text-xs text-muted-foreground whitespace-pre-wrap">
+                    {line}
                   </p>
                 ))}
               </div>

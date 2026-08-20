@@ -38,15 +38,16 @@ import { completeCrossdockPack } from "@/lib/warehouse-crossdock-pack";
 import {
   cancelFbaAwaitingLabelRequest,
   completeFbaPackWithMasterCases,
-  formatFbaMasterCaseSummary,
+  formatFbaPackDimsForClient,
+  hasFbaPackDimsOnFile,
   loadFbaAwaitingLabelOrders,
   markFbaWarehouseBuysLabel,
+  preferredFbaShipModeFromRequest,
   recordFbaLabelUpload,
   type FbaAwaitingLabelOrder,
 } from "@/lib/fba-shipment-workflow";
 import { formatOutboundLineLabel } from "@/lib/warehouse-outbound-lines";
-import { FbaMasterCaseForm } from "@/components/warehouse-ops/fba-master-case-form";
-import type { FbaMasterCase } from "@/types";
+import { FbaPackDimsForm } from "@/components/warehouse-ops/fba-master-case-form";
 import type { WarehouseDoc } from "@/types";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import { readProductUnitMeasurements, type BoxSuggestionLine } from "@/lib/box-suggestion";
@@ -161,7 +162,13 @@ export function WarehouseOpsPack({ warehouse }: Props) {
         order.service,
         order.id,
         formatQueueDate(order.masterCaseCompletedAt),
-        ...(order.fbaMasterCases ?? []).map((mc) => formatFbaMasterCaseSummary(mc)),
+        ...(order.fbaMasterCases || order.fbaPallets
+          ? formatFbaPackDimsForClient({
+              fbaShipMode: order.fbaShipMode,
+              fbaMasterCases: order.fbaMasterCases,
+              fbaPallets: order.fbaPallets,
+            })
+          : []),
       ]
         .filter(Boolean)
         .join(" ");
@@ -202,9 +209,12 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const isFbaLabelFlow =
     Boolean(selectedOrder?.fbaLabelWorkflow) && selectedOrder?.fbaPackPhase !== "awaiting_courier";
   const isFbaAwaitingCourier = selectedOrder?.fbaPackPhase === "awaiting_courier";
-  const hasExistingFbaMasterCases = (selectedOrder?.fbaMasterCases?.length ?? 0) > 0;
-  /** Dims already done (incl. QC return to pack) — skip master-case form. */
-  const needsFbaMasterCaseEntry = isFbaLabelFlow && !hasExistingFbaMasterCases;
+  const hasExistingFbaPackDims = hasFbaPackDimsOnFile({
+    fbaMasterCases: selectedOrder?.fbaMasterCases,
+    fbaPallets: selectedOrder?.fbaPallets,
+  });
+  /** Dims already done (incl. QC return to pack) — skip pack-dims form. */
+  const needsFbaMasterCaseEntry = isFbaLabelFlow && !hasExistingFbaPackDims;
   const waitingForFbaClientLabel =
     Boolean(selectedOrder?.fbaLabelWorkflow) &&
     selectedOrder?.fbaPackPhase === "awaiting_label";
@@ -213,7 +223,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     !waitingForFbaClientLabel &&
     (isFbaAwaitingCourier ||
       !selectedOrder?.fbaLabelWorkflow ||
-      hasExistingFbaMasterCases);
+      hasExistingFbaPackDims);
 
   const refreshFbaAwaitingLabel = useCallback(async () => {
     const eligible = new Set(clients.map((c) => c.uid));
@@ -787,9 +797,13 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                             Dims submitted {formatQueueDate(order.masterCaseCompletedAt)}
                           </p>
                         ) : null}
-                        {order.fbaMasterCases?.map((mc) => (
-                          <p key={mc.id} className="text-xs mt-1">
-                            {formatFbaMasterCaseSummary(mc)}
+                        {formatFbaPackDimsForClient({
+                          fbaShipMode: order.fbaShipMode,
+                          fbaMasterCases: order.fbaMasterCases,
+                          fbaPallets: order.fbaPallets,
+                        }).map((line, idx) => (
+                          <p key={`${order.id}-dim-${idx}`} className="text-xs mt-1 whitespace-pre-wrap">
+                            {line}
                           </p>
                         ))}
                       </div>
@@ -1208,16 +1222,20 @@ export function WarehouseOpsPack({ warehouse }: Props) {
           {plan.readyToComplete && needsFbaMasterCaseEntry ? (
             <Card className="border-violet-300/60">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">FBA master case details</CardTitle>
+                <CardTitle className="text-sm">FBA pack dimensions</CardTitle>
                 <CardDescription className="text-xs">
-                  Enter weight and dimensions for each master case. The client will upload the
-                  shipping label after reviewing these details.
+                  Choose SPD (master cases) or LTL (pallets). The client reviews these details, then
+                  uploads the shipping label.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <FbaMasterCaseForm
+                <FbaPackDimsForm
                   disabled={saving}
-                  onSubmit={async (masterCases: FbaMasterCase[]) => {
+                  initialShipMode={preferredFbaShipModeFromRequest({
+                    fbaShipMode: selectedOrder?.fbaShipMode,
+                    shipmentPreference: selectedOrder?.shipmentPreference,
+                  })}
+                  onSubmit={async (payload) => {
                     if (!selectedOrder || !plan) return;
                     await completeFbaPackWithMasterCases({
                       clientUserId: selectedOrder.clientUserId,
@@ -1225,10 +1243,12 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                       warehouseId: warehouse.id,
                       operatorId,
                       verifiedKeys: plan.verifiedKeys,
-                      masterCases,
+                      shipMode: payload.shipMode,
+                      masterCases: payload.masterCases,
+                      pallets: payload.pallets,
                     });
                     toast({
-                      title: "Master case details sent",
+                      title: "Pack dimensions sent",
                       description: "Client can now upload the FBA shipping label.",
                     });
                     resetToQueue();
@@ -1239,19 +1259,23 @@ export function WarehouseOpsPack({ warehouse }: Props) {
             </Card>
           ) : null}
 
-          {plan.readyToComplete && hasExistingFbaMasterCases && !needsFbaMasterCaseEntry ? (
+          {plan.readyToComplete && hasExistingFbaPackDims && !needsFbaMasterCaseEntry ? (
             <Card className="border-violet-200/60">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">FBA master cases on file</CardTitle>
+                <CardTitle className="text-sm">FBA pack dimensions on file</CardTitle>
                 <CardDescription className="text-xs">
                   Weight and dimensions were already submitted — no need to enter them again.
                   Fix the QC remark, then scan the courier label to finish pack.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-1.5">
-                {(selectedOrder?.fbaMasterCases ?? []).map((mc) => (
-                  <p key={mc.id || mc.caseNumber} className="text-xs font-mono text-muted-foreground">
-                    {formatFbaMasterCaseSummary(mc)}
+                {formatFbaPackDimsForClient({
+                  fbaShipMode: selectedOrder?.fbaShipMode,
+                  fbaMasterCases: selectedOrder?.fbaMasterCases,
+                  fbaPallets: selectedOrder?.fbaPallets,
+                }).map((line, idx) => (
+                  <p key={`selected-dim-${idx}`} className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">
+                    {line}
                   </p>
                 ))}
               </CardContent>

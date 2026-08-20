@@ -25,6 +25,7 @@ import { getWarehouseCarton } from "@/lib/warehouse-receive-corrections";
 import { dateFromFirestore } from "@/lib/warehouse-stock-sort";
 import {
   fbaPackPhaseFromRequest,
+  hasFbaPackDimsOnFile,
   isFbaLabelWorkflowRequest,
 } from "@/lib/fba-shipment-workflow";
 import {
@@ -44,6 +45,8 @@ import { clientMatchesWarehouse } from "@/lib/warehouse-client-match";
 import { parseShipmentLabelUrls } from "@/lib/warehouse-outbound-ops";
 import type {
   FbaMasterCase,
+  FbaPalletPack,
+  FbaShipMode,
   UserProfile,
   WarehouseCartonDoc,
   WarehouseCartonLine,
@@ -54,6 +57,24 @@ const WAREHOUSES = "warehouses";
 
 function fbaMasterCasesFromRequest(data: Record<string, unknown>): FbaMasterCase[] {
   return Array.isArray(data.fbaMasterCases) ? (data.fbaMasterCases as FbaMasterCase[]) : [];
+}
+
+function fbaPalletsFromRequest(data: Record<string, unknown>): FbaPalletPack[] {
+  return Array.isArray(data.fbaPallets) ? (data.fbaPallets as FbaPalletPack[]) : [];
+}
+
+function fbaShipModeFromRequest(data: Record<string, unknown>): FbaShipMode | null {
+  const raw = String(data.fbaShipMode ?? "").trim().toLowerCase();
+  if (raw === "spd" || raw === "ltl") return raw;
+  return null;
+}
+
+function shipmentPreferenceFromRequest(
+  data: Record<string, unknown>
+): "box" | "pallet" | undefined {
+  const raw = String(data.shipmentPreference ?? "").trim().toLowerCase();
+  if (raw === "box" || raw === "pallet") return raw;
+  return undefined;
 }
 
 export type WarehousePackStatus = "pending" | "packing" | "ready_to_dispatch";
@@ -107,8 +128,12 @@ export type OutboundPackOrder = OutboundPickOrder & {
   service?: string;
   fbaLabelWorkflow?: boolean;
   fbaPackPhase?: "awaiting_label" | "awaiting_courier" | null;
+  fbaShipMode?: FbaShipMode | null;
   /** Already posted master case weight/dims (skip re-entry after QC return). */
   fbaMasterCases?: FbaMasterCase[];
+  /** LTL pallet + box size groups for FBA label workflow. */
+  fbaPallets?: FbaPalletPack[];
+  shipmentPreference?: "box" | "pallet";
   /** Client / admin uploaded shipping labels (URLs). */
   labelUrls?: string[];
 };
@@ -625,7 +650,10 @@ function toOutboundPackOrder(
     service: data.service != null ? String(data.service) : undefined,
     fbaLabelWorkflow: isFbaLabelWorkflowRequest(data),
     fbaPackPhase: fbaPackPhaseFromRequest(data),
+    fbaShipMode: fbaShipModeFromRequest(data),
     fbaMasterCases: fbaMasterCasesFromRequest(data),
+    fbaPallets: fbaPalletsFromRequest(data),
+    shipmentPreference: shipmentPreferenceFromRequest(data),
     labelUrls: parseShipmentLabelUrls(data.labelUrl),
   };
 }
@@ -958,12 +986,15 @@ export async function completePackReadyToDispatch(input: {
   }
   if (isFbaLabelWorkflowRequest(data)) {
     const phase = fbaPackPhaseFromRequest(data);
-    const hasMasterCases = fbaMasterCasesFromRequest(data).length > 0;
+    const hasMasterCases = hasFbaPackDimsOnFile({
+      fbaMasterCases: fbaMasterCasesFromRequest(data),
+      fbaPallets: fbaPalletsFromRequest(data),
+    });
     if (phase === "awaiting_label") {
       throw new Error("Wait for the client FBA shipping label before finishing pack.");
     }
     if (phase !== "awaiting_courier" && !hasMasterCases) {
-      throw new Error("Submit FBA master case details and wait for the client label first.");
+      throw new Error("Submit FBA pack dimensions (SPD or LTL) and wait for the client label first.");
     }
   }
 
@@ -1229,7 +1260,11 @@ export async function returnToPackFromDispatchQc(input: {
     warehouseQcFailedBy: input.operatorId ?? null,
     warehouseQcPassedAt: deleteField(),
     warehouseQcPassedBy: deleteField(),
-    ...(isFbaLabelWorkflowRequest(data) && fbaMasterCasesFromRequest(data).length > 0
+    ...(isFbaLabelWorkflowRequest(data) &&
+    hasFbaPackDimsOnFile({
+      fbaMasterCases: fbaMasterCasesFromRequest(data),
+      fbaPallets: fbaPalletsFromRequest(data),
+    })
       ? { fbaPackPhase: "awaiting_courier" }
       : {}),
     updatedAt: serverTimestamp(),
