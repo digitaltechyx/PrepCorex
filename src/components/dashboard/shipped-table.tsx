@@ -102,14 +102,79 @@ function formatRestockDate(restockedAt: RestockHistory["restockedAt"]) {
   return "N/A";
   }
 
-type ShippedRowStatus = "Pending" | "Shipped" | "Rejected" | "Cancelled";
+type ShippedRowStatus =
+  | "Pending"
+  | "Awaiting ship"
+  | "Awaiting label"
+  | "Shipped"
+  | "Rejected"
+  | "Cancelled";
 
 const STATUS_FILTER_ALL = "all";
 const STATUS_URL_PENDING = "pending";
 const STATUS_URL_SHIPPED = "shipped";
 const STATUS_URL_CANCELLED = "cancelled";
 
+/** Open outbound requests still reserved / in warehouse flow (not yet in `shipped`). */
+const OPEN_SHIPMENT_REQUEST_STATUSES = new Set([
+  "pending",
+  "confirmed",
+  "awaiting_label_upload",
+]);
+
 const DATE_FILTER_KEYS = new Set(["all", "today", "week", "month", "year"]);
+
+function isOpenShipmentRequestStatus(status: string | undefined | null): boolean {
+  return OPEN_SHIPMENT_REQUEST_STATUSES.has(String(status || "").toLowerCase());
+}
+
+function displayStatusForOpenRequest(
+  reqStatus: string | undefined | null
+): Extract<ShippedRowStatus, "Pending" | "Awaiting ship" | "Awaiting label"> {
+  const s = String(reqStatus || "pending").toLowerCase();
+  if (s === "awaiting_label_upload") return "Awaiting label";
+  if (s === "confirmed") return "Awaiting ship";
+  return "Pending";
+}
+
+function isAwaitingFulfillmentRowStatus(status: string | undefined | null): boolean {
+  return (
+    status === "Pending" ||
+    status === "Awaiting ship" ||
+    status === "Awaiting label"
+  );
+}
+
+function OpenOutboundStatusBadge({ status }: { status: string }) {
+  if (status === "Awaiting ship") {
+    return (
+      <Badge
+        variant="outline"
+        className="flex items-center gap-1 w-fit border-sky-300 text-sky-800 bg-sky-50"
+      >
+        <Clock className="h-3 w-3" />
+        Awaiting ship
+      </Badge>
+    );
+  }
+  if (status === "Awaiting label") {
+    return (
+      <Badge
+        variant="outline"
+        className="flex items-center gap-1 w-fit border-violet-300 text-violet-800 bg-violet-50"
+      >
+        <Clock className="h-3 w-3" />
+        Awaiting label
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="flex items-center gap-1 w-fit">
+      <Clock className="h-3 w-3" />
+      Pending
+    </Badge>
+  );
+}
 
 function rowMatchesStatusFilter(
   item: { status?: string },
@@ -117,7 +182,7 @@ function rowMatchesStatusFilter(
 ): boolean {
   if (statusFilter === STATUS_FILTER_ALL) return true;
   const s = (item.status || "") as ShippedRowStatus;
-  if (statusFilter === STATUS_URL_PENDING) return s === "Pending";
+  if (statusFilter === STATUS_URL_PENDING) return isAwaitingFulfillmentRowStatus(s);
   if (statusFilter === STATUS_URL_SHIPPED) return s === "Shipped";
   if (statusFilter === STATUS_URL_CANCELLED) return s === "Cancelled";
   return true;
@@ -201,8 +266,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     return map;
   }, [restockHistory]);
 
-  const pendingCount = pendingShipmentRequests.filter(
-    (req) => req.status === "pending" || req.status === "awaiting_label_upload"
+  const pendingCount = pendingShipmentRequests.filter((req) =>
+    isOpenShipmentRequestStatus(req.status)
   ).length;
   const rejectedCount = pendingShipmentRequests.filter(req => req.status?.toLowerCase() === "rejected").length;
   const cancelledCount = pendingShipmentRequests.filter(req => req.status === "cancelled").length;
@@ -403,7 +468,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     const convertShipmentToDisplay = (
       req: ShipmentRequest,
       shipment: any,
-      status: "Pending" | "Rejected" | "Cancelled",
+      status: ShippedRowStatus,
       index: number
     ) => {
       const inventoryItem = inventory.find(item => item.id === shipment.productId);
@@ -445,13 +510,14 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
       };
     };
 
-    // Convert pending shipment requests - expand each shipment into separate row
+    // Open outbound requests (pending admin, confirmed/awaiting ship, or awaiting FBA label)
     const pendingItems: any[] = [];
     pendingShipmentRequests
-      .filter(req => req.status === "pending" || req.status === "awaiting_label_upload")
-      .forEach(req => {
-        req.shipments.forEach((shipment, index) => {
-          pendingItems.push(convertShipmentToDisplay(req, shipment, "Pending", index));
+      .filter((req) => isOpenShipmentRequestStatus(req.status))
+      .forEach((req) => {
+        const rowStatus = displayStatusForOpenRequest(req.status);
+        (req.shipments || []).forEach((shipment, index) => {
+          pendingItems.push(convertShipmentToDisplay(req, shipment, rowStatus, index));
         });
       });
 
@@ -581,10 +647,10 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <CardTitle className="text-base sm:text-lg lg:text-xl">
-              Order Shipped ({filteredData.filter((item: any) => !item.isRequest || (item.status !== "Pending" && item.status !== "Rejected")).length})
+              Order Shipped ({filteredData.filter((item: any) => !item.isRequest || (!isAwaitingFulfillmentRowStatus(item.status) && item.status !== "Rejected")).length})
               {pendingCount > 0 && (
                 <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({pendingCount} Pending)
+                  ({pendingCount} awaiting ship)
                 </span>
               )}
               {rejectedCount > 0 && (
@@ -606,7 +672,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
             {pendingCount > 0 && (
               <Badge variant="outline" className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
-                {pendingCount} Pending
+                {pendingCount} awaiting ship
               </Badge>
             )}
           </div>
@@ -651,7 +717,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={STATUS_FILTER_ALL}>All statuses</SelectItem>
-                  <SelectItem value={STATUS_URL_PENDING}>Pending</SelectItem>
+                  <SelectItem value={STATUS_URL_PENDING}>Pending / awaiting ship</SelectItem>
                   <SelectItem value={STATUS_URL_SHIPPED}>Shipped</SelectItem>
                   <SelectItem value={STATUS_URL_CANCELLED}>Cancelled</SelectItem>
                 </SelectContent>
@@ -748,12 +814,9 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                 })()}
                 <div className="mt-2">
                   <div className="text-xs text-muted-foreground">Status</div>
-                  {(item as any).status === "Pending" ? (
+                  {isAwaitingFulfillmentRowStatus((item as any).status) ? (
                     <div className="mt-1 flex flex-wrap items-center gap-1">
-                      <Badge variant="outline" className="flex items-center gap-1 w-fit">
-                        <Clock className="h-3 w-3" />
-                        Pending
-                      </Badge>
+                      <OpenOutboundStatusBadge status={String((item as any).status)} />
                       {(item as any).isPrepOutbound ? (
                         <Badge
                           variant="outline"
@@ -922,15 +985,19 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                             )}
                             <br />
                             <span>
-                              Status: {(item as any).status === "Pending" ? (
-                                <Badge variant="outline" className="ml-1">
-                                  <Clock className="h-3 w-3 mr-1" />
-                                  Pending
-                                </Badge>
+                              Status: {isAwaitingFulfillmentRowStatus((item as any).status) ? (
+                                <span className="ml-1 inline-flex">
+                                  <OpenOutboundStatusBadge status={String((item as any).status)} />
+                                </span>
                               ) : (item as any).status === "Rejected" ? (
                                 <Badge variant="destructive" className="ml-1">
                                   <XCircle className="h-3 w-3 mr-1" />
                                   Rejected
+                                </Badge>
+                              ) : (item as any).status === "Cancelled" ? (
+                                <Badge variant="secondary" className="ml-1">
+                                  <Trash2 className="h-3 w-3 mr-1" />
+                                  Cancelled
                                 </Badge>
                               ) : (
                                 <Badge variant="default" className="ml-1">Shipped</Badge>
@@ -1024,12 +1091,9 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                         })()}
                       </TableCell>
                       <TableCell>
-                        {(item as any).status === "Pending" ? (
+                        {isAwaitingFulfillmentRowStatus((item as any).status) ? (
                           <div className="space-y-2">
-                            <Badge variant="outline" className="flex items-center gap-1 w-fit">
-                              <Clock className="h-3 w-3" />
-                              Pending
-                            </Badge>
+                            <OpenOutboundStatusBadge status={String((item as any).status)} />
                             {(item as any).isRequest &&
                               ((item as any).requestStatus === "awaiting_label_upload" ||
                                 ((((item as any).rawRequest?.fbaMasterCases?.length > 0 ||

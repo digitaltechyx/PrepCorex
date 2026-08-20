@@ -106,11 +106,15 @@ export function FbaPackDimsForm({ disabled, initialShipMode = "spd", onSubmit }:
   };
 
   const recomputePallet = (pallet: FbaPalletPack): FbaPalletPack => {
+    const boxGroups =
+      pallet.allBoxesSameSize && pallet.boxGroups[0]
+        ? [{ ...pallet.boxGroups[0], boxCount: pallet.boxCount || pallet.boxGroups[0].boxCount || 1 }]
+        : pallet.boxGroups;
     const weights = computePalletWeights({
       palletTareWeight: pallet.palletTareWeight,
-      boxGroups: pallet.boxGroups,
+      boxGroups,
     });
-    return { ...pallet, ...weights };
+    return { ...pallet, boxGroups, ...weights };
   };
 
   const updatePallet = (id: string, patch: Partial<FbaPalletPack>) => {
@@ -198,15 +202,20 @@ export function FbaPackDimsForm({ disabled, initialShipMode = "spd", onSubmit }:
     setError(null);
     try {
       if (shipMode === "spd") {
-        const cleaned = cases.map((c, index) => ({
-          ...c,
-          caseNumber: index + 1,
-          weight: Number(c.weight) || 0,
-          length: Number(c.length) || 0,
-          width: Number(c.width) || 0,
-          height: Number(c.height) || 0,
-          notes: c.notes?.trim() || undefined,
-        }));
+        const cleaned = cases.map((c, index) => {
+          const notes = c.notes?.trim() || "";
+          return {
+            id: c.id,
+            caseNumber: index + 1,
+            weight: Number(c.weight) || 0,
+            weightUnit: c.weightUnit,
+            length: Number(c.length) || 0,
+            width: Number(c.width) || 0,
+            height: Number(c.height) || 0,
+            dimensionUnit: c.dimensionUnit,
+            ...(notes ? { notes } : {}),
+          };
+        });
         for (const c of cleaned) {
           if (c.weight <= 0 || c.length <= 0 || c.width <= 0 || c.height <= 0) {
             throw new Error(`Master case ${c.caseNumber} needs weight and all dimensions.`);
@@ -218,29 +227,37 @@ export function FbaPackDimsForm({ disabled, initialShipMode = "spd", onSubmit }:
       }
 
       const cleanedPallets = pallets.map((p, index) => {
+        const boxCount = Math.max(0, Math.floor(Number(p.boxCount) || 0));
         const boxGroups = p.boxGroups.map((g) => ({
-          ...g,
-          boxCount: Math.max(0, Math.floor(Number(g.boxCount) || 0)),
+          id: g.id,
+          // Keep same-size group count in sync with pallet box count for Firestore + totals.
+          boxCount: p.allBoxesSameSize
+            ? boxCount
+            : Math.max(0, Math.floor(Number(g.boxCount) || 0)),
           weight: Number(g.weight) || 0,
+          weightUnit: g.weightUnit,
           length: Number(g.length) || 0,
           width: Number(g.width) || 0,
           height: Number(g.height) || 0,
+          dimensionUnit: g.dimensionUnit,
         }));
-        const boxCount = Math.max(0, Math.floor(Number(p.boxCount) || 0));
         const palletTareWeight = Number(p.palletTareWeight);
         const tare =
           Number.isFinite(palletTareWeight) && palletTareWeight >= 0
             ? palletTareWeight
             : DEFAULT_FBA_PALLET_TARE_LB;
         const weights = computePalletWeights({ palletTareWeight: tare, boxGroups });
+        const notes = p.notes?.trim() || "";
         return {
-          ...p,
+          id: p.id,
           palletNumber: index + 1,
           boxCount,
+          allBoxesSameSize: p.allBoxesSameSize,
           boxGroups,
           palletTareWeight: tare,
-          notes: p.notes?.trim() || undefined,
+          weightUnit: p.weightUnit,
           ...weights,
+          ...(notes ? { notes } : {}),
         };
       });
 

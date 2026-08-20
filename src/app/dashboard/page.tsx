@@ -297,7 +297,10 @@ export default function DashboardPage() {
   }, [invoices]);
 
   const pendingFulfillmentCount = useMemo(() => {
-    return shipmentRequests.filter((r) => (r.status || "").toLowerCase() === "pending").length;
+    return shipmentRequests.filter((r) => {
+      const s = (r.status || "").toLowerCase();
+      return s === "pending" || s === "confirmed" || s === "awaiting_label_upload";
+    }).length;
   }, [shipmentRequests]);
 
   const rejectedInventoryRequests = useMemo(() => {

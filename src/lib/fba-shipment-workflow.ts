@@ -105,6 +105,26 @@ export function computePalletWeights(input: {
   };
 }
 
+/** Remove undefined keys recursively so Firestore updateDoc payloads stay valid. */
+function stripUndefinedDeep<T>(value: T): T {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefinedDeep(item)) as T;
+  }
+  if (typeof value === "object") {
+    // Preserve Firestore FieldValue / Timestamp-like objects.
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return value;
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (nested === undefined) continue;
+      out[key] = stripUndefinedDeep(nested);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 async function notifyClient(input: {
   clientUserId: string;
   title: string;
@@ -199,19 +219,21 @@ export async function completeFbaPackWithMasterCases(input: {
     throw new Error("Pack dimensions were already submitted.");
   }
 
-  await updateDoc(ref, {
+  // Firestore rejects undefined anywhere in the payload (e.g. optional notes).
+  const packPayload = {
     status: "awaiting_label_upload",
     fbaPackPhase: "awaiting_label",
     fbaShipMode: shipMode,
-    fbaMasterCases: masterCases,
-    fbaPallets: pallets,
+    fbaMasterCases: masterCases.map(stripUndefinedDeep),
+    fbaPallets: pallets.map(stripUndefinedDeep),
     fbaMasterCaseCompletedAt: serverTimestamp(),
     fbaMasterCaseCompletedBy: input.operatorId ?? null,
     warehouseId: input.warehouseId,
     warehousePackStatus: "packing",
-    warehousePackVerifiedKeys: input.verifiedKeys,
+    warehousePackVerifiedKeys: input.verifiedKeys ?? [],
     updatedAt: serverTimestamp(),
-  });
+  };
+  await updateDoc(ref, stripUndefinedDeep(packPayload));
 
   await notifyClient({
     clientUserId: input.clientUserId,
