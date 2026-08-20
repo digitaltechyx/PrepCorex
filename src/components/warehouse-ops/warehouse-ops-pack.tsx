@@ -836,19 +836,41 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                             void (async () => {
                               try {
                                 const files = warehouseLabelFiles[order.id] || [];
+                                if (files.length === 0) {
+                                  throw new Error("Choose at least one label file.");
+                                }
+                                const safeClientName =
+                                  String(clientName || "client")
+                                    .replace(/[\\/:*?"<>|]/g, "_")
+                                    .trim() || "client";
+                                const now = new Date();
+                                const year = now.getFullYear().toString();
+                                const month = now.toLocaleString("en-US", { month: "long" });
+                                const dateStr = now.toISOString().split("T")[0];
+                                const folderPath = `${year}/${month}/${safeClientName}/${dateStr}`;
+
                                 const urls: string[] = [];
                                 for (const file of files) {
                                   const formData = new FormData();
                                   formData.append("file", file);
-                                  formData.append("clientName", clientName);
+                                  formData.append("clientName", safeClientName);
+                                  formData.append("folderPath", folderPath);
+                                  if (file.name) formData.append("fileName", file.name);
                                   const response = await fetch("/api/onedrive/upload", {
                                     method: "POST",
                                     body: formData,
                                   });
-                                  if (!response.ok) throw new Error("Label upload failed.");
-                                  const result = await response.json();
-                                  const url = result.webUrl || result.downloadURL;
-                                  if (url) urls.push(url);
+                                  const result = await response.json().catch(() => ({}));
+                                  if (!response.ok) {
+                                    throw new Error(
+                                      (result as { error?: string }).error || "Label upload failed."
+                                    );
+                                  }
+                                  const url =
+                                    (result as { webUrl?: string; downloadURL?: string }).webUrl ||
+                                    (result as { downloadURL?: string }).downloadURL;
+                                  if (!url) throw new Error("Label upload failed.");
+                                  urls.push(url);
                                 }
                                 await recordFbaLabelUpload({
                                   clientUserId: order.clientUserId,
@@ -859,6 +881,11 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                                   warehouseId: warehouse.id,
                                 });
                                 toast({ title: "Label uploaded for client" });
+                                setWarehouseLabelFiles((prev) => {
+                                  const next = { ...prev };
+                                  delete next[order.id];
+                                  return next;
+                                });
                                 void refreshFbaAwaitingLabel();
                               } catch (e) {
                                 toast({
