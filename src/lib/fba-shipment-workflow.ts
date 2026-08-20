@@ -312,16 +312,21 @@ export async function recordFbaLabelUpload(input: {
   });
 
   if (warehouseId) {
-    await notifyWarehouse({
-      warehouseId,
-      title: "FBA shipping label ready",
-      message:
-        input.uploadedBy === "client"
-          ? "Client uploaded the FBA shipping label. Scan the courier label to finish pack."
-          : "Warehouse uploaded the FBA shipping label. Scan the courier label to finish pack.",
-      clientUserId: input.clientUserId,
-      shipmentRequestId: input.shipmentRequestId,
-    });
+    try {
+      await notifyWarehouse({
+        warehouseId,
+        title: "FBA shipping label ready",
+        message:
+          input.uploadedBy === "client"
+            ? "Client uploaded the FBA shipping label. Scan the courier label to finish pack."
+            : "Warehouse uploaded the FBA shipping label. Scan the courier label to finish pack.",
+        clientUserId: input.clientUserId,
+        shipmentRequestId: input.shipmentRequestId,
+      });
+    } catch (notifyError) {
+      // Clients cannot write warehouse opsNotifications; label save must still succeed.
+      console.warn("FBA warehouse label notify skipped:", notifyError);
+    }
   }
 }
 

@@ -6,6 +6,7 @@ import type { InventoryItem, ShippedItem, ShipmentRequest, RestockHistory } from
 import { formatServiceLabel } from "@/types";
 import {
   formatFbaPackDimsForClient,
+  isFbaLabelWorkflowRequest,
   recordFbaLabelUpload,
 } from "@/lib/fba-shipment-workflow";
 import {
@@ -426,8 +427,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
       const allUrls = Array.from(new Set([...existingUrls, ...uploadedUrls]));
 
       if (
-        selectedUploadRequest.fbaLabelWorkflow &&
-        selectedUploadRequest.service === "FBA/WFS/TFS"
+        selectedUploadRequest.fbaLabelWorkflow ||
+        isFbaLabelWorkflowRequest(selectedUploadRequest as unknown as Record<string, unknown>)
       ) {
         await recordFbaLabelUpload({
           clientUserId: userProfile.uid,

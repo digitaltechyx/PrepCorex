@@ -211,13 +211,34 @@ service cloud.firestore {
     match /users/{userId}/shipmentRequests/{requestId} {
       allow read: if isSelf(userId) || isAdminOrSubAdmin() || isWarehouseOperator();
       allow create: if isSelf(userId);
+      // Clients may cancel pending requests, or upload shipping labels on their own open requests.
+      // Broader writes still come from admin/warehouse (and overlapping self catch-all below).
       allow update: if isAdminOrSubAdmin() || isWarehouseOperator() || (
-        isSelf(userId) &&
-        resource.data.status == 'pending' &&
-        request.resource.data.status == 'cancelled' &&
-        request.resource.data.cancellationReason is string &&
-        request.resource.data.cancellationReason.size() > 0 &&
-        request.resource.data.cancellationReason.size() <= 500
+        isSelf(userId) && (
+          (
+            resource.data.status == 'pending' &&
+            request.resource.data.status == 'cancelled' &&
+            request.resource.data.cancellationReason is string &&
+            request.resource.data.cancellationReason.size() > 0 &&
+            request.resource.data.cancellationReason.size() <= 500
+          ) ||
+          (
+            resource.data.status in ['pending', 'awaiting_label_upload', 'confirmed'] &&
+            request.resource.data.status in ['pending', 'awaiting_label_upload', 'confirmed'] &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'labelUrl',
+              'labelUploadedAt',
+              'status',
+              'fbaPackPhase',
+              'fbaLabelReadyAt',
+              'fbaLabelUploadedBy',
+              'fbaClientLabelUploadedAt',
+              'fbaWarehouseLabelUploadedAt',
+              'fbaWarehouseLabelUploadedBy',
+              'updatedAt'
+            ])
+          )
+        )
       );
       allow delete: if isAdminOrSubAdmin();
     }
