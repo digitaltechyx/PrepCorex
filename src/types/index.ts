@@ -1093,6 +1093,10 @@ export interface InventoryChangeLog {
   service?: string | null;
   shipTo?: string | null;
   details?: string | null;
+  /** Boxes/packs on the outbound line (not units). */
+  boxesShipped?: number | null;
+  /** Pack size for the outbound line. */
+  packOf?: number | null;
   at?: { seconds: number; nanoseconds: number } | string | Date;
 }
 

@@ -104,6 +104,16 @@ export function shipmentUnits(
   return qty * effectivePackOfForShipment(data, shipment, index);
 }
 
+function shipmentBoxes(
+  shipment: Record<string, unknown>
+): number {
+  return Math.max(0, Math.floor(Number(shipment.quantity) || 0));
+}
+
+function outboundPackDetailsLine(boxes: number, packOf: number): string {
+  return `qty ${boxes} pack of ${packOf}`;
+}
+
 function serviceLabelForRequest(data: Record<string, unknown>): string {
   if (data.shipmentType === "box") return "Box Forwarding";
   if (data.shipmentType === "pallet") {
@@ -320,6 +330,8 @@ export async function createOutboundRequestWithClientReserve(input: {
         `${requestRef.id}_${row.productId}`
       );
       const service = serviceLabelForRequest(input.requestData);
+      const packOf = effectivePackOfForShipment(input.requestData, row.shipment, row.index);
+      const boxesShipped = shipmentBoxes(row.shipment);
       transaction.set(changeLogRef, {
         inventoryId: row.productId,
         productName: currentInventory.productName,
@@ -332,7 +344,10 @@ export async function createOutboundRequestWithClientReserve(input: {
         shippedId: null,
         service,
         shipTo: null,
+        packOf,
+        boxesShipped,
         details: [
+          outboundPackDetailsLine(boxesShipped, packOf),
           "Outbound awaiting ship",
           service ? `Service: ${service}` : "",
           applied.newStatus === "Out of Stock" ? "Now out of stock" : "",
@@ -496,6 +511,8 @@ export async function reserveClientInventoryForExistingOpenOutbound(input: {
           "inventoryChangeLogs",
           `${input.shipmentRequestId}_${row.productId}`
         );
+        const packOf = effectivePackOfForShipment(data, row.shipment, row.index);
+        const boxesShipped = shipmentBoxes(row.shipment);
         transaction.set(changeLogRef, {
           inventoryId: row.productId,
           productName: currentInventory.productName,
@@ -508,7 +525,10 @@ export async function reserveClientInventoryForExistingOpenOutbound(input: {
           shippedId: null,
           service,
           shipTo: null,
+          packOf,
+          boxesShipped,
           details: [
+            outboundPackDetailsLine(boxesShipped, packOf),
             "Outbound awaiting ship (legacy open-request reserve)",
             service ? `Service: ${service}` : "",
             applied.newStatus === "Out of Stock" ? "Now out of stock" : "",

@@ -46,6 +46,16 @@ export type InventoryHistorySources = {
   inventoryTransfers: InventoryTransfer[];
   recycledInventory: RecycledInventoryItem[];
   inventoryChangeLogs?: InventoryChangeLog[];
+  /** Used to resolve pack/boxes for awaiting-ship logs that predate pack fields. */
+  shipmentRequests?: Array<{
+    id: string;
+    shipments?: Array<{
+      productId?: string;
+      productName?: string;
+      quantity?: number;
+      packOf?: number;
+    }>;
+  }>;
 };
 
 export type StockOutSummary = {
@@ -156,6 +166,33 @@ function parsePackOfFromText(text: string | null | undefined): number | null {
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function findPackFromShipmentRequest(
+  sources: InventoryHistorySources,
+  log: InventoryChangeLog,
+  item: InventoryItem
+): { packOf?: number; boxesShipped?: number } | null {
+  const requestId = String(log.shipmentRequestId ?? "").trim();
+  if (!requestId) return null;
+  const req = (sources.shipmentRequests ?? []).find((r) => r.id === requestId);
+  if (!req?.shipments?.length) return null;
+
+  for (const shipment of req.shipments) {
+    const productId = String(shipment.productId ?? "").trim();
+    if (productId && productId === item.id) {
+      const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
+      const boxesShipped = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
+      return { packOf, boxesShipped: boxesShipped || undefined };
+    }
+  }
+  for (const shipment of req.shipments) {
+    if (!namesMatch(item, shipment.productName)) continue;
+    const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
+    const boxesShipped = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
+    return { packOf, boxesShipped: boxesShipped || undefined };
+  }
+  return null;
 }
 
 function findShippedLineForChangeLog(
@@ -371,14 +408,24 @@ export function buildInventoryHistory(
                     : "Stock removed";
 
     const shippedLine = findShippedLineForChangeLog(sources.shipped, log, item);
+    const requestPack = findPackFromShipmentRequest(sources, log, item);
     const packOf =
+      (log.packOf != null && Number(log.packOf) > 0 ? Math.floor(Number(log.packOf)) : null) ??
       shippedLine?.packOf ??
+      requestPack?.packOf ??
       parsePackOfFromText(log.details) ??
       parsePackOfFromText(log.shipTo);
+    const boxesShipped =
+      (log.boxesShipped != null && Number(log.boxesShipped) > 0
+        ? Math.floor(Number(log.boxesShipped))
+        : null) ??
+      shippedLine?.boxesShipped ??
+      requestPack?.boxesShipped ??
+      null;
     const details = formatOutboundShipmentDetails({
       units: shippedLine?.units ?? Math.abs(log.qtyChange),
       packOf,
-      boxesShipped: shippedLine?.boxesShipped,
+      boxesShipped,
       fallbackText: log.details,
     });
 

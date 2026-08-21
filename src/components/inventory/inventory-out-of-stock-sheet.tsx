@@ -42,6 +42,7 @@ import type {
   InventoryRequest,
   RecycledInventoryItem,
   RestockHistory,
+  ShipmentRequest,
   ShippedItem,
 } from "@/types";
 import {
@@ -134,6 +135,9 @@ export function InventoryOutOfStockSheet({
   const { data: inventoryChangeLogs } = useCollection<InventoryChangeLog>(
     path ? `${path}/inventoryChangeLogs` : ""
   );
+  const { data: shipmentRequests } = useCollection<ShipmentRequest>(
+    path ? `${path}/shipmentRequests` : ""
+  );
 
   const inventoryById = useMemo(
     () => new Map(inventoryItems.map((item) => [item.id, item])),
@@ -150,6 +154,7 @@ export function InventoryOutOfStockSheet({
       inventoryTransfers: [],
       recycledInventory,
       inventoryChangeLogs,
+      shipmentRequests,
     }),
     [
       editLogs,
@@ -159,6 +164,7 @@ export function InventoryOutOfStockSheet({
       inventoryRequests,
       recycledInventory,
       inventoryChangeLogs,
+      shipmentRequests,
     ]
   );
 
