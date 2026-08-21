@@ -1084,12 +1084,16 @@ export interface InventoryChangeLog {
     | "edit"
     | "dispose"
     | "shopify_quick_fulfill"
+    | "shopify_qf_product_correct_credit"
+    | "shopify_qf_product_correct_debit"
     | "ebay_quick_fulfill";
   qtyBefore: number;
   qtyAfter: number;
   qtyChange: number;
   shipmentRequestId?: string | null;
   shippedId?: string | null;
+  shopifyOrderId?: string | null;
+  shopifyOrderName?: string | null;
   service?: string | null;
   shipTo?: string | null;
   details?: string | null;

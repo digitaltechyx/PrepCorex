@@ -401,7 +401,9 @@ export function buildInventoryHistory(
               ? "Outbound shipped"
               : log.eventType === "dispose"
                 ? "Disposed"
-                : log.eventType === "shopify_quick_fulfill"
+                : log.eventType === "shopify_quick_fulfill" ||
+                    log.eventType === "shopify_qf_product_correct_credit" ||
+                    log.eventType === "shopify_qf_product_correct_debit"
                   ? "Shopify quick fulfill"
                   : log.eventType === "ebay_quick_fulfill"
                     ? "eBay quick fulfill"
@@ -422,16 +424,33 @@ export function buildInventoryHistory(
       shippedLine?.boxesShipped ??
       requestPack?.boxesShipped ??
       null;
-    const details = formatOutboundShipmentDetails({
-      units: shippedLine?.units ?? Math.abs(log.qtyChange),
-      packOf,
-      boxesShipped,
-      fallbackText: log.details,
-    });
+    const details = (() => {
+      const isShopifyQf =
+        log.eventType === "shopify_quick_fulfill" ||
+        log.eventType === "shopify_qf_product_correct_credit" ||
+        log.eventType === "shopify_qf_product_correct_debit";
+      if (isShopifyQf) {
+        const stored = String(log.details ?? "").trim();
+        const orderName = String(
+          (log as InventoryChangeLog & { shopifyOrderName?: string | null }).shopifyOrderName ?? ""
+        ).trim();
+        if (stored) return stored;
+        if (orderName) return `Shopify quick fulfill · ${orderName}`;
+      }
+      return formatOutboundShipmentDetails({
+        units: shippedLine?.units ?? Math.abs(log.qtyChange),
+        packOf,
+        boxesShipped,
+        fallbackText: log.details,
+      });
+    })();
 
     // Restored stock shows as inbound-style increase; awaiting/dispatch stay on outbound tab.
     const historyEventType =
-      log.eventType === "outbound_restored" ? ("restock" as const) : ("shipped" as const);
+      log.eventType === "outbound_restored" ||
+      log.eventType === "shopify_qf_product_correct_credit"
+        ? ("restock" as const)
+        : ("shipped" as const);
 
     raw.push({
       timestamp: toTimestamp(log.at),
