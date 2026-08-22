@@ -151,8 +151,7 @@ export function InventoryOtherResourcesSheet({ open, onOpenChange, items }: Prop
             Other resources
           </SheetTitle>
           <SheetDescription>
-            {filtered.length} of {items.length} integration product
-            {items.length === 1 ? "" : "s"} from Shopify, eBay, WooCommerce, and TikTok Shop.
+            Integration products from Shopify, eBay, WooCommerce, and TikTok Shop.
           </SheetDescription>
         </SheetHeader>
 

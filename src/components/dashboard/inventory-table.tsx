@@ -1013,7 +1013,6 @@ export function InventoryTable({
       item.status === "Out of Stock" &&
       !isIntegrationInventorySource((item as { source?: string }).source)
   ).length;
-  const otherResourcesCount = combinedInventory.otherResourcesItems.length;
 
   const handleRemarksClick = (
     remarks: string,
@@ -1672,6 +1671,7 @@ export function InventoryTable({
     };
   }, [data, inventoryRequests, inboundBatches]);
 
+  const otherResourcesCount = combinedInventory.otherResourcesItems.length;
   const combinedData = combinedInventory.combined;
   const outOfStockRows: OutOfStockInventoryRow[] = useMemo(
     () =>
@@ -1821,7 +1821,7 @@ export function InventoryTable({
                 >
                   <Badge variant="outline" className="flex items-center gap-1 cursor-pointer hover:bg-muted/80">
                     <Boxes className="h-3 w-3" />
-                    {otherResourcesCount} Other resources
+                    Other resources
                   </Badge>
                 </button>
               )}
