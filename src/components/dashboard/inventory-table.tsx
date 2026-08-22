@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History, PackageX, Upload, Loader2, Ruler } from "lucide-react";
+import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History, PackageX, Upload, Loader2, Ruler, Boxes } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { InventoryHistoryDialog } from "@/components/inventory/inventory-history-dialog";
@@ -42,6 +42,11 @@ import {
   InventoryOutOfStockSheet,
   type OutOfStockInventoryRow,
 } from "@/components/inventory/inventory-out-of-stock-sheet";
+import {
+  InventoryOtherResourcesSheet,
+  type OtherResourcesInventoryRow,
+} from "@/components/inventory/inventory-other-resources-sheet";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import type { InboundTrackingEntry } from "@/types";
 import { format } from "date-fns";
 import { AddInventoryRequestForm } from "./add-inventory-request-form";
@@ -751,6 +756,7 @@ export function InventoryTable({
   const [selectedBatch, setSelectedBatch] = useState<InboundBatch | null>(null);
   const [closedRequestsSheet, setClosedRequestsSheet] = useState<ClosedRequestMode | null>(null);
   const [outOfStockSheetOpen, setOutOfStockSheetOpen] = useState(false);
+  const [otherResourcesSheetOpen, setOtherResourcesSheetOpen] = useState(false);
   const [productNamePreview, setProductNamePreview] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -1002,7 +1008,12 @@ export function InventoryTable({
   );
   const rejectedCount = inventoryRequests.filter(req => req.status === "rejected").length;
   const cancelledCount = inventoryRequests.filter(req => req.status === "cancelled").length;
-  const outOfStockCount = data.filter((item) => item.status === "Out of Stock").length;
+  const outOfStockCount = data.filter(
+    (item) =>
+      item.status === "Out of Stock" &&
+      !isIntegrationInventorySource((item as { source?: string }).source)
+  ).length;
+  const otherResourcesCount = combinedInventory.otherResourcesItems.length;
 
   const handleRemarksClick = (
     remarks: string,
@@ -1644,21 +1655,20 @@ export function InventoryTable({
       };
     });
 
-    // Combine active inventory only — rejected/cancelled/OOS open in side panels via badges.
-    // Marketplace-linked rows (Shopify/eBay/Woo/TikTok) stay in the main table so selected SKUs remain visible.
-    const isMarketplaceLinked = (item: { source?: string }) =>
-      item.source === "shopify" ||
-      item.source === "ebay" ||
-      item.source === "woocommerce" ||
-      item.source === "tiktok";
-    const activeInventoryItems = inventoryItems.filter(
-      (item) => item.status !== "Out of Stock" || isMarketplaceLinked(item)
+    // Main table = warehouse inventory only. Marketplace/integration rows open via Other Resources badge.
+    const warehouseInventoryItems = inventoryItems.filter(
+      (item) => !isIntegrationInventorySource((item as { source?: string }).source)
+    );
+    const activeInventoryItems = warehouseInventoryItems.filter(
+      (item) => item.status !== "Out of Stock"
+    );
+    const otherResourcesItems = inventoryItems.filter((item) =>
+      isIntegrationInventorySource((item as { source?: string }).source)
     );
     return {
       combined: [...pendingBatchItems, ...pendingItems, ...awaitingInboundItems, ...activeInventoryItems],
-      // The OOS side panel is the complete cross-source view. Marketplace rows
-      // also remain in the main table so linked catalog SKUs stay visible.
-      outOfStockItems: inventoryItems.filter((item) => item.status === "Out of Stock"),
+      outOfStockItems: warehouseInventoryItems.filter((item) => item.status === "Out of Stock"),
+      otherResourcesItems,
     };
   }, [data, inventoryRequests, inboundBatches]);
 
@@ -1680,6 +1690,23 @@ export function InventoryTable({
         source: (item as any).source,
       })),
     [combinedInventory.outOfStockItems]
+  );
+  const otherResourcesRows: OtherResourcesInventoryRow[] = useMemo(
+    () =>
+      combinedInventory.otherResourcesItems.map((item) => ({
+        id: item.id,
+        productName: item.productName,
+        sku: (item as { sku?: string }).sku,
+        variantLabel: (item as { variantLabel?: string }).variantLabel,
+        retailIdentifier: (item as { retailIdentifier?: string }).retailIdentifier,
+        quantity: item.quantity,
+        status: item.status,
+        dateAdded: item.dateAdded,
+        shop: (item as { shop?: string }).shop,
+        source: (item as { source?: string }).source,
+        imageUrls: (item as { imageUrls?: string[] }).imageUrls,
+      })),
+    [combinedInventory.otherResourcesItems]
   );
 
   // Filtered and sorted aggregate inventory data (newest first).
@@ -1786,6 +1813,18 @@ export function InventoryTable({
                   </Badge>
                 </button>
               )}
+              {otherResourcesCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setOtherResourcesSheetOpen(true)}
+                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <Badge variant="outline" className="flex items-center gap-1 cursor-pointer hover:bg-muted/80">
+                    <Boxes className="h-3 w-3" />
+                    {otherResourcesCount} Other resources
+                  </Badge>
+                </button>
+              )}
             </div>
             <AddInventoryRequestForm
               targetUserId={effectiveUserId}
@@ -1845,10 +1884,6 @@ export function InventoryTable({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All sources</SelectItem>
-                <SelectItem value="shopify">Shopify</SelectItem>
-                <SelectItem value="ebay">eBay</SelectItem>
-                <SelectItem value="woocommerce">WooCommerce</SelectItem>
-                <SelectItem value="tiktok">TikTok Shop</SelectItem>
                 <SelectItem value="manual">Manual</SelectItem>
                 <SelectItem value="inbound">Inbound requests</SelectItem>
               </SelectContent>
@@ -2997,6 +3032,11 @@ export function InventoryTable({
         inventoryItems={combinedInventory.outOfStockItems as InventoryItem[]}
         userId={effectiveUserId}
         ownerLabel={effectiveUserName}
+      />
+      <InventoryOtherResourcesSheet
+        open={otherResourcesSheetOpen}
+        onOpenChange={setOtherResourcesSheetOpen}
+        items={otherResourcesRows}
       />
 
       <Dialog

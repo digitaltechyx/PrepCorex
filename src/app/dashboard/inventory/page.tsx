@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Package, PackageCheck, Clock } from "lucide-react";
 import { useEffect, useRef, useMemo, Suspense } from "react";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 
 type InventoryItemWithSource = InventoryItem & { source?: string; ebayConnectionId?: string };
 
@@ -26,17 +27,25 @@ export default function InventoryPage() {
     userProfile ? `users/${userProfile.uid}/inventoryRequests` : ""
   );
 
-  const totalQuantity = useMemo(
-    () => inventoryData.reduce((sum, item) => sum + (item.quantity || 0), 0),
+  const warehouseInventory = useMemo(
+    () =>
+      (inventoryData as InventoryItemWithSource[]).filter(
+        (item) => !isIntegrationInventorySource(item.source)
+      ),
     [inventoryData]
+  );
+
+  const totalQuantity = useMemo(
+    () => warehouseInventory.reduce((sum, item) => sum + (item.quantity || 0), 0),
+    [warehouseInventory]
   );
   const inStockCount = useMemo(
-    () => inventoryData.filter((i) => i.status === "In Stock").length,
-    [inventoryData]
+    () => warehouseInventory.filter((i) => i.status === "In Stock").length,
+    [warehouseInventory]
   );
   const outOfStockCount = useMemo(
-    () => inventoryData.filter((i) => i.status === "Out of Stock").length,
-    [inventoryData]
+    () => warehouseInventory.filter((i) => i.status === "Out of Stock").length,
+    [warehouseInventory]
   );
   const pendingRequestsCount = useMemo(
     () => inventoryRequests.filter((r) => r.status === "pending").length,
@@ -109,8 +118,8 @@ export default function InventoryPage() {
               <Skeleton className="h-8 w-16" />
             ) : (
               <>
-                <div className="text-3xl font-bold text-sky-900">{inventoryData.length}</div>
-                <p className="text-xs text-sky-700 mt-1">Items in inventory</p>
+                <div className="text-3xl font-bold text-sky-900">{warehouseInventory.length}</div>
+                <p className="text-xs text-sky-700 mt-1">Warehouse inventory items</p>
               </>
             )}
           </CardContent>
