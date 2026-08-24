@@ -237,24 +237,38 @@ export async function confirmOutboundRequestAtPick(input: {
   await runTransaction(db, async (transaction) => {
     // Create-time reservations already reduced sellable qty — skip re-check.
     if (!alreadyReserved) {
+      const neededByProduct = new Map<string, { name: string; units: number; inventoryRef: ReturnType<typeof doc> }>();
+
       for (let index = 0; index < resolvedShipments.length; index += 1) {
         const shipment = resolvedShipments[index]!;
         const productId = String(shipment.productId ?? "").trim();
         if (!productId) throw new Error("Missing product on a shipment line.");
 
         const inventoryRef = doc(db, `users/${clientUserId}/inventory`, productId);
-        const inventorySnap = await transaction.get(inventoryRef);
+        const totalUnits = shipmentUnits(resolvedData, shipment, index);
+        const existing = neededByProduct.get(productId);
+        if (existing) {
+          existing.units += totalUnits;
+        } else {
+          neededByProduct.set(productId, {
+            name: String(shipment.productName || productId),
+            units: totalUnits,
+            inventoryRef,
+          });
+        }
+      }
+
+      for (const [productId, need] of neededByProduct) {
+        const inventorySnap = await transaction.get(need.inventoryRef);
         if (!inventorySnap.exists()) {
           throw new Error(`Product ${productId} not found in inventory.`);
         }
-
         const currentInventory = inventorySnap.data() as Omit<InventoryItem, "id">;
-        const totalUnits = shipmentUnits(resolvedData, shipment, index);
         const committed = committedByProduct.get(productId) ?? 0;
         const sellable = Math.max(0, Number(currentInventory.quantity) - committed);
-        if (sellable < totalUnits) {
+        if (sellable < need.units) {
           throw new Error(
-            `Not enough stock for ${currentInventory.productName}. Available: ${sellable}, Requested: ${totalUnits}.`
+            `Not enough stock for ${currentInventory.productName}. Available: ${sellable}, Requested: ${need.units}.`
           );
         }
       }

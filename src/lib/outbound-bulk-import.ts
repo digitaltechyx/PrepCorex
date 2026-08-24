@@ -1,12 +1,12 @@
 import { Timestamp } from "firebase/firestore";
-import type { ServiceType, UserPricing, InventoryItem } from "@/types";
+import type { ServiceType, UserPricing, UserProductPrepRate, InventoryItem } from "@/types";
 import { DTC_FBM_SERVICE, normalizeStoredServiceType } from "@/types";
 import { downloadCSV } from "@/lib/csv-utils";
 import { FBA_SERVICE } from "@/lib/fba-shipment-workflow";
-import {
-  calculatePrepUnitPrice,
-  type FbaPackAddOnConfig,
-} from "@/lib/pricing-utils";
+import { resolvePrepUnitPrice } from "@/lib/pricing-utils";
+
+/** Optional FBA pack add-on config (legacy CSV pricing hook). */
+export type FbaPackAddOnConfig = Record<string, unknown>;
 
 export const OUTBOUND_BULK_CSV_HEADERS = [
   "Product ID",
@@ -164,25 +164,31 @@ export function computeOutboundLinePricing(
   service: ServiceType,
   quantity: number,
   packOf: number,
-  packConfig?: FbaPackAddOnConfig
+  packConfig?: FbaPackAddOnConfig,
+  options?: {
+    productId?: string;
+    productPrepRates?: UserProductPrepRate[];
+  }
 ): { unitPrice: number; totalPrice: number } {
-  const calculated = calculatePrepUnitPrice(
+  const calculated = resolvePrepUnitPrice({
     pricingRules,
+    productPrepRates: options?.productPrepRates,
+    productId: options?.productId,
     service,
-    "Standard",
-    quantity,
-    packOf,
-    packConfig
-  );
+    productType: "Standard",
+    totalUnits: quantity,
+  });
   const unitPrice = calculated?.rate ?? 0;
   if (unitPrice <= 0 || quantity <= 0) {
     return { unitPrice: 0, totalPrice: 0 };
   }
   const baseTotal = unitPrice * quantity;
-  const packCharge = calculated?.packOf ?? 0;
+  // packConfig reserved for future pack-add-on charges (currently unused in unit calc).
+  void packOf;
+  void packConfig;
   return {
     unitPrice,
-    totalPrice: parseFloat((baseTotal + packCharge).toFixed(2)),
+    totalPrice: parseFloat(baseTotal.toFixed(2)),
   };
 }
 
@@ -191,6 +197,7 @@ export function validateOutboundBulkRows(
   context: {
     inventory: InventoryItem[];
     pricingRules: UserPricing[];
+    productPrepRates?: UserProductPrepRate[];
     packConfig?: FbaPackAddOnConfig;
   }
 ): { valid: OutboundBulkValidatedRow[]; errors: OutboundBulkRowError[]; warnings: OutboundBulkRowError[] } {
@@ -291,7 +298,11 @@ export function validateOutboundBulkRows(
       service,
       quantity,
       packOf,
-      context.packConfig
+      context.packConfig,
+      {
+        productId: product.id,
+        productPrepRates: context.productPrepRates,
+      }
     );
 
     valid.push({

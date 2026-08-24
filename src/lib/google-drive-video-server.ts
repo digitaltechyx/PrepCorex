@@ -73,25 +73,49 @@ async function ensureFolder(
   return created.data.id;
 }
 
+export const WAREHOUSE_OPS_RECORDINGS_ROOT = "PrepCorex Warehouse Ops Recordings";
+
+/**
+ * Drive path:
+ * PrepCorex Warehouse Ops Recordings
+ * / {warehouse code}
+ *   / {year}
+ *     / {month}
+ *       / {day}
+ *         / {client name}
+ *           / {Inbound|Outbound|Return - details - req YYYY-MM-DD}
+ *             / {Receiving|Pick|Pack|Dispatch YYYY-MM-DD}
+ *               / video file
+ *
+ * If GOOGLE_DRIVE_VIDEO_FOLDER_ID is set, that folder is treated as the root
+ * (rename it to PrepCorex Warehouse Ops Recordings in Drive if desired).
+ */
 export async function ensureWarehouseVideoFolder(input: {
   drive: drive_v3.Drive;
-  warehouseLabel: string;
+  warehouseCode: string;
+  year: string;
+  month: string;
+  day: string;
   clientLabel: string;
-  clientUserId: string;
   requestFolderName: string;
+  /** Stage folder including recording date, e.g. `Receiving 2026-08-25`. */
+  stageFolder: string;
 }): Promise<{ folderId: string; storagePath: string }> {
   let parentId = process.env.GOOGLE_DRIVE_VIDEO_FOLDER_ID || "root";
   const parts: string[] = [];
   if (!process.env.GOOGLE_DRIVE_VIDEO_FOLDER_ID) {
-    const rootName = "PrepCorex Warehouse Recordings";
-    parentId = await ensureFolder(input.drive, parentId, rootName);
-    parts.push(rootName);
+    parentId = await ensureFolder(input.drive, parentId, WAREHOUSE_OPS_RECORDINGS_ROOT);
+    parts.push(WAREHOUSE_OPS_RECORDINGS_ROOT);
   }
+
   const folderNames = [
-    input.warehouseLabel,
-    `${input.clientLabel} (${input.clientUserId})`,
-    "Receiving",
+    input.warehouseCode,
+    input.year,
+    input.month,
+    input.day,
+    input.clientLabel,
     input.requestFolderName,
+    input.stageFolder,
   ];
   for (const folderName of folderNames) {
     parentId = await ensureFolder(input.drive, parentId, folderName);
@@ -122,7 +146,7 @@ export async function startGoogleDriveResumableVideoUpload(input: {
       body: JSON.stringify({
         name: input.fileName,
         parents: [input.folderId],
-        description: "PrepCorex warehouse receiving recording",
+        description: "PrepCorex warehouse ops recording",
       }),
     }
   );

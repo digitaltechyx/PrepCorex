@@ -173,6 +173,12 @@ export function getOpsNavItems(userProfile: UserProfile | null | undefined): Ops
       description: "Orders ready for carrier pickup",
     },
     {
+      title: "Camera gallery",
+      href: "/warehouse-ops/camera-gallery",
+      feature: "ops_dashboard",
+      description: "Local receive / pick / pack / dispatch clips on this device",
+    },
+    {
       title: "Quarantine",
       href: "/warehouse-ops/quarantine",
       feature: "ops_putaway",

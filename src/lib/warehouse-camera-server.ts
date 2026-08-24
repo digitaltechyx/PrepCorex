@@ -4,10 +4,12 @@ import { verifyBearerToken } from "@/lib/api-admin-auth";
 import { hasFeature, hasRole } from "@/lib/permissions";
 import type { UserProfile } from "@/types";
 import type {
+  WarehouseCameraJobType,
   WarehouseCameraRequestSummary,
   WarehouseCameraSession,
   WarehouseCameraSessionStatus,
 } from "@/lib/warehouse-camera-types";
+import { normalizeWarehouseCameraJobType } from "@/lib/warehouse-camera-types";
 import type { NextRequest } from "next/server";
 
 export const WAREHOUSE_CAMERA_SESSIONS_COLLECTION = "warehouseCameraSessions";
@@ -47,7 +49,11 @@ export async function requireWarehouseCameraAuth(
   const data = snap.data() ?? {};
   const profile = { uid: decoded.uid, ...data } as UserProfile;
   const isAdmin = hasRole(profile, "admin") || hasRole(profile, "sub_admin");
-  const canOperate = isAdmin || hasFeature(profile, "ops_receive");
+  const canOperate =
+    isAdmin ||
+    hasFeature(profile, "ops_receive") ||
+    hasFeature(profile, "ops_pick") ||
+    hasFeature(profile, "ops_pack");
   return {
     ok: true,
     auth: {
@@ -92,6 +98,10 @@ export function serializeCameraSession(
   const inventoryRequestIds = Array.isArray(data.inventoryRequestIds)
     ? data.inventoryRequestIds.map(String)
     : [];
+  const shipmentRequestIds = Array.isArray(data.shipmentRequestIds)
+    ? data.shipmentRequestIds.map(String)
+    : [];
+  const jobType = normalizeWarehouseCameraJobType(data.jobType);
   const drive =
     data.driveFile && typeof data.driveFile === "object"
       ? (data.driveFile as Record<string, unknown>)
@@ -110,6 +120,8 @@ export function serializeCameraSession(
           summarizeWarehouseCameraRequest(row, "")
         )
       : [],
+    shipmentRequestIds,
+    jobType,
     warehouseId: String(data.warehouseId || ""),
     warehouseLabel: String(data.warehouseLabel || data.warehouseId || "Warehouse"),
     operatorId: String(data.operatorId || ""),
@@ -224,6 +236,37 @@ export function summarizeWarehouseCameraRequest(
   };
 }
 
+export function summarizeWarehouseCameraShipment(
+  data: unknown,
+  shipmentRequestId: string
+): WarehouseCameraRequestSummary[] {
+  const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  const shipments = Array.isArray(record.shipments)
+    ? (record.shipments as Array<Record<string, unknown>>)
+    : [];
+  if (shipments.length === 0) {
+    return [
+      {
+        id: shipmentRequestId,
+        productName: cleanCameraLabel(record.productName, "Outbound shipment"),
+        sku: null,
+        quantity: 0,
+      },
+    ];
+  }
+  return shipments.map((shipment, index) => {
+    const quantity = Number(shipment.quantity ?? 0);
+    const packOf = Math.max(1, Number(shipment.packOf) || 1);
+    const sku = cleanCameraLabel(shipment.sku, "");
+    return {
+      id: String(shipment.productId || `${shipmentRequestId}-${index}`),
+      productName: cleanCameraLabel(shipment.productName, `Line ${index + 1}`),
+      sku: sku || null,
+      quantity: Number.isFinite(quantity) ? Math.max(0, Math.round(quantity * packOf)) : 0,
+    };
+  });
+}
+
 export function warehouseCameraRequestLabel(summary: WarehouseCameraRequestSummary): string {
   const sku = summary.sku ? ` (${summary.sku})` : "";
   return `${summary.productName}${sku} qty ${summary.quantity}`;
@@ -237,18 +280,90 @@ function recordingDateStamp(value: string): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** Firestore Timestamp / Date / ISO / seconds → YYYY-MM-DD. */
+export function warehouseCameraDateStamp(value: unknown, fallbackIso?: string): string {
+  if (value == null || value === "") {
+    return recordingDateStamp(fallbackIso || new Date().toISOString());
+  }
+  if (typeof value === "string") return recordingDateStamp(value);
+  if (value instanceof Date) return recordingDateStamp(value.toISOString());
+  if (typeof value === "object") {
+    const record = value as { toDate?: () => Date; seconds?: number; _seconds?: number };
+    if (typeof record.toDate === "function") {
+      try {
+        return recordingDateStamp(record.toDate().toISOString());
+      } catch {
+        /* fall through */
+      }
+    }
+    const seconds = Number(record.seconds ?? record._seconds);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return recordingDateStamp(new Date(seconds * 1000).toISOString());
+    }
+  }
+  return recordingDateStamp(fallbackIso || new Date().toISOString());
+}
+
+export function warehouseCameraCalendarParts(isoOrDate: string): {
+  year: string;
+  month: string;
+  day: string;
+  date: string;
+} {
+  const date = warehouseCameraDateStamp(isoOrDate);
+  const [year, month, day] = date.split("-");
+  return {
+    year: year || "0000",
+    month: month || "00",
+    day: day || "00",
+    date,
+  };
+}
+
+/**
+ * Request-level Drive folder under the client, e.g.
+ * `Inbound - Widget (SKU) qty-10 - req 2026-08-20`
+ * `Outbound - Widget +2 - req 2026-08-22`
+ */
+export function warehouseCameraDriveRequestFolderName(input: {
+  summaries: WarehouseCameraRequestSummary[];
+  jobType: WarehouseCameraJobType;
+  /** Client request / shipment date (not recording date). */
+  requestDate: string;
+}): string {
+  const kind =
+    input.jobType === "receive" ? "Inbound" : "Outbound";
+  const requestDate = warehouseCameraDateStamp(input.requestDate);
+  const summaries = input.summaries.length
+    ? input.summaries
+    : [
+        {
+          id: "",
+          productName: kind === "Inbound" ? "Inbound request" : "Outbound shipment",
+          sku: null,
+          quantity: 0,
+        },
+      ];
+  const first = summaries[0];
+  const sku = first.sku ? ` (${first.sku})` : "";
+  const extra = summaries.length > 1 ? ` +${summaries.length - 1}` : "";
+  const qtyPart =
+    kind === "Inbound" || first.quantity > 0 ? ` qty-${first.quantity}` : "";
+  const detail = `${first.productName}${sku}${extra}${qtyPart}`;
+  return cleanDriveName(`${kind} - ${detail} - req ${requestDate}`, `${kind} - req ${requestDate}`);
+}
+
+/** @deprecated Prefer warehouseCameraDriveRequestFolderName — kept for older call sites. */
 export function warehouseCameraDriveFolderName(
   summaries: WarehouseCameraRequestSummary[],
-  startedAt: string
+  startedAt: string,
+  jobType: WarehouseCameraJobType = "receive"
 ): string {
-  const date = recordingDateStamp(startedAt);
-  const parts = (summaries.length ? summaries : [{ productName: "Inbound request", sku: null, quantity: 0, id: "" }]).map(
-    (row) => {
-      const sku = row.sku ? ` (${row.sku})` : "";
-      return `${row.productName}${sku} qty-${row.quantity}`;
-    }
-  );
-  return cleanDriveName(`${parts.join(" + ")} ${date}`, `Receiving ${date}`);
+  return warehouseCameraDriveRequestFolderName({
+    summaries,
+    jobType,
+    requestDate: startedAt,
+  });
 }
 
 export function warehouseCameraDriveFileName(input: {
@@ -256,15 +371,19 @@ export function warehouseCameraDriveFileName(input: {
   startedAt: string;
   clipNumber: number;
   extension: string;
+  jobType?: WarehouseCameraJobType;
 }): string {
   const date = recordingDateStamp(input.startedAt);
+  const jobType = input.jobType || "receive";
   const first = input.summaries[0];
-  const product = first?.productName || "Inbound request";
+  const product =
+    first?.productName || (jobType === "receive" ? "Inbound request" : "Shipment");
   const qty = first?.quantity ?? 0;
   const extra = input.summaries.length > 1 ? ` +${input.summaries.length - 1}` : "";
+  const prefix = jobType === "receive" ? "receive" : jobType;
   const base = cleanDriveName(
-    `${product}${extra} qty-${qty} ${date} session-${input.clipNumber}`,
-    `receive ${date} session-${input.clipNumber}`
+    `${product}${extra} qty-${qty} ${date} ${prefix}-session-${input.clipNumber}`,
+    `${prefix} ${date} session-${input.clipNumber}`
   );
   return `${base}.${input.extension}`;
 }

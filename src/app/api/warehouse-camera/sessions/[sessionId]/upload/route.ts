@@ -10,9 +10,13 @@ import {
   requireWarehouseCameraAuth,
   serializeCameraSession,
   summarizeWarehouseCameraRequest,
+  summarizeWarehouseCameraShipment,
+  warehouseCameraCalendarParts,
+  warehouseCameraDateStamp,
   warehouseCameraDriveFileName,
-  warehouseCameraDriveFolderName,
+  warehouseCameraDriveRequestFolderName,
 } from "@/lib/warehouse-camera-server";
+import { warehouseCameraDriveStageFolderWithDate } from "@/lib/warehouse-camera-types";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +26,7 @@ async function authorizedSession(request: NextRequest, context: RouteContext) {
   const result = await requireWarehouseCameraAuth(request);
   if (!result.ok) return { ok: false as const, status: result.status, error: result.error };
   if (!result.auth.canOperate) {
-    return { ok: false as const, status: 403, error: "Warehouse receiving access required" };
+    return { ok: false as const, status: 403, error: "Warehouse camera access required" };
   }
   const { sessionId } = await context.params;
   const ref = cameraSessionRef(sessionId);
@@ -58,32 +62,78 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const { drive, accessToken } = await getGoogleDriveClient();
-    const requestSnaps = await Promise.all(
-      session.inventoryRequestIds.map((id) =>
-        adminDb().collection("users").doc(session.clientUserId).collection("inventoryRequests").doc(id).get()
-      )
-    );
-    const summaries = requestSnaps
-      .map((snap, index) =>
+    let requestSummaries = session.inventoryRequestSummaries;
+    let requestDate = session.startedAt;
+    if (session.jobType === "receive" && session.inventoryRequestIds.length > 0) {
+      const requestSnaps = await Promise.all(
+        session.inventoryRequestIds.map((id) =>
+          adminDb()
+            .collection("users")
+            .doc(session.clientUserId)
+            .collection("inventoryRequests")
+            .doc(id)
+            .get()
+        )
+      );
+      const summaries = requestSnaps
+        .map((snap, index) =>
+          snap.exists
+            ? summarizeWarehouseCameraRequest(
+                { id: session.inventoryRequestIds[index], ...(snap.data() ?? {}) },
+                session.inventoryRequestIds[index]
+              )
+            : null
+        )
+        .filter((row): row is NonNullable<typeof row> => Boolean(row));
+      if (summaries.length > 0) requestSummaries = summaries;
+      const firstData = requestSnaps.find((snap) => snap.exists)?.data() ?? null;
+      if (firstData) {
+        requestDate = warehouseCameraDateStamp(
+          firstData.requestedAt ?? firstData.date ?? firstData.createdAt,
+          session.startedAt
+        );
+      }
+    } else if (session.shipmentRequestIds.length > 0) {
+      const shipmentSnaps = await Promise.all(
+        session.shipmentRequestIds.map((id) =>
+          adminDb()
+            .collection("users")
+            .doc(session.clientUserId)
+            .collection("shipmentRequests")
+            .doc(id)
+            .get()
+        )
+      );
+      const summaries = shipmentSnaps.flatMap((snap, index) =>
         snap.exists
-          ? summarizeWarehouseCameraRequest(
-              { id: session.inventoryRequestIds[index], ...(snap.data() ?? {}) },
-              session.inventoryRequestIds[index]
-            )
-          : null
-      )
-      .filter((row): row is NonNullable<typeof row> => Boolean(row));
-    const requestSummaries =
-      summaries.length > 0 ? summaries : session.inventoryRequestSummaries;
+          ? summarizeWarehouseCameraShipment(snap.data() ?? {}, session.shipmentRequestIds[index])
+          : []
+      );
+      if (summaries.length > 0) requestSummaries = summaries;
+      const firstData = shipmentSnaps.find((snap) => snap.exists)?.data() ?? null;
+      if (firstData) {
+        requestDate = warehouseCameraDateStamp(
+          firstData.requestedAt ?? firstData.date ?? firstData.createdAt,
+          session.startedAt
+        );
+      }
+    }
+
+    const calendar = warehouseCameraCalendarParts(session.startedAt);
+    const recordingDate = calendar.date;
     const folder = await ensureWarehouseVideoFolder({
       drive,
-      warehouseLabel: session.warehouseLabel,
-      clientLabel: session.clientDisplayName,
-      clientUserId: session.clientUserId,
-      requestFolderName: warehouseCameraDriveFolderName(
-        requestSummaries,
-        session.startedAt
-      ),
+      warehouseCode: session.warehouseLabel || session.warehouseId || "Warehouse",
+      year: calendar.year,
+      month: calendar.month,
+      day: calendar.day,
+      clientLabel: session.clientDisplayName || "Client",
+      requestFolderName: warehouseCameraDriveRequestFolderName({
+        summaries: requestSummaries,
+        jobType: session.jobType,
+        requestDate,
+      }),
+      stageFolder: warehouseCameraDriveStageFolderWithDate(session.jobType, recordingDate),
     });
     const extension = mimeType.includes("mp4") ? "mp4" : "webm";
     const fileName = warehouseCameraDriveFileName({
@@ -91,6 +141,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       startedAt: session.startedAt,
       clipNumber: session.clipNumber,
       extension,
+      jobType: session.jobType,
     });
     const uploadUrl = await startGoogleDriveResumableVideoUpload({
       accessToken,

@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { listWarehouseCameraSessions } from "@/lib/warehouse-camera-client";
 import {
   warehouseCameraRecordedRequestIds,
+  warehouseCameraRecordedShipmentIds,
   type WarehouseCameraSession,
 } from "@/lib/warehouse-camera-types";
 
@@ -93,5 +94,10 @@ export function useWarehouseCameraSessions(clientUserId?: string, enabled = true
     [sessions]
   );
 
-  return { sessions, recordedRequestIds };
+  const recordedShipmentIds = useMemo(
+    () => warehouseCameraRecordedShipmentIds(sessions),
+    [sessions]
+  );
+
+  return { sessions, recordedRequestIds, recordedShipmentIds };
 }

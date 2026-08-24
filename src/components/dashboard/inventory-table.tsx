@@ -1818,6 +1818,7 @@ export function InventoryTable({
                   type="button"
                   onClick={() => setOtherResourcesSheetOpen(true)}
                   className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  title="Marketplace sync only — not PrepCorex warehouse stock"
                 >
                   <Badge variant="outline" className="flex items-center gap-1 cursor-pointer hover:bg-muted/80">
                     <Boxes className="h-3 w-3" />

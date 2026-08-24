@@ -1,5 +1,5 @@
 ---
-description: Warehouse mobile camera pilot — receiving recording, private LiveKit view, local clips, and admin Drive upload
+description: Warehouse mobile camera — receive + outbound pick/pack/dispatch, LiveKit, IndexedDB, Drive
 alwaysApply: true
 ---
 
@@ -9,23 +9,29 @@ When the user asks about the **camera feature**, use this implementation as the 
 
 ## Goal
 
-Receiving start → operator phone records + client watches **live** → receive stop → local phone clip → confirmed upload to **admin Google Drive**.
+Optional stage recording on warehouse phone → live client view (LiveKit) → local IndexedDB clip → confirmed upload to **admin Google Drive**, linked to inbound request or outbound shipment.
+
+## Stages
+
+- **Receive** (inbound): warehouse receiving page; client Inventory live banner + watch dialog
+- **Pick / Pack / Dispatch** (outbound): optional recorder on each Ops screen; client **Shipped orders** watch dialog; clips share the same `shipmentRequestId`
+- **Gallery**: Warehouse Ops → Camera gallery lists **this device’s** local clips (operator’s) for upload later or delete
 
 ## Agreed architecture
 
-- **Camera:** selectable front/back phone or tablet browser camera on the warehouse receiving page
-- **Recording:** MediaRecorder; pause/resume/stop; multiple clips per inbound request
+- **Camera:** selectable front/back phone or tablet browser camera
+- **Recording:** MediaRecorder; pause/resume/stop; multiple clips per request/shipment stage
 - **Local storage:** completed Blob in IndexedDB on the same phone/browser until upload/removal
-- **Live:** the same camera track publishes to managed LiveKit Cloud with short-lived server-issued tokens
+- **Live:** same camera track publishes to managed LiveKit Cloud with short-lived server-issued tokens
 - **Privacy:** client tokens work only for sessions whose `clientUserId` matches the signed-in user
 - **Playback:** after Drive upload, clients watch through PrepCorex (`/playback`); no raw Drive link
-- **Ended notice:** Inventory shows live-ended for that product/SKU until dismissed
-- **Cloud storage:** resumable direct browser upload to private admin Google Drive; no video bytes in Vercel or Firebase
-- **Metadata:** server-only `warehouseCameraSessions` collection stores lifecycle, request links, and Drive metadata
+- **Ended notice:** Inventory shows live-ended for **receive** product/SKU until dismissed
+- **Cloud storage:** resumable direct browser upload to private admin Google Drive under
+  `PrepCorex Warehouse Ops Recordings/{warehouse}/{YYYY}/{MM}/{DD}/{client}/{Inbound|Outbound…}/{stage YYYY-MM-DD}/`
+- **Metadata:** server-only `warehouseCameraSessions` (`jobType`, `inventoryRequestIds` and/or `shipmentRequestIds`, Drive metadata)
 - **Live relay:** Managed LiveKit Cloud + short-lived PrepCorex viewer tokens (not raw RTSP to browser)
-- **Live state:** eight-second recorder heartbeat; client polling every five seconds; hide after stop
-  or 30 seconds without heartbeat
-- **Request context:** live client notices identify the product, SKU, and inbound request ID
+- **Live state:** eight-second recorder heartbeat; client polling every five seconds; hide after stop or 30 seconds without heartbeat
+- **Request context:** live client notices identify product, SKU, and inbound request ID (receive)
 
 ## Do not confuse with
 
@@ -36,9 +42,10 @@ Receiving start → operator phone records + client watches **live** → receive
 
 - Draft doc: `docs/WAREHOUSE_CAMERA_RECORDING.md` (update when implementing)
 - Recorder: `warehouse-mobile-camera-recorder.tsx`
-- Client viewer: Inventory live banner + per-inbound receive video dialog
+- Gallery: `warehouse-ops-camera-gallery.tsx` → `/warehouse-ops/camera-gallery`
+- Client: Inventory receive banner/dialog; Shipped orders outbound dialog
 - APIs: `src/app/api/warehouse-camera/`
 
 ## Status
 
-Mobile v1 implementation started 2026-08-18. Fixed RTSP cameras/mini-PC remain a possible later phase, not the current pilot.
+Mobile v1 started 2026-08-18 (receive). Outbound pick/pack/dispatch + Gallery extended 2026-08-25. Fixed RTSP cameras/mini-PC remain a possible later phase.

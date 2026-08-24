@@ -46,17 +46,24 @@ import {
 import {
   deleteLocalWarehouseCameraClip,
   listLocalWarehouseCameraClips,
+  listLocalWarehouseCameraClipsByShipment,
   saveLocalWarehouseCameraClip,
 } from "@/lib/warehouse-camera-local";
 import type {
   LocalWarehouseCameraClip,
+  WarehouseCameraJobType,
+  WarehouseCameraRequestSummary,
   WarehouseCameraSession,
 } from "@/lib/warehouse-camera-types";
+import { warehouseCameraJobTypeLabel } from "@/lib/warehouse-camera-types";
 
 type Props = {
+  jobType?: WarehouseCameraJobType;
   clientUserId: string;
   clientDisplayName: string;
-  inventoryRequestIds: string[];
+  inventoryRequestIds?: string[];
+  shipmentRequestIds?: string[];
+  requestSummaries?: WarehouseCameraRequestSummary[];
   warehouseId: string;
   warehouseLabel: string;
   onRecordingChange?: (active: boolean) => void;
@@ -134,15 +141,21 @@ function statusLabel(status: WarehouseCameraSession["status"]): string {
 }
 
 export function WarehouseMobileCameraRecorder({
+  jobType = "receive",
   clientUserId,
   clientDisplayName,
-  inventoryRequestIds,
+  inventoryRequestIds = [],
+  shipmentRequestIds = [],
+  requestSummaries = [],
   warehouseId,
   warehouseLabel,
   onRecordingChange,
 }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const jobLabel = warehouseCameraJobTypeLabel(jobType);
+  const isOutbound = jobType !== "receive";
+  const linkedIds = isOutbound ? shipmentRequestIds : inventoryRequestIds;
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const roomRef = useRef<Room | null>(null);
   const videoTrackRef = useRef<LocalVideoTrack | null>(null);
@@ -167,17 +180,22 @@ export function WarehouseMobileCameraRecorder({
   const [switchingCamera, setSwitchingCamera] = useState(false);
 
   const refreshLists = useCallback(async () => {
-    if (!user || inventoryRequestIds.length === 0) return;
+    if (!user || linkedIds.length === 0) return;
     const [local, remote] = await Promise.all([
-      listLocalWarehouseCameraClips(inventoryRequestIds),
+      isOutbound
+        ? listLocalWarehouseCameraClipsByShipment(linkedIds)
+        : listLocalWarehouseCameraClips(linkedIds),
       listWarehouseCameraSessions(user, {
-        requestId: inventoryRequestIds[0],
+        ...(isOutbound
+          ? { shipmentRequestId: linkedIds[0] }
+          : { requestId: linkedIds[0] }),
         clientUserId,
+        jobType,
       }),
     ]);
     setLocalClips(local);
     setServerSessions(remote);
-  }, [clientUserId, inventoryRequestIds, user]);
+  }, [clientUserId, isOutbound, jobType, linkedIds, user]);
 
   useEffect(() => {
     void refreshLists().catch(() => undefined);
@@ -247,9 +265,12 @@ export function WarehouseMobileCameraRecorder({
       localTrack = await createCameraTrack(cameraFacingMode);
       await navigator.storage?.persist?.().catch(() => false);
       const created = await createWarehouseCameraSession(user, {
+        jobType,
         clientUserId,
         clientDisplayName,
-        inventoryRequestIds,
+        inventoryRequestIds: isOutbound ? [] : inventoryRequestIds,
+        shipmentRequestIds: isOutbound ? shipmentRequestIds : [],
+        requestSummaries: isOutbound ? requestSummaries : undefined,
         warehouseId,
         warehouseLabel,
         clipNumber: Math.max(serverSessions.length, localClips.length) + 1,
@@ -282,7 +303,7 @@ export function WarehouseMobileCameraRecorder({
       setServerSessions((prev) => [created.session, ...prev]);
       toast({
         title: "Recording and live view started",
-        description: `${clientDisplayName} can now watch this receive live.`,
+        description: `${clientDisplayName} can now watch this ${jobLabel.toLowerCase()} live.`,
       });
     } catch (error) {
       localTrack?.stop();
@@ -414,9 +435,12 @@ export function WarehouseMobileCameraRecorder({
         sessionId: activeSession.id,
         clientUserId,
         clientDisplayName,
-        inventoryRequestIds,
+        inventoryRequestIds: isOutbound ? [] : inventoryRequestIds,
+        shipmentRequestIds: isOutbound ? shipmentRequestIds : [],
+        jobType,
         warehouseId,
         warehouseLabel,
+        operatorId: user.uid,
         clipNumber: activeSession.clipNumber,
         mimeType: blob.type || "video/webm",
         durationMs,
@@ -469,7 +493,7 @@ export function WarehouseMobileCameraRecorder({
       );
       toast({
         title: "Video uploaded to Google Drive",
-        description: "The clip remains listed on this receive.",
+        description: `The clip remains listed on this ${jobLabel.toLowerCase()}.`,
       });
     } catch (error) {
       toast({
@@ -498,7 +522,7 @@ export function WarehouseMobileCameraRecorder({
     const url = URL.createObjectURL(clip.blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `receive-${inventoryRequestIds[0]}-session-${clip.clipNumber}.${extension}`;
+    anchor.download = `${jobType}-${linkedIds[0] || "clip"}-session-${clip.clipNumber}.${extension}`;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -515,11 +539,15 @@ export function WarehouseMobileCameraRecorder({
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Video className="h-5 w-5" />
-            Receive video
+            {jobLabel} video
+            <Badge variant="outline" className="text-[10px] font-normal">
+              Optional
+            </Badge>
           </CardTitle>
           <CardDescription>
-            Record this receive with the phone camera. The client can watch live; completed clips
-            stay on this device until you choose Google Drive upload.
+            Record this {jobLabel.toLowerCase()} with the phone camera if you want. The client can
+            watch live; completed clips stay on this device until you upload to Google Drive (now or
+            later from Gallery / dispatch).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -584,7 +612,7 @@ export function WarehouseMobileCameraRecorder({
           ) : (
             <Alert>
               <Video className="h-4 w-4" />
-              <AlertTitle>Start a recording for this receive?</AlertTitle>
+              <AlertTitle>Start a recording for this {jobLabel.toLowerCase()}?</AlertTitle>
               <AlertDescription className="mt-2 space-y-3">
                 <p>
                   Camera access is used only after you tap Start. Recording begins on the back camera
@@ -682,7 +710,7 @@ export function WarehouseMobileCameraRecorder({
           ) : null}
           {serverOnlySessions.length > 0 ? (
             <div className="space-y-2">
-              <p className="text-sm font-medium">Receive session history</p>
+              <p className="text-sm font-medium">{jobLabel} session history</p>
               {serverOnlySessions.map((row) => (
                 <div
                   key={row.id}
@@ -717,7 +745,8 @@ export function WarehouseMobileCameraRecorder({
             <AlertDialogTitle>Upload this video to Google Drive?</AlertDialogTitle>
             <AlertDialogDescription>
               The clip is safely stored on this phone for now. Upload places it in the admin
-              PrepCorex Warehouse Recordings folder. You can also upload later from this receive.
+              PrepCorex Warehouse Ops Recordings folder. You can also upload later from Gallery or this
+              screen.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

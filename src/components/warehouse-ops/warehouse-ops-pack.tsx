@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
+import { WarehouseMobileCameraRecorder } from "@/components/warehouse-ops/warehouse-mobile-camera-recorder";
+import { linesToWarehouseCameraSummaries } from "@/lib/warehouse-camera-types";
 import { useSearchParams } from "next/navigation";
 import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
@@ -1126,6 +1128,16 @@ export function WarehouseOpsPack({ warehouse }: Props) {
           </CardContent>
         )}
       </Card>
+
+      <WarehouseMobileCameraRecorder
+        jobType="pack"
+        clientUserId={selectedOrder.clientUserId}
+        clientDisplayName={selectedOrder.clientDisplayName}
+        shipmentRequestIds={[selectedOrder.id]}
+        requestSummaries={linesToWarehouseCameraSummaries(selectedOrder.lines)}
+        warehouseId={warehouse.id}
+        warehouseLabel={warehouse.code || warehouse.name}
+      />
 
       {loadingPlan ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">

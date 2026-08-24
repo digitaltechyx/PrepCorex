@@ -22,13 +22,14 @@ import {
 } from "@/lib/warehouse-camera-client";
 import {
   isWarehouseCameraSessionActive,
+  warehouseCameraJobTypeLabel,
   warehouseCameraSessionHasPlayback,
   warehouseCameraSessionProductLabel,
   type WarehouseCameraSession,
 } from "@/lib/warehouse-camera-types";
 
 type Props = {
-  requestId: string;
+  shipmentRequestId: string;
   clientUserId?: string;
   compact?: boolean;
   triggerLabel?: string;
@@ -50,8 +51,8 @@ function sessionStatus(session: WarehouseCameraSession): string {
   return "Discarded";
 }
 
-export function InboundReceiveVideoDialog({
-  requestId,
+export function OutboundShipmentVideoDialog({
+  shipmentRequestId,
   clientUserId,
   compact = false,
   triggerLabel,
@@ -83,14 +84,11 @@ export function InboundReceiveVideoDialog({
       try {
         const access = await getWarehouseCameraToken(user, liveSession.id, "viewer");
         const room = new Room({ adaptiveStream: true, dynacast: true });
-        room.on(
-          RoomEvent.TrackSubscribed,
-          (track: RemoteTrack) => {
-            if (track.kind === Track.Kind.Video && liveVideoRef.current) {
-              track.attach(liveVideoRef.current);
-            }
+        room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+          if (track.kind === Track.Kind.Video && liveVideoRef.current) {
+            track.attach(liveVideoRef.current);
           }
-        );
+        });
         room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => track.detach());
         await room.connect(access.url, access.token);
         roomRef.current = room;
@@ -114,9 +112,8 @@ export function InboundReceiveVideoDialog({
     setLoading(true);
     try {
       const rows = await listWarehouseCameraSessions(user, {
-        requestId,
+        shipmentRequestId,
         clientUserId,
-        jobType: "receive",
       });
       setSessions(rows);
       const active = rows.find((row) => isWarehouseCameraSessionActive(row));
@@ -129,13 +126,13 @@ export function InboundReceiveVideoDialog({
     } catch (error) {
       toast({
         variant: "destructive",
-        title: "Could not load receive videos",
+        title: "Could not load shipment videos",
         description: error instanceof Error ? error.message : "Try again.",
       });
     } finally {
       setLoading(false);
     }
-  }, [clientUserId, connectLive, disconnect, requestId, toast, user]);
+  }, [clientUserId, connectLive, disconnect, shipmentRequestId, toast, user]);
 
   useEffect(() => {
     if (!open) {
@@ -173,28 +170,24 @@ export function InboundReceiveVideoDialog({
   const watching = sessions.find((row) => row.id === watchingId) ?? null;
   const productLabel = (active || watching || sessions[0])
     ? warehouseCameraSessionProductLabel(active || watching || sessions[0])
-    : "this inbound request";
+    : "this shipment";
   const buttonLabel =
     triggerLabel ||
-    (uploaded.length > 0 && !active ? "Watch receiving video" : "Receive video");
+    (uploaded.length > 0 && !active ? "Watch outbound video" : "Outbound video");
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          size={compact ? "icon" : "sm"}
-          title={buttonLabel}
-        >
+        <Button variant="outline" size={compact ? "icon" : "sm"} title={buttonLabel}>
           <Video className={compact ? "h-4 w-4" : "mr-1.5 h-4 w-4"} />
           {!compact ? buttonLabel : null}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Receiving video</DialogTitle>
+          <DialogTitle>Outbound warehouse video</DialogTitle>
           <DialogDescription>
-            Live warehouse camera and uploaded clips for {productLabel}.
+            Pick, pack, and dispatch clips for {productLabel}.
           </DialogDescription>
         </DialogHeader>
 
@@ -215,7 +208,8 @@ export function InboundReceiveVideoDialog({
               />
               <Badge className="absolute left-3 top-3 gap-1 bg-red-600 text-white hover:bg-red-600">
                 <Radio className="h-3 w-3" />
-                {active.status === "paused" ? "PAUSED" : "LIVE"}
+                {active.status === "paused" ? "PAUSED" : "LIVE"} ·{" "}
+                {warehouseCameraJobTypeLabel(active.jobType)}
               </Badge>
               {connecting ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white">
@@ -227,7 +221,6 @@ export function InboundReceiveVideoDialog({
             <p className="text-sm text-muted-foreground">
               Session {active.clipNumber} · {active.operatorName} · {active.warehouseLabel}
             </p>
-            <p className="text-sm text-muted-foreground">Request: {productLabel}</p>
           </div>
         ) : watching && playbackUrl ? (
           <div className="space-y-3">
@@ -239,7 +232,8 @@ export function InboundReceiveVideoDialog({
               src={playbackUrl}
             />
             <p className="text-sm text-muted-foreground">
-              Session {watching.clipNumber} · {watching.operatorName} · {productLabel}
+              {warehouseCameraJobTypeLabel(watching.jobType)} · Session {watching.clipNumber} ·{" "}
+              {watching.operatorName}
             </p>
           </div>
         ) : sessions.length > 0 ? (
@@ -248,16 +242,16 @@ export function InboundReceiveVideoDialog({
             <p className="font-medium">Live session ended for {productLabel}</p>
             <p className="mt-1 text-sm text-muted-foreground">
               {uploaded.length > 0
-                ? "Choose a session below to watch the uploaded receiving video."
+                ? "Choose a session below to watch an uploaded outbound clip."
                 : "The warehouse still needs to upload this clip to Drive before it can be watched."}
             </p>
           </div>
         ) : (
           <div className="rounded-xl border border-dashed p-8 text-center">
             <Video className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-            <p className="font-medium">No live receiving video</p>
+            <p className="font-medium">No outbound video yet</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              This updates automatically when warehouse recording starts.
+              Clips appear here after the warehouse records pick, pack, or dispatch for this order.
             </p>
           </div>
         )}
@@ -271,7 +265,9 @@ export function InboundReceiveVideoDialog({
                 className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
               >
                 <div>
-                  <p className="text-sm font-medium">Session {row.clipNumber}</p>
+                  <p className="text-sm font-medium">
+                    {warehouseCameraJobTypeLabel(row.jobType)} · Session {row.clipNumber}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {new Date(row.startedAt).toLocaleString()} · {row.operatorName}
                   </p>

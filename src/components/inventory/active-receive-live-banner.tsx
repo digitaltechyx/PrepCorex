@@ -20,7 +20,9 @@ export function ActiveReceiveLiveBanner({
   const { sessions } = useWarehouseCameraSessions(clientUserId);
   const [ended, setEnded] = useState<WarehouseCameraSession | null>(null);
   const previousActiveRef = useRef<WarehouseCameraSession | null>(null);
-  const active = sessions.find((row) => isWarehouseCameraSessionActive(row)) ?? null;
+  const receiveSessions = sessions.filter((row) => row.jobType === "receive");
+  const active =
+    receiveSessions.find((row) => isWarehouseCameraSessionActive(row)) ?? null;
 
   useEffect(() => {
     const previous = previousActiveRef.current;

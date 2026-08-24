@@ -18,6 +18,7 @@ import {
   Search,
   ShoppingCart,
   Truck,
+  Video,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -48,6 +49,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/warehouse-ops/pick": ShoppingCart,
   "/warehouse-ops/pack": Box,
   "/warehouse-ops/dispatch": Truck,
+  "/warehouse-ops/camera-gallery": Video,
   "/warehouse-ops/cycle-count": ClipboardList,
   "/warehouse-ops/returns": RotateCcw,
 };

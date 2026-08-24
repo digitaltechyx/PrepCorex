@@ -25,6 +25,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useSearchParams } from "next/navigation";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
+import { WarehouseMobileCameraRecorder } from "@/components/warehouse-ops/warehouse-mobile-camera-recorder";
+import { linesToWarehouseCameraSummaries } from "@/lib/warehouse-camera-types";
 import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
@@ -751,6 +753,16 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                   {matchedOrder.lines.map((l) => `${l.quantityUnits}× ${l.sku}`).join(" · ")}
                 </p>
               </div>
+
+              <WarehouseMobileCameraRecorder
+                jobType="dispatch"
+                clientUserId={matchedOrder.clientUserId}
+                clientDisplayName={matchedOrder.clientDisplayName}
+                shipmentRequestIds={[matchedOrder.id]}
+                requestSummaries={linesToWarehouseCameraSummaries(matchedOrder.lines)}
+                warehouseId={warehouse.id}
+                warehouseLabel={warehouse.code || warehouse.name}
+              />
 
               <div className="space-y-3 border-t pt-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">

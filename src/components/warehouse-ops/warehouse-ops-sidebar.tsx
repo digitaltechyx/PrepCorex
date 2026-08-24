@@ -16,6 +16,7 @@ import {
   Search,
   ShoppingCart,
   Truck,
+  Video,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/warehouse-ops/pick": ShoppingCart,
   "/warehouse-ops/pack": Box,
   "/warehouse-ops/dispatch": Truck,
+  "/warehouse-ops/camera-gallery": Video,
   "/warehouse-ops/cycle-count": ClipboardList,
   "/warehouse-ops/returns": RotateCcw,
   "/warehouse-ops/return-qc": RotateCcw,
@@ -68,6 +70,7 @@ const NAV_GROUP: Record<string, NavGroup> = {
   "/warehouse-ops/pick": "outbound",
   "/warehouse-ops/pack": "outbound",
   "/warehouse-ops/dispatch": "outbound",
+  "/warehouse-ops/camera-gallery": "outbound",
   "/warehouse-ops/cycle-count": "quality",
   "/warehouse-ops/returns": "quality",
   "/warehouse-ops/return-qc": "quality",

@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -41,6 +41,7 @@ import {
   BarChart3,
   ClipboardList,
   ArrowRightLeft,
+  Search,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
@@ -49,6 +50,7 @@ import { useClientSidebarBadges } from "@/hooks/use-client-sidebar-badges";
 import type { UserFeature } from "@/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { hasFeature, hasRole } from "@/lib/permissions";
 import { hasWarehouseOpsAccess } from "@/lib/warehouse-ops-permissions";
 import { brandLogoSrc } from "@/components/logo";
@@ -57,6 +59,10 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const { userProfile } = useAuth();
   const { setOpenMobile, isMobile } = useSidebar();
+  const [navSearch, setNavSearch] = useState("");
+  const navQuery = navSearch.trim().toLowerCase();
+  const matchesNavQuery = (label: string) =>
+    !navQuery || label.toLowerCase().includes(navQuery);
 
   // Use managed users so sub admin badge counts reflect only assigned users
   const { managedUsers } = useManagedUsers();
@@ -327,6 +333,17 @@ export function AdminSidebar() {
   const hasAgentRole = hasRole(userProfile, "commission_agent");
   const hasOtherRoles = hasUserRole || hasAgentRole;
 
+  const visibleMenuItems = useMemo(
+    () => menuItems.filter((item) => matchesNavQuery(item.title)),
+    // menuItems is rebuilt each render from profile; filter by query only for deps that matter
+    [menuItems, navQuery]
+  );
+
+  const showClientDashboard = hasUserRole && matchesNavQuery("Client Dashboard");
+  const showAffiliateDashboard = hasAgentRole && matchesNavQuery("Affiliate Dashboard");
+  const showOtherDashboards =
+    hasOtherRoles && (showClientDashboard || showAffiliateDashboard);
+
   return (
     <Sidebar className="border-r border-border/40 bg-gradient-to-b from-background to-muted/20">
       <SidebarHeader className="border-b border-border/40 pb-4">
@@ -359,10 +376,33 @@ export function AdminSidebar() {
           <SidebarGroupLabel className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
             Navigation
           </SidebarGroupLabel>
+          <div className="relative mb-3 px-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={navSearch}
+              onChange={(e) => setNavSearch(e.target.value)}
+              placeholder="Search menu…"
+              className="h-9 pl-8 pr-8 text-sm"
+              aria-label="Search navigation"
+            />
+            {navSearch ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1.5 top-1/2 h-7 w-7 -translate-y-1/2"
+                onClick={() => setNavSearch("")}
+                aria-label="Clear navigation search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            ) : null}
+          </div>
           <SidebarGroupContent>
             {menuItems.length > 0 ? (
+              visibleMenuItems.length > 0 ? (
               <SidebarMenu className="space-y-1">
-                {menuItems.map((item) => {
+                {visibleMenuItems.map((item) => {
                   const Icon = item.icon;
                   const isWarehouseOps = Boolean(
                     (item as { warehouseOpsEntry?: boolean }).warehouseOpsEntry
@@ -434,6 +474,11 @@ export function AdminSidebar() {
                   );
                 })}
               </SidebarMenu>
+              ) : (
+                <p className="px-3 py-3 text-xs text-muted-foreground">
+                  No menu items match &quot;{navSearch.trim()}&quot;.
+                </p>
+              )
             ) : hasRole(userProfile, "sub_admin") ? (
               <div className="px-3 py-4 text-sm text-muted-foreground bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
                 <p className="font-medium text-amber-800 dark:text-amber-200 mb-1">
@@ -448,14 +493,14 @@ export function AdminSidebar() {
         </SidebarGroup>
 
         {/* Other Dashboards Section - Show if user has multiple roles */}
-        {hasOtherRoles && (
+        {showOtherDashboards && (
           <SidebarGroup>
             <SidebarGroupLabel className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
               Other Dashboards
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu className="space-y-1">
-                {hasUserRole && (
+                {showClientDashboard && (
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
@@ -477,7 +522,7 @@ export function AdminSidebar() {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )}
-                {hasAgentRole && (
+                {showAffiliateDashboard && (
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild

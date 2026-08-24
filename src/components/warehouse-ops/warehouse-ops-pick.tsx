@@ -28,6 +28,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
+import { WarehouseMobileCameraRecorder } from "@/components/warehouse-ops/warehouse-mobile-camera-recorder";
+import { linesToWarehouseCameraSummaries } from "@/lib/warehouse-camera-types";
 import { useSearchParams } from "next/navigation";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
@@ -167,7 +169,8 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   } = useWarehouseOpsLive();
 
   const [queueTab, setQueueTab] = useState<QueueTab>("pending");
-  const [managingKey, setManagingKey] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [focusKey, setFocusKey] = useState<string | null>(null);
   const [pendingSearch, setPendingSearch] = useState("");
   const [readySearch, setReadySearch] = useState("");
   const [pendingFilter, setPendingFilter] = useState<PendingFilter>("all");
@@ -277,7 +280,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     );
     if (pendingMatch) {
       setQueueTab("pending");
-      setManagingKey(`${pendingMatch.clientUserId}:${pendingMatch.id}`);
+      setFocusKey(`${pendingMatch.clientUserId}:${pendingMatch.id}`);
       focusAppliedRef.current = true;
       return;
     }
@@ -298,7 +301,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
       return;
     }
     const key = `${row.clientUserId}:${row.id}`;
-    setManagingKey(key);
+    setBusyKey(key);
     try {
       await confirmOutboundRequestAtPick({
         clientUserId: row.clientUserId,
@@ -310,6 +313,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
         description: `${row.clientDisplayName} — ready to pick.`,
       });
       setQueueTab("ready");
+      setFocusKey(null);
     } catch (e) {
       toast({
         title: "Approve failed",
@@ -317,7 +321,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
         variant: "destructive",
       });
     } finally {
-      setManagingKey(null);
+      setBusyKey(null);
     }
   }
 
@@ -327,7 +331,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
       return;
     }
     const key = `${row.clientUserId}:${row.id}`;
-    setManagingKey(key);
+    setBusyKey(key);
     try {
       await rejectOutboundRequestAtPick({
         clientUserId: row.clientUserId,
@@ -335,6 +339,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
         rejectedBy: String(operatorId),
       });
       toast({ title: "Request rejected" });
+      setFocusKey(null);
     } catch (e) {
       toast({
         title: "Reject failed",
@@ -342,7 +347,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
         variant: "destructive",
       });
     } finally {
-      setManagingKey(null);
+      setBusyKey(null);
     }
   }
 
@@ -724,9 +729,16 @@ export function WarehouseOpsPick({ warehouse }: Props) {
                 ) : (
                   filteredPending.map((row) => {
                     const key = `${row.clientUserId}:${row.id}`;
-                    const busy = managingKey === key;
+                    const busy = busyKey === key;
+                    const focused = focusKey === key;
                     return (
-                      <div key={key} className="rounded-lg border px-3 py-3 space-y-2">
+                      <div
+                        key={key}
+                        className={cn(
+                          "rounded-lg border px-3 py-3 space-y-2",
+                          focused && "border-primary ring-2 ring-primary/30"
+                        )}
+                      >
                         <div className="flex justify-between gap-2 items-start">
                           <div>
                             <p className="font-semibold text-sm">{row.clientDisplayName}</p>
@@ -1004,6 +1016,16 @@ export function WarehouseOpsPick({ warehouse }: Props) {
           ) : null}
         </CardContent>
       </Card>
+
+      <WarehouseMobileCameraRecorder
+        jobType="pick"
+        clientUserId={selectedOrder.clientUserId}
+        clientDisplayName={selectedOrder.clientDisplayName}
+        shipmentRequestIds={[selectedOrder.id]}
+        requestSummaries={linesToWarehouseCameraSummaries(selectedOrder.lines)}
+        warehouseId={warehouse.id}
+        warehouseLabel={warehouse.code || warehouse.name}
+      />
 
       {selectedOrder.remarks ? (
         <Card className="border-sky-200 bg-sky-50/50">

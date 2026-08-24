@@ -37,7 +37,8 @@ export type PricingDataCategory =
   | "palletForwarding"
   | "containerHandling"
   | "additionalServices"
-  | "fbaPackAddOn";
+  | "fbaPackAddOn"
+  | "productPrepRates";
 
 const CATEGORY_COLLECTION: Record<PricingDataCategory, string> = {
   prep: "pricing",
@@ -47,6 +48,7 @@ const CATEGORY_COLLECTION: Record<PricingDataCategory, string> = {
   containerHandling: "containerHandlingPricing",
   additionalServices: "additionalServicesPricing",
   fbaPackAddOn: "fbaPackAddOnPricing",
+  productPrepRates: "productPrepRates",
 };
 
 /** Legacy top-level default collections (migrated into `pricingProfiles/standard`). */
@@ -128,6 +130,7 @@ export function getPricingProfilePaths(profileId: string) {
     containerHandling: getPricingProfileCollectionPath(profileId, "containerHandling"),
     additionalServices: getPricingProfileCollectionPath(profileId, "additionalServices"),
     fbaPackAddOn: getPricingProfileCollectionPath(profileId, "fbaPackAddOn"),
+    productPrepRates: getPricingProfileCollectionPath(profileId, "productPrepRates"),
   };
 }
 

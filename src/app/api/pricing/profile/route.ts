@@ -17,6 +17,7 @@ const CATEGORIES: PricingDataCategory[] = [
   "palletForwarding",
   "containerHandling",
   "additionalServices",
+  "productPrepRates",
 ];
 
 function isAdminUser(data: Record<string, unknown> | undefined): boolean {

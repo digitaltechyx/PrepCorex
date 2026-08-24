@@ -30,9 +30,17 @@ async function cameraFetch<T>(
 export async function createWarehouseCameraSession(
   user: User,
   input: {
+    jobType?: "receive" | "pick" | "pack" | "dispatch";
     clientUserId: string;
     clientDisplayName: string;
-    inventoryRequestIds: string[];
+    inventoryRequestIds?: string[];
+    shipmentRequestIds?: string[];
+    requestSummaries?: Array<{
+      id: string;
+      productName: string;
+      sku: string | null;
+      quantity: number;
+    }>;
     warehouseId: string;
     warehouseLabel: string;
     clipNumber: number;
@@ -51,11 +59,18 @@ export async function createWarehouseCameraSession(
 
 export async function listWarehouseCameraSessions(
   user: User,
-  input: { requestId?: string; clientUserId?: string }
+  input: {
+    requestId?: string;
+    shipmentRequestId?: string;
+    clientUserId?: string;
+    jobType?: string;
+  }
 ): Promise<WarehouseCameraSession[]> {
   const params = new URLSearchParams();
   if (input.requestId) params.set("requestId", input.requestId);
+  if (input.shipmentRequestId) params.set("shipmentRequestId", input.shipmentRequestId);
   if (input.clientUserId) params.set("clientUserId", input.clientUserId);
+  if (input.jobType) params.set("jobType", input.jobType);
   const data = await cameraFetch<{ sessions: WarehouseCameraSession[] }>(
     user,
     `/api/warehouse-camera/sessions?${params.toString()}`

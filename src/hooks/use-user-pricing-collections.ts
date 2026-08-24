@@ -10,6 +10,7 @@ import type {
   UserPalletForwardingPricing,
   UserContainerHandlingPricing,
   UserAdditionalServicesPricing,
+  UserProductPrepRate,
 } from "@/types";
 import { servicesMatch } from "@/types";
 import {
@@ -28,6 +29,7 @@ type ProfileApiResponse = {
   palletForwarding?: UserPalletForwardingPricing[];
   containerHandling?: UserContainerHandlingPricing[];
   additionalServices?: UserAdditionalServicesPricing[];
+  productPrepRates?: UserProductPrepRate[];
   prepSource?: string;
   error?: string;
 };
@@ -74,6 +76,7 @@ export function useUserPricingCollections(
   const [additionalServicesPricing, setAdditionalServicesPricing] = useState<
     UserAdditionalServicesPricing[]
   >([]);
+  const [productPrepRates, setProductPrepRates] = useState<UserProductPrepRate[]>([]);
   const [resolvedProfileId, setResolvedProfileId] = useState(profileId);
   const [loading, setLoading] = useState(Boolean(user?.uid));
   const [prepSource, setPrepSource] = useState<string | null>(null);
@@ -91,6 +94,7 @@ export function useUserPricingCollections(
       setPalletForwardingPricing([]);
       setContainerHandlingPricing([]);
       setAdditionalServicesPricing([]);
+      setProductPrepRates([]);
       setLoading(false);
       return;
     }
@@ -117,6 +121,7 @@ export function useUserPricingCollections(
           setPalletForwardingPricing([]);
           setContainerHandlingPricing([]);
           setAdditionalServicesPricing([]);
+          setProductPrepRates([]);
           return;
         }
 
@@ -146,6 +151,11 @@ export function useUserPricingCollections(
             ? (data.additionalServices as UserAdditionalServicesPricing[])
             : []
         );
+        setProductPrepRates(
+          Array.isArray(data.productPrepRates)
+            ? (data.productPrepRates as UserProductPrepRate[])
+            : []
+        );
       } catch (err) {
         if (!cancelled) {
           console.warn("[useUserPricingCollections] fetch failed:", err);
@@ -155,6 +165,7 @@ export function useUserPricingCollections(
           setPalletForwardingPricing([]);
           setContainerHandlingPricing([]);
           setAdditionalServicesPricing([]);
+          setProductPrepRates([]);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -177,6 +188,7 @@ export function useUserPricingCollections(
     palletForwardingPricing,
     containerHandlingPricing,
     additionalServicesPricing,
+    productPrepRates,
     loading,
     prepSource,
     usingStandardFallback:

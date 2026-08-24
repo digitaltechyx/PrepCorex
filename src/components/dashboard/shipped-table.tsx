@@ -48,6 +48,16 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { ShippedOrderDetailsDialog } from "@/components/dashboard/shipped-order-details-dialog";
+import { OutboundShipmentVideoDialog } from "@/components/dashboard/outbound-shipment-video-dialog";
+import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
+
+function outboundVideoShipmentId(item: {
+  requestId?: string;
+  shipmentRequestId?: string | null;
+}): string | null {
+  const id = String(item.requestId || item.shipmentRequestId || "").trim();
+  return id || null;
+}
 
 function formatDate(date: ShippedItem["date"]) {
     if (typeof date === 'string') {
@@ -193,6 +203,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
   const searchParams = useSearchParams();
   const { user, userProfile } = useAuth();
   const { toast } = useToast();
+  const { recordedShipmentIds } = useWarehouseCameraSessions(userProfile?.uid);
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
@@ -498,6 +509,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         status: status as ShippedRowStatus,
         isRequest: true,
         requestId: req.id,
+        shipmentRequestId: req.id,
         requestStatus: req.status || "pending",
         rawRequest: req,
         isPrepOutbound: Boolean(
@@ -883,6 +895,19 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                     <FileText className="h-3 w-3" />
                     Details
                   </Button>
+                  {(() => {
+                    const shipmentId = outboundVideoShipmentId(item as any);
+                    if (!shipmentId || !recordedShipmentIds.has(shipmentId)) return null;
+                    return (
+                      <div className="mt-2">
+                        <OutboundShipmentVideoDialog
+                          shipmentRequestId={shipmentId}
+                          clientUserId={userProfile?.uid}
+                          triggerLabel="Watch outbound video"
+                        />
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             ))
@@ -1141,16 +1166,30 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8 gap-1 text-xs"
-                          onClick={() => handleShipmentDetailsClick(item)}
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          Details
-                        </Button>
+                        <div className="flex flex-wrap items-center justify-end gap-1">
+                          {(() => {
+                            const shipmentId = outboundVideoShipmentId(item as any);
+                            if (!shipmentId || !recordedShipmentIds.has(shipmentId)) return null;
+                            return (
+                              <OutboundShipmentVideoDialog
+                                shipmentRequestId={shipmentId}
+                                clientUserId={userProfile?.uid}
+                                compact
+                                triggerLabel="Watch outbound video"
+                              />
+                            );
+                          })()}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1 text-xs"
+                            onClick={() => handleShipmentDetailsClick(item)}
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            Details
+                          </Button>
+                        </div>
                       </TableCell>
                 </TableRow>
               ))

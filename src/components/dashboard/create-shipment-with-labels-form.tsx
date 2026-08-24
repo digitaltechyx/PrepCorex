@@ -21,7 +21,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
-import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { resolvePrepUnitPrice } from "@/lib/pricing-utils";
 import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
 import imageCompression from "browser-image-compression";
 import { ImageIcon } from "lucide-react";
@@ -282,6 +282,7 @@ export function CreateShipmentWithLabelsForm({
 
   const {
     pricingRules: effectivePricingRules,
+    productPrepRates: effectiveProductPrepRates,
     boxForwardingPricing: effectiveBoxForwardingPricing,
     palletForwardingPricing: effectivePalletForwardingPricing,
     additionalServicesPricing: effectiveAdditionalServicesPricing,
@@ -472,12 +473,15 @@ export function CreateShipmentWithLabelsForm({
           lineProductType
         ) {
           // Always calculate — empty profile rules still fall back to built-in default rates.
-          const calculatedPrice = calculatePrepUnitPrice(
-            effectivePricingRules || [],
+          // Product-specific custom-profile overrides win over volume tiers.
+          const calculatedPrice = resolvePrepUnitPrice({
+            pricingRules: effectivePricingRules || [],
+            productPrepRates: effectiveProductPrepRates,
+            productId: shipment.productId,
             service,
-            lineProductType,
-            quantity
-          );
+            productType: lineProductType,
+            totalUnits: quantity,
+          });
           if (calculatedPrice && calculatedPrice.rate !== undefined && calculatedPrice.rate !== null) {
             finalUnitPrice = calculatedPrice.rate;
           }
@@ -575,7 +579,7 @@ export function CreateShipmentWithLabelsForm({
     } catch (error) {
       console.error("Error calculating pricing:", error);
     }
-  }, [watchedGroups, effectivePricingRules, effectiveBoxForwardingPricing, effectivePalletForwardingPricing, form, profilePricingLoading, isAdminCreatingForClient, adminPriceOverrideVersion]);
+  }, [watchedGroups, effectivePricingRules, effectiveProductPrepRates, effectiveBoxForwardingPricing, effectivePalletForwardingPricing, form, profilePricingLoading, isAdminCreatingForClient, adminPriceOverrideVersion]);
 
   // Initialize label state when a new group is added
   const handleAddShipmentGroup = () => {
@@ -892,7 +896,11 @@ export function CreateShipmentWithLabelsForm({
         const group = values.shipmentGroups[i];
 
         // Validate stock / pending-inbound availability for this group
+        // (aggregate units when the same product has multiple pack lines)
         const stockErrors: string[] = [];
+        const inventoryUnitsByProductId = new Map<string, { name: string; units: number }>();
+        const prepUnitsByInboundId = new Map<string, { name: string; units: number }>();
+
         for (const shipment of group.shipments) {
           const packOf = group.shipmentType === "product" ? (shipment.packOf || 1) : 1;
           const totalUnits = shipment.quantity * packOf;
@@ -913,30 +921,52 @@ export function CreateShipmentWithLabelsForm({
               );
               continue;
             }
-            const remaining = inboundUnitsAvailableForPrep(req);
-            const alreadyCommitted = await getCommittedPrepUnitsAgainstInbound(ownerId, inboundId);
-            const available = Math.max(0, remaining - alreadyCommitted);
-            if (totalUnits > available) {
-              stockErrors.push(
-                `${req.productName}: Requested ${totalUnits} units from pending inbound but only ${available} available.`
-              );
-            }
+            const existing = prepUnitsByInboundId.get(inboundId) || {
+              name: req.productName,
+              units: 0,
+            };
+            existing.units += totalUnits;
+            prepUnitsByInboundId.set(inboundId, existing);
             continue;
           }
 
           const product = inventory.find((item) => item.id === shipment.productId);
           if (product) {
-            if (totalUnits > product.quantity) {
-              const unitType =
-                group.shipmentType === "box"
-                  ? "boxes"
-                  : group.shipmentType === "pallet"
-                    ? "pallets"
-                    : "units";
-              stockErrors.push(
-                `${product.productName}: Requested ${totalUnits} ${unitType} but only ${product.quantity} available.`
-              );
-            }
+            const existing = inventoryUnitsByProductId.get(product.id) || {
+              name: product.productName,
+              units: 0,
+            };
+            existing.units += totalUnits;
+            inventoryUnitsByProductId.set(product.id, existing);
+          }
+        }
+
+        for (const [inboundId, entry] of prepUnitsByInboundId) {
+          const req = inboundById.get(inboundId);
+          if (!req) continue;
+          const remaining = inboundUnitsAvailableForPrep(req);
+          const alreadyCommitted = await getCommittedPrepUnitsAgainstInbound(ownerId, inboundId);
+          const available = Math.max(0, remaining - alreadyCommitted);
+          if (entry.units > available) {
+            stockErrors.push(
+              `${entry.name}: Requested ${entry.units} units from pending inbound but only ${available} available.`
+            );
+          }
+        }
+
+        for (const [productId, entry] of inventoryUnitsByProductId) {
+          const product = inventory.find((item) => item.id === productId);
+          if (!product) continue;
+          if (entry.units > product.quantity) {
+            const unitType =
+              group.shipmentType === "box"
+                ? "boxes"
+                : group.shipmentType === "pallet"
+                  ? "pallets"
+                  : "units";
+            stockErrors.push(
+              `${entry.name}: Requested ${entry.units} ${unitType} but only ${product.quantity} available.`
+            );
           }
         }
 
@@ -1519,8 +1549,9 @@ export function CreateShipmentWithLabelsForm({
                           <DialogHeader>
                             <DialogTitle>Select Products And Fill Details</DialogTitle>
                             <DialogDescription>
-                              Choose in-stock products or pending inbound lines to create a pre outbound
-                              (warehouse receives inbound first, then processes the outbound).
+                              Choose in-stock products or pending inbound lines. You can add the same
+                              product more than once with different pack sizes (e.g. 2× pack of 6 and
+                              3× pack of 8).
                             </DialogDescription>
                           </DialogHeader>
                           <div className="mouse-both-scroll max-h-[70vh] space-y-4 py-4 pr-2">
@@ -1537,8 +1568,86 @@ export function CreateShipmentWithLabelsForm({
                                   </p>
                                 ) : (
                                   availableInventory.map((item) => {
-                                    const isSelected = groupShipments.some((shipment) => shipment.productId === item.id);
+                                    const selectedLineCount = groupShipments.filter(
+                                      (shipment) => shipment.productId === item.id
+                                    ).length;
+                                    const isSelected = selectedLineCount > 0;
                                     const isPrep = item.source === "pending_inbound";
+                                    const buildShipmentLine = () => {
+                                      let initialUnitPrice = 0;
+                                      let initialTotalPrice = 0;
+
+                                      const group = form.getValues(`shipmentGroups.${groupIndex}`);
+                                      const shipmentType = group?.shipmentType;
+                                      const palletSubType = group?.palletSubType;
+
+                                      if (shipmentType === "box" && effectiveBoxForwardingPricing && effectiveBoxForwardingPricing.length > 0) {
+                                        const latestBoxPricing = [...effectiveBoxForwardingPricing].sort((a, b) => {
+                                          const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
+                                          const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
+                                          return bUpdated - aUpdated;
+                                        })[0];
+                                        if (latestBoxPricing && latestBoxPricing.price !== undefined && latestBoxPricing.price !== null) {
+                                          const priceValue = typeof latestBoxPricing.price === 'string'
+                                            ? parseFloat(latestBoxPricing.price)
+                                            : latestBoxPricing.price;
+                                          if (!isNaN(priceValue) && priceValue > 0) {
+                                            initialUnitPrice = priceValue;
+                                            initialTotalPrice = priceValue;
+                                          }
+                                        }
+                                      } else if (shipmentType === "pallet") {
+                                        if (palletSubType === "forwarding" && effectivePalletForwardingPricing && effectivePalletForwardingPricing.length > 0) {
+                                          const latestPalletForwarding = [...effectivePalletForwardingPricing].sort((a, b) => {
+                                            const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
+                                            const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
+                                            return bUpdated - aUpdated;
+                                          })[0];
+                                          if (latestPalletForwarding && latestPalletForwarding.price) {
+                                            const priceValue = typeof latestPalletForwarding.price === 'string'
+                                              ? parseFloat(latestPalletForwarding.price)
+                                              : latestPalletForwarding.price;
+                                            if (!isNaN(priceValue) && priceValue > 0) {
+                                              initialUnitPrice = priceValue;
+                                              initialTotalPrice = priceValue;
+                                            }
+                                          }
+                                        } else if (palletSubType === "existing_inventory") {
+                                          initialUnitPrice = 0;
+                                          initialTotalPrice = 0;
+                                        }
+                                      }
+                                      if (
+                                        shipmentType === "product" &&
+                                        (group?.service === "FBA/WFS/TFS" || isDtcFbmService(group?.service))
+                                      ) {
+                                                const calculated = resolvePrepUnitPrice({
+                                                  pricingRules: effectivePricingRules || [],
+                                                  productPrepRates: effectiveProductPrepRates,
+                                                  productId: item.id,
+                                                  service: group.service,
+                                                  productType: "Standard",
+                                                  totalUnits: 1,
+                                                });
+                                                if (calculated?.rate != null && !Number.isNaN(calculated.rate) && calculated.rate > 0) {
+                                                  initialUnitPrice = calculated.rate;
+                                                  initialTotalPrice = calculated.rate;
+                                                }
+                                      }
+
+                                      return {
+                                        productId: item.id,
+                                        quantity: 1,
+                                        packOf: 1,
+                                        unitPrice: initialUnitPrice,
+                                        totalPrice: initialTotalPrice,
+                                        productType: shipmentType === "product" ? ("Standard" as const) : undefined,
+                                        customDimensions: undefined,
+                                        selectedAdditionalServices: undefined,
+                                        sourceInventoryRequestId: item.sourceInventoryRequestId,
+                                      };
+                                    };
+
                                     return (
                                       <div key={item.id} className="flex items-center space-x-2 p-2 hover:bg-muted rounded">
                                         <Checkbox
@@ -1546,90 +1655,16 @@ export function CreateShipmentWithLabelsForm({
                                           onCheckedChange={(checked) => {
                                             const currentShipments = form.getValues(`shipmentGroups.${groupIndex}.shipments`);
                                             if (checked) {
-                                              // Calculate initial price based on shipment type
-                                              let initialUnitPrice = 0;
-                                              let initialTotalPrice = 0;
-                                              
-                                              const group = form.getValues(`shipmentGroups.${groupIndex}`);
-                                              const shipmentType = group?.shipmentType;
-                                              const palletSubType = group?.palletSubType;
-                                              
-                                              if (shipmentType === "box" && effectiveBoxForwardingPricing && effectiveBoxForwardingPricing.length > 0) {
-                                                const latestBoxPricing = [...effectiveBoxForwardingPricing].sort((a, b) => {
-                                                  const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
-                                                  const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
-                                                  return bUpdated - aUpdated;
-                                                })[0];
-                                                if (latestBoxPricing && latestBoxPricing.price !== undefined && latestBoxPricing.price !== null) {
-                                                  const priceValue = typeof latestBoxPricing.price === 'string' 
-                                                    ? parseFloat(latestBoxPricing.price) 
-                                                    : latestBoxPricing.price;
-                                                  if (!isNaN(priceValue) && priceValue > 0) {
-                                                    initialUnitPrice = priceValue;
-                                                    initialTotalPrice = priceValue; // quantity is 1 by default
-                                                  }
-                                                }
-                                              } else if (shipmentType === "pallet") {
-                                                if (palletSubType === "forwarding" && effectivePalletForwardingPricing && effectivePalletForwardingPricing.length > 0) {
-                                                  const latestPalletForwarding = [...effectivePalletForwardingPricing].sort((a, b) => {
-                                                    const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
-                                                    const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
-                                                    return bUpdated - aUpdated;
-                                                  })[0];
-                                                  if (latestPalletForwarding && latestPalletForwarding.price) {
-                                                    const priceValue = typeof latestPalletForwarding.price === 'string' 
-                                                      ? parseFloat(latestPalletForwarding.price) 
-                                                      : latestPalletForwarding.price;
-                                                    if (!isNaN(priceValue) && priceValue > 0) {
-                                                      initialUnitPrice = priceValue;
-                                                      initialTotalPrice = priceValue;
-                                                    }
-                                                  }
-                                                } else if (palletSubType === "existing_inventory") {
-                                                  // Existing Inventory pallets are priced manually by admin at approval time.
-                                                  // Keep pricing at 0 as a placeholder.
-                                                  initialUnitPrice = 0;
-                                                  initialTotalPrice = 0;
-                                                }
-                                              }
-                                              // Product lines default to Standard; pricing follows per-line type via useEffect
-                                              if (
-                                                shipmentType === "product" &&
-                                                (group?.service === "FBA/WFS/TFS" || isDtcFbmService(group?.service))
-                                              ) {
-                                                const calculated = calculatePrepUnitPrice(
-                                                  effectivePricingRules || [],
-                                                  group.service,
-                                                  "Standard",
-                                                  1
-                                                );
-                                                if (calculated?.rate != null && !Number.isNaN(calculated.rate) && calculated.rate > 0) {
-                                                  initialUnitPrice = calculated.rate;
-                                                  initialTotalPrice = calculated.rate;
-                                                }
-                                              }
-
+                                              if (currentShipments.some((s) => s.productId === item.id)) return;
                                               form.setValue(`shipmentGroups.${groupIndex}.shipments`, [
                                                 ...currentShipments,
-                                                {
-                                                  productId: item.id,
-                                                  quantity: 1,
-                                                  packOf: 1,
-                                                  unitPrice: initialUnitPrice,
-                                                  totalPrice: initialTotalPrice,
-                                                  productType: shipmentType === "product" ? ("Standard" as const) : undefined,
-                                                  customDimensions: undefined,
-                                                  selectedAdditionalServices: undefined,
-                                                  sourceInventoryRequestId: item.sourceInventoryRequestId,
-                                                }
+                                                buildShipmentLine(),
                                               ]);
                                             } else {
-                                              const index = currentShipments.findIndex(s => s.productId === item.id);
-                                              if (index !== -1) {
-                                                const updated = [...currentShipments];
-                                                updated.splice(index, 1);
-                                                form.setValue(`shipmentGroups.${groupIndex}.shipments`, updated);
-                                              }
+                                              form.setValue(
+                                                `shipmentGroups.${groupIndex}.shipments`,
+                                                currentShipments.filter((s) => s.productId !== item.id)
+                                              );
                                             }
                                           }}
                                         />
@@ -1645,6 +1680,11 @@ export function CreateShipmentWithLabelsForm({
                                                   Pending inbound
                                                 </Badge>
                                               ) : null}
+                                              {selectedLineCount > 1 ? (
+                                                <Badge variant="secondary" className="text-[10px]">
+                                                  {selectedLineCount} pack lines
+                                                </Badge>
+                                              ) : null}
                                             </span>
                                             <span className="text-xs text-muted-foreground">
                                               SKU: {item.sku || "N/A"} |{" "}
@@ -1654,6 +1694,26 @@ export function CreateShipmentWithLabelsForm({
                                             </span>
                                           </div>
                                         </label>
+                                        {isSelected ? (
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 shrink-0 gap-1 px-2 text-[11px]"
+                                            onClick={() => {
+                                              const currentShipments = form.getValues(
+                                                `shipmentGroups.${groupIndex}.shipments`
+                                              );
+                                              form.setValue(`shipmentGroups.${groupIndex}.shipments`, [
+                                                ...currentShipments,
+                                                buildShipmentLine(),
+                                              ]);
+                                            }}
+                                          >
+                                            <Plus className="h-3 w-3" />
+                                            Pack line
+                                          </Button>
+                                        ) : null}
                                       </div>
                                     );
                                   })
@@ -1663,6 +1723,10 @@ export function CreateShipmentWithLabelsForm({
 
                             <div className="space-y-2">
                               <div className="text-sm font-medium">Selected Product Details</div>
+                              <p className="text-xs text-muted-foreground">
+                                Set qty and pack size per line. Use &quot;Pack line&quot; above to add another pack
+                                config for the same product.
+                              </p>
                               <div className="mouse-both-scroll max-h-[44vh] rounded-md border">
                                 <div className="min-w-[1100px]">
                                   <div className="grid grid-cols-[220px_90px_90px_120px_250px_180px_120px] gap-2 border-b bg-muted/30 px-2 py-2 text-[11px] font-medium text-muted-foreground">
@@ -1713,7 +1777,7 @@ export function CreateShipmentWithLabelsForm({
 
                                       return (
                                         <div
-                                          key={shipment.productId || shipmentIndex}
+                                          key={`${shipment.productId}-${shipmentIndex}`}
                                           className="grid grid-cols-[220px_90px_90px_120px_250px_180px_120px] gap-2 border-b px-2 py-2"
                                         >
                                           <div className="truncate text-xs font-medium">
@@ -1723,6 +1787,9 @@ export function CreateShipmentWithLabelsForm({
                                                 (pre)
                                               </span>
                                             ) : null}
+                                            <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                                              Line {shipmentIndex + 1}
+                                            </span>
                                           </div>
                                           <Input
                                             type="number"
@@ -2030,7 +2097,7 @@ export function CreateShipmentWithLabelsForm({
                                   const lineEditorPopupKey = `${popupKey}_line_${shipmentIndex}_editor`;
                                   return (
                                     <Button
-                                      key={shipment.productId || shipmentIndex}
+                                      key={`${shipment.productId}-${shipmentIndex}`}
                                       type="button"
                                       variant="secondary"
                                       size="sm"
@@ -2043,6 +2110,9 @@ export function CreateShipmentWithLabelsForm({
                                       }
                                     >
                                       {summaryProduct?.productName || "Line item"}
+                                      {groupShipmentType === "product"
+                                        ? ` · pack ${Math.max(1, Number(shipment.packOf) || 1)}`
+                                        : ""}
                                     </Button>
                                   );
                                 })
@@ -2071,7 +2141,7 @@ export function CreateShipmentWithLabelsForm({
                               `Line ${shipmentIndex + 1}`;
                             return (
                               <Button
-                                key={`buy-label-${shipment.productId || shipmentIndex}`}
+                                key={`buy-label-${shipment.productId}-${shipmentIndex}`}
                                 type="button"
                                 variant="outline"
                                 size="sm"
@@ -2116,7 +2186,7 @@ export function CreateShipmentWithLabelsForm({
 
                         return (
                           <div
-                            key={shipment.productId || shipmentIndex}
+                            key={`${shipment.productId}-${shipmentIndex}`}
                             className="shrink-0 rounded-md border bg-muted/20 px-2 py-1"
                           >
                             <div className="mouse-h-scroll">

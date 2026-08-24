@@ -88,6 +88,14 @@ type Props = {
   items: OtherResourcesInventoryRow[];
 };
 
+function storeStatusLabel(status: string | undefined): string {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "out of stock") return "Store · zero qty";
+  if (normalized === "in stock") return "Store · available";
+  if (normalized === "pending") return "Store · pending";
+  return status?.trim() ? `Store · ${status}` : "Store · —";
+}
+
 export function InventoryOtherResourcesSheet({ open, onOpenChange, items }: Props) {
   const [resourceTab, setResourceTab] = useState<ResourceTab>("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -145,14 +153,22 @@ export function InventoryOtherResourcesSheet({ open, onOpenChange, items }: Prop
         side="right"
         className="flex w-full flex-col gap-0 p-0 sm:max-w-xl md:max-w-3xl lg:max-w-4xl"
       >
-        <SheetHeader className="space-y-1 border-b px-6 pb-4 pt-6 pr-14 text-left">
+        <SheetHeader className="space-y-2 border-b px-6 pb-4 pt-6 pr-14 text-left">
           <SheetTitle className="flex items-center gap-2 text-xl tracking-tight">
             <Boxes className="h-5 w-5" />
             Other resources
           </SheetTitle>
           <SheetDescription>
-            Integration products from Shopify, eBay, WooCommerce, and TikTok Shop.
+            Products synced from your Shopify, eBay, WooCommerce, or TikTok Shop account.
           </SheetDescription>
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100">
+            <p className="font-medium">Not PrepCorex warehouse inventory</p>
+            <p className="mt-0.5 text-amber-900/90 dark:text-amber-100/90">
+              These quantities come from your store or marketplace. PrepCorex does not manage or
+              change them. Only Manual / inbound stock in Your Inventory is physically in the
+              warehouse and PrepCorex&apos;s responsibility.
+            </p>
+          </div>
         </SheetHeader>
 
         <div className="flex flex-1 flex-col gap-4 overflow-hidden px-6 py-4">
@@ -195,18 +211,18 @@ export function InventoryOtherResourcesSheet({ open, onOpenChange, items }: Prop
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="space-y-1.5 sm:w-[200px]">
-                <label className="text-xs font-medium text-muted-foreground">Status</label>
+              <div className="space-y-1.5 sm:w-[220px]">
+                <label className="text-xs font-medium text-muted-foreground">Store status</label>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger>
                     <Filter className="mr-2 h-4 w-4 shrink-0" />
-                    <SelectValue placeholder="All statuses" />
+                    <SelectValue placeholder="All store statuses" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All statuses</SelectItem>
-                    <SelectItem value="In Stock">In Stock</SelectItem>
-                    <SelectItem value="Out of Stock">Out of Stock</SelectItem>
-                    <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="all">All store statuses</SelectItem>
+                    <SelectItem value="In Stock">Store · available</SelectItem>
+                    <SelectItem value="Out of Stock">Store · zero qty</SelectItem>
+                    <SelectItem value="Pending">Store · pending</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -221,7 +237,7 @@ export function InventoryOtherResourcesSheet({ open, onOpenChange, items }: Prop
           <div className="min-h-0 flex-1 overflow-auto rounded-md border">
             {filtered.length === 0 ? (
               <p className="p-6 text-center text-sm text-muted-foreground">
-                No other-resource products match your filters.
+                No marketplace sync products match your filters.
               </p>
             ) : (
               <Table>
@@ -230,9 +246,9 @@ export function InventoryOtherResourcesSheet({ open, onOpenChange, items }: Prop
                     <TableHead>Product</TableHead>
                     <TableHead className="hidden md:table-cell">SKU</TableHead>
                     <TableHead>Source</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="hidden sm:table-cell">Status</TableHead>
-                    <TableHead className="hidden lg:table-cell">Added</TableHead>
+                    <TableHead className="text-right">Store qty</TableHead>
+                    <TableHead className="hidden sm:table-cell">Store status</TableHead>
+                    <TableHead className="hidden lg:table-cell">Synced</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -279,8 +295,9 @@ export function InventoryOtherResourcesSheet({ open, onOpenChange, items }: Prop
                             variant={
                               item.status === "Out of Stock" ? "secondary" : "outline"
                             }
+                            title="Marketplace quantity status — not PrepCorex warehouse stock"
                           >
-                            {item.status || "—"}
+                            {storeStatusLabel(item.status)}
                           </Badge>
                         </TableCell>
                         <TableCell className="hidden text-muted-foreground lg:table-cell">

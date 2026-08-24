@@ -55,6 +55,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sparkles } from "lucide-react";
+import { CustomProductPrepRatesPanel } from "@/components/admin/custom-product-prep-rates";
 
 interface PricingManagementProps {
   users: UserProfile[];
@@ -1742,6 +1743,14 @@ export function PricingManagement({ users }: PricingManagementProps) {
                     >
                       Additional Services
                     </TabsTrigger>
+                    {editingCustomProfile && customUserId ? (
+                      <TabsTrigger
+                        value="Product Rates"
+                        className="data-[state=active]:bg-amber-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
+                      >
+                        Product Rates
+                      </TabsTrigger>
+                    ) : null}
                   </TabsList>
                 </div>
                 
@@ -2449,6 +2458,15 @@ export function PricingManagement({ users }: PricingManagementProps) {
                     )}
                   </div>
                 </TabsContent>
+                {editingCustomProfile && customUserId && selectedUser ? (
+                  <TabsContent value="Product Rates" className="mt-4">
+                    <CustomProductPrepRatesPanel
+                      profileId={effectiveProfileId}
+                      clientUserId={customUserId}
+                      clientName={formatUserDisplayName(selectedUser, { showEmail: false })}
+                    />
+                  </TabsContent>
+                ) : null}
               </Tabs>
             )}
           </CardContent>

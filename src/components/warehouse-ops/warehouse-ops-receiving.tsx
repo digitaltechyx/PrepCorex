@@ -704,6 +704,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
               {selectedInbounds.length > 0 &&
               new Set(selectedInbounds.map((row) => row.clientUserId)).size === 1 ? (
                 <WarehouseMobileCameraRecorder
+                  jobType="receive"
                   clientUserId={selectedInbounds[0].clientUserId}
                   clientDisplayName={selectedInbounds[0].clientDisplayName}
                   inventoryRequestIds={selectedInbounds.map((row) => row.id)}

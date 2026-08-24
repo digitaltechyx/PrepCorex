@@ -2153,6 +2153,24 @@ export interface UserPricing {
   createdAt?: unknown;
 }
 
+/**
+ * Per-product prep unit rate overrides on a custom pricing profile.
+ * When set, FBA/FBM outbound lines for that product use this flat unit rate
+ * instead of the profile's volume-tier rates.
+ */
+export interface UserProductPrepRate {
+  id: string;
+  productId: string;
+  productName?: string;
+  sku?: string;
+  /** Flat unit rate for FBA/WFS/TFS (ignores volume tier). */
+  fbaRate?: number | null;
+  /** Flat unit rate for DTC/FBM (ignores volume tier). */
+  fbmRate?: number | null;
+  updatedAt?: unknown;
+  createdAt?: unknown;
+}
+
 export interface UserStoragePricing {
   id: string;
   userId?: string;

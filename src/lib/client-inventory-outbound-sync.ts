@@ -257,6 +257,121 @@ function applyLocationRestore(
   return { newQuantity, newStatus, locationQuantities, nextPrimaryLocationId };
 }
 
+type DeductibleInventoryRow = {
+  shipment: Record<string, unknown>;
+  index: number;
+  productId: string;
+  inventoryRef: ReturnType<typeof doc>;
+  inventorySnap: { data: () => Record<string, unknown> | undefined };
+  totalUnits: number;
+};
+
+/**
+ * Deduct sellable qty for outbound lines, aggregating multiple pack configs of the same product.
+ * Writes one inventory update per productId and a per-line change log.
+ */
+function reserveDeductibleRowsGroupedByProduct(input: {
+  transaction: {
+    update: (ref: ReturnType<typeof doc>, data: Record<string, unknown>) => void;
+    set: (ref: ReturnType<typeof doc>, data: Record<string, unknown>) => void;
+  };
+  clientUserId: string;
+  requestId: string;
+  requestData: Record<string, unknown>;
+  rows: DeductibleInventoryRow[];
+  reservedAt: Timestamp;
+  awaitingShipDetail: string;
+}): string[] {
+  const reservedProductIds: string[] = [];
+  const service = serviceLabelForRequest(input.requestData);
+  const byProduct = new Map<string, DeductibleInventoryRow[]>();
+
+  for (const row of input.rows) {
+    const list = byProduct.get(row.productId) || [];
+    list.push(row);
+    byProduct.set(row.productId, list);
+  }
+
+  for (const productRows of byProduct.values()) {
+    const first = productRows[0];
+    const base = first.inventorySnap.data() as Omit<InventoryItem, "id">;
+    const incomingLocations =
+      (base as InventoryItem & { locationQuantities?: Record<string, number> }).locationQuantities ||
+      {};
+    let working: Omit<InventoryItem, "id"> = {
+      ...base,
+      locationQuantities: { ...incomingLocations },
+    };
+
+    const totalNeeded = productRows.reduce((sum, row) => sum + row.totalUnits, 0);
+    if (working.quantity < totalNeeded) {
+      throw new Error(
+        `Not enough stock for ${working.productName}. Available: ${working.quantity}, Requested: ${totalNeeded}.`
+      );
+    }
+
+    for (const row of productRows) {
+      const selectedSourceLocationId = String(
+        (row.shipment as Record<string, unknown>).sourceLocationId || ""
+      ).trim();
+      const qtyBefore = working.quantity;
+      const applied = applyLocationDeduction(working, row.totalUnits, selectedSourceLocationId);
+      const packOf = effectivePackOfForShipment(input.requestData, row.shipment, row.index);
+      const boxesShipped = shipmentBoxes(row.shipment);
+      const changeLogRef = doc(
+        db,
+        "users",
+        input.clientUserId,
+        "inventoryChangeLogs",
+        `${input.requestId}_${row.productId}_line${row.index}`
+      );
+      input.transaction.set(changeLogRef, {
+        inventoryId: row.productId,
+        productName: working.productName,
+        sku: working.sku ?? null,
+        eventType: "outbound_awaiting_ship",
+        qtyBefore,
+        qtyAfter: applied.newQuantity,
+        qtyChange: -row.totalUnits,
+        shipmentRequestId: input.requestId,
+        shippedId: null,
+        service,
+        shipTo: null,
+        packOf,
+        boxesShipped,
+        details: [
+          outboundPackDetailsLine(boxesShipped, packOf),
+          input.awaitingShipDetail,
+          service ? `Service: ${service}` : "",
+          applied.newStatus === "Out of Stock" ? "Now out of stock" : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        at: input.reservedAt,
+      });
+
+      working = {
+        ...working,
+        quantity: applied.newQuantity,
+        status: applied.newStatus as InventoryItem["status"],
+        locationId: applied.nextPrimaryLocationId,
+        locationQuantities: applied.locationQuantities,
+      };
+    }
+
+    input.transaction.update(first.inventoryRef, {
+      quantity: working.quantity,
+      status: working.status,
+      locationId: working.locationId,
+      locationQuantities: (working as InventoryItem & { locationQuantities?: Record<string, number> })
+        .locationQuantities,
+    });
+    reservedProductIds.push(first.productId);
+  }
+
+  return reservedProductIds;
+}
+
 /**
  * Create a pending outbound request and reserve client sellable inventory immediately.
  * Warehouse cartons/bins are untouched. Prep-only lines skip inventory deduction.
@@ -266,7 +381,7 @@ export async function createOutboundRequestWithClientReserve(input: {
   requestData: Record<string, unknown>;
 }): Promise<{ requestId: string; reservedProductIds: string[] }> {
   const requestRef = doc(collection(db, `users/${input.clientUserId}/shipmentRequests`));
-  const reservedProductIds: string[] = [];
+  let reservedProductIds: string[] = [];
   const reservedAt = Timestamp.now();
 
   await runTransaction(db, async (transaction) => {
@@ -298,67 +413,15 @@ export async function createOutboundRequestWithClientReserve(input: {
       })
     );
 
-    for (const row of inventoryReads) {
-      const currentInventory = row.inventorySnap.data() as Omit<InventoryItem, "id">;
-      if (currentInventory.quantity < row.totalUnits) {
-        throw new Error(
-          `Not enough stock for ${currentInventory.productName}. Available: ${currentInventory.quantity}, Requested: ${row.totalUnits}.`
-        );
-      }
-
-      const selectedSourceLocationId = String(
-        (row.shipment as Record<string, unknown>).sourceLocationId || ""
-      ).trim();
-      const applied = applyLocationDeduction(
-        currentInventory,
-        row.totalUnits,
-        selectedSourceLocationId
-      );
-
-      transaction.update(row.inventoryRef, {
-        quantity: applied.newQuantity,
-        status: applied.newStatus,
-        locationId: applied.nextPrimaryLocationId,
-        locationQuantities: applied.locationQuantities,
-      });
-
-      const changeLogRef = doc(
-        db,
-        "users",
-        input.clientUserId,
-        "inventoryChangeLogs",
-        `${requestRef.id}_${row.productId}`
-      );
-      const service = serviceLabelForRequest(input.requestData);
-      const packOf = effectivePackOfForShipment(input.requestData, row.shipment, row.index);
-      const boxesShipped = shipmentBoxes(row.shipment);
-      transaction.set(changeLogRef, {
-        inventoryId: row.productId,
-        productName: currentInventory.productName,
-        sku: currentInventory.sku ?? null,
-        eventType: "outbound_awaiting_ship",
-        qtyBefore: currentInventory.quantity,
-        qtyAfter: applied.newQuantity,
-        qtyChange: -row.totalUnits,
-        shipmentRequestId: requestRef.id,
-        shippedId: null,
-        service,
-        shipTo: null,
-        packOf,
-        boxesShipped,
-        details: [
-          outboundPackDetailsLine(boxesShipped, packOf),
-          "Outbound awaiting ship",
-          service ? `Service: ${service}` : "",
-          applied.newStatus === "Out of Stock" ? "Now out of stock" : "",
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        at: reservedAt,
-      });
-
-      reservedProductIds.push(row.productId);
-    }
+    reservedProductIds = reserveDeductibleRowsGroupedByProduct({
+      transaction,
+      clientUserId: input.clientUserId,
+      requestId: requestRef.id,
+      requestData: input.requestData,
+      rows: inventoryReads,
+      reservedAt,
+      awaitingShipDetail: "Outbound awaiting ship",
+    });
 
     const requestPayload: Record<string, unknown> = {
       ...input.requestData,
@@ -478,120 +541,90 @@ export async function reserveClientInventoryForExistingOpenOutbound(input: {
       );
 
       const reservedAt = Timestamp.now();
-      const service = serviceLabelForRequest(data);
 
+      reservedProductIds = reserveDeductibleRowsGroupedByProduct({
+        transaction,
+        clientUserId: input.clientUserId,
+        requestId: input.shipmentRequestId,
+        requestData: data,
+        rows: inventoryReads,
+        reservedAt,
+        awaitingShipDetail: "Outbound awaiting ship (legacy open-request reserve)",
+      });
+
+      const hintsByProduct = new Map<string, ShopifyInventorySyncHint>();
       for (const row of inventoryReads) {
-        const currentInventory = row.inventorySnap.data() as Omit<InventoryItem, "id">;
-        if (currentInventory.quantity < row.totalUnits) {
-          throw new Error(
-            `Not enough stock for ${currentInventory.productName}. Available: ${currentInventory.quantity}, Requested: ${row.totalUnits}.`
-          );
-        }
-
-        const selectedSourceLocationId = String(
-          (row.shipment as Record<string, unknown>).sourceLocationId || ""
-        ).trim();
-        const applied = applyLocationDeduction(
-          currentInventory,
-          row.totalUnits,
-          selectedSourceLocationId
-        );
-
-        transaction.update(row.inventoryRef, {
-          quantity: applied.newQuantity,
-          status: applied.newStatus,
-          locationId: applied.nextPrimaryLocationId,
-          locationQuantities: applied.locationQuantities,
-        });
-
-        const changeLogRef = doc(
-          db,
-          "users",
-          input.clientUserId,
-          "inventoryChangeLogs",
-          `${input.shipmentRequestId}_${row.productId}`
-        );
-        const packOf = effectivePackOfForShipment(data, row.shipment, row.index);
-        const boxesShipped = shipmentBoxes(row.shipment);
-        transaction.set(changeLogRef, {
-          inventoryId: row.productId,
-          productName: currentInventory.productName,
-          sku: currentInventory.sku ?? null,
-          eventType: "outbound_awaiting_ship",
-          qtyBefore: currentInventory.quantity,
-          qtyAfter: applied.newQuantity,
-          qtyChange: -row.totalUnits,
-          shipmentRequestId: input.shipmentRequestId,
-          shippedId: null,
-          service,
-          shipTo: null,
-          packOf,
-          boxesShipped,
-          details: [
-            outboundPackDetailsLine(boxesShipped, packOf),
-            "Outbound awaiting ship (legacy open-request reserve)",
-            service ? `Service: ${service}` : "",
-            applied.newStatus === "Out of Stock" ? "Now out of stock" : "",
-          ]
-            .filter(Boolean)
-            .join(" · "),
-          at: reservedAt,
-        });
-
-        reservedProductIds.push(row.productId);
+        if (hintsByProduct.has(row.productId)) continue;
+        const currentInventory = row.inventorySnap.data() as Omit<InventoryItem, "id"> & {
+          shop?: string;
+          shopifyVariantId?: string;
+          shopifyInventoryItemId?: string;
+          source?: string;
+          woocommerceConnectionId?: string;
+          woocommerceProductId?: string;
+          woocommerceVariationId?: string;
+          tiktokConnectionId?: string;
+          tiktokProductId?: string;
+          tiktokSkuId?: string;
+          tiktokShopId?: string;
+          ebayConnectionId?: string;
+          ebayOfferId?: string;
+          ebayListingId?: string;
+        };
+        const totalForProduct = inventoryReads
+          .filter((r) => r.productId === row.productId)
+          .reduce((sum, r) => sum + r.totalUnits, 0);
+        const newQuantity = Math.max(0, Number(currentInventory.quantity) - totalForProduct);
 
         if (
           currentInventory.source === "shopify" &&
           currentInventory.shop &&
           currentInventory.shopifyVariantId
         ) {
-          shopifyHints.push({
+          hintsByProduct.set(row.productId, {
             productId: row.productId,
-            newQuantity: applied.newQuantity,
+            newQuantity,
             source: currentInventory.source,
             shop: currentInventory.shop,
             shopifyVariantId: currentInventory.shopifyVariantId,
             shopifyInventoryItemId: currentInventory.shopifyInventoryItemId,
           });
-        }
-        if (
+        } else if (
           currentInventory.source === "woocommerce" &&
           currentInventory.woocommerceConnectionId &&
           currentInventory.woocommerceProductId
         ) {
-          shopifyHints.push({
+          hintsByProduct.set(row.productId, {
             productId: row.productId,
-            newQuantity: applied.newQuantity,
+            newQuantity,
             source: currentInventory.source,
             woocommerceConnectionId: currentInventory.woocommerceConnectionId,
             woocommerceProductId: currentInventory.woocommerceProductId,
             woocommerceVariationId: currentInventory.woocommerceVariationId,
           });
-        }
-        if (
+        } else if (
           currentInventory.source === "tiktok" &&
           currentInventory.tiktokProductId &&
           currentInventory.tiktokSkuId &&
           (currentInventory.tiktokConnectionId || currentInventory.tiktokShopId)
         ) {
-          shopifyHints.push({
+          hintsByProduct.set(row.productId, {
             productId: row.productId,
-            newQuantity: applied.newQuantity,
+            newQuantity,
             source: currentInventory.source,
             tiktokConnectionId: currentInventory.tiktokConnectionId,
             tiktokProductId: currentInventory.tiktokProductId,
             tiktokSkuId: currentInventory.tiktokSkuId,
             tiktokShopId: currentInventory.tiktokShopId,
           });
-        }
-        if (
+        } else if (
           currentInventory.source === "ebay" &&
           currentInventory.ebayConnectionId &&
           (currentInventory.ebayOfferId || currentInventory.ebayListingId)
         ) {
-          shopifyHints.push({
+          hintsByProduct.set(row.productId, {
             productId: row.productId,
-            newQuantity: applied.newQuantity,
+            newQuantity,
             source: currentInventory.source,
             ebayConnectionId: currentInventory.ebayConnectionId,
             ebayOfferId: currentInventory.ebayOfferId,
@@ -599,6 +632,7 @@ export async function reserveClientInventoryForExistingOpenOutbound(input: {
           });
         }
       }
+      shopifyHints.push(...hintsByProduct.values());
 
       transaction.update(requestRef, {
         clientInventoryDeductionTiming: "create",
@@ -725,59 +759,83 @@ export async function restoreClientInventoryForOutboundRequest(input: {
 
     const restoredAt = Timestamp.now();
     const service = serviceLabelForRequest(data);
+    const validRows = inventoryReads.filter(
+      (row): row is NonNullable<(typeof inventoryReads)[number]> => Boolean(row)
+    );
+    const byProduct = new Map<string, typeof validRows>();
+    for (const row of validRows) {
+      const list = byProduct.get(row.productId) || [];
+      list.push(row);
+      byProduct.set(row.productId, list);
+    }
 
-    for (const row of inventoryReads) {
-      if (!row) continue;
-      const currentInventory = row.inventorySnap.data() as Omit<InventoryItem, "id">;
-      const selectedSourceLocationId = String(
-        (row.shipment as Record<string, unknown>).sourceLocationId || ""
-      ).trim();
-      const applied = applyLocationRestore(
-        currentInventory,
-        row.totalUnits,
-        selectedSourceLocationId
-      );
+    for (const productRows of byProduct.values()) {
+      const first = productRows[0];
+      const base = first.inventorySnap.data() as Omit<InventoryItem, "id">;
+      const incomingLocations =
+        (base as InventoryItem & { locationQuantities?: Record<string, number> }).locationQuantities ||
+        {};
+      let working: Omit<InventoryItem, "id"> = {
+        ...base,
+        locationQuantities: { ...incomingLocations },
+      };
 
-      transaction.update(row.inventoryRef, {
-        quantity: applied.newQuantity,
-        status: applied.newStatus,
-        locationId: applied.nextPrimaryLocationId,
-        locationQuantities: applied.locationQuantities,
+      for (const row of productRows) {
+        const selectedSourceLocationId = String(
+          (row.shipment as Record<string, unknown>).sourceLocationId || ""
+        ).trim();
+        const qtyBefore = working.quantity;
+        const applied = applyLocationRestore(working, row.totalUnits, selectedSourceLocationId);
+        const changeLogRef = doc(
+          db,
+          "users",
+          input.clientUserId,
+          "inventoryChangeLogs",
+          `${input.shipmentRequestId}_${row.productId}_line${row.index}_restored`
+        );
+        transaction.set(changeLogRef, {
+          inventoryId: row.productId,
+          productName: working.productName,
+          sku: working.sku ?? null,
+          eventType: "outbound_restored",
+          qtyBefore,
+          qtyAfter: applied.newQuantity,
+          qtyChange: row.totalUnits,
+          shipmentRequestId: input.shipmentRequestId,
+          shippedId: null,
+          service,
+          shipTo: null,
+          details: [
+            "Outbound cancelled — stock restored",
+            input.reason ? `Reason: ${input.reason}` : "",
+            service ? `Service: ${service}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          at: restoredAt,
+        });
+        working = {
+          ...working,
+          quantity: applied.newQuantity,
+          status: applied.newStatus as InventoryItem["status"],
+          locationId: applied.nextPrimaryLocationId,
+          locationQuantities: applied.locationQuantities,
+        };
+      }
+
+      transaction.update(first.inventoryRef, {
+        quantity: working.quantity,
+        status: working.status,
+        locationId: working.locationId,
+        locationQuantities: (working as InventoryItem & { locationQuantities?: Record<string, number> })
+          .locationQuantities,
       });
 
-      const changeLogRef = doc(
-        db,
-        "users",
-        input.clientUserId,
-        "inventoryChangeLogs",
-        `${input.shipmentRequestId}_${row.productId}_restored`
-      );
-      transaction.set(changeLogRef, {
-        inventoryId: row.productId,
-        productName: currentInventory.productName,
-        sku: currentInventory.sku ?? null,
-        eventType: "outbound_restored",
-        qtyBefore: currentInventory.quantity,
-        qtyAfter: applied.newQuantity,
-        qtyChange: row.totalUnits,
-        shipmentRequestId: input.shipmentRequestId,
-        shippedId: null,
-        service,
-        shipTo: null,
-        details: [
-          "Outbound cancelled — stock restored",
-          input.reason ? `Reason: ${input.reason}` : "",
-          service ? `Service: ${service}` : "",
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        at: restoredAt,
-      });
-
+      const currentInventory = base;
       if (currentInventory.source === "shopify" && currentInventory.shop && currentInventory.shopifyVariantId) {
         shopifyHints.push({
-          productId: row.productId,
-          newQuantity: applied.newQuantity,
+          productId: first.productId,
+          newQuantity: working.quantity,
           source: currentInventory.source,
           shop: currentInventory.shop,
           shopifyVariantId: currentInventory.shopifyVariantId,
@@ -790,8 +848,8 @@ export async function restoreClientInventoryForOutboundRequest(input: {
         currentInventory.woocommerceProductId
       ) {
         shopifyHints.push({
-          productId: row.productId,
-          newQuantity: applied.newQuantity,
+          productId: first.productId,
+          newQuantity: working.quantity,
           source: currentInventory.source,
           woocommerceConnectionId: currentInventory.woocommerceConnectionId,
           woocommerceProductId: currentInventory.woocommerceProductId,
@@ -805,8 +863,8 @@ export async function restoreClientInventoryForOutboundRequest(input: {
         (currentInventory.tiktokConnectionId || currentInventory.tiktokShopId)
       ) {
         shopifyHints.push({
-          productId: row.productId,
-          newQuantity: applied.newQuantity,
+          productId: first.productId,
+          newQuantity: working.quantity,
           source: currentInventory.source,
           tiktokConnectionId: currentInventory.tiktokConnectionId,
           tiktokProductId: currentInventory.tiktokProductId,
@@ -820,8 +878,8 @@ export async function restoreClientInventoryForOutboundRequest(input: {
         (currentInventory.ebayOfferId || currentInventory.ebayListingId)
       ) {
         shopifyHints.push({
-          productId: row.productId,
-          newQuantity: applied.newQuantity,
+          productId: first.productId,
+          newQuantity: working.quantity,
           source: currentInventory.source,
           ebayConnectionId: currentInventory.ebayConnectionId,
           ebayOfferId: currentInventory.ebayOfferId,

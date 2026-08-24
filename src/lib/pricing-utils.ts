@@ -1,4 +1,4 @@
-import type { UserPricing, ServiceType, ProductType } from "@/types";
+import type { UserPricing, UserProductPrepRate, ServiceType, ProductType } from "@/types";
 import { isDtcFbmService, servicesMatch } from "@/types";
 
 const DEFAULT_FBA_RATES: Record<string, number> = {
@@ -134,6 +134,48 @@ export function calculatePrepUnitPrice(
   }
 
   return resolveRuleRate(latestRule.rate, defaultRateMap, expectedRange, productType);
+}
+
+/**
+ * Resolve prep unit price for a shipment line.
+ * Product-specific custom-profile overrides (flat FBA/FBM rates) win over volume tiers.
+ */
+export function resolvePrepUnitPrice(input: {
+  pricingRules: UserPricing[];
+  productPrepRates?: UserProductPrepRate[] | null;
+  productId?: string | null;
+  service: ServiceType;
+  productType: ProductType;
+  totalUnits: number;
+}): { rate: number; source: "product_override" | "profile_tier" } | null {
+  const productId = String(input.productId || "").trim();
+  if (productId && input.productPrepRates?.length) {
+    const override = input.productPrepRates.find(
+      (row) => String(row.productId || row.id || "").trim() === productId
+    );
+    if (override) {
+      if (input.service === "FBA/WFS/TFS") {
+        const rate = Number(override.fbaRate);
+        if (Number.isFinite(rate) && rate >= 0) {
+          return { rate, source: "product_override" };
+        }
+      } else if (isDtcFbmService(input.service)) {
+        const rate = Number(override.fbmRate);
+        if (Number.isFinite(rate) && rate >= 0) {
+          return { rate, source: "product_override" };
+        }
+      }
+    }
+  }
+
+  const tier = calculatePrepUnitPrice(
+    input.pricingRules,
+    input.service,
+    input.productType,
+    input.totalUnits
+  );
+  if (!tier) return null;
+  return { rate: tier.rate, source: "profile_tier" };
 }
 
 function resolveRuleRate(

@@ -48,7 +48,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
   if (!result.auth.canOperate) {
-    return NextResponse.json({ error: "Warehouse receiving access required" }, { status: 403 });
+    return NextResponse.json({ error: "Warehouse camera access required" }, { status: 403 });
   }
 
   const { sessionId } = await context.params;
