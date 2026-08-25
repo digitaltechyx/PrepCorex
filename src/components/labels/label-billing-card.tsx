@@ -184,7 +184,7 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
       toast({
         variant: "destructive",
         title: "Billing load warning",
-        description: error instanceof Error ? error.message : "Using default $50 monthly limit.",
+        description: error instanceof Error ? error.message : "Using default $20 monthly limit.",
       });
     } finally {
       setLoading(false);

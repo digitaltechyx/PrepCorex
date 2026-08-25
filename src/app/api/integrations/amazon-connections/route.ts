@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { fetchAmazonSellerProfile, refreshAmazonAccessToken } from "@/lib/amazon-sp-api";
 
 export const dynamic = "force-dynamic";
 
@@ -49,18 +50,40 @@ export async function GET(request: NextRequest) {
       .doc(uid)
       .collection("amazonConnections")
       .get();
-    const list = snapshot.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        connectedAt: data.connectedAt,
-        environment: data.environment ?? "sandbox",
-        sellingPartnerId: data.sellingPartnerId ?? null,
-        marketplaceRegion: data.marketplaceRegion ?? "NA",
-        selectedAsinKeys: Array.isArray(data.selectedAsinKeys) ? data.selectedAsinKeys : [],
-        marketplaces: Array.isArray(data.marketplaces) ? data.marketplaces : [],
-      };
-    });
+    const list = await Promise.all(
+      snapshot.docs.map(async (d) => {
+        const data = d.data();
+        let storeName = typeof data.storeName === "string" ? data.storeName.trim() : "";
+        let marketplaces = Array.isArray(data.marketplaces) ? data.marketplaces : [];
+        const refreshToken = String(data.refreshToken ?? "").trim();
+        if (!storeName && refreshToken) {
+          try {
+            const tokens = await refreshAmazonAccessToken(refreshToken);
+            const profile = await fetchAmazonSellerProfile(tokens.access_token);
+            storeName = profile.storeName || "";
+            if (profile.marketplaces.length > 0) marketplaces = profile.marketplaces;
+            if (storeName || profile.marketplaces.length > 0) {
+              await d.ref.update({
+                ...(storeName ? { storeName } : {}),
+                ...(profile.marketplaces.length > 0 ? { marketplaces: profile.marketplaces } : {}),
+              });
+            }
+          } catch {
+            // Keep listing the connection even if the name lookup fails.
+          }
+        }
+        return {
+          id: d.id,
+          connectedAt: data.connectedAt,
+          environment: data.environment ?? "production",
+          sellingPartnerId: data.sellingPartnerId ?? null,
+          storeName: storeName || null,
+          marketplaceRegion: data.marketplaceRegion ?? "NA",
+          selectedAsinKeys: Array.isArray(data.selectedAsinKeys) ? data.selectedAsinKeys : [],
+          marketplaces,
+        };
+      })
+    );
     return NextResponse.json({ connections: list });
   } catch (err: unknown) {
     console.error("[amazon-connections GET]", err);

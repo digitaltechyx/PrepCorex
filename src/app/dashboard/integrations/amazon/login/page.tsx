@@ -54,7 +54,7 @@ export default function AmazonLoginPage() {
       if (ourState) {
         url.searchParams.set("state", ourState);
       }
-      if (version === "beta" || !version) {
+      if (version === "beta") {
         url.searchParams.set("version", "beta");
       }
       if (sellingPartnerId) {

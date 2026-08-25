@@ -54,7 +54,7 @@ export async function GET(request: Request) {
   try {
     const url = buildAmazonConsentUrl({
       state,
-      versionBeta: true, // Draft / sandbox app authorization
+      versionBeta: isAmazonSpApiSandbox(),
     });
 
     const res = NextResponse.json({

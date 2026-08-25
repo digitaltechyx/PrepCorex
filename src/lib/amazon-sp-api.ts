@@ -224,3 +224,82 @@ export async function amazonSpApiGet<T = unknown>(input: {
   const data = (await res.json().catch(() => ({}))) as T | Record<string, unknown>;
   return { ok: res.ok, status: res.status, data };
 }
+
+export type AmazonMarketplaceSummary = {
+  id: string | null;
+  name: string | null;
+  countryCode: string | null;
+};
+
+export type AmazonSellerProfile = {
+  storeName: string | null;
+  marketplaces: AmazonMarketplaceSummary[];
+};
+
+function payloadRecord(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== "object") return {};
+  const root = data as Record<string, unknown>;
+  if (root.payload && typeof root.payload === "object") {
+    return root.payload as Record<string, unknown>;
+  }
+  return root;
+}
+
+function parseMarketplaceRows(rows: unknown): AmazonMarketplaceSummary[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => {
+      const rec = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
+      const marketplace =
+        rec.marketplace && typeof rec.marketplace === "object"
+          ? (rec.marketplace as Record<string, unknown>)
+          : rec;
+      const id = marketplace.id != null ? String(marketplace.id) : "";
+      if (!id) return null;
+      return {
+        id,
+        name: marketplace.name != null ? String(marketplace.name) : null,
+        countryCode: marketplace.countryCode != null ? String(marketplace.countryCode) : null,
+      };
+    })
+    .filter((row): row is AmazonMarketplaceSummary => Boolean(row));
+}
+
+/** Store name + marketplaces for the connected selling partner. */
+export async function fetchAmazonSellerProfile(
+  accessToken: string
+): Promise<AmazonSellerProfile> {
+  const account = await amazonSpApiGet({
+    path: "/sellers/v1/account",
+    accessToken,
+  });
+  const accountPayload = payloadRecord(account.data);
+  const fromAccount = parseMarketplaceRows(
+    accountPayload.marketplaceParticipationList ?? accountPayload.payload
+  );
+  const storeNameRaw =
+    typeof accountPayload.storeName === "string" ? accountPayload.storeName.trim() : "";
+
+  let marketplaces = fromAccount;
+  if (marketplaces.length === 0) {
+    const participations = await amazonSpApiGet({
+      path: "/sellers/v1/marketplaceParticipations",
+      accessToken,
+    });
+    const partPayload = payloadRecord(participations.data);
+    marketplaces = parseMarketplaceRows(
+      (participations.data as { payload?: unknown })?.payload ??
+        partPayload.marketplaceParticipationList
+    );
+  }
+
+  const marketplaceLabel = marketplaces
+    .map((m) => m.name || m.countryCode)
+    .filter(Boolean)
+    .join(", ");
+
+  return {
+    storeName: storeNameRaw || marketplaceLabel || null,
+    marketplaces,
+  };
+}

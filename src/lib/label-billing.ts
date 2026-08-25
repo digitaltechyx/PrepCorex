@@ -5,7 +5,7 @@ import type {
   LabelBillingSettings,
 } from "@/types";
 
-export const LABEL_BILLING_DEFAULT_LIMIT_CENTS = 5000; // $50
+export const LABEL_BILLING_DEFAULT_LIMIT_CENTS = 2000; // $20
 export const LABEL_BILLING_DEFAULT_PERIOD: LabelBillingPeriod = "monthly";
 /** Default Buy Labels rate markup ($0.15). */
 export const LABEL_BILLING_DEFAULT_MARKUP_CENTS = 15;

@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import {
   decodeAmazonOAuthState,
   exchangeAmazonAuthorizationCode,
+  fetchAmazonSellerProfile,
   getAmazonRedirectUri,
   isAmazonSpApiSandbox,
 } from "@/lib/amazon-sp-api";
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest) {
     const tokens = await exchangeAmazonAuthorizationCode({ code, redirectUri });
     const now = new Date();
     const expiresIn = tokens.expires_in || 3600;
+    const profile = await fetchAmazonSellerProfile(tokens.access_token);
 
     const db = adminDb();
     const col = db.collection("users").doc(uid).collection("amazonConnections");
@@ -70,6 +72,8 @@ export async function POST(request: NextRequest) {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       sellingPartnerId: sellingPartnerId || null,
+      storeName: profile.storeName,
+      marketplaces: profile.marketplaces,
       connectedAt: { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 },
       expiresAt: {
         seconds: Math.floor(now.getTime() / 1000) + expiresIn,

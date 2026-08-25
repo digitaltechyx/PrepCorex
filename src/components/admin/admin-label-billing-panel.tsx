@@ -170,7 +170,7 @@ export function AdminLabelBillingPanel() {
       <CardHeader>
         <CardTitle>Label billing settings</CardTitle>
         <CardDescription>
-          Default is a $50 monthly purchase limit, $0.15 rate markup, and both Shippo + PrepCorex GOFO
+          Default is a $20 monthly purchase limit, $0.15 rate markup, and both Shippo + PrepCorex GOFO
           rates. Adjust billing, markup, couriers, and optional API fee per client.
         </CardDescription>
       </CardHeader>
