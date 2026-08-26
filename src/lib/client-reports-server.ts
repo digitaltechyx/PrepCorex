@@ -20,15 +20,16 @@ import {
 } from "@/lib/label-savings-benchmarks";
 import { loadLabelSavingsBenchmarks } from "@/lib/label-savings-benchmarks-server";
 import {
-  classifyPrepFamilyFromInvoice,
   classifyPrepFamilyFromShipped,
-  classifyPrepSavingsFamilyFromParts,
   estimateReturnPrepMarket,
   estimateShippedPrepMarket,
-  isPrepSavingsInvoice,
-  type PrepSavingsFamily,
 } from "@/lib/prep-savings-benchmarks";
 import { loadPrepSavingsBenchmarks } from "@/lib/prep-savings-benchmarks-server";
+import {
+  estimateReturnPrepProfile,
+  estimateShippedPrepProfile,
+  loadUserPrepPricingContext,
+} from "@/lib/user-prep-pricing-server";
 import type {
   ClientReportInventoryRow,
   ClientReportInvoiceRow,
@@ -63,27 +64,6 @@ function shippedUnits(data: Record<string, unknown>): number {
 
 function isoOrNull(ms: number): string | null {
   return ms > 0 ? new Date(ms).toISOString() : null;
-}
-
-function invoiceLineAmount(item: Record<string, unknown>): number {
-  const amount = Number(item.amount);
-  if (Number.isFinite(amount) && amount > 0) return amount;
-  const qty = Number(item.quantity) || 0;
-  const unitPrice = Number(item.unitPrice) || 0;
-  const product = qty * unitPrice;
-  return Number.isFinite(product) && product > 0 ? product : 0;
-}
-
-function isPaidInvoice(data: Record<string, unknown>): boolean {
-  return String(data.status || "").trim().toLowerCase() === "paid";
-}
-
-function prepItemsSubtotal(data: Record<string, unknown>): number {
-  const items = Array.isArray(data.items) ? data.items : [];
-  return items.reduce((sum, raw) => {
-    const item = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-    return sum + invoiceLineAmount(item);
-  }, 0);
 }
 
 function buildActivityBuckets(from: Date, to: Date, allTime: boolean) {
@@ -148,6 +128,7 @@ export async function buildClientReport(
     labelsSnap,
     benchmarks,
     prepBenchmarks,
+    prepPricing,
   ] = await Promise.all([
     userRef.collection("inventory").get(),
     userRef.collection("inventoryRequests").get(),
@@ -158,6 +139,7 @@ export async function buildClientReport(
     userRef.collection("labelPurchases").get(),
     loadLabelSavingsBenchmarks(),
     loadPrepSavingsBenchmarks(),
+    loadUserPrepPricingContext(uid),
   ]);
 
   let currentOnHand = 0;
@@ -234,14 +216,12 @@ export async function buildClientReport(
   let estimatedPrepFbm = 0;
   let estimatedPrepCrossdock = 0;
   let estimatedPrepReturns = 0;
-  const shippedFamilyById = new Map<string, PrepSavingsFamily>();
-  const shippedServiceById = new Map<string, string>();
+  let profilePrepFba = 0;
+  let profilePrepFbm = 0;
+  let profilePrepCrossdock = 0;
+  let profilePrepReturns = 0;
   for (const doc of shippedSnap.docs) {
     const data = doc.data() as Record<string, unknown>;
-    const service = String(data.service || "").trim();
-    if (service) shippedServiceById.set(doc.id, service);
-    const family = classifyPrepFamilyFromShipped(data);
-    shippedFamilyById.set(doc.id, family);
 
     const ms = pickReportDateMs(data, ["date", "createdAt", "dispatchedAt"]);
     if (!ms || !isInReportRange(new Date(ms), from, to, allTime)) continue;
@@ -261,19 +241,23 @@ export async function buildClientReport(
     const bucket = activityBuckets.get(key);
     if (bucket) bucket.shipped += qty;
 
-    const estimated = estimateShippedPrepMarket(data, prepBenchmarks);
-    if (!estimated) continue;
+    const market = estimateShippedPrepMarket(data, prepBenchmarks);
+    const profile = estimateShippedPrepProfile(data, prepPricing, prepBenchmarks);
+    if (!market) continue;
 
-    prepUnitCount += estimated.unitCount;
-    if (estimated.family === "fba") {
-      prepFbaUnitCount += estimated.unitCount;
-      estimatedPrepFba += estimated.estimated;
-    } else if (estimated.family === "crossdock") {
-      prepCrossdockUnitCount += estimated.unitCount;
-      estimatedPrepCrossdock += estimated.estimated;
-    } else if (estimated.family === "fbm") {
-      prepFbmUnitCount += estimated.unitCount;
-      estimatedPrepFbm += estimated.estimated;
+    prepUnitCount += market.unitCount;
+    if (market.family === "fba") {
+      prepFbaUnitCount += market.unitCount;
+      estimatedPrepFba += market.estimated;
+      profilePrepFba += profile?.estimated ?? 0;
+    } else if (market.family === "crossdock") {
+      prepCrossdockUnitCount += market.unitCount;
+      estimatedPrepCrossdock += market.estimated;
+      profilePrepCrossdock += profile?.estimated ?? 0;
+    } else if (market.family === "fbm") {
+      prepFbmUnitCount += market.unitCount;
+      estimatedPrepFbm += market.estimated;
+      profilePrepFbm += profile?.estimated ?? 0;
     }
   }
 
@@ -290,10 +274,12 @@ export async function buildClientReport(
       Math.max(0, Math.floor(Number(data.requestedQuantity) || 0));
     unitsReturned += qty;
     if (qty > 0) {
-      const returnEstimate = estimateReturnPrepMarket(qty, prepBenchmarks);
-      prepReturnsUnitCount += returnEstimate.unitCount;
-      prepUnitCount += returnEstimate.unitCount;
-      estimatedPrepReturns += returnEstimate.estimated;
+      const market = estimateReturnPrepMarket(qty, prepBenchmarks);
+      const profile = estimateReturnPrepProfile(data, qty, prepPricing, prepBenchmarks);
+      prepReturnsUnitCount += market.unitCount;
+      prepUnitCount += market.unitCount;
+      estimatedPrepReturns += market.estimated;
+      profilePrepReturns += profile.estimated;
     }
   }
 
@@ -307,10 +293,6 @@ export async function buildClientReport(
   }
 
   const invoices: ClientReportInvoiceRow[] = [];
-  let paidPrepFba = 0;
-  let paidPrepFbm = 0;
-  let paidPrepCrossdock = 0;
-  let paidPrepReturns = 0;
   for (const doc of invoicesSnap.docs) {
     const data = doc.data() as Record<string, unknown>;
     const ms = pickInvoiceDateMs(data);
@@ -324,55 +306,6 @@ export async function buildClientReport(
       subtotal: Number(data.subtotal) || 0,
       grandTotal,
     });
-
-    const invoiceFamily = classifyPrepFamilyFromInvoice(data);
-    if (invoiceFamily == null) continue;
-    if (!isPaidInvoice(data)) continue;
-
-    const items = Array.isArray(data.items) ? data.items : [];
-    const paidByFamily: Record<PrepSavingsFamily, number> = {
-      fba: 0,
-      fbm: 0,
-      crossdock: 0,
-      returns: 0,
-    };
-    for (const raw of items) {
-      const item =
-        raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-      const paid = invoiceLineAmount(item);
-      if (paid <= 0) continue;
-      const shipmentId = String(item.shipmentId || "").trim();
-      const family =
-        (shipmentId ? shippedFamilyById.get(shipmentId) : undefined) ??
-        classifyPrepSavingsFamilyFromParts(
-          shipmentId ? shippedServiceById.get(shipmentId) : "",
-          item.productName,
-          item.shipTo,
-          item.packaging,
-          data.fbm,
-          data.service,
-          data.type
-        );
-      paidByFamily[family] += paid;
-    }
-
-    const linePaid = Object.values(paidByFamily).reduce((sum, n) => sum + n, 0);
-    if (linePaid > 0) {
-      paidPrepFba += paidByFamily.fba;
-      paidPrepFbm += paidByFamily.fbm;
-      paidPrepCrossdock += paidByFamily.crossdock;
-      paidPrepReturns += paidByFamily.returns;
-    } else {
-      const itemsSubtotal = prepItemsSubtotal(data);
-      const fallbackSubtotal = Number(data.subtotal) || 0;
-      const prepOnly = itemsSubtotal > 0 ? itemsSubtotal : fallbackSubtotal;
-      if (prepOnly > 0) {
-        if (invoiceFamily === "fba") paidPrepFba += prepOnly;
-        else if (invoiceFamily === "crossdock") paidPrepCrossdock += prepOnly;
-        else if (invoiceFamily === "returns") paidPrepReturns += prepOnly;
-        else paidPrepFbm += prepOnly;
-      }
-    }
   }
   invoices.sort((a, b) => reportToMs(b.date) - reportToMs(a.date));
 
@@ -504,17 +437,19 @@ export async function buildClientReport(
       rows: labelRows,
       prep: {
         benchmarks: prepBenchmarks,
+        profileId: prepPricing.profileId,
+        profileLabel: prepPricing.profileLabel,
         unitCount: prepUnitCount,
         fbaUnitCount: prepFbaUnitCount,
         fbmUnitCount: prepFbmUnitCount,
         crossdockUnitCount: prepCrossdockUnitCount,
         returnsUnitCount: prepReturnsUnitCount,
-        paidFba: Math.round(paidPrepFba * 100) / 100,
-        paidFbm: Math.round(paidPrepFbm * 100) / 100,
-        paidCrossdock: Math.round(paidPrepCrossdock * 100) / 100,
-        paidReturns: Math.round(paidPrepReturns * 100) / 100,
+        paidFba: Math.round(profilePrepFba * 100) / 100,
+        paidFbm: Math.round(profilePrepFbm * 100) / 100,
+        paidCrossdock: Math.round(profilePrepCrossdock * 100) / 100,
+        paidReturns: Math.round(profilePrepReturns * 100) / 100,
         paidTotal: Math.round(
-          (paidPrepFba + paidPrepFbm + paidPrepCrossdock + paidPrepReturns) * 100
+          (profilePrepFba + profilePrepFbm + profilePrepCrossdock + profilePrepReturns) * 100
         ) / 100,
         estimatedFba: Math.round(estimatedPrepFba * 100) / 100,
         estimatedFbm: Math.round(estimatedPrepFbm * 100) / 100,
@@ -535,10 +470,10 @@ export async function buildClientReport(
                 estimatedPrepFbm +
                 estimatedPrepCrossdock +
                 estimatedPrepReturns -
-                paidPrepFba -
-                paidPrepFbm -
-                paidPrepCrossdock -
-                paidPrepReturns
+                profilePrepFba -
+                profilePrepFbm -
+                profilePrepCrossdock -
+                profilePrepReturns
             ) * 100
           ) / 100,
       },

@@ -63,7 +63,7 @@ const shippingValueChartConfig = {
 } satisfies ChartConfig;
 
 const prepValueChartConfig = {
-  paid: { label: "You paid", color: "hsl(215 16% 47%)" },
+  paid: { label: "Your PrepCorex rate", color: "hsl(215 16% 47%)" },
   save: { label: "Est. save", color: "hsl(262 83% 58%)" },
   market: { label: "Typical 3PL", color: "hsl(262 60% 78%)" },
 } satisfies ChartConfig;
@@ -296,7 +296,7 @@ export function ClientReportsDashboard() {
     if (!summary) return [];
     const p = summary.savings.prep;
     const rows = [
-      { name: "You paid", amount: p.paidTotal },
+      { name: "Your PrepCorex rate", amount: p.paidTotal },
       { name: "Typical 3PL (est.)", amount: p.estimatedMarket },
     ];
     if (p.fbaUnitCount > 0) {
@@ -363,7 +363,7 @@ export function ClientReportsDashboard() {
       prepChartData: [
         {
           key: "paid",
-          name: "You paid",
+          name: "Your PrepCorex rate",
           amount: prepPaid,
           fill: "hsl(215 16% 47%)",
         },
@@ -713,9 +713,9 @@ export function ClientReportsDashboard() {
               <CardHeader>
                 <CardTitle className="text-base">Estimated savings vs typical 3PL prep rates</CardTitle>
                 <CardDescription>
-                  Prep line items on paid invoices in this period vs typical 3PL market rates.
-                  Add-on services, admin charges, and unpaid invoices are excluded from prep paid
-                  totals.
+                  Units prepped in this period × your assigned{" "}
+                  {summary.savings.prep.profileLabel} pricing table, compared with typical 3PL
+                  market rates. Invoice add-ons and extras are not included.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -725,9 +725,9 @@ export function ClientReportsDashboard() {
                   icon={<Scissors className="h-4 w-4" />}
                 />
                 <StatCard
-                  title="You paid on prep"
+                  title="Your PrepCorex rate (est.)"
                   value={money(summary.savings.prep.paidTotal)}
-                  hint={`${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"} · prep lines on paid invoices only`}
+                  hint={`${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"} · ${summary.savings.prep.profileLabel} pricing table`}
                   icon={<Receipt className="h-4 w-4" />}
                 />
                 <StatCard
@@ -785,10 +785,10 @@ export function ClientReportsDashboard() {
             {summary.savings.prep.unitCount > 0 || summary.savings.prep.paidTotal > 0 ? (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Paid vs typical 3PL prep totals</CardTitle>
+                  <CardTitle className="text-base">Your rate vs typical 3PL prep totals</CardTitle>
                   <CardDescription>
-                    Lowest total is green, highest is red. Your estimated prep save is the gap vs
-                    typical 3PL market rates on the same units.
+                    Green is lower cost. Your PrepCorex estimate uses your {summary.savings.prep.profileLabel}{" "}
+                    profile rates; typical 3PL uses admin market benchmarks on the same units.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
