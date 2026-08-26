@@ -39,6 +39,7 @@ import {
   type WarehouseQcCondition,
   type WarehouseQcUnitType,
 } from "@/lib/warehouse-pack";
+import { cancelConfirmedOutboundAtWarehouse } from "@/lib/warehouse-outbound-ops";
 import {
   completeCrossdockDispatch,
   findCrossdockUnitByScan,
@@ -143,6 +144,7 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
   const [qcUnitType, setQcUnitType] = useState<WarehouseQcUnitType>("package");
   const [qcCondition, setQcCondition] = useState<WarehouseQcCondition | null>(null);
   const [qcRemarks, setQcRemarks] = useState("");
+  const [cancellingOutbound, setCancellingOutbound] = useState(false);
 
   const [crossdockUnitScan, setCrossdockUnitScan] = useState("");
   const [crossdockCourierScan, setCrossdockCourierScan] = useState("");
@@ -584,6 +586,60 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
     }
   }
 
+  async function handleCancelConfirmedOutbound(order?: OutboundPackOrder | null) {
+    const target = order ?? matchedOrder;
+    if (!target) return;
+    if (!operatorId) {
+      toast({ title: "Sign in required", variant: "destructive" });
+      return;
+    }
+    const reason = window.prompt(
+      "Cancel this outbound? Enter reason (required). Restores client inventory and warehouse stock.",
+      ""
+    );
+    if (reason == null) return;
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      toast({
+        title: "Reason required",
+        description: "Enter a cancellation reason to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCancellingOutbound(true);
+    try {
+      await cancelConfirmedOutboundAtWarehouse({
+        clientUserId: target.clientUserId,
+        shipmentRequestId: target.id,
+        warehouseId: warehouse.id,
+        cancelledBy: String(operatorId),
+        reason: trimmed,
+      });
+      toast({
+        title: "Outbound cancelled",
+        description: `${target.clientDisplayName} — inventory restored.`,
+      });
+      if (
+        matchedOrder &&
+        matchedOrder.id === target.id &&
+        matchedOrder.clientUserId === target.clientUserId
+      ) {
+        clearMatch();
+      }
+    } catch (e) {
+      toast({
+        title: "Cancel failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setCancellingOutbound(false);
+      scanInputRef.current?.focus();
+    }
+  }
+
   function clearMatch() {
     setMatchedOrder(null);
     setLastScanValue("");
@@ -877,6 +933,22 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                   </Button>
                 )}
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full text-destructive"
+                disabled={confirming || cancellingOutbound}
+                onClick={() => void handleCancelConfirmedOutbound()}
+              >
+                {cancellingOutbound ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    Cancelling…
+                  </>
+                ) : (
+                  "Cancel outbound"
+                )}
+              </Button>
             </div>
           ) : null}
         </CardContent>
@@ -932,6 +1004,16 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                       </div>
                       <Badge className="shrink-0 bg-emerald-600">Ready</Badge>
                     </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="mt-2 h-8 text-xs text-destructive"
+                      disabled={cancellingOutbound || confirming}
+                      onClick={() => void handleCancelConfirmedOutbound(order)}
+                    >
+                      Cancel outbound
+                    </Button>
                   </div>
                 );
               })}

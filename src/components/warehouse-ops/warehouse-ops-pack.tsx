@@ -49,6 +49,7 @@ import {
   type FbaAwaitingLabelOrder,
 } from "@/lib/fba-shipment-workflow";
 import { formatOutboundLineLabel } from "@/lib/warehouse-outbound-lines";
+import { cancelConfirmedOutboundAtWarehouse } from "@/lib/warehouse-outbound-ops";
 import { FbaPackDimsForm } from "@/components/warehouse-ops/fba-master-case-form";
 import type { WarehouseDoc } from "@/types";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
@@ -140,6 +141,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   const [saving, setSaving] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [courierResolving, setCourierResolving] = useState(false);
+  const [cancellingOutbound, setCancellingOutbound] = useState(false);
 
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const courierScanInputRef = useRef<HTMLInputElement | null>(null);
@@ -338,6 +340,51 @@ export function WarehouseOpsPack({ warehouse }: Props) {
     setLabelScan("");
     setCourierScan("");
     setCourierPreview(null);
+  }
+
+  async function handleCancelConfirmedOutbound(order: OutboundPackOrder) {
+    if (!operatorId) {
+      toast({ title: "Sign in required", variant: "destructive" });
+      return;
+    }
+    const reason = window.prompt(
+      "Cancel this outbound? Enter reason (required). Restores client inventory and reverses pick/pack stock.",
+      ""
+    );
+    if (reason == null) return;
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      toast({
+        title: "Reason required",
+        description: "Enter a cancellation reason to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCancellingOutbound(true);
+    try {
+      await cancelConfirmedOutboundAtWarehouse({
+        clientUserId: order.clientUserId,
+        shipmentRequestId: order.id,
+        warehouseId: warehouse.id,
+        cancelledBy: String(operatorId),
+        reason: trimmed,
+      });
+      toast({
+        title: "Outbound cancelled",
+        description: `${order.clientDisplayName} — inventory restored.`,
+      });
+      resetToQueue();
+    } catch (e) {
+      toast({
+        title: "Cancel failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setCancellingOutbound(false);
+    }
   }
 
   async function handleConfirmLoose(item: PackPlanItem) {
@@ -1080,6 +1127,22 @@ export function WarehouseOpsPack({ warehouse }: Props) {
             {selectedOrder.lines.map((l) => formatOutboundLineLabel(l)).join(" · ")}
           </CardDescription>
         </CardHeader>
+        <CardContent className="pt-0 pb-3">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="text-destructive"
+            disabled={cancellingOutbound || saving}
+            onClick={() => void handleCancelConfirmedOutbound(selectedOrder)}
+          >
+            {cancellingOutbound ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              "Cancel outbound"
+            )}
+          </Button>
+        </CardContent>
         {selectedOrder.qcRemarks ? (
           <CardContent className="pt-0">
             <div className="flex gap-2 rounded-lg border border-red-300/60 bg-red-50/80 dark:bg-red-950/20 px-3 py-2 text-sm text-red-800 dark:text-red-300">

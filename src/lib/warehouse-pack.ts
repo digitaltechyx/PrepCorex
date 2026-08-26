@@ -287,7 +287,10 @@ async function restorePackStockFromSnapshot(input: {
   snapshot: PackStockSnapshotEntry[];
   operatorId?: string | null;
   batch: ReturnType<typeof writeBatch>;
+  /** Defaults to dispatch QC return. */
+  movementType?: string;
 }): Promise<void> {
+  const movementType = input.movementType?.trim() || "dispatch_qc_return";
   for (const entry of input.snapshot) {
     const carton = await getWarehouseCarton(input.warehouseId, entry.cartonId);
     if (!carton) continue;
@@ -318,7 +321,7 @@ async function restorePackStockFromSnapshot(input: {
 
     const eventsRef = collection(db, WAREHOUSES, input.warehouseId, "movementEvents");
     input.batch.set(doc(eventsRef), {
-      type: "dispatch_qc_return",
+      type: movementType,
       shipmentRequestId: input.shipmentRequestId,
       clientUserId: input.clientUserId,
       cartonId: entry.cartonId,
@@ -328,6 +331,46 @@ async function restorePackStockFromSnapshot(input: {
       at: serverTimestamp(),
     });
   }
+}
+
+/**
+ * If pack already removed stock for ready-to-dispatch, put those lines back on cartons
+ * (still marked picked). Caller should then reverse picks. No-op before pack-out.
+ */
+export async function restoreWarehouseStockForOutboundCancel(input: {
+  warehouseId: string;
+  clientUserId: string;
+  shipmentRequestId: string;
+  operatorId?: string | null;
+}): Promise<void> {
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Shipment request not found.");
+
+  const data = snap.data() as Record<string, unknown>;
+  if (dispatchStatusFromRequest(data) === "dispatched") {
+    throw new Error("This order was already dispatched — cancel is not available.");
+  }
+  if (packStatusFromRequest(data) !== "ready_to_dispatch") return;
+
+  const snapshot = packStockSnapshotFromRequest(data);
+  if (snapshot.length === 0) {
+    throw new Error(
+      "No pack stock snapshot on this order — cannot restore warehouse stock for cancel."
+    );
+  }
+
+  const batch = writeBatch(db);
+  await restorePackStockFromSnapshot({
+    warehouseId: input.warehouseId,
+    clientUserId: input.clientUserId,
+    shipmentRequestId: input.shipmentRequestId,
+    snapshot,
+    operatorId: input.operatorId,
+    batch,
+    movementType: "outbound_cancel_restore",
+  });
+  await batch.commit();
 }
 
 function verifiedKeysFromRequest(data: Record<string, unknown>): string[] {

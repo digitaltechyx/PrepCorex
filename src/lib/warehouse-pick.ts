@@ -925,3 +925,127 @@ function resolvePickTarget(
     )
   )[0];
 }
+
+type PickReverseEvent = {
+  cartonId: string;
+  lineId: string;
+};
+
+async function loadPickReverseEvents(
+  warehouseId: string,
+  shipmentRequestId: string
+): Promise<PickReverseEvent[]> {
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, WAREHOUSES, warehouseId, "movementEvents"),
+        where("type", "==", "pick"),
+        where("shipmentRequestId", "==", shipmentRequestId)
+      )
+    );
+    return snap.docs.map((d) => {
+      const data = d.data() as Record<string, unknown>;
+      return {
+        cartonId: String(data.cartonId ?? "").trim(),
+        lineId: String(data.lineId ?? "").trim(),
+      };
+    });
+  } catch {
+    const snap = await getDocs(
+      query(collection(db, WAREHOUSES, warehouseId, "movementEvents"), where("type", "==", "pick"))
+    );
+    return snap.docs
+      .filter((d) => String(d.data().shipmentRequestId ?? "") === shipmentRequestId)
+      .map((d) => {
+        const data = d.data() as Record<string, unknown>;
+        return {
+          cartonId: String(data.cartonId ?? "").trim(),
+          lineId: String(data.lineId ?? "").trim(),
+        };
+      });
+  }
+}
+
+/**
+ * Undo floor picks for a shipment: mark picked carton lines as unallocated again.
+ * No-op when there are no pick events (approved but not yet picked).
+ */
+export async function reverseWarehousePicksForShipment(input: {
+  warehouseId: string;
+  clientUserId: string;
+  shipmentRequestId: string;
+  operatorId?: string | null;
+}): Promise<void> {
+  const events = await loadPickReverseEvents(input.warehouseId, input.shipmentRequestId);
+  const byCarton = new Map<string, Set<string>>();
+  for (const e of events) {
+    if (!e.cartonId || !e.lineId) continue;
+    const set = byCarton.get(e.cartonId) ?? new Set<string>();
+    set.add(e.lineId);
+    byCarton.set(e.cartonId, set);
+  }
+  if (byCarton.size === 0) return;
+
+  const batch = writeBatch(db);
+  let reversedLineCount = 0;
+
+  for (const [cartonId, lineIds] of byCarton) {
+    const carton = await getWarehouseCarton(input.warehouseId, cartonId);
+    if (!carton) continue;
+
+    const baseLines =
+      carton.lines && carton.lines.length > 0
+        ? carton.lines
+        : [
+            {
+              lineId: "L1",
+              sku: carton.sku,
+              quantity: carton.quantity,
+              lot: carton.lot ?? null,
+              expiry: carton.expiry ?? null,
+              condition: (carton.status === "damaged" ? "damaged" : "good") as
+                | "good"
+                | "damaged",
+              binId: carton.binId ?? null,
+              allocationStatus: "unallocated" as const,
+              clientId: carton.clientId ?? null,
+            } satisfies WarehouseCartonLine,
+          ];
+
+    const restoredIds: string[] = [];
+    const nextLines = baseLines.map((line) => {
+      if (!lineIds.has(line.lineId) || line.allocationStatus !== "picked") return line;
+      restoredIds.push(line.lineId);
+      return {
+        ...line,
+        allocationStatus: "unallocated" as const,
+      };
+    });
+
+    if (restoredIds.length === 0) continue;
+    reversedLineCount += restoredIds.length;
+
+    const { status, binId } = rollCartonBinStateFromLines(carton, nextLines);
+    batch.update(warehouseCartonDocRef(input.warehouseId, carton.id), {
+      lines: linesToFirestorePayload(nextLines),
+      status,
+      binId,
+      updatedAt: serverTimestamp(),
+    });
+
+    const eventsRef = collection(db, WAREHOUSES, input.warehouseId, "movementEvents");
+    batch.set(doc(eventsRef), {
+      type: "outbound_cancel_unpick",
+      shipmentRequestId: input.shipmentRequestId,
+      clientUserId: input.clientUserId,
+      cartonId: carton.id,
+      cartonCode: carton.cartonCode,
+      lineIds: restoredIds,
+      operatorId: input.operatorId ?? null,
+      at: serverTimestamp(),
+    });
+  }
+
+  if (reversedLineCount === 0) return;
+  await batch.commit();
+}

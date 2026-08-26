@@ -46,6 +46,7 @@ import {
   type PickTaskStep,
 } from "@/lib/warehouse-pick";
 import {
+  cancelConfirmedOutboundAtWarehouse,
   confirmOutboundRequestAtPick,
   rejectOutboundRequestAtPick,
   type PendingOutboundRequest,
@@ -191,6 +192,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   const [resolvingBin, setResolvingBin] = useState(false);
   const [resolvingCarton, setResolvingCarton] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  const [cancellingKey, setCancellingKey] = useState<string | null>(null);
 
   const binInputRef = useRef<HTMLInputElement | null>(null);
   const searchParams = useSearchParams();
@@ -439,6 +441,54 @@ export function WarehouseOpsPick({ warehouse }: Props) {
       });
     } finally {
       setDismissing(false);
+    }
+  }
+
+  async function handleCancelConfirmed(order: OutboundPickOrder) {
+    if (!operatorId) {
+      toast({ title: "Sign in required", variant: "destructive" });
+      return;
+    }
+    const reason = window.prompt(
+      "Cancel this outbound? Enter reason (required). Restores client inventory and reverses any picks.",
+      ""
+    );
+    if (reason == null) return;
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      toast({
+        title: "Reason required",
+        description: "Enter a cancellation reason to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const key = `${order.clientUserId}:${order.id}`;
+    setCancellingKey(key);
+    try {
+      await cancelConfirmedOutboundAtWarehouse({
+        clientUserId: order.clientUserId,
+        shipmentRequestId: order.id,
+        warehouseId: warehouse.id,
+        cancelledBy: String(operatorId),
+        reason: trimmed,
+      });
+      toast({
+        title: "Outbound cancelled",
+        description: `${order.clientDisplayName} — inventory restored.`,
+      });
+      if (selectedOrder?.id === order.id && selectedOrder.clientUserId === order.clientUserId) {
+        resetToQueue();
+      }
+    } catch (e) {
+      toast({
+        title: "Cancel failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setCancellingKey(null);
     }
   }
 
@@ -919,51 +969,73 @@ export function WarehouseOpsPick({ warehouse }: Props) {
               </p>
             ) : (
               <div className="space-y-2">
-                {filteredReady.map((order) => (
+                {filteredReady.map((order) => {
+                  const rowKey = `${order.clientUserId}:${order.id}`;
+                  const cancelling = cancellingKey === rowKey;
+                  return (
                   <div
-                    key={`${order.clientUserId}:${order.id}`}
-                    className="flex gap-1 rounded-lg border overflow-hidden"
+                    key={rowKey}
+                    className="rounded-lg border overflow-hidden"
                   >
-                    <button
-                      type="button"
-                      onClick={() => void selectOrder(order)}
-                      className="flex-1 text-left px-3 py-3 hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex justify-between gap-2 items-start">
-                        <div>
-                          <p className="font-semibold text-sm">{order.clientDisplayName}</p>
-                          {order.shipTo ? (
-                            <p className="text-xs text-muted-foreground mt-0.5">{order.shipTo}</p>
-                          ) : null}
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {order.lines.map((l) => formatOutboundLineLabel(l)).join(" · ")}
-                          </p>
-                          {formatQueueDate(order.confirmedAt) ? (
-                            <p className="text-[10px] text-muted-foreground mt-1">
-                              Confirmed {formatQueueDate(order.confirmedAt)}
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void selectOrder(order)}
+                        className="flex-1 text-left px-3 py-3 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex justify-between gap-2 items-start">
+                          <div>
+                            <p className="font-semibold text-sm">{order.clientDisplayName}</p>
+                            {order.shipTo ? (
+                              <p className="text-xs text-muted-foreground mt-0.5">{order.shipTo}</p>
+                            ) : null}
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {order.lines.map((l) => formatOutboundLineLabel(l)).join(" · ")}
                             </p>
-                          ) : null}
+                            {formatQueueDate(order.confirmedAt) ? (
+                              <p className="text-[10px] text-muted-foreground mt-1">
+                                Confirmed {formatQueueDate(order.confirmedAt)}
+                              </p>
+                            ) : null}
+                          </div>
+                          <Badge variant="outline" className="shrink-0 capitalize">
+                            {order.warehousePickStatus}
+                          </Badge>
                         </div>
-                        <Badge variant="outline" className="shrink-0 capitalize">
-                          {order.warehousePickStatus}
-                        </Badge>
-                      </div>
-                    </button>
-                    {canDismissFromQueue ? (
+                      </button>
+                      {canDismissFromQueue ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 rounded-none border-l h-auto"
+                          disabled={dismissing || cancelling}
+                          title="Remove from pick queue (keep confirmed)"
+                          onClick={() => void handleSkipOrder(order)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="border-t px-3 py-2 bg-muted/20">
                       <Button
                         type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="shrink-0 rounded-none border-l h-auto"
-                        disabled={dismissing}
-                        title="Remove from pick queue"
-                        onClick={() => void handleSkipOrder(order)}
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive h-8 text-xs"
+                        disabled={cancelling || dismissing}
+                        onClick={() => void handleCancelConfirmed(order)}
                       >
-                        <X className="h-4 w-4" />
+                        {cancelling ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          "Cancel outbound"
+                        )}
                       </Button>
-                    ) : null}
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
@@ -999,7 +1071,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
             {selectedOrder.lines.map((l) => formatOutboundLineLabel(l)).join(" · ")}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           {loadingPlan ? (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : plan ? (
@@ -1014,6 +1086,22 @@ export function WarehouseOpsPick({ warehouse }: Props) {
               ) : null}
             </div>
           ) : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="text-destructive"
+            disabled={
+              cancellingKey === `${selectedOrder.clientUserId}:${selectedOrder.id}` || dismissing
+            }
+            onClick={() => void handleCancelConfirmed(selectedOrder)}
+          >
+            {cancellingKey === `${selectedOrder.clientUserId}:${selectedOrder.id}` ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              "Cancel outbound"
+            )}
+          </Button>
         </CardContent>
       </Card>
 

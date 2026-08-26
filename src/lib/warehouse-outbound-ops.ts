@@ -5,6 +5,7 @@ import {
   serverTimestamp,
   Timestamp,
   updateDoc,
+  deleteField,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
@@ -318,6 +319,93 @@ export async function rejectOutboundRequestAtPick(input: {
   await restoreClientInventoryForOutboundRequest({
     clientUserId: input.clientUserId,
     shipmentRequestId: input.shipmentRequestId,
+    reason,
+  });
+}
+
+/**
+ * Full cancel for a confirmed outbound before carrier dispatch.
+ * Restores pack snapshot (if ready to dispatch), reverses warehouse picks, cancels the
+ * request, and restores reserved client inventory.
+ */
+export async function cancelConfirmedOutboundAtWarehouse(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+  warehouseId: string;
+  cancelledBy: string;
+  reason: string;
+}): Promise<void> {
+  const clientUserId = input.clientUserId.trim();
+  const shipmentRequestId = input.shipmentRequestId.trim();
+  const warehouseId = input.warehouseId.trim();
+  const reason = input.reason.trim();
+  if (!clientUserId || !shipmentRequestId) throw new Error("Missing client or request.");
+  if (!warehouseId) throw new Error("Warehouse is required.");
+  if (!input.cancelledBy.trim()) throw new Error("Sign in required to cancel.");
+  if (!reason) throw new Error("Cancellation reason is required.");
+
+  const { reverseWarehousePicksForShipment } = await import("@/lib/warehouse-pick");
+  const { restoreWarehouseStockForOutboundCancel } = await import("@/lib/warehouse-pack");
+
+  const requestRef = doc(db, `users/${clientUserId}/shipmentRequests`, shipmentRequestId);
+  const snap = await getDoc(requestRef);
+  if (!snap.exists()) throw new Error("Shipment request not found.");
+  const data = snap.data() as Record<string, unknown>;
+  const status = normOutboundStatus(data.status);
+
+  if (status === "cancelled" || status === "rejected") return;
+  if (status !== "confirmed") {
+    throw new Error(
+      `Only approved (confirmed) outbounds can be cancelled here (current: ${status || "unknown"}).`
+    );
+  }
+
+  const dispatchStatus = String(data.warehouseDispatchStatus ?? "")
+    .trim()
+    .toLowerCase();
+  if (dispatchStatus === "dispatched") {
+    throw new Error("This order was already dispatched — cancel is not available.");
+  }
+
+  await restoreWarehouseStockForOutboundCancel({
+    warehouseId,
+    clientUserId,
+    shipmentRequestId,
+    operatorId: input.cancelledBy,
+  });
+
+  await reverseWarehousePicksForShipment({
+    warehouseId,
+    clientUserId,
+    shipmentRequestId,
+    operatorId: input.cancelledBy,
+  });
+
+  await updateDoc(requestRef, {
+    status: "cancelled",
+    cancelledAt: serverTimestamp(),
+    cancelledBy: input.cancelledBy,
+    cancellationReason: reason,
+    warehousePickStatus: "skipped",
+    warehousePickSkipReason: `Cancelled: ${reason}`,
+    warehousePickSkippedAt: serverTimestamp(),
+    warehousePickSkippedBy: input.cancelledBy,
+    warehousePackStatus: deleteField(),
+    warehouseDispatchStatus: deleteField(),
+    warehouseReadyToDispatchAt: deleteField(),
+    warehousePackedBy: deleteField(),
+    warehousePackVerifiedKeys: deleteField(),
+    warehouseCourierTracking: deleteField(),
+    warehousePackCourierVerifiedAt: deleteField(),
+    warehousePackStockSnapshot: deleteField(),
+    warehousePickedAt: deleteField(),
+    warehousePickedBy: deleteField(),
+    updatedAt: serverTimestamp(),
+  });
+
+  await restoreClientInventoryForOutboundRequest({
+    clientUserId,
+    shipmentRequestId,
     reason,
   });
 }
