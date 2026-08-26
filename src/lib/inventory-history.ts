@@ -128,12 +128,15 @@ function formatHistoryBy(user: string, event: string): string {
   return "PSF Operations";
 }
 
-/** Outbound Details column: "qty 4 pack of 12" (packs × pack size), not remarks. */
+/** Outbound Details column: "qty 4 pack of 12" plus request id when present. */
 function formatOutboundShipmentDetails(input: {
   units?: number | null;
   packOf?: number | null;
   boxesShipped?: number | null;
   fallbackText?: string | null;
+  shipmentRequestId?: string | null;
+  /** Optional cancel reason for restore rows. */
+  cancelReason?: string | null;
 }): string {
   const packOfRaw = Number(input.packOf);
   const boxesRaw = Number(input.boxesShipped);
@@ -144,21 +147,42 @@ function formatOutboundShipmentDetails(input: {
   const boxesShipped =
     Number.isFinite(boxesRaw) && boxesRaw > 0 ? Math.floor(boxesRaw) : null;
 
+  let base = "";
   if (packOf != null && boxesShipped != null) {
-    return `qty ${boxesShipped} pack of ${packOf}`;
-  }
-  if (packOf != null && unitsRaw > 0) {
+    base = `qty ${boxesShipped} pack of ${packOf}`;
+  } else if (packOf != null && unitsRaw > 0) {
     const packCount = Math.max(1, Math.round(unitsRaw / packOf));
-    return `qty ${packCount} pack of ${packOf}`;
+    base = `qty ${packCount} pack of ${packOf}`;
+  } else if (boxesShipped != null) {
+    base = `qty ${boxesShipped} pack of 1`;
+  } else if (unitsRaw > 0) {
+    base = `qty ${unitsRaw} pack of 1`;
+  } else {
+    base = String(input.fallbackText ?? "").trim();
   }
-  if (boxesShipped != null) {
-    return `qty ${boxesShipped} pack of 1`;
+
+  const parts: string[] = [];
+  if (base) parts.push(base);
+
+  const requestId = String(input.shipmentRequestId ?? "").trim();
+  if (requestId) {
+    // Same id on awaiting-ship and cancel-restore so identical qtys can be matched.
+    parts.push(`Request ${requestId}`);
   }
-  if (unitsRaw > 0) {
-    return `qty ${unitsRaw} pack of 1`;
+
+  const reason = String(input.cancelReason ?? "").trim();
+  if (reason) {
+    parts.push(reason.toLowerCase().startsWith("reason:") ? reason : `Reason: ${reason}`);
   }
-  const fallback = String(input.fallbackText ?? "").trim();
-  return fallback || "—";
+
+  return parts.length > 0 ? parts.join(" · ") : "—";
+}
+
+function cancelReasonFromChangeLogDetails(details: string | null | undefined): string | null {
+  const text = String(details ?? "");
+  const match = text.match(/(?:^|·)\s*Reason:\s*([^·]+)/i);
+  const reason = match?.[1]?.trim();
+  return reason || null;
 }
 
 function parsePackOfFromText(text: string | null | undefined): number | null {
@@ -442,6 +466,11 @@ export function buildInventoryHistory(
         packOf,
         boxesShipped,
         fallbackText: log.details,
+        shipmentRequestId: log.shipmentRequestId,
+        cancelReason:
+          log.eventType === "outbound_restored"
+            ? cancelReasonFromChangeLogDetails(log.details)
+            : null,
       });
     })();
 

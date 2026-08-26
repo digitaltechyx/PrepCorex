@@ -588,7 +588,10 @@ function HistoryTable({ rows }: { rows: InventoryHistoryRow[] }) {
                     <TableCell className="text-xs text-right tabular-nums font-semibold py-2">
                       {formatQtyCell(r.qtyAfter)}
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[220px] py-2">
+                    <TableCell
+                      className="text-xs text-muted-foreground max-w-[280px] py-2 break-words"
+                      title={r.details || undefined}
+                    >
                       {r.details || "—"}
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap py-2">{r.user}</TableCell>
