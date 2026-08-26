@@ -16,7 +16,8 @@ export default function ClientReportsPage() {
                 Reports
               </CardTitle>
               <CardDescription className="mt-2 text-slate-200">
-                Account overview, inventory snapshot, invoices, estimated shipping savings, and prep savings
+                See how much you save on labels and prep — plus inventory, invoices, and detailed
+                savings breakdowns
               </CardDescription>
             </div>
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm">

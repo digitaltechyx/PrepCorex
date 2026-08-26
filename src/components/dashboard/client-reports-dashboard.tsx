@@ -10,11 +10,9 @@ import {
   PiggyBank,
   Receipt,
   Truck,
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  RotateCcw,
-  Trash2,
   Scissors,
+  TrendingDown,
+  TrendingUp,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -241,6 +239,40 @@ export function ClientReportsDashboard() {
     return withRankedBarFills(rows);
   }, [summary]);
 
+  const valueOverview = useMemo(() => {
+    if (!summary) return null;
+    const shippingSaved = summary.savings.savedOnShipping;
+    const prepSaved = summary.savings.prep.savedOnPrep;
+    const shippingPaid = summary.savings.paidTotal;
+    const prepPaid = summary.savings.prep.paidTotal;
+    const totalSaved = Math.round((shippingSaved + prepSaved) * 100) / 100;
+    const totalPaid = Math.round((shippingPaid + prepPaid) * 100) / 100;
+    const marketTotal = Math.round((totalPaid + totalSaved) * 100) / 100;
+    const savingsPercent =
+      marketTotal > 0 ? Math.round((totalSaved / marketTotal) * 100) : 0;
+    const valueMix = withRankedBarFills([
+      { name: "Label save", amount: shippingSaved },
+      { name: "Prep save", amount: prepSaved },
+    ]);
+    return {
+      shippingSaved,
+      prepSaved,
+      shippingPaid,
+      prepPaid,
+      shippingMarket: Math.round((shippingPaid + shippingSaved) * 100) / 100,
+      prepMarket: Math.round((prepPaid + prepSaved) * 100) / 100,
+      totalSaved,
+      totalPaid,
+      marketTotal,
+      savingsPercent,
+      valueMix,
+      labelCount: summary.savings.labelCount,
+      prepUnits: summary.savings.prep.unitCount,
+      unitsShipped: summary.overview.unitsShipped,
+      unitsReceived: summary.overview.unitsReceived,
+    };
+  }, [summary]);
+
   function handleExport() {
     if (!summary) return;
     const csv = buildClientReportCsv(summary, tab);
@@ -320,84 +352,204 @@ export function ClientReportsDashboard() {
           </p>
 
           <TabsContent value="overview" className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard
-                title="Your est. save on shipping"
-                value={money(summary.savings.savedOnShipping)}
-                hint={`Estimated save · ${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"}`}
-                icon={<PiggyBank className="h-4 w-4" />}
-              />
-              <StatCard
-                title="You paid for shipping"
-                value={money(summary.savings.paidTotal)}
-                hint={`${summary.savings.labelCount} label${summary.savings.labelCount === 1 ? "" : "s"}`}
-                icon={<Truck className="h-4 w-4" />}
-              />
-              <StatCard
-                title="Your est. save on prep"
-                value={money(summary.savings.prep.savedOnPrep)}
-                hint={`Estimated save · ${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"}`}
-                icon={<Scissors className="h-4 w-4" />}
-              />
-              <StatCard
-                title="You paid for prep"
-                value={money(summary.savings.prep.paidTotal)}
-                hint={`${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"}`}
-                icon={<Receipt className="h-4 w-4" />}
-              />
-              <StatCard
-                title="Received"
-                value={summary.overview.unitsReceived}
-                icon={<ArrowDownToLine className="h-4 w-4" />}
-              />
-              <StatCard
-                title="Shipped"
-                value={summary.overview.unitsShipped}
-                icon={<ArrowUpFromLine className="h-4 w-4" />}
-              />
-              <StatCard
-                title="Invoices billed"
-                value={money(summary.overview.invoicesBilled)}
-                hint={`${summary.overview.pendingCount} pending · ${money(summary.overview.invoicesPending)}`}
-                icon={<Receipt className="h-4 w-4" />}
-              />
-              <StatCard
-                title="Returns"
-                value={summary.overview.unitsReturned}
-                hint={`${summary.overview.returnsHandled} closed`}
-                icon={<RotateCcw className="h-4 w-4" />}
-              />
-              <StatCard
-                title="Disposed"
-                value={summary.overview.unitsDisposed}
-                icon={<Trash2 className="h-4 w-4" />}
-              />
-              <StatCard
-                title="Paid invoices"
-                value={money(summary.overview.invoicesPaid)}
-                hint={`${summary.overview.paidCount} paid`}
-                icon={<Receipt className="h-4 w-4" />}
-              />
-            </div>
-            {summary.charts.activityByDay.length > 0 ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Received vs shipped</CardTitle>
-                  <CardDescription>Units in the selected period</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ChartContainer config={activityChartConfig} className="h-[260px] w-full">
-                    <BarChart data={summary.charts.activityByDay}>
-                      <CartesianGrid vertical={false} />
-                      <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={12} />
-                      <YAxis tickLine={false} axisLine={false} fontSize={12} allowDecimals={false} />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="received" fill="var(--color-received)" radius={4} />
-                      <Bar dataKey="shipped" fill="var(--color-shipped)" radius={4} />
-                    </BarChart>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
+            {valueOverview ? (
+              <>
+                <div className="overflow-hidden rounded-2xl border border-slate-800 bg-[#071a3d] text-white shadow-lg">
+                  <div className="flex flex-col gap-6 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">
+                    <div className="min-w-0 space-y-2">
+                      <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-orange-300">
+                        <TrendingDown className="h-3.5 w-3.5" />
+                        Your estimated value
+                      </p>
+                      <p className="text-sm text-slate-300">
+                        What you saved vs typical courier and 3PL prep rates in this period
+                      </p>
+                      <p className="font-headline text-4xl font-bold tabular-nums tracking-tight sm:text-5xl">
+                        {money(valueOverview.totalSaved)}
+                      </p>
+                      <p className="text-sm text-emerald-300">
+                        {valueOverview.marketTotal > 0
+                          ? `About ${valueOverview.savingsPercent}% below typical market totals`
+                          : "Buy labels and prep to start tracking savings here"}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        Paid with PrepCorex {money(valueOverview.totalPaid)}
+                        {valueOverview.marketTotal > 0
+                          ? ` · Typical market ${money(valueOverview.marketTotal)}`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="flex h-28 w-28 shrink-0 items-center justify-center self-start rounded-full border-[7px] border-orange-500 bg-white/5 text-center shadow-[0_0_35px_rgba(249,115,22,.25)] sm:self-center">
+                      <span>
+                        <span className="block text-2xl font-bold tabular-nums">
+                          {valueOverview.savingsPercent}%
+                        </span>
+                        <span className="block text-[9px] uppercase tracking-wide text-slate-300">
+                          saved
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <Card className="border-orange-200/80 bg-orange-50/30 dark:border-orange-900 dark:bg-orange-950/15">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Truck className="h-4 w-4 text-orange-600" />
+                        Label shipping value
+                      </CardTitle>
+                      <CardDescription>
+                        {valueOverview.labelCount} label
+                        {valueOverview.labelCount === 1 ? "" : "s"} vs typical USPS / UPS / FedEx
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-xl border bg-background/80 p-3">
+                          <p className="text-[11px] font-medium text-muted-foreground">
+                            You paid
+                          </p>
+                          <p className="mt-1 text-xl font-bold tabular-nums">
+                            {money(valueOverview.shippingPaid)}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-orange-200 bg-orange-50/80 p-3 dark:border-orange-800 dark:bg-orange-950/40">
+                          <p className="text-[11px] font-medium text-orange-700 dark:text-orange-300">
+                            Est. save
+                          </p>
+                          <p className="mt-1 text-xl font-bold tabular-nums text-orange-700 dark:text-orange-300">
+                            {money(valueOverview.shippingSaved)}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Typical courier total ~{money(valueOverview.shippingMarket)}
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-violet-200/80 bg-violet-50/30 dark:border-violet-900 dark:bg-violet-950/15">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Scissors className="h-4 w-4 text-violet-600" />
+                        Prep value
+                      </CardTitle>
+                      <CardDescription>
+                        {valueOverview.prepUnits} unit
+                        {valueOverview.prepUnits === 1 ? "" : "s"} vs typical 3PL prep rates
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-xl border bg-background/80 p-3">
+                          <p className="text-[11px] font-medium text-muted-foreground">
+                            You paid
+                          </p>
+                          <p className="mt-1 text-xl font-bold tabular-nums">
+                            {money(valueOverview.prepPaid)}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-violet-200 bg-violet-50/80 p-3 dark:border-violet-800 dark:bg-violet-950/40">
+                          <p className="text-[11px] font-medium text-violet-700 dark:text-violet-300">
+                            Est. save
+                          </p>
+                          <p className="mt-1 text-xl font-bold tabular-nums text-violet-700 dark:text-violet-300">
+                            {money(valueOverview.prepSaved)}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Typical 3PL total ~{money(valueOverview.prepMarket)}
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {valueOverview.totalSaved > 0 ? (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <PiggyBank className="h-4 w-4" />
+                        Where your savings come from
+                      </CardTitle>
+                      <CardDescription>
+                        Estimated dollars saved on labels vs prep in this period
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <RankedAmountBarChart data={valueOverview.valueMix} />
+                    </CardContent>
+                  </Card>
+                ) : null}
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <TrendingUp className="h-4 w-4" />
+                      Activity growth
+                    </CardTitle>
+                    <CardDescription>
+                      Throughput in this period — full inventory and invoice lists are on their own
+                      tabs
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-2 sm:grid-cols-4">
+                      <div className="rounded-xl border bg-muted/30 px-3 py-2.5">
+                        <p className="text-[11px] text-muted-foreground">Labels bought</p>
+                        <p className="text-lg font-semibold tabular-nums">
+                          {valueOverview.labelCount}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-muted/30 px-3 py-2.5">
+                        <p className="text-[11px] text-muted-foreground">Units prepped</p>
+                        <p className="text-lg font-semibold tabular-nums">
+                          {valueOverview.prepUnits}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-muted/30 px-3 py-2.5">
+                        <p className="text-[11px] text-muted-foreground">Received</p>
+                        <p className="text-lg font-semibold tabular-nums">
+                          {valueOverview.unitsReceived}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border bg-muted/30 px-3 py-2.5">
+                        <p className="text-[11px] text-muted-foreground">Shipped</p>
+                        <p className="text-lg font-semibold tabular-nums">
+                          {valueOverview.unitsShipped}
+                        </p>
+                      </div>
+                    </div>
+                    {summary.charts.activityByDay.length > 0 ? (
+                      <ChartContainer config={activityChartConfig} className="h-[240px] w-full">
+                        <BarChart data={summary.charts.activityByDay}>
+                          <CartesianGrid vertical={false} />
+                          <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={12} />
+                          <YAxis
+                            tickLine={false}
+                            axisLine={false}
+                            fontSize={12}
+                            allowDecimals={false}
+                          />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Bar dataKey="received" fill="var(--color-received)" radius={4} />
+                          <Bar dataKey="shipped" fill="var(--color-shipped)" radius={4} />
+                        </BarChart>
+                      </ChartContainer>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No receive/ship activity in this period yet.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Savings are estimates vs approximate courier and typical 3PL prep benchmarks — not
+                  live carrier quotes. Open the Savings tab for full rate cards and label detail.
+                </p>
+              </>
             ) : null}
           </TabsContent>
 
