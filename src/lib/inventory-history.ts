@@ -35,6 +35,8 @@ export interface InventoryHistoryRow {
   qtyAfter: number | null;
   details: string;
   user: string;
+  /** Present for outbound reserve/restore/dispatch change-log rows. */
+  shipmentRequestId?: string | null;
 }
 
 export type InventoryHistorySources = {
@@ -76,6 +78,13 @@ type RawEvent = {
   qtyAfter?: number | null;
   details: string;
   user: string;
+  /** Links reserve / restore / dispatch rows for the same outbound request. */
+  shipmentRequestId?: string | null;
+  /**
+   * reserve = awaiting-ship (defines Line #);
+   * restore / dispatch share that Line # when request ids match.
+   */
+  outboundLinkKind?: "reserve" | "restore" | "dispatch" | null;
 };
 
 function norm(value: string | undefined | null): string {
@@ -251,10 +260,25 @@ function findShippedLineForChangeLog(
   return null;
 }
 
+function appendHistoryLineNumber(details: string, line: number): string {
+  const text = String(details ?? "").trim();
+  const label = `Line #${line}`;
+  if (!text || text === "—") return label;
+  if (text.includes(label)) return text;
+  // Put Line # right after qty so it is easy to scan next to the history # column.
+  const qtyMatch = text.match(/^(qty\s+\d+\s+pack\s+of\s+\d+)/i);
+  if (qtyMatch) {
+    const rest = text.slice(qtyMatch[1].length).replace(/^\s*·\s*/, "");
+    return rest ? `${qtyMatch[1]} · ${label} · ${rest}` : `${qtyMatch[1]} · ${label}`;
+  }
+  return `${label} · ${text}`;
+}
+
 function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
   const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
   let running: number | null = null;
-  const rows: InventoryHistoryRow[] = [];
+  const rows: Array<InventoryHistoryRow & { outboundLinkKind?: RawEvent["outboundLinkKind"] }> =
+    [];
 
   for (const e of sorted) {
     let qtyBefore = e.qtyBefore ?? null;
@@ -298,10 +322,31 @@ function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
       qtyAfter,
       details: e.details,
       user: formatHistoryBy(e.user, e.event),
+      shipmentRequestId: e.shipmentRequestId ?? null,
+      outboundLinkKind: e.outboundLinkKind ?? null,
     });
   }
 
-  return rows.map((r, i) => ({ ...r, seq: i + 1 }));
+  const withSeq = rows.map((r, i) => ({ ...r, seq: i + 1 }));
+
+  // Line # = history sequence of the first awaiting-ship row for that request id.
+  const lineByRequest = new Map<string, number>();
+  for (const r of withSeq) {
+    const id = String(r.shipmentRequestId ?? "").trim();
+    if (!id || r.outboundLinkKind !== "reserve") continue;
+    if (!lineByRequest.has(id)) lineByRequest.set(id, r.seq);
+  }
+
+  return withSeq.map(({ outboundLinkKind, ...r }) => {
+    const id = String(r.shipmentRequestId ?? "").trim();
+    if (!id || !outboundLinkKind) return r;
+    const line = lineByRequest.get(id) ?? (outboundLinkKind === "reserve" ? r.seq : null);
+    if (line == null) return r;
+    return {
+      ...r,
+      details: appendHistoryLineNumber(r.details, line),
+    };
+  });
 }
 
 export function buildInventoryHistory(
@@ -490,6 +535,15 @@ export function buildInventoryHistory(
       qtyChange: log.qtyChange,
       details,
       user: "Fulfillment",
+      shipmentRequestId: log.shipmentRequestId ?? null,
+      outboundLinkKind:
+        log.eventType === "outbound_awaiting_ship"
+          ? "reserve"
+          : log.eventType === "outbound_restored"
+            ? "restore"
+            : log.eventType === "outbound_dispatch" || log.eventType === "outbound_shipped"
+              ? "dispatch"
+              : null,
     });
   }
 
