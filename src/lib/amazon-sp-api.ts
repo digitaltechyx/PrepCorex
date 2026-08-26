@@ -6,6 +6,20 @@ export function isAmazonSpApiSandbox(): boolean {
   return process.env.AMAZON_SP_API_SANDBOX === "true";
 }
 
+/**
+ * Website OAuth `version=beta` flag.
+ * Required while the SP-API app is Draft / self-authorized.
+ * Only set AMAZON_OAUTH_VERSION_BETA=false after the app is live in the Selling Partner Appstore.
+ * (Production LWA keys do not mean Appstore-published.)
+ */
+export function isAmazonOAuthVersionBeta(): boolean {
+  const raw = process.env.AMAZON_OAUTH_VERSION_BETA?.trim().toLowerCase();
+  if (raw === "false" || raw === "0") return false;
+  if (raw === "true" || raw === "1") return true;
+  // Default: beta. Sandbox always uses beta.
+  return true;
+}
+
 export function getAmazonLwaClientId(): string | undefined {
   return process.env.AMAZON_LWA_CLIENT_ID?.trim() || undefined;
 }
@@ -98,7 +112,7 @@ export function decodeAmazonOAuthState(raw: string | null | undefined): AmazonOA
 
 export function buildAmazonConsentUrl(input: {
   state: string;
-  /** Draft / sandbox apps need version=beta */
+  /** Draft / self-auth apps need version=beta; Appstore-published apps must omit it */
   versionBeta?: boolean;
 }): string {
   const appId = getAmazonSpApiAppId();
@@ -108,7 +122,11 @@ export function buildAmazonConsentUrl(input: {
     application_id: appId,
     state: input.state,
   });
-  if (input.versionBeta !== false) {
+  const useBeta =
+    typeof input.versionBeta === "boolean"
+      ? input.versionBeta
+      : isAmazonOAuthVersionBeta();
+  if (useBeta) {
     params.set("version", "beta");
   }
   return `${host}/apps/authorize/consent?${params.toString()}`;

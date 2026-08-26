@@ -54,8 +54,9 @@ export default function AmazonLoginPage() {
       if (ourState) {
         url.searchParams.set("state", ourState);
       }
-      if (version === "beta") {
-        url.searchParams.set("version", "beta");
+      // Pass through Amazon's version (draft apps send beta; published omit it).
+      if (version) {
+        url.searchParams.set("version", version);
       }
       if (sellingPartnerId) {
         sessionStorage.setItem("amazon_selling_partner_id", sellingPartnerId);

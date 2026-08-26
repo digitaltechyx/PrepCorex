@@ -7,6 +7,7 @@ import {
   getAmazonLwaClientId,
   getAmazonLwaClientSecret,
   getAmazonSpApiAppId,
+  isAmazonOAuthVersionBeta,
   isAmazonSpApiSandbox,
 } from "@/lib/amazon-sp-api";
 
@@ -52,14 +53,16 @@ export async function GET(request: Request) {
   });
 
   try {
+    const versionBeta = isAmazonOAuthVersionBeta();
     const url = buildAmazonConsentUrl({
       state,
-      versionBeta: isAmazonSpApiSandbox(),
+      versionBeta,
     });
 
     const res = NextResponse.json({
       url,
       sandbox: isAmazonSpApiSandbox(),
+      versionBeta,
       hint: "Register Login URI and Redirect URI in Amazon Developer Central → Edit App.",
     });
     res.cookies.set("amazon_oauth_nonce", nonce, {
