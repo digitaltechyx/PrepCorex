@@ -56,6 +56,76 @@ const savingsChartConfig = {
   amount: { label: "Amount", color: "hsl(142 71% 35%)" },
 } satisfies ChartConfig;
 
+const shippingValueChartConfig = {
+  paid: { label: "You paid", color: "hsl(215 16% 47%)" },
+  save: { label: "Est. save", color: "hsl(24 95% 53%)" },
+  market: { label: "Typical market", color: "hsl(24 70% 78%)" },
+} satisfies ChartConfig;
+
+const prepValueChartConfig = {
+  paid: { label: "You paid", color: "hsl(215 16% 47%)" },
+  save: { label: "Est. save", color: "hsl(262 83% 58%)" },
+  market: { label: "Typical 3PL", color: "hsl(262 60% 78%)" },
+} satisfies ChartConfig;
+
+type ValueBarRow = { name: string; amount: number; fill: string; key: string };
+
+function ValueComparisonBarChart({
+  data,
+  config,
+  marketTotal,
+}: {
+  data: ValueBarRow[];
+  config: ChartConfig;
+  marketTotal: number;
+}) {
+  const maxAmount = Math.max(marketTotal, ...data.map((row) => row.amount), 1);
+  return (
+    <div className="space-y-3">
+      <ChartContainer config={config} className="h-[220px] w-full">
+        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} strokeDasharray="3 3" />
+          <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={11} />
+          <YAxis
+            tickLine={false}
+            axisLine={false}
+            fontSize={11}
+            width={56}
+            tickFormatter={(v) => `$${Number(v).toFixed(0)}`}
+            domain={[0, Math.ceil(maxAmount * 1.12)]}
+          />
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                formatter={(value) => money(Number(value))}
+              />
+            }
+          />
+          <Bar dataKey="amount" radius={[6, 6, 0, 0]} maxBarSize={72}>
+            {data.map((row) => (
+              <Cell key={row.key} fill={row.fill} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ChartContainer>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
+        <span>Typical market total ~{money(marketTotal)}</span>
+        <div className="flex flex-wrap gap-3">
+          {data.map((row) => (
+            <span key={row.key} className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-sm"
+                style={{ backgroundColor: row.fill }}
+              />
+              {row.name} {money(row.amount)}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type RankedBarRow = { name: string; amount: number; fill: string };
 
 function rankedBarFill(amount: number, amounts: number[]): string {
@@ -270,6 +340,34 @@ export function ClientReportsDashboard() {
       prepUnits: summary.savings.prep.unitCount,
       unitsShipped: summary.overview.unitsShipped,
       unitsReceived: summary.overview.unitsReceived,
+      shippingChartData: [
+        {
+          key: "paid",
+          name: "You paid",
+          amount: shippingPaid,
+          fill: "hsl(215 16% 47%)",
+        },
+        {
+          key: "save",
+          name: "Est. save",
+          amount: shippingSaved,
+          fill: "hsl(24 95% 53%)",
+        },
+      ] satisfies ValueBarRow[],
+      prepChartData: [
+        {
+          key: "paid",
+          name: "You paid",
+          amount: prepPaid,
+          fill: "hsl(215 16% 47%)",
+        },
+        {
+          key: "save",
+          name: "Est. save",
+          amount: prepSaved,
+          fill: "hsl(262 83% 58%)",
+        },
+      ] satisfies ValueBarRow[],
     };
   }, [summary]);
 
@@ -394,7 +492,7 @@ export function ClientReportsDashboard() {
 
                 <div className="grid gap-3 lg:grid-cols-2">
                   <Card className="border-orange-200/80 bg-orange-50/30 dark:border-orange-900 dark:bg-orange-950/15">
-                    <CardHeader className="pb-3">
+                    <CardHeader className="pb-2">
                       <CardTitle className="flex items-center gap-2 text-base">
                         <Truck className="h-4 w-4 text-orange-600" />
                         Label shipping value
@@ -404,33 +502,17 @@ export function ClientReportsDashboard() {
                         {valueOverview.labelCount === 1 ? "" : "s"} vs typical USPS / UPS / FedEx
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div className="rounded-xl border bg-background/80 p-3">
-                          <p className="text-[11px] font-medium text-muted-foreground">
-                            You paid
-                          </p>
-                          <p className="mt-1 text-xl font-bold tabular-nums">
-                            {money(valueOverview.shippingPaid)}
-                          </p>
-                        </div>
-                        <div className="rounded-xl border border-orange-200 bg-orange-50/80 p-3 dark:border-orange-800 dark:bg-orange-950/40">
-                          <p className="text-[11px] font-medium text-orange-700 dark:text-orange-300">
-                            Est. save
-                          </p>
-                          <p className="mt-1 text-xl font-bold tabular-nums text-orange-700 dark:text-orange-300">
-                            {money(valueOverview.shippingSaved)}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Typical courier total ~{money(valueOverview.shippingMarket)}
-                      </p>
+                    <CardContent>
+                      <ValueComparisonBarChart
+                        data={valueOverview.shippingChartData}
+                        config={shippingValueChartConfig}
+                        marketTotal={valueOverview.shippingMarket}
+                      />
                     </CardContent>
                   </Card>
 
                   <Card className="border-violet-200/80 bg-violet-50/30 dark:border-violet-900 dark:bg-violet-950/15">
-                    <CardHeader className="pb-3">
+                    <CardHeader className="pb-2">
                       <CardTitle className="flex items-center gap-2 text-base">
                         <Scissors className="h-4 w-4 text-violet-600" />
                         Prep value
@@ -440,28 +522,12 @@ export function ClientReportsDashboard() {
                         {valueOverview.prepUnits === 1 ? "" : "s"} vs typical 3PL prep rates
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div className="rounded-xl border bg-background/80 p-3">
-                          <p className="text-[11px] font-medium text-muted-foreground">
-                            You paid
-                          </p>
-                          <p className="mt-1 text-xl font-bold tabular-nums">
-                            {money(valueOverview.prepPaid)}
-                          </p>
-                        </div>
-                        <div className="rounded-xl border border-violet-200 bg-violet-50/80 p-3 dark:border-violet-800 dark:bg-violet-950/40">
-                          <p className="text-[11px] font-medium text-violet-700 dark:text-violet-300">
-                            Est. save
-                          </p>
-                          <p className="mt-1 text-xl font-bold tabular-nums text-violet-700 dark:text-violet-300">
-                            {money(valueOverview.prepSaved)}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Typical 3PL total ~{money(valueOverview.prepMarket)}
-                      </p>
+                    <CardContent>
+                      <ValueComparisonBarChart
+                        data={valueOverview.prepChartData}
+                        config={prepValueChartConfig}
+                        marketTotal={valueOverview.prepMarket}
+                      />
                     </CardContent>
                   </Card>
                 </div>
