@@ -5,14 +5,20 @@ export type PrepSavingsBenchmarks = {
   fbaPerUnit: number;
   /** Typical 3PL FBM pick / pack, per unit. */
   fbmPerUnit: number;
+  /** Typical 3PL cross-dock handling, per unit. */
+  crossdockPerUnit: number;
+  /** Typical 3PL product return handling, per unit. */
+  returnsPerUnit: number;
 };
 
 export const DEFAULT_PREP_SAVINGS_BENCHMARKS: PrepSavingsBenchmarks = {
   fbaPerUnit: 1.35,
   fbmPerUnit: 3.5,
+  crossdockPerUnit: 2.5,
+  returnsPerUnit: 2.0,
 };
 
-export type PrepSavingsFamily = "fba" | "fbm";
+export type PrepSavingsFamily = "fba" | "fbm" | "crossdock" | "returns";
 
 function money(n: unknown, fallback: number): number {
   const v = Number(n);
@@ -26,14 +32,25 @@ export function normalizePrepSavingsBenchmarks(
   return {
     fbaPerUnit: money(raw?.fbaPerUnit, DEFAULT_PREP_SAVINGS_BENCHMARKS.fbaPerUnit),
     fbmPerUnit: money(raw?.fbmPerUnit, DEFAULT_PREP_SAVINGS_BENCHMARKS.fbmPerUnit),
+    crossdockPerUnit: money(
+      raw?.crossdockPerUnit,
+      DEFAULT_PREP_SAVINGS_BENCHMARKS.crossdockPerUnit
+    ),
+    returnsPerUnit: money(raw?.returnsPerUnit, DEFAULT_PREP_SAVINGS_BENCHMARKS.returnsPerUnit),
   };
 }
 
-export function classifyPrepSavingsFamily(service: unknown): PrepSavingsFamily {
-  const value = String(service || "")
+function normalizedText(value: unknown): string {
+  return String(value ?? "")
     .trim()
     .toUpperCase();
+}
+
+export function classifyPrepSavingsFamily(service: unknown): PrepSavingsFamily {
+  const value = normalizedText(service);
   if (!value) return "fbm";
+  if (/CROSS[\s-]?DOCK|CROSSDOCK/.test(value)) return "crossdock";
+  if (/RETURN|PRODUCT RETURN/.test(value)) return "returns";
   if (/(?:FBA|WFS|TFS)/.test(value)) return "fba";
   return "fbm";
 }
@@ -44,24 +61,65 @@ export function classifyPrepSavingsFamilyFromParts(
   return classifyPrepSavingsFamily(parts.filter(Boolean).join(" "));
 }
 
-export function isPrepSavingsInvoice(data: Record<string, unknown>): boolean {
+/** Classify a shipped record for prep savings (cross-dock / returns / FBA / FBM). */
+export function classifyPrepFamilyFromShipped(
+  data: Record<string, unknown>
+): PrepSavingsFamily {
+  if (data.crossdockFulfillment === true) return "crossdock";
+  if (String(data.crossdockUnitCode ?? "").trim()) return "crossdock";
+  if (String(data.returnRequestId ?? "").trim()) return "returns";
+  return classifyPrepSavingsFamilyFromParts(
+    data.service,
+    data.shipmentType,
+    data.remarks,
+    data.productName
+  );
+}
+
+/** Classify an invoice for prep savings inclusion and default family. */
+export function classifyPrepFamilyFromInvoice(
+  data: Record<string, unknown>
+): PrepSavingsFamily | null {
   const type = String(data.type || "").trim().toLowerCase();
-  if (type === "storage" || type === "container_handling") return false;
-  if (data.isContainerHandling === true) return false;
-  const fbm = String(data.fbm || "").trim().toLowerCase();
-  if (
-    fbm.includes("storage") ||
-    fbm.includes("container") ||
-    fbm.includes("return")
-  ) {
-    return false;
-  }
-  return true;
+  if (type === "storage" || type === "container_handling") return null;
+  if (data.isContainerHandling === true) return null;
+
+  const fbm = normalizedText(data.fbm);
+  if (fbm.includes("STORAGE") || fbm.includes("CONTAINER")) return null;
+  if (type === "product_return" || fbm.includes("RETURN")) return "returns";
+
+  return classifyPrepSavingsFamilyFromParts(data.fbm, data.service, type);
+}
+
+export function isPrepSavingsInvoice(data: Record<string, unknown>): boolean {
+  return classifyPrepFamilyFromInvoice(data) != null;
 }
 
 export function marketPrepRate(
   benchmarks: PrepSavingsBenchmarks,
   family: PrepSavingsFamily
 ): number {
-  return family === "fba" ? benchmarks.fbaPerUnit : benchmarks.fbmPerUnit;
+  switch (family) {
+    case "fba":
+      return benchmarks.fbaPerUnit;
+    case "crossdock":
+      return benchmarks.crossdockPerUnit;
+    case "returns":
+      return benchmarks.returnsPerUnit;
+    default:
+      return benchmarks.fbmPerUnit;
+  }
+}
+
+export function prepFamilyLabel(family: PrepSavingsFamily): string {
+  switch (family) {
+    case "fba":
+      return "FBA prep";
+    case "crossdock":
+      return "Cross-dock";
+    case "returns":
+      return "Returns";
+    default:
+      return "FBM pick/pack";
+  }
 }

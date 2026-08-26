@@ -305,6 +305,12 @@ export function ClientReportsDashboard() {
     if (p.fbmUnitCount > 0) {
       rows.push({ name: "Typical FBM (est.)", amount: p.estimatedFbm });
     }
+    if (p.crossdockUnitCount > 0) {
+      rows.push({ name: "Typical cross-dock (est.)", amount: p.estimatedCrossdock });
+    }
+    if (p.returnsUnitCount > 0) {
+      rows.push({ name: "Typical returns (est.)", amount: p.estimatedReturns });
+    }
     rows.push({ name: "Your est. save", amount: p.savedOnPrep });
     return withRankedBarFills(rows);
   }, [summary]);
@@ -518,9 +524,10 @@ export function ClientReportsDashboard() {
                         Prep value
                       </CardTitle>
                       <CardDescription>
-                        {valueOverview.prepUnits} unit
-                        {valueOverview.prepUnits === 1 ? "" : "s"} vs typical 3PL prep rates
-                      </CardDescription>
+                  {valueOverview.prepUnits} unit
+                  {valueOverview.prepUnits === 1 ? "" : "s"} vs typical 3PL prep (FBA, FBM,
+                  cross-dock, returns)
+                </CardDescription>
                     </CardHeader>
                     <CardContent>
                       <ValueComparisonBarChart
@@ -706,8 +713,8 @@ export function ClientReportsDashboard() {
               <CardHeader>
                 <CardTitle className="text-base">Estimated savings vs typical 3PL prep rates</CardTitle>
                 <CardDescription>
-                  Prep billed on invoices in this period, compared with typical FBA prep and FBM
-                  pick/pack rates. Estimates, not live quotes.
+                  Prep billed on invoices in this period, compared with typical FBA, FBM,
+                  cross-dock, and return handling rates. Estimates, not live quotes.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -725,7 +732,7 @@ export function ClientReportsDashboard() {
                 <StatCard
                   title="Typical 3PL (est.)"
                   value={money(summary.savings.prep.estimatedMarket)}
-                  hint={`FBA $${summary.savings.prep.benchmarks.fbaPerUnit.toFixed(2)} · FBM $${summary.savings.prep.benchmarks.fbmPerUnit.toFixed(2)} / unit`}
+                  hint={`FBA $${summary.savings.prep.benchmarks.fbaPerUnit.toFixed(2)} · FBM $${summary.savings.prep.benchmarks.fbmPerUnit.toFixed(2)} · X-dock $${summary.savings.prep.benchmarks.crossdockPerUnit.toFixed(2)} · Ret $${summary.savings.prep.benchmarks.returnsPerUnit.toFixed(2)} / unit`}
                   icon={<Package className="h-4 w-4" />}
                 />
                 <StatCard
@@ -738,7 +745,7 @@ export function ClientReportsDashboard() {
             </Card>
 
             {summary.savings.prep.unitCount > 0 || summary.savings.prep.paidTotal > 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {summary.savings.prep.fbaUnitCount > 0 ? (
                   <StatCard
                     title="FBA prep"
@@ -752,6 +759,22 @@ export function ClientReportsDashboard() {
                     title="FBM pick/pack"
                     value={money(summary.savings.prep.paidFbm)}
                     hint={`${summary.savings.prep.fbmUnitCount} units · typical ${money(summary.savings.prep.estimatedFbm)}`}
+                    icon={<Package className="h-4 w-4" />}
+                  />
+                ) : null}
+                {summary.savings.prep.crossdockUnitCount > 0 ? (
+                  <StatCard
+                    title="Cross-dock"
+                    value={money(summary.savings.prep.paidCrossdock)}
+                    hint={`${summary.savings.prep.crossdockUnitCount} units · typical ${money(summary.savings.prep.estimatedCrossdock)}`}
+                    icon={<Truck className="h-4 w-4" />}
+                  />
+                ) : null}
+                {summary.savings.prep.returnsUnitCount > 0 ? (
+                  <StatCard
+                    title="Returns handling"
+                    value={money(summary.savings.prep.paidReturns)}
+                    hint={`${summary.savings.prep.returnsUnitCount} units · typical ${money(summary.savings.prep.estimatedReturns)}`}
                     icon={<Package className="h-4 w-4" />}
                   />
                 ) : null}

@@ -20,10 +20,12 @@ import {
 } from "@/lib/label-savings-benchmarks";
 import { loadLabelSavingsBenchmarks } from "@/lib/label-savings-benchmarks-server";
 import {
-  classifyPrepSavingsFamily,
+  classifyPrepFamilyFromInvoice,
+  classifyPrepFamilyFromShipped,
   classifyPrepSavingsFamilyFromParts,
   isPrepSavingsInvoice,
   marketPrepRate,
+  type PrepSavingsFamily,
 } from "@/lib/prep-savings-benchmarks";
 import { loadPrepSavingsBenchmarks } from "@/lib/prep-savings-benchmarks-server";
 import type {
@@ -228,32 +230,50 @@ export async function buildClientReport(
   let prepUnitCount = 0;
   let prepFbaUnitCount = 0;
   let prepFbmUnitCount = 0;
+  let prepCrossdockUnitCount = 0;
+  let prepReturnsUnitCount = 0;
   let estimatedPrepFba = 0;
   let estimatedPrepFbm = 0;
+  let estimatedPrepCrossdock = 0;
+  let estimatedPrepReturns = 0;
+  const shippedFamilyById = new Map<string, PrepSavingsFamily>();
   const shippedServiceById = new Map<string, string>();
   for (const doc of shippedSnap.docs) {
     const data = doc.data() as Record<string, unknown>;
     const service = String(data.service || "").trim();
     if (service) shippedServiceById.set(doc.id, service);
+    const family = classifyPrepFamilyFromShipped(data);
+    shippedFamilyById.set(doc.id, family);
+
     const ms = pickReportDateMs(data, ["date", "createdAt", "dispatchedAt"]);
     if (!ms || !isInReportRange(new Date(ms), from, to, allTime)) continue;
     const qty = shippedUnits(data);
+    if (qty <= 0) continue;
+
+    if (String(data.returnRequestId ?? "").trim()) {
+      unitsShipped += qty;
+      const key = bucketKey(ms, allTime);
+      const bucket = activityBuckets.get(key);
+      if (bucket) bucket.shipped += qty;
+      continue;
+    }
+
     unitsShipped += qty;
     const key = bucketKey(ms, allTime);
     const bucket = activityBuckets.get(key);
     if (bucket) bucket.shipped += qty;
 
-    if (qty > 0) {
-      const family = classifyPrepSavingsFamily(service);
-      const estimated = qty * marketPrepRate(prepBenchmarks, family);
-      prepUnitCount += qty;
-      if (family === "fba") {
-        prepFbaUnitCount += qty;
-        estimatedPrepFba += estimated;
-      } else {
-        prepFbmUnitCount += qty;
-        estimatedPrepFbm += estimated;
-      }
+    const estimated = qty * marketPrepRate(prepBenchmarks, family);
+    prepUnitCount += qty;
+    if (family === "fba") {
+      prepFbaUnitCount += qty;
+      estimatedPrepFba += estimated;
+    } else if (family === "crossdock") {
+      prepCrossdockUnitCount += qty;
+      estimatedPrepCrossdock += estimated;
+    } else if (family === "fbm") {
+      prepFbmUnitCount += qty;
+      estimatedPrepFbm += estimated;
     }
   }
 
@@ -265,7 +285,15 @@ export async function buildClientReport(
     const ms = pickReportDateMs(data, ["closedAt", "updatedAt", "createdAt"]);
     if (!ms || !isInReportRange(new Date(ms), from, to, allTime)) continue;
     returnsHandled += 1;
-    unitsReturned += Number(data.receivedQuantity) || Number(data.requestedQuantity) || 0;
+    const qty =
+      Math.max(0, Math.floor(Number(data.receivedQuantity) || 0)) ||
+      Math.max(0, Math.floor(Number(data.requestedQuantity) || 0));
+    unitsReturned += qty;
+    if (qty > 0) {
+      prepReturnsUnitCount += qty;
+      prepUnitCount += qty;
+      estimatedPrepReturns += qty * marketPrepRate(prepBenchmarks, "returns");
+    }
   }
 
   let unitsDisposed = 0;
@@ -280,6 +308,8 @@ export async function buildClientReport(
   const invoices: ClientReportInvoiceRow[] = [];
   let paidPrepFba = 0;
   let paidPrepFbm = 0;
+  let paidPrepCrossdock = 0;
+  let paidPrepReturns = 0;
   for (const doc of invoicesSnap.docs) {
     const data = doc.data() as Record<string, unknown>;
     const ms = pickInvoiceDateMs(data);
@@ -294,34 +324,52 @@ export async function buildClientReport(
       grandTotal,
     });
 
-    if (!isPrepSavingsInvoice(data)) continue;
+    const invoiceFamily = classifyPrepFamilyFromInvoice(data);
+    if (invoiceFamily == null) continue;
 
     const items = Array.isArray(data.items) ? data.items : [];
-    let itemPaidFba = 0;
-    let itemPaidFbm = 0;
+    const paidByFamily: Record<PrepSavingsFamily, number> = {
+      fba: 0,
+      fbm: 0,
+      crossdock: 0,
+      returns: 0,
+    };
     for (const raw of items) {
       const item =
         raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
       const paid = invoiceLineAmount(item);
       const shipmentId = String(item.shipmentId || "").trim();
-      const family = classifyPrepSavingsFamilyFromParts(
-        shipmentId ? shippedServiceById.get(shipmentId) : "",
-        item.shipTo,
-        item.packaging,
-        data.fbm,
-        data.service
-      );
-      if (family === "fba") itemPaidFba += paid;
-      else itemPaidFbm += paid;
+      const family =
+        (shipmentId ? shippedFamilyById.get(shipmentId) : undefined) ??
+        classifyPrepSavingsFamilyFromParts(
+          shipmentId ? shippedServiceById.get(shipmentId) : "",
+          item.productName,
+          item.shipTo,
+          item.packaging,
+          data.fbm,
+          data.service,
+          data.type
+        );
+      paidByFamily[family] += paid;
     }
 
-    const linePaid = itemPaidFba + itemPaidFbm;
+    const linePaid = Object.values(paidByFamily).reduce((sum, n) => sum + n, 0);
     const billed = grandTotal > 0 ? grandTotal : linePaid + additionalInvoiceCharges(data);
     if (linePaid > 0) {
-      paidPrepFba += billed * (itemPaidFba / linePaid);
-      paidPrepFbm += billed * (itemPaidFbm / linePaid);
+      for (const family of Object.keys(paidByFamily) as PrepSavingsFamily[]) {
+        const slice = paidByFamily[family];
+        if (slice <= 0) continue;
+        const share = billed * (slice / linePaid);
+        if (family === "fba") paidPrepFba += share;
+        else if (family === "crossdock") paidPrepCrossdock += share;
+        else if (family === "returns") paidPrepReturns += share;
+        else paidPrepFbm += share;
+      }
     } else if (billed > 0) {
-      paidPrepFbm += billed;
+      if (invoiceFamily === "fba") paidPrepFba += billed;
+      else if (invoiceFamily === "crossdock") paidPrepCrossdock += billed;
+      else if (invoiceFamily === "returns") paidPrepReturns += billed;
+      else paidPrepFbm += billed;
     }
   }
   invoices.sort((a, b) => reportToMs(b.date) - reportToMs(a.date));
@@ -457,15 +505,39 @@ export async function buildClientReport(
         unitCount: prepUnitCount,
         fbaUnitCount: prepFbaUnitCount,
         fbmUnitCount: prepFbmUnitCount,
+        crossdockUnitCount: prepCrossdockUnitCount,
+        returnsUnitCount: prepReturnsUnitCount,
         paidFba: Math.round(paidPrepFba * 100) / 100,
         paidFbm: Math.round(paidPrepFbm * 100) / 100,
-        paidTotal: Math.round((paidPrepFba + paidPrepFbm) * 100) / 100,
+        paidCrossdock: Math.round(paidPrepCrossdock * 100) / 100,
+        paidReturns: Math.round(paidPrepReturns * 100) / 100,
+        paidTotal: Math.round(
+          (paidPrepFba + paidPrepFbm + paidPrepCrossdock + paidPrepReturns) * 100
+        ) / 100,
         estimatedFba: Math.round(estimatedPrepFba * 100) / 100,
         estimatedFbm: Math.round(estimatedPrepFbm * 100) / 100,
-        estimatedMarket: Math.round((estimatedPrepFba + estimatedPrepFbm) * 100) / 100,
+        estimatedCrossdock: Math.round(estimatedPrepCrossdock * 100) / 100,
+        estimatedReturns: Math.round(estimatedPrepReturns * 100) / 100,
+        estimatedMarket: Math.round(
+          (estimatedPrepFba +
+            estimatedPrepFbm +
+            estimatedPrepCrossdock +
+            estimatedPrepReturns) *
+            100
+        ) / 100,
         savedOnPrep:
           Math.round(
-            Math.max(0, estimatedPrepFba + estimatedPrepFbm - paidPrepFba - paidPrepFbm) * 100
+            Math.max(
+              0,
+              estimatedPrepFba +
+                estimatedPrepFbm +
+                estimatedPrepCrossdock +
+                estimatedPrepReturns -
+                paidPrepFba -
+                paidPrepFbm -
+                paidPrepCrossdock -
+                paidPrepReturns
+            ) * 100
           ) / 100,
       },
     },

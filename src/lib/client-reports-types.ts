@@ -90,11 +90,17 @@ export type ClientReportSummary = {
       unitCount: number;
       fbaUnitCount: number;
       fbmUnitCount: number;
+      crossdockUnitCount: number;
+      returnsUnitCount: number;
       paidFba: number;
       paidFbm: number;
+      paidCrossdock: number;
+      paidReturns: number;
       paidTotal: number;
       estimatedFba: number;
       estimatedFbm: number;
+      estimatedCrossdock: number;
+      estimatedReturns: number;
       estimatedMarket: number;
       savedOnPrep: number;
     };

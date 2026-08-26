@@ -20,6 +20,12 @@ export function PrepMarketRatesPanel() {
   const [saving, setSaving] = useState(false);
   const [fbaPerUnit, setFbaPerUnit] = useState(String(DEFAULT_PREP_SAVINGS_BENCHMARKS.fbaPerUnit));
   const [fbmPerUnit, setFbmPerUnit] = useState(String(DEFAULT_PREP_SAVINGS_BENCHMARKS.fbmPerUnit));
+  const [crossdockPerUnit, setCrossdockPerUnit] = useState(
+    String(DEFAULT_PREP_SAVINGS_BENCHMARKS.crossdockPerUnit)
+  );
+  const [returnsPerUnit, setReturnsPerUnit] = useState(
+    String(DEFAULT_PREP_SAVINGS_BENCHMARKS.returnsPerUnit)
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -37,6 +43,8 @@ export function PrepMarketRatesPanel() {
         if (!cancelled && b) {
           setFbaPerUnit(String(b.fbaPerUnit));
           setFbmPerUnit(String(b.fbmPerUnit));
+          setCrossdockPerUnit(String(b.crossdockPerUnit));
+          setReturnsPerUnit(String(b.returnsPerUnit));
         }
       } catch (e) {
         if (!cancelled) {
@@ -69,6 +77,8 @@ export function PrepMarketRatesPanel() {
         body: JSON.stringify({
           fbaPerUnit: Number(fbaPerUnit),
           fbmPerUnit: Number(fbmPerUnit),
+          crossdockPerUnit: Number(crossdockPerUnit),
+          returnsPerUnit: Number(returnsPerUnit),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -77,6 +87,8 @@ export function PrepMarketRatesPanel() {
       if (b) {
         setFbaPerUnit(String(b.fbaPerUnit));
         setFbmPerUnit(String(b.fbmPerUnit));
+        setCrossdockPerUnit(String(b.crossdockPerUnit));
+        setReturnsPerUnit(String(b.returnsPerUnit));
       }
       toast({ title: "Prep market rates saved" });
     } catch (e) {
@@ -98,8 +110,8 @@ export function PrepMarketRatesPanel() {
           Prep savings market rates
         </CardTitle>
         <CardDescription>
-          Per-unit rates used on client Reports to estimate how much they save vs a typical 3PL
-          for FBA prep and FBM pick/pack. These are comparison rates, not live quotes.
+          Per-unit rates used on client Reports to estimate savings vs a typical 3PL for FBA prep,
+          FBM pick/pack, cross-dock handling, and product return processing.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -131,6 +143,28 @@ export function PrepMarketRatesPanel() {
                   step="0.01"
                   value={fbmPerUnit}
                   onChange={(e) => setFbmPerUnit(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="prep-crossdock-rate">Typical cross-dock / unit ($)</Label>
+                <Input
+                  id="prep-crossdock-rate"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={crossdockPerUnit}
+                  onChange={(e) => setCrossdockPerUnit(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="prep-returns-rate">Typical return handling / unit ($)</Label>
+                <Input
+                  id="prep-returns-rate"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={returnsPerUnit}
+                  onChange={(e) => setReturnsPerUnit(e.target.value)}
                 />
               </div>
             </div>

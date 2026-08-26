@@ -25,6 +25,8 @@ export async function PUT(request: NextRequest) {
   const benchmarks = await savePrepSavingsBenchmarks({
     fbaPerUnit: body.fbaPerUnit,
     fbmPerUnit: body.fbmPerUnit,
+    crossdockPerUnit: body.crossdockPerUnit,
+    returnsPerUnit: body.returnsPerUnit,
   });
   return NextResponse.json({ ok: true, benchmarks });
 }
