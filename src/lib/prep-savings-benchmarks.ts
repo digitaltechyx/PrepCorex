@@ -65,15 +65,27 @@ export function classifyPrepSavingsFamilyFromParts(
 export function classifyPrepFamilyFromShipped(
   data: Record<string, unknown>
 ): PrepSavingsFamily {
-  if (data.crossdockFulfillment === true) return "crossdock";
-  if (String(data.crossdockUnitCode ?? "").trim()) return "crossdock";
   if (String(data.returnRequestId ?? "").trim()) return "returns";
-  return classifyPrepSavingsFamilyFromParts(
+
+  const serviceFamily = classifyPrepSavingsFamilyFromParts(
     data.service,
     data.shipmentType,
     data.remarks,
     data.productName
   );
+
+  const isCrossdock =
+    data.crossdockFulfillment === true ||
+    String(data.crossdockUnitCode ?? "").trim() ||
+    String(data.crossdockLinkedUnitId ?? "").trim();
+
+  if (isCrossdock) {
+    // Cross-dock linked outbound prep is billed as FBA/FBM; pure forwarding stays cross-dock.
+    if (serviceFamily === "fba" || serviceFamily === "fbm") return serviceFamily;
+    return "crossdock";
+  }
+
+  return serviceFamily;
 }
 
 /** Classify an invoice for prep savings inclusion and default family. */

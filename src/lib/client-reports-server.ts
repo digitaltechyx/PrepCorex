@@ -24,10 +24,14 @@ import {
   classifyPrepFamilyFromShipped,
   classifyPrepSavingsFamilyFromParts,
   isPrepSavingsInvoice,
-  marketPrepRate,
   type PrepSavingsFamily,
 } from "@/lib/prep-savings-benchmarks";
 import { loadPrepSavingsBenchmarks } from "@/lib/prep-savings-benchmarks-server";
+import {
+  estimateReturnHandlingPrep,
+  estimateShippedPrep,
+  loadUserPrepPricingContext,
+} from "@/lib/user-prep-pricing-server";
 import type {
   ClientReportInventoryRow,
   ClientReportInvoiceRow,
@@ -150,6 +154,7 @@ export async function buildClientReport(
     labelsSnap,
     benchmarks,
     prepBenchmarks,
+    prepPricing,
   ] = await Promise.all([
     userRef.collection("inventory").get(),
     userRef.collection("inventoryRequests").get(),
@@ -160,6 +165,7 @@ export async function buildClientReport(
     userRef.collection("labelPurchases").get(),
     loadLabelSavingsBenchmarks(),
     loadPrepSavingsBenchmarks(),
+    loadUserPrepPricingContext(uid),
   ]);
 
   let currentOnHand = 0;
@@ -263,17 +269,19 @@ export async function buildClientReport(
     const bucket = activityBuckets.get(key);
     if (bucket) bucket.shipped += qty;
 
-    const estimated = qty * marketPrepRate(prepBenchmarks, family);
-    prepUnitCount += qty;
-    if (family === "fba") {
-      prepFbaUnitCount += qty;
-      estimatedPrepFba += estimated;
-    } else if (family === "crossdock") {
-      prepCrossdockUnitCount += qty;
-      estimatedPrepCrossdock += estimated;
-    } else if (family === "fbm") {
-      prepFbmUnitCount += qty;
-      estimatedPrepFbm += estimated;
+    const estimated = estimateShippedPrep({ data, ctx: prepPricing, benchmarks: prepBenchmarks });
+    if (!estimated) continue;
+
+    prepUnitCount += estimated.unitCount;
+    if (estimated.family === "fba") {
+      prepFbaUnitCount += estimated.unitCount;
+      estimatedPrepFba += estimated.estimated;
+    } else if (estimated.family === "crossdock") {
+      prepCrossdockUnitCount += estimated.unitCount;
+      estimatedPrepCrossdock += estimated.estimated;
+    } else if (estimated.family === "fbm") {
+      prepFbmUnitCount += estimated.unitCount;
+      estimatedPrepFbm += estimated.estimated;
     }
   }
 
@@ -290,9 +298,15 @@ export async function buildClientReport(
       Math.max(0, Math.floor(Number(data.requestedQuantity) || 0));
     unitsReturned += qty;
     if (qty > 0) {
-      prepReturnsUnitCount += qty;
-      prepUnitCount += qty;
-      estimatedPrepReturns += qty * marketPrepRate(prepBenchmarks, "returns");
+      const returnEstimate = estimateReturnHandlingPrep({
+        data,
+        qty,
+        ctx: prepPricing,
+        benchmarks: prepBenchmarks,
+      });
+      prepReturnsUnitCount += returnEstimate.unitCount;
+      prepUnitCount += returnEstimate.unitCount;
+      estimatedPrepReturns += returnEstimate.estimated;
     }
   }
 
@@ -502,6 +516,8 @@ export async function buildClientReport(
       rows: labelRows,
       prep: {
         benchmarks: prepBenchmarks,
+        profileId: prepPricing.profileId,
+        profileLabel: prepPricing.profileLabel,
         unitCount: prepUnitCount,
         fbaUnitCount: prepFbaUnitCount,
         fbmUnitCount: prepFbmUnitCount,
