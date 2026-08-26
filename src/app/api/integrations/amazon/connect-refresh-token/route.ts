@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import {
   amazonSpApiGet,
+  fetchAmazonSellerProfile,
   getAmazonLwaClientId,
   getAmazonLwaClientSecret,
   isAmazonSpApiSandbox,
@@ -63,42 +64,27 @@ export async function POST(request: NextRequest) {
     const tokens = await refreshAmazonAccessToken(refreshToken);
     const now = new Date();
     const expiresIn = tokens.expires_in || 3600;
-
-    // Verify SP-API access
-    const verify = await amazonSpApiGet<{
-      payload?: Array<{
-        marketplace?: { id?: string; name?: string; countryCode?: string };
-        participation?: { isParticipating?: boolean };
-      }>;
-      errors?: Array<{ message?: string; code?: string }>;
-    }>({
-      path: "/sellers/v1/marketplaceParticipations",
-      accessToken: tokens.access_token,
-    });
-
-    if (!verify.ok) {
-      const errMsg =
-        (verify.data as { errors?: Array<{ message?: string }> })?.errors?.[0]?.message ||
-        `SP-API verify failed (HTTP ${verify.status})`;
-      return NextResponse.json(
-        {
-          error: "Refresh token obtained an access token, but SP-API verify failed.",
-          detail: errMsg,
-          sandbox: isAmazonSpApiSandbox(),
-        },
-        { status: 502 }
-      );
+    const profile = await fetchAmazonSellerProfile(tokens.access_token);
+    if (profile.marketplaces.length === 0 && !profile.storeName) {
+      // Fall back to a raw participations call for a clearer error if profile is empty.
+      const verify = await amazonSpApiGet({
+        path: "/sellers/v1/marketplaceParticipations",
+        accessToken: tokens.access_token,
+      });
+      if (!verify.ok) {
+        const errMsg =
+          (verify.data as { errors?: Array<{ message?: string }> })?.errors?.[0]?.message ||
+          `SP-API verify failed (HTTP ${verify.status})`;
+        return NextResponse.json(
+          {
+            error: "Refresh token obtained an access token, but SP-API verify failed.",
+            detail: errMsg,
+            sandbox: isAmazonSpApiSandbox(),
+          },
+          { status: 502 }
+        );
+      }
     }
-
-    const participations = Array.isArray(verify.data.payload) ? verify.data.payload : [];
-    const marketplaces = participations
-      .map((p) => ({
-        id: p.marketplace?.id ?? null,
-        name: p.marketplace?.name ?? null,
-        countryCode: p.marketplace?.countryCode ?? null,
-        isParticipating: p.participation?.isParticipating ?? null,
-      }))
-      .filter((m) => m.id);
 
     const db = adminDb();
     const col = db.collection("users").doc(uid).collection("amazonConnections");
@@ -108,6 +94,8 @@ export async function POST(request: NextRequest) {
       accessToken: tokens.access_token,
       refreshToken,
       sellingPartnerId: sellingPartnerId || null,
+      storeName: profile.storeName,
+      businessName: profile.businessName,
       connectedAt: { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 },
       expiresAt: {
         seconds: Math.floor(now.getTime() / 1000) + expiresIn,
@@ -115,7 +103,7 @@ export async function POST(request: NextRequest) {
       },
       environment: isAmazonSpApiSandbox() ? "sandbox" : "production",
       marketplaceRegion: process.env.AMAZON_SP_API_REGION || "NA",
-      marketplaces,
+      marketplaces: profile.marketplaces,
       lastVerifiedAt: { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 },
       authMethod: "refresh_token",
     };
@@ -136,8 +124,9 @@ export async function POST(request: NextRequest) {
       ok: true,
       connectionId,
       environment: docData.environment,
-      marketplaceCount: marketplaces.length,
-      marketplaces,
+      storeName: profile.storeName,
+      marketplaceCount: profile.marketplaces.length,
+      marketplaces: profile.marketplaces,
     });
   } catch (err: unknown) {
     console.error("[amazon connect-refresh-token]", err);

@@ -96,7 +96,13 @@ type AmazonConnectionSummary = {
   environment: string;
   sellingPartnerId?: string | null;
   storeName?: string | null;
-  marketplaces?: Array<{ id?: string | null; name?: string | null; countryCode?: string | null }>;
+  businessName?: string | null;
+  marketplaces?: Array<{
+    id?: string | null;
+    name?: string | null;
+    countryCode?: string | null;
+    storeName?: string | null;
+  }>;
 };
 
 type PlatformCategory = "marketplace" | "ecommerce" | "social" | "shipping";
@@ -1341,14 +1347,16 @@ export default function IntegrationsPage() {
                             >
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="min-w-0">
-                                  <p className="font-medium">
+                                  <p className="font-medium truncate">
                                     {conn.storeName ||
                                       conn.marketplaces
-                                        ?.map((m) => m.name || m.countryCode)
+                                        ?.map((m) => m.storeName || m.name || m.countryCode)
                                         .filter(Boolean)
                                         .slice(0, 2)
                                         .join(", ") ||
-                                      "Amazon seller"}
+                                      (conn.sellingPartnerId
+                                        ? `Seller ${conn.sellingPartnerId}`
+                                        : "Amazon seller")}
                                   </p>
                                   <p className="text-[11px] text-muted-foreground">
                                     {conn.environment === "sandbox" ? "Sandbox" : "Production"}

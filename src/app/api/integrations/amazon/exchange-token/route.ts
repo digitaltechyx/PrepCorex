@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
       refreshToken: tokens.refresh_token,
       sellingPartnerId: sellingPartnerId || null,
       storeName: profile.storeName,
+      businessName: profile.businessName,
       marketplaces: profile.marketplaces,
       connectedAt: { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 },
       expiresAt: {

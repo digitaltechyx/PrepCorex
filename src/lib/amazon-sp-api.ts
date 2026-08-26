@@ -247,77 +247,117 @@ export type AmazonMarketplaceSummary = {
   id: string | null;
   name: string | null;
   countryCode: string | null;
+  storeName: string | null;
 };
 
 export type AmazonSellerProfile = {
   storeName: string | null;
+  businessName: string | null;
   marketplaces: AmazonMarketplaceSummary[];
 };
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
 function payloadRecord(data: unknown): Record<string, unknown> {
-  if (!data || typeof data !== "object") return {};
-  const root = data as Record<string, unknown>;
-  if (root.payload && typeof root.payload === "object") {
+  const root = asRecord(data);
+  if (root.payload && typeof root.payload === "object" && !Array.isArray(root.payload)) {
     return root.payload as Record<string, unknown>;
   }
   return root;
+}
+
+function cleanName(value: unknown): string | null {
+  const text = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text || null;
 }
 
 function parseMarketplaceRows(rows: unknown): AmazonMarketplaceSummary[] {
   if (!Array.isArray(rows)) return [];
   return rows
     .map((row) => {
-      const rec = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
-      const marketplace =
-        rec.marketplace && typeof rec.marketplace === "object"
-          ? (rec.marketplace as Record<string, unknown>)
-          : rec;
-      const id = marketplace.id != null ? String(marketplace.id) : "";
+      const rec = asRecord(row);
+      const marketplace = asRecord(rec.marketplace);
+      const id = marketplace.id != null ? String(marketplace.id).trim() : "";
       if (!id) return null;
       return {
         id,
-        name: marketplace.name != null ? String(marketplace.name) : null,
-        countryCode: marketplace.countryCode != null ? String(marketplace.countryCode) : null,
+        name: cleanName(marketplace.name),
+        countryCode: cleanName(marketplace.countryCode),
+        // Amazon returns the seller's storefront name on the participation, not the marketplace.
+        storeName: cleanName(rec.storeName),
       };
     })
     .filter((row): row is AmazonMarketplaceSummary => Boolean(row));
 }
 
-/** Store name + marketplaces for the connected selling partner. */
+function participationListFrom(data: unknown): unknown {
+  const root = asRecord(data);
+  if (Array.isArray(root.payload)) return root.payload;
+  const payload = payloadRecord(data);
+  if (Array.isArray(payload.marketplaceParticipationList)) {
+    return payload.marketplaceParticipationList;
+  }
+  if (Array.isArray(payload.payload)) return payload.payload;
+  return [];
+}
+
+/** Store / business name + marketplaces for the connected selling partner. */
 export async function fetchAmazonSellerProfile(
   accessToken: string
 ): Promise<AmazonSellerProfile> {
+  let marketplaces: AmazonMarketplaceSummary[] = [];
+  let businessName: string | null = null;
+
   const account = await amazonSpApiGet({
     path: "/sellers/v1/account",
     accessToken,
   });
-  const accountPayload = payloadRecord(account.data);
-  const fromAccount = parseMarketplaceRows(
-    accountPayload.marketplaceParticipationList ?? accountPayload.payload
-  );
-  const storeNameRaw =
-    typeof accountPayload.storeName === "string" ? accountPayload.storeName.trim() : "";
+  if (account.ok) {
+    const accountPayload = payloadRecord(account.data);
+    marketplaces = parseMarketplaceRows(
+      accountPayload.marketplaceParticipationList ?? participationListFrom(account.data)
+    );
+    const business = asRecord(accountPayload.business);
+    businessName = cleanName(business.name) || cleanName(business.nonLatinName);
+  }
 
-  let marketplaces = fromAccount;
   if (marketplaces.length === 0) {
     const participations = await amazonSpApiGet({
       path: "/sellers/v1/marketplaceParticipations",
       accessToken,
     });
-    const partPayload = payloadRecord(participations.data);
-    marketplaces = parseMarketplaceRows(
-      (participations.data as { payload?: unknown })?.payload ??
-        partPayload.marketplaceParticipationList
-    );
+    if (participations.ok) {
+      marketplaces = parseMarketplaceRows(participationListFrom(participations.data));
+    }
+  } else {
+    // Prefer store names from marketplaceParticipations when account omits them.
+    const missingStore = marketplaces.every((m) => !m.storeName);
+    if (missingStore) {
+      const participations = await amazonSpApiGet({
+        path: "/sellers/v1/marketplaceParticipations",
+        accessToken,
+      });
+      if (participations.ok) {
+        const fromParticipations = parseMarketplaceRows(participationListFrom(participations.data));
+        if (fromParticipations.some((m) => m.storeName)) {
+          marketplaces = fromParticipations;
+        }
+      }
+    }
   }
 
-  const marketplaceLabel = marketplaces
-    .map((m) => m.name || m.countryCode)
-    .filter(Boolean)
-    .join(", ");
+  const storeFromParticipation =
+    marketplaces.map((m) => m.storeName).find(Boolean) || null;
+  const marketplaceLabel =
+    marketplaces.map((m) => m.name || m.countryCode).find(Boolean) || null;
 
   return {
-    storeName: storeNameRaw || marketplaceLabel || null,
+    storeName: storeFromParticipation || businessName || marketplaceLabel,
+    businessName,
     marketplaces,
   };
 }
