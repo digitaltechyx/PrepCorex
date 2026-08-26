@@ -65,7 +65,7 @@ const shippingValueChartConfig = {
 const prepValueChartConfig = {
   paid: { label: "You paid", color: "hsl(215 16% 47%)" },
   save: { label: "Est. save", color: "hsl(262 83% 58%)" },
-  market: { label: "Profile rate", color: "hsl(262 60% 78%)" },
+  market: { label: "Typical 3PL", color: "hsl(262 60% 78%)" },
 } satisfies ChartConfig;
 
 type ValueBarRow = { name: string; amount: number; fill: string; key: string };
@@ -297,19 +297,19 @@ export function ClientReportsDashboard() {
     const p = summary.savings.prep;
     const rows = [
       { name: "You paid", amount: p.paidTotal },
-      { name: "Profile rate (est.)", amount: p.estimatedMarket },
+      { name: "Typical 3PL (est.)", amount: p.estimatedMarket },
     ];
     if (p.fbaUnitCount > 0) {
-      rows.push({ name: "Profile FBA (est.)", amount: p.estimatedFba });
+      rows.push({ name: "Typical FBA (est.)", amount: p.estimatedFba });
     }
     if (p.fbmUnitCount > 0) {
-      rows.push({ name: "Profile FBM (est.)", amount: p.estimatedFbm });
+      rows.push({ name: "Typical FBM (est.)", amount: p.estimatedFbm });
     }
     if (p.crossdockUnitCount > 0) {
-      rows.push({ name: "Profile cross-dock (est.)", amount: p.estimatedCrossdock });
+      rows.push({ name: "Typical cross-dock (est.)", amount: p.estimatedCrossdock });
     }
     if (p.returnsUnitCount > 0) {
-      rows.push({ name: "Profile returns (est.)", amount: p.estimatedReturns });
+      rows.push({ name: "Typical returns (est.)", amount: p.estimatedReturns });
     }
     rows.push({ name: "Your est. save", amount: p.savedOnPrep });
     return withRankedBarFills(rows);
@@ -525,8 +525,8 @@ export function ClientReportsDashboard() {
                       </CardTitle>
                       <CardDescription>
                   {valueOverview.prepUnits} unit
-                  {valueOverview.prepUnits === 1 ? "" : "s"} vs your assigned{" "}
-                  {summary.savings.prep.profileLabel} profile rates
+                  {valueOverview.prepUnits === 1 ? "" : "s"} vs typical 3PL prep (FBA, FBM,
+                  cross-dock, returns)
                 </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -711,11 +711,11 @@ export function ClientReportsDashboard() {
           <TabsContent value="savings" className="space-y-4">
             <Card className="border-violet-200 bg-violet-50/40 dark:border-violet-900 dark:bg-violet-950/20">
               <CardHeader>
-                <CardTitle className="text-base">Estimated savings vs your assigned profile rates</CardTitle>
+                <CardTitle className="text-base">Estimated savings vs typical 3PL prep rates</CardTitle>
                 <CardDescription>
-                  Prep billed on invoices in this period, compared with rates from your{" "}
-                  {summary.savings.prep.profileLabel} pricing profile (FBA, FBM, cross-dock, and
-                  returns). Falls back to typical 3PL market rates when a profile rate is missing.
+                  Prep line items on paid invoices in this period vs typical 3PL market rates.
+                  Add-on services, admin charges, and unpaid invoices are excluded from prep paid
+                  totals.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -727,13 +727,13 @@ export function ClientReportsDashboard() {
                 <StatCard
                   title="You paid on prep"
                   value={money(summary.savings.prep.paidTotal)}
-                  hint={`${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"}`}
+                  hint={`${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"} · prep lines on paid invoices only`}
                   icon={<Receipt className="h-4 w-4" />}
                 />
                 <StatCard
-                  title="Profile rate (est.)"
+                  title="Typical 3PL (est.)"
                   value={money(summary.savings.prep.estimatedMarket)}
-                  hint={`${summary.savings.prep.profileLabel} profile · tiered FBA/FBM, forwarding, returns`}
+                  hint={`FBA $${summary.savings.prep.benchmarks.fbaPerUnit.toFixed(2)} · FBM $${summary.savings.prep.benchmarks.fbmPerUnit.toFixed(2)} · X-dock $${summary.savings.prep.benchmarks.crossdockPerUnit.toFixed(2)} · Ret $${summary.savings.prep.benchmarks.returnsPerUnit.toFixed(2)} / unit`}
                   icon={<Package className="h-4 w-4" />}
                 />
                 <StatCard
@@ -785,10 +785,10 @@ export function ClientReportsDashboard() {
             {summary.savings.prep.unitCount > 0 || summary.savings.prep.paidTotal > 0 ? (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Paid vs profile prep totals</CardTitle>
+                  <CardTitle className="text-base">Paid vs typical 3PL prep totals</CardTitle>
                   <CardDescription>
-                    Lowest total is green, highest is red. Estimates use your assigned pricing
-                    profile ({summary.savings.prep.profileLabel}).
+                    Lowest total is green, highest is red. Your estimated prep save is the gap vs
+                    typical 3PL market rates on the same units.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

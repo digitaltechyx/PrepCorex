@@ -135,3 +135,52 @@ export function prepFamilyLabel(family: PrepSavingsFamily): string {
       return "FBM pick/pack";
   }
 }
+
+function shippedUnits(data: Record<string, unknown>): number {
+  return (
+    Math.max(0, Math.floor(Number(data.shippedQty) || 0)) ||
+    Math.max(0, Math.floor(Number(data.totalUnits) || 0)) ||
+    Math.max(0, Math.floor(Number(data.boxesShipped) || 0)) ||
+    0
+  );
+}
+
+function crossdockBillableUnits(data: Record<string, unknown>): number {
+  return (
+    Math.max(1, Math.floor(Number(data.boxesShipped) || 0)) ||
+    Math.max(1, Math.floor(Number(data.totalBoxes) || 0)) ||
+    1
+  );
+}
+
+/** Typical 3PL prep cost for a shipped record (admin market benchmarks). */
+export function estimateShippedPrepMarket(
+  data: Record<string, unknown>,
+  benchmarks: PrepSavingsBenchmarks
+): { family: PrepSavingsFamily; unitCount: number; estimated: number } | null {
+  const family = classifyPrepFamilyFromShipped(data);
+  if (family === "returns") return null;
+
+  if (family === "crossdock") {
+    const billable = crossdockBillableUnits(data);
+    const rate = marketPrepRate(benchmarks, "crossdock");
+    return { family, unitCount: billable, estimated: billable * rate };
+  }
+
+  const qty = shippedUnits(data);
+  if (qty <= 0) return null;
+
+  const rate = marketPrepRate(benchmarks, family);
+  return { family, unitCount: qty, estimated: qty * rate };
+}
+
+/** Typical 3PL return handling cost (admin market benchmarks). */
+export function estimateReturnPrepMarket(
+  qty: number,
+  benchmarks: PrepSavingsBenchmarks
+): { unitCount: number; estimated: number } {
+  const units = Math.max(0, Math.floor(qty));
+  if (units <= 0) return { unitCount: 0, estimated: 0 };
+  const rate = marketPrepRate(benchmarks, "returns");
+  return { unitCount: units, estimated: units * rate };
+}

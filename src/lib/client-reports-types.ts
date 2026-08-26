@@ -87,8 +87,6 @@ export type ClientReportSummary = {
     rows: ClientReportLabelRow[];
     prep: {
       benchmarks: PrepSavingsBenchmarks;
-      profileId: string;
-      profileLabel: string;
       unitCount: number;
       fbaUnitCount: number;
       fbmUnitCount: number;
