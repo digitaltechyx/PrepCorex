@@ -17,7 +17,7 @@ const DEFAULT_FBM_RATES: Record<string, number> = {
  * Determine the quantity tier used for pricing lookup.
  * FBA/WFS/TFS now uses simple monthly-volume tiers.
  */
-function getRangeForQuantity(service: ServiceType, quantity: number): string | null {
+export function getRangeForQuantity(service: ServiceType, quantity: number): string | null {
   if (service === "FBA/WFS/TFS") {
     if (quantity >= 2500) return "2500+";
     if (quantity >= 1000) return "1000-2499";
@@ -136,9 +136,47 @@ export function calculatePrepUnitPrice(
   return resolveRuleRate(latestRule.rate, defaultRateMap, expectedRange, productType);
 }
 
+function resolveProductOverrideRate(
+  override: UserProductPrepRate,
+  service: ServiceType,
+  totalUnits: number
+): number | null {
+  if (service === "FBA/WFS/TFS") {
+    if (override.fbaRate != null) {
+      const flat = Number(override.fbaRate);
+      if (Number.isFinite(flat) && flat >= 0) return flat;
+    }
+    const range = getRangeForQuantity(service, totalUnits) as
+      | keyof NonNullable<UserProductPrepRate["fbaVolumeRates"]>
+      | null;
+    if (range && override.fbaVolumeRates?.[range] != null) {
+      const tier = Number(override.fbaVolumeRates[range]);
+      if (Number.isFinite(tier) && tier >= 0) return tier;
+    }
+    return null;
+  }
+
+  if (isDtcFbmService(service)) {
+    if (override.fbmRate != null) {
+      const flat = Number(override.fbmRate);
+      if (Number.isFinite(flat) && flat >= 0) return flat;
+    }
+    const range = getRangeForQuantity(service, totalUnits) as
+      | keyof NonNullable<UserProductPrepRate["fbmVolumeRates"]>
+      | null;
+    if (range && override.fbmVolumeRates?.[range] != null) {
+      const tier = Number(override.fbmVolumeRates[range]);
+      if (Number.isFinite(tier) && tier >= 0) return tier;
+    }
+    return null;
+  }
+
+  return null;
+}
+
 /**
  * Resolve prep unit price for a shipment line.
- * Product-specific custom-profile overrides (flat FBA/FBM rates) win over volume tiers.
+ * Product-specific overrides (flat or volume tiers) win over profile tiers.
  */
 export function resolvePrepUnitPrice(input: {
   pricingRules: UserPricing[];
@@ -154,16 +192,9 @@ export function resolvePrepUnitPrice(input: {
       (row) => String(row.productId || row.id || "").trim() === productId
     );
     if (override) {
-      if (input.service === "FBA/WFS/TFS") {
-        const rate = Number(override.fbaRate);
-        if (Number.isFinite(rate) && rate >= 0) {
-          return { rate, source: "product_override" };
-        }
-      } else if (isDtcFbmService(input.service)) {
-        const rate = Number(override.fbmRate);
-        if (Number.isFinite(rate) && rate >= 0) {
-          return { rate, source: "product_override" };
-        }
+      const rate = resolveProductOverrideRate(override, input.service, input.totalUnits);
+      if (rate != null) {
+        return { rate, source: "product_override" };
       }
     }
   }

@@ -57,6 +57,17 @@ function serializePricingDoc(id: string, data: Record<string, unknown>) {
   if (row.price !== undefined) row.price = toNumber(row.price);
   if (row.fbaRate !== undefined) row.fbaRate = toNumber(row.fbaRate);
   if (row.fbmRate !== undefined) row.fbmRate = toNumber(row.fbmRate);
+  for (const key of ["fbaVolumeRates", "fbmVolumeRates"] as const) {
+    const map = row[key];
+    if (map && typeof map === "object" && !Array.isArray(map)) {
+      const next: Record<string, number> = {};
+      for (const [tier, value] of Object.entries(map as Record<string, unknown>)) {
+        const n = toNumber(value);
+        if (Number.isFinite(n) && n >= 0) next[tier] = n;
+      }
+      row[key] = next;
+    }
+  }
   return row;
 }
 

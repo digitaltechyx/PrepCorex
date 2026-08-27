@@ -19,6 +19,7 @@ import {
   Upload,
   Video,
   Wifi,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -70,6 +71,9 @@ type Props = {
 };
 
 type CameraFacingMode = "environment" | "user";
+
+const PRE_LIVE_COUNTDOWN_SECONDS = 10;
+const MAX_LIVE_SESSION_MS = 2 * 60 * 1000;
 
 async function createCameraTrack(facingMode: CameraFacingMode): Promise<LocalVideoTrack> {
   const resolution = VideoPresets.h720.resolution;
@@ -165,11 +169,16 @@ export function WarehouseMobileCameraRecorder({
   const startedAtRef = useRef(0);
   const pausedAtRef = useRef(0);
   const pausedTotalRef = useRef(0);
+  const sessionLimitTimerRef = useRef<number | null>(null);
+  const elapsedTimerRef = useRef<number | null>(null);
+  const goLiveInProgressRef = useRef(false);
 
   const [session, setSession] = useState<WarehouseCameraSession | null>(null);
   const [serverSessions, setServerSessions] = useState<WarehouseCameraSession[]>([]);
   const [localClips, setLocalClips] = useState<LocalWarehouseCameraClip[]>([]);
   const [starting, setStarting] = useState(false);
+  const [countdownRemaining, setCountdownRemaining] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const [stopping, setStopping] = useState(false);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -205,6 +214,46 @@ export function WarehouseMobileCameraRecorder({
     onRecordingChange?.(Boolean(session));
   }, [onRecordingChange, session]);
 
+  function clearSessionTimers() {
+    if (sessionLimitTimerRef.current != null) {
+      window.clearTimeout(sessionLimitTimerRef.current);
+      sessionLimitTimerRef.current = null;
+    }
+    if (elapsedTimerRef.current != null) {
+      window.clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+  }
+
+  function scheduleSessionTimers() {
+    clearSessionTimers();
+    sessionLimitTimerRef.current = window.setTimeout(() => {
+      void stopRecording({ autoStop: true });
+    }, MAX_LIVE_SESSION_MS);
+    elapsedTimerRef.current = window.setInterval(() => {
+      if (startedAtRef.current > 0) {
+        setElapsedMs(Math.min(Date.now() - startedAtRef.current, MAX_LIVE_SESSION_MS));
+      }
+    }, 500);
+  }
+
+  function detachPreviewTrack() {
+    const activeTrack = videoTrackRef.current;
+    const previewEl = previewRef.current;
+    if (activeTrack && previewEl) {
+      activeTrack.detach(previewEl);
+    }
+  }
+
+  function cancelCountdown() {
+    setCountdownRemaining(null);
+    detachPreviewTrack();
+    videoTrackRef.current?.stop();
+    videoTrackRef.current = null;
+    setActiveTrackId(null);
+    setStarting(false);
+  }
+
   useEffect(() => {
     if (!user || !session || (session.status !== "live" && session.status !== "paused")) return;
     const sendHeartbeat = () => {
@@ -216,19 +265,36 @@ export function WarehouseMobileCameraRecorder({
   }, [session, user]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session && countdownRemaining === null) return;
     const warnBeforeLeave = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", warnBeforeLeave);
     return () => window.removeEventListener("beforeunload", warnBeforeLeave);
-  }, [session]);
+  }, [countdownRemaining, session]);
+
+  useEffect(() => {
+    if (countdownRemaining == null || countdownRemaining > 0 || session || goLiveInProgressRef.current) {
+      return;
+    }
+    void activateLiveSession();
+  }, [countdownRemaining, session]);
+
+  useEffect(() => {
+    if (countdownRemaining == null || countdownRemaining <= 0) return;
+    const timer = window.setTimeout(() => {
+      setCountdownRemaining((current) => (current != null && current > 0 ? current - 1 : current));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [countdownRemaining]);
 
   useEffect(() => {
     return () => {
       onRecordingChange?.(false);
+      clearSessionTimers();
       recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
+      detachPreviewTrack();
       videoTrackRef.current?.stop();
       roomRef.current?.disconnect();
     };
@@ -237,7 +303,7 @@ export function WarehouseMobileCameraRecorder({
   useEffect(() => {
     const videoEl = previewRef.current;
     const track = videoTrackRef.current;
-    if (!session || !videoEl || !track) return;
+    if ((!session && countdownRemaining === null) || !videoEl || !track) return;
 
     track.attach(videoEl);
     void videoEl.play().catch(() => undefined);
@@ -245,10 +311,10 @@ export function WarehouseMobileCameraRecorder({
     return () => {
       track.detach(videoEl);
     };
-  }, [session, activeTrackId]);
+  }, [countdownRemaining, session, activeTrackId]);
 
-  async function startRecording() {
-    if (!user || starting || session) return;
+  async function beginCountdown() {
+    if (!user || starting || session || countdownRemaining !== null) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       toast({
         variant: "destructive",
@@ -258,12 +324,39 @@ export function WarehouseMobileCameraRecorder({
       return;
     }
     setStarting(true);
-    let localTrack: LocalVideoTrack | null = null;
+    try {
+      const localTrack = await createCameraTrack(cameraFacingMode);
+      await navigator.storage?.persist?.().catch(() => false);
+      videoTrackRef.current = localTrack;
+      setActiveTrackId(localTrack.mediaStreamTrack.id);
+      setCountdownRemaining(PRE_LIVE_COUNTDOWN_SECONDS);
+    } catch (error) {
+      videoTrackRef.current?.stop();
+      videoTrackRef.current = null;
+      setActiveTrackId(null);
+      toast({
+        variant: "destructive",
+        title: "Could not open camera",
+        description: error instanceof Error ? error.message : "Camera start failed.",
+      });
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function activateLiveSession() {
+    if (!user || goLiveInProgressRef.current || session) return;
+    const localTrack = videoTrackRef.current;
+    if (!localTrack) {
+      cancelCountdown();
+      return;
+    }
+
+    goLiveInProgressRef.current = true;
+    setStarting(true);
     let room: Room | null = null;
     let createdSessionId = "";
     try {
-      localTrack = await createCameraTrack(cameraFacingMode);
-      await navigator.storage?.persist?.().catch(() => false);
       const created = await createWarehouseCameraSession(user, {
         jobType,
         clientUserId,
@@ -294,37 +387,51 @@ export function WarehouseMobileCameraRecorder({
       recorder.start(1000);
       recorderRef.current = recorder;
       roomRef.current = room;
-      videoTrackRef.current = localTrack;
-      setActiveTrackId(localTrack.mediaStreamTrack.id);
       startedAtRef.current = Date.now();
       pausedAtRef.current = 0;
       pausedTotalRef.current = 0;
+      setElapsedMs(0);
+      scheduleSessionTimers();
       setSession(created.session);
+      setCountdownRemaining(null);
       setServerSessions((prev) => [created.session, ...prev]);
       toast({
         title: "Recording and live view started",
         description: `${clientDisplayName} can now watch this ${jobLabel.toLowerCase()} live.`,
       });
     } catch (error) {
-      localTrack?.stop();
+      localTrack.stop();
       room?.disconnect();
       if (createdSessionId) {
         await updateWarehouseCameraSession(user, createdSessionId, "discard").catch(
           () => undefined
         );
       }
+      videoTrackRef.current = null;
+      setActiveTrackId(null);
+      setCountdownRemaining(null);
       toast({
         variant: "destructive",
         title: "Could not start recording",
         description: error instanceof Error ? error.message : "Camera start failed.",
       });
     } finally {
+      goLiveInProgressRef.current = false;
       setStarting(false);
     }
   }
 
+  async function startRecording() {
+    await beginCountdown();
+  }
+
   async function switchCamera() {
-    if (!user || !session || !roomRef.current || !videoTrackRef.current || switchingCamera) {
+    if (
+      !user ||
+      switchingCamera ||
+      (!session && countdownRemaining === null) ||
+      !videoTrackRef.current
+    ) {
       return;
     }
 
@@ -339,8 +446,10 @@ export function WarehouseMobileCameraRecorder({
     let newTrack: LocalVideoTrack | null = null;
     try {
       newTrack = await createCameraTrack(nextFacing);
-      await room.localParticipant.unpublishTrack(oldTrack);
-      await room.localParticipant.publishTrack(newTrack);
+      if (room) {
+        await room.localParticipant.unpublishTrack(oldTrack);
+        await room.localParticipant.publishTrack(newTrack);
+      }
 
       if (recorderStream && recorder && recorder.state !== "inactive") {
         recorderStream.getVideoTracks().forEach((track) => {
@@ -349,6 +458,7 @@ export function WarehouseMobileCameraRecorder({
         recorderStream.addTrack(newTrack.mediaStreamTrack);
       }
 
+      detachPreviewTrack();
       oldTrack.stop();
       videoTrackRef.current = newTrack;
       setCameraFacingMode(nextFacing);
@@ -404,9 +514,10 @@ export function WarehouseMobileCameraRecorder({
     }
   }
 
-  async function stopRecording() {
+  async function stopRecording(options?: { autoStop?: boolean }) {
     if (!user || !session || !recorderRef.current || stopping) return;
     setStopping(true);
+    clearSessionTimers();
     const activeSession = session;
     const recorder = recorderRef.current;
     try {
@@ -457,9 +568,16 @@ export function WarehouseMobileCameraRecorder({
         prev.map((row) => (row.id === updated.id ? updated : row))
       );
       setSession(null);
+      setElapsedMs(0);
       await saveLocalWarehouseCameraClip(localClip);
       setLocalClips((prev) => [localClip, ...prev.filter((c) => c.sessionId !== localClip.sessionId)]);
       setUploadPrompt(localClip);
+      if (options?.autoStop) {
+        toast({
+          title: "Recording stopped",
+          description: "The 2 minute session limit was reached.",
+        });
+      }
     } catch (error) {
       toast({
         variant: "destructive",
@@ -545,13 +663,13 @@ export function WarehouseMobileCameraRecorder({
             </Badge>
           </CardTitle>
           <CardDescription>
-            Record this {jobLabel.toLowerCase()} with the phone camera if you want. The client can
-            watch live; completed clips stay on this device until you upload to Google Drive (now or
-            later from Gallery / dispatch).
+            Record this {jobLabel.toLowerCase()} with the phone camera if you want. After a 10
+            second countdown the client can watch live for up to 2 minutes. Completed clips stay on
+            this device until you upload to Google Drive (now or later from Gallery / dispatch).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {session ? (
+          {session || countdownRemaining !== null ? (
             <>
               <div className="relative overflow-hidden rounded-xl bg-black">
                 <video
@@ -561,16 +679,72 @@ export function WarehouseMobileCameraRecorder({
                   playsInline
                   className="aspect-video w-full object-cover"
                 />
-                <Badge
-                  className="absolute left-3 top-3 gap-1 bg-red-600 text-white hover:bg-red-600"
-                >
-                  <Wifi className="h-3 w-3" />
-                  {session.status === "paused" ? "PAUSED" : "LIVE"}
-                </Badge>
+                {countdownRemaining !== null ? (
+                  <>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/55">
+                      {countdownRemaining > 0 ? (
+                        <>
+                          <p className="text-sm font-medium uppercase tracking-wide text-white/90">
+                            Going live in
+                          </p>
+                          <p className="mt-2 text-6xl font-bold tabular-nums text-white">
+                            {countdownRemaining}
+                          </p>
+                          <p className="mt-3 max-w-xs px-4 text-center text-xs text-white/80">
+                            Client cannot see this yet. Frame the shot, then wait for live +
+                            recording to start.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <Loader2 className="h-10 w-10 animate-spin text-white" />
+                          <p className="mt-3 text-sm font-medium text-white">
+                            Starting live &amp; recording…
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    <Badge className="absolute left-3 top-3 bg-amber-600 text-white hover:bg-amber-600">
+                      {countdownRemaining > 0 ? `PREP ${countdownRemaining}s` : "CONNECTING"}
+                    </Badge>
+                  </>
+                ) : (
+                  <>
+                    <Badge
+                      className="absolute left-3 top-3 gap-1 bg-red-600 text-white hover:bg-red-600"
+                    >
+                      <Wifi className="h-3 w-3" />
+                      {session?.status === "paused" ? "PAUSED" : "LIVE"}
+                    </Badge>
+                    <Badge className="absolute bottom-3 left-3 bg-black/75 text-white hover:bg-black/75 tabular-nums">
+                      {formatDuration(elapsedMs)} / {formatDuration(MAX_LIVE_SESSION_MS)}
+                    </Badge>
+                  </>
+                )}
                 <Badge className="absolute right-3 top-3 bg-black/70 text-white hover:bg-black/70">
                   {cameraFacingMode === "environment" ? "Back camera" : "Front camera"}
                 </Badge>
               </div>
+              {countdownRemaining !== null && countdownRemaining > 0 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    onClick={() => void switchCamera()}
+                    disabled={switchingCamera}
+                    variant="outline"
+                  >
+                    {switchingCamera ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <SwitchCamera className="mr-2 h-4 w-4" />
+                    )}
+                    {cameraFacingMode === "environment" ? "Front" : "Back"}
+                  </Button>
+                  <Button onClick={cancelCountdown} variant="outline">
+                    <X className="mr-2 h-4 w-4" />
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
               <div className="grid grid-cols-3 gap-2">
                 {session.status === "paused" ? (
                   <Button onClick={() => void resumeRecording()} variant="outline">
@@ -608,6 +782,7 @@ export function WarehouseMobileCameraRecorder({
                   Stop
                 </Button>
               </div>
+              )}
             </>
           ) : (
             <Alert>
@@ -615,9 +790,9 @@ export function WarehouseMobileCameraRecorder({
               <AlertTitle>Start a recording for this {jobLabel.toLowerCase()}?</AlertTitle>
               <AlertDescription className="mt-2 space-y-3">
                 <p>
-                  Camera access is used only after you tap Start. Recording begins on the back camera
-                  by default. You can switch front/back while recording, pause, resume, stop, and
-                  create multiple clips. Keep this page open and the phone screen awake while
+                  Camera access is used only after you tap Start. You get a 10 second on-screen
+                  countdown to frame the shot before the client goes live. Sessions auto-stop after
+                  2 minutes (or stop manually). Keep this page open and the phone screen awake while
                   recording.
                 </p>
                 <Button

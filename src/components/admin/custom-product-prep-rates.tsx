@@ -7,7 +7,12 @@ import { useCollection } from "@/hooks/use-collection";
 import { db } from "@/lib/firebase";
 import { getPricingProfileCollectionPath } from "@/lib/pricing-profiles";
 import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
-import type { InventoryItem, UserProductPrepRate } from "@/types";
+import type {
+  FbaProductVolumeRange,
+  FbmProductVolumeRange,
+  InventoryItem,
+  UserProductPrepRate,
+} from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,14 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Label } from "@/components/ui/label";
 
 type Props = {
   profileId: string;
@@ -41,13 +39,49 @@ type Props = {
   clientName: string;
 };
 
+const FBA_VOLUME_TIERS: { range: FbaProductVolumeRange; label: string }[] = [
+  { range: "1-999", label: "1-999 units" },
+  { range: "1000-2499", label: "1,000-2,499 units" },
+  { range: "2500+", label: "2,500+ units" },
+];
+
+const FBM_VOLUME_TIERS: { range: FbmProductVolumeRange; label: string }[] = [
+  { range: "1-10", label: "1-10 units" },
+  { range: "11-24", label: "11-24 units" },
+  { range: "25-49", label: "25-49 units" },
+  { range: "50+", label: "50+ units" },
+];
+
+type VolumeRateDraft = Record<string, string>;
+
 type DraftRate = {
   productId: string;
   productName: string;
   sku: string;
   fbaRate: string;
   fbmRate: string;
+  fbaVolumeRates: VolumeRateDraft;
+  fbmVolumeRates: VolumeRateDraft;
 };
+
+function volumeRatesFromDoc(
+  map: UserProductPrepRate["fbaVolumeRates"] | UserProductPrepRate["fbmVolumeRates"]
+): VolumeRateDraft {
+  const out: VolumeRateDraft = {};
+  if (!map || typeof map !== "object") return out;
+  for (const [key, value] of Object.entries(map)) {
+    if (value != null && Number.isFinite(Number(value))) out[key] = String(value);
+  }
+  return out;
+}
+
+function mergeVolumeDraft(
+  draft: VolumeRateDraft | undefined,
+  stored: UserProductPrepRate["fbaVolumeRates"] | UserProductPrepRate["fbmVolumeRates"]
+): VolumeRateDraft {
+  if (draft) return draft;
+  return volumeRatesFromDoc(stored);
+}
 
 export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientName }: Props) {
   const { toast } = useToast();
@@ -98,7 +132,9 @@ export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientNam
             (row.fbmRate != null && Number.isFinite(Number(row.fbmRate))
               ? String(row.fbmRate)
               : ""),
-        };
+          fbaVolumeRates: mergeVolumeDraft(draft?.fbaVolumeRates, row.fbaVolumeRates),
+          fbmVolumeRates: mergeVolumeDraft(draft?.fbmVolumeRates, row.fbmVolumeRates),
+        } satisfies DraftRate;
       })
       .sort((a, b) => a.productName.localeCompare(b.productName));
   }, [rateDocs, drafts, warehouseInventory]);
@@ -128,6 +164,18 @@ export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientNam
     }));
   };
 
+  const updateVolumeDraft = (
+    productId: string,
+    service: "fba" | "fbm",
+    range: string,
+    value: string,
+    fallback: DraftRate
+  ) => {
+    const key = service === "fba" ? "fbaVolumeRates" : "fbmVolumeRates";
+    const current = drafts[productId]?.[key] || fallback[key];
+    updateDraft(productId, { [key]: { ...current, [range]: value } }, fallback);
+  };
+
   const parseOptionalRate = (raw: string): number | null => {
     const trimmed = raw.trim();
     if (!trimmed) return null;
@@ -136,14 +184,39 @@ export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientNam
     return n;
   };
 
+  const parseVolumeRates = (
+    draft: VolumeRateDraft,
+    tiers: { range: string }[]
+  ): Record<string, number> | null => {
+    const out: Record<string, number> = {};
+    for (const tier of tiers) {
+      const rate = parseOptionalRate(draft[tier.range] ?? "");
+      if (rate != null) out[tier.range] = rate;
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  };
+
+  const hasAnyFbaRate = (fbaRate: number | null, fbaVolume: Record<string, number> | null) =>
+    fbaRate != null || (fbaVolume != null && Object.keys(fbaVolume).length > 0);
+
+  const hasAnyFbmRate = (fbmRate: number | null, fbmVolume: Record<string, number> | null) =>
+    fbmRate != null || (fbmVolume != null && Object.keys(fbmVolume).length > 0);
+
   const saveRow = async (row: DraftRate) => {
     setSavingId(row.productId);
     try {
       const fbaRate = parseOptionalRate(row.fbaRate);
       const fbmRate = parseOptionalRate(row.fbmRate);
-      if (fbaRate == null && fbmRate == null) {
-        throw new Error("Enter at least one of FBA or FBM rate.");
+      const fbaVolumeRates = parseVolumeRates(row.fbaVolumeRates, FBA_VOLUME_TIERS);
+      const fbmVolumeRates = parseVolumeRates(row.fbmVolumeRates, FBM_VOLUME_TIERS);
+
+      if (
+        !hasAnyFbaRate(fbaRate, fbaVolumeRates) &&
+        !hasAnyFbmRate(fbmRate, fbmVolumeRates)
+      ) {
+        throw new Error("Enter a flat rate and/or volume tiers for FBA and/or FBM.");
       }
+
       await setDoc(
         doc(db, ratesPath, row.productId),
         {
@@ -152,6 +225,8 @@ export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientNam
           sku: row.sku || null,
           fbaRate,
           fbmRate,
+          fbaVolumeRates,
+          fbmVolumeRates,
           updatedAt: Timestamp.now(),
         },
         { merge: true }
@@ -208,6 +283,8 @@ export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientNam
         sku: item.sku || null,
         fbaRate: null,
         fbmRate: null,
+        fbaVolumeRates: null,
+        fbmVolumeRates: null,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });
@@ -215,7 +292,7 @@ export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientNam
       setPickerQuery("");
       toast({
         title: "Product added",
-        description: "Enter FBA and/or FBM unit rates, then Save.",
+        description: "Set flat rates and/or volume tiers, then Save.",
       });
     } catch (e) {
       toast({
@@ -235,13 +312,14 @@ export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientNam
         </CardTitle>
         <CardDescription className="text-amber-900/80">
           For <span className="font-medium">{clientName}</span> custom profile only. Listed products
-          use these flat unit rates; all other products keep the volume-tier rates above.
+          use these rates (flat or by volume); all other products keep the profile tiers above.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground">
-            Leave a rate blank to keep the profile tier for that service.
+          <p className="text-xs text-muted-foreground max-w-xl">
+            Flat rate applies to all volumes for that service. Leave flat blank and set volume tiers
+            instead. Blank tiers fall back to the profile rate for that band.
           </p>
           <Button type="button" size="sm" onClick={() => setPickerOpen(true)}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -256,95 +334,156 @@ export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientNam
           </p>
         ) : rows.length === 0 ? (
           <p className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-            No product overrides yet. Add a warehouse product to give it a different FBA or FBM
-            unit price.
+            No product overrides yet. Add a warehouse product to give it custom FBA or FBM pricing.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="w-[120px]">FBA rate ($)</TableHead>
-                  <TableHead className="w-[120px]">FBM rate ($)</TableHead>
-                  <TableHead className="w-[160px]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => {
-                  const fallback: DraftRate = row;
-                  return (
-                    <TableRow key={row.productId}>
-                      <TableCell>
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{row.productName}</p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            SKU: {row.sku || "—"}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="h-8"
-                          placeholder="Profile tier"
-                          value={row.fbaRate}
-                          onChange={(e) =>
-                            updateDraft(row.productId, { fbaRate: e.target.value }, fallback)
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="h-8"
-                          placeholder="Profile tier"
-                          value={row.fbmRate}
-                          onChange={(e) =>
-                            updateDraft(row.productId, { fbmRate: e.target.value }, fallback)
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="h-8"
-                            disabled={savingId === row.productId}
-                            onClick={() => void saveRow(row)}
+          <div className="space-y-4">
+            {rows.map((row) => {
+              const fallback: DraftRate = row;
+              return (
+                <div
+                  key={row.productId}
+                  className="rounded-lg border bg-slate-50/50 p-4 space-y-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{row.productName}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        SKU: {row.sku || "—"}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8"
+                        disabled={savingId === row.productId}
+                        onClick={() => void saveRow(row)}
+                      >
+                        {savingId === row.productId ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          "Save"
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-destructive"
+                        disabled={removingId === row.productId}
+                        onClick={() => void removeRow(row.productId, row.productName)}
+                      >
+                        {removingId === row.productId ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Flat FBA rate ($) — all volumes</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="h-8 bg-white"
+                        placeholder="Optional"
+                        value={row.fbaRate}
+                        onChange={(e) =>
+                          updateDraft(row.productId, { fbaRate: e.target.value }, fallback)
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Flat FBM rate ($) — all volumes</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="h-8 bg-white"
+                        placeholder="Optional"
+                        value={row.fbmRate}
+                        onChange={(e) =>
+                          updateDraft(row.productId, { fbmRate: e.target.value }, fallback)
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="space-y-2 rounded-md border bg-white p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        FBA by volume
+                      </p>
+                      <div className="space-y-2">
+                        {FBA_VOLUME_TIERS.map((tier) => (
+                          <div
+                            key={tier.range}
+                            className="grid grid-cols-[1fr_88px] items-center gap-2"
                           >
-                            {savingId === row.productId ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              "Save"
-                            )}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-8 text-destructive"
-                            disabled={removingId === row.productId}
-                            onClick={() => void removeRow(row.productId, row.productName)}
+                            <span className="text-sm text-muted-foreground">{tier.label}</span>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="h-8"
+                              placeholder="—"
+                              value={row.fbaVolumeRates[tier.range] ?? ""}
+                              onChange={(e) =>
+                                updateVolumeDraft(
+                                  row.productId,
+                                  "fba",
+                                  tier.range,
+                                  e.target.value,
+                                  fallback
+                                )
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 rounded-md border bg-white p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        FBM by volume
+                      </p>
+                      <div className="space-y-2">
+                        {FBM_VOLUME_TIERS.map((tier) => (
+                          <div
+                            key={tier.range}
+                            className="grid grid-cols-[1fr_88px] items-center gap-2"
                           >
-                            {removingId === row.productId ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3.5 w-3.5" />
-                            )}
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                            <span className="text-sm text-muted-foreground">{tier.label}</span>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="h-8"
+                              placeholder="—"
+                              value={row.fbmVolumeRates[tier.range] ?? ""}
+                              onChange={(e) =>
+                                updateVolumeDraft(
+                                  row.productId,
+                                  "fbm",
+                                  tier.range,
+                                  e.target.value,
+                                  fallback
+                                )
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 

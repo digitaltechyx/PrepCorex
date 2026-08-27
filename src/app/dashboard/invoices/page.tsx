@@ -9,7 +9,7 @@ import { DiscountTrailPanel } from "@/components/invoices/discount-trail-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Receipt, DollarSign, Info, Mail, Tag } from "lucide-react";
+import { Receipt, DollarSign, Info, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { mergeDiscountTrailEntries, sumDiscountTrailAmount } from "@/lib/discount-trail";
 
@@ -141,24 +141,15 @@ export default function InvoicesPage() {
       <Alert className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50">
         <Info className="h-5 w-5 text-blue-600" />
         <AlertTitle className="text-base font-semibold text-blue-900 mb-2">
-          Auto Invoice Generation Feature - Coming Soon
+          Automatic Invoice Generation — Coming Soon
         </AlertTitle>
         <AlertDescription className="text-sm text-blue-800 space-y-2">
           <p>
-            The automatic invoice generation feature is currently under development and will be launched in{" "}
-            <strong>January 2026</strong>. Please ignore any related functionality for the time being.
+            Automatic invoice generation is currently in development and will be available soon.
+            Until then, please disregard any related options or actions on this page.
           </p>
-          <p className="flex items-center gap-2 pt-1">
-            <Mail className="h-4 w-4" />
-            <span>
-              If you have any questions or encounter any issues, please contact our development team at:{" "}
-              <a
-                href="mailto:onlywork0308@gmail.com"
-                className="font-semibold text-blue-900 hover:text-blue-700 underline"
-              >
-                onlywork0308@gmail.com
-              </a>
-            </span>
+          <p>
+            If you have questions or notice anything unexpected, please contact Administration.
           </p>
         </AlertDescription>
       </Alert>

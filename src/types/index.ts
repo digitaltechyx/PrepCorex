@@ -2157,18 +2157,25 @@ export interface UserPricing {
 
 /**
  * Per-product prep unit rate overrides on a custom pricing profile.
- * When set, FBA/FBM outbound lines for that product use this flat unit rate
- * instead of the profile's volume-tier rates.
+ * Flat fbaRate/fbmRate apply to all volumes; otherwise fbaVolumeRates / fbmVolumeRates
+ * by shipment line unit count; otherwise the profile volume-tier rates apply.
  */
+export type FbaProductVolumeRange = "1-999" | "1000-2499" | "2500+";
+export type FbmProductVolumeRange = "1-10" | "11-24" | "25-49" | "50+";
+
 export interface UserProductPrepRate {
   id: string;
   productId: string;
   productName?: string;
   sku?: string;
-  /** Flat unit rate for FBA/WFS/TFS (ignores volume tier). */
+  /** Flat unit rate for FBA/WFS/TFS (all volumes). Wins over volume tiers when set. */
   fbaRate?: number | null;
-  /** Flat unit rate for DTC/FBM (ignores volume tier). */
+  /** Flat unit rate for DTC/FBM (all volumes). Wins over volume tiers when set. */
   fbmRate?: number | null;
+  /** FBA per-volume unit rates when fbaRate is not set. */
+  fbaVolumeRates?: Partial<Record<FbaProductVolumeRange, number>> | null;
+  /** FBM per-volume unit rates when fbmRate is not set. */
+  fbmVolumeRates?: Partial<Record<FbmProductVolumeRange, number>> | null;
   updatedAt?: unknown;
   createdAt?: unknown;
 }
