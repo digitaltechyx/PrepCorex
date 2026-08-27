@@ -468,6 +468,8 @@ export function buildInventoryHistory(
             ? "Outbound line edited — restored"
             : log.eventType === "outbound_line_reserved"
               ? "Outbound line edited — additional reserve"
+              : log.eventType === "outbound_line_pack_updated"
+                ? "Outbound line repacked"
               : log.eventType === "outbound_dispatch"
             ? "Outbound dispatched"
             : log.eventType === "outbound_shipped"
@@ -525,6 +527,8 @@ export function buildInventoryHistory(
       });
     })();
 
+    const isPackLayoutOnly = log.eventType === "outbound_line_pack_updated";
+
     // Restored stock shows as inbound-style increase; awaiting/dispatch stay on outbound tab.
     const historyEventType =
       log.eventType === "outbound_restored" ||
@@ -537,9 +541,9 @@ export function buildInventoryHistory(
       timestamp: toTimestamp(log.at),
       event: eventLabel,
       eventType: historyEventType,
-      qtyBefore: log.qtyBefore,
-      qtyAfter: log.qtyAfter,
-      qtyChange: log.qtyChange,
+      qtyBefore: isPackLayoutOnly ? null : log.qtyBefore,
+      qtyAfter: isPackLayoutOnly ? null : log.qtyAfter,
+      qtyChange: isPackLayoutOnly ? null : log.qtyChange,
       details,
       user: "Fulfillment",
       shipmentRequestId: log.shipmentRequestId ?? null,

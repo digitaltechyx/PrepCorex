@@ -10,11 +10,13 @@ import { db } from "@/lib/firebase";
 import {
   adjustClientInventoryForOutboundLineEdit,
   hasClientInventoryDeducted,
+  recordOutboundLineLayoutEdit,
   shipmentUnits,
 } from "@/lib/client-inventory-outbound-sync";
 import {
   buildEditableShipmentLines,
   buildOrderLinesFromRequestData,
+  formatOutboundPackLine,
   loadClientProductMap,
 } from "@/lib/warehouse-outbound-lines";
 import {
@@ -187,6 +189,8 @@ export async function editOutboundLineAtWarehouse(input: {
   }
 
   const lineEditedAt = Timestamp.now();
+  const layoutChanged = newBoxQuantity !== oldBoxes || newPackOf !== oldPackOf;
+  const layoutBefore = formatOutboundPackLine(oldBoxes, oldPackOf);
   const nextShipments = [...shipments];
   if (newBoxQuantity === 0) {
     nextShipments[lineIndex] = {
@@ -196,6 +200,7 @@ export async function editOutboundLineAtWarehouse(input: {
       warehouseLineEditedAt: lineEditedAt,
       warehouseLineEditedBy: input.editedBy,
       warehouseLineEditReason: reason,
+      warehouseLineEditFrom: layoutBefore,
     };
   } else {
     nextShipments[lineIndex] = {
@@ -205,6 +210,7 @@ export async function editOutboundLineAtWarehouse(input: {
       warehouseLineEditedAt: lineEditedAt,
       warehouseLineEditedBy: input.editedBy,
       warehouseLineEditReason: reason,
+      ...(layoutChanged ? { warehouseLineEditFrom: layoutBefore } : {}),
     };
   }
 
@@ -212,6 +218,20 @@ export async function editOutboundLineAtWarehouse(input: {
     shipments: nextShipments,
     updatedAt: serverTimestamp(),
   });
+
+  if (layoutChanged && unitDelta === 0 && newBoxQuantity > 0) {
+    await recordOutboundLineLayoutEdit({
+      clientUserId,
+      shipmentRequestId,
+      lineIndex,
+      productId,
+      boxesBefore: oldBoxes,
+      packOfBefore: oldPackOf,
+      boxesAfter: newBoxQuantity,
+      packOfAfter: newPackOf,
+      reason,
+    });
+  }
 
   if (hasClientInventoryDeducted(data) && unitDelta !== 0) {
     await adjustClientInventoryForOutboundLineEdit({
@@ -222,6 +242,8 @@ export async function editOutboundLineAtWarehouse(input: {
       unitDelta,
       packOf: newPackOf,
       boxesAfter: newBoxQuantity,
+      boxesBefore: oldBoxes,
+      packOfBefore: oldPackOf,
       reason,
     });
   }

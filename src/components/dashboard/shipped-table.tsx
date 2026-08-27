@@ -49,6 +49,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useToast } from "@/hooks/use-toast";
 import { ShippedOrderDetailsDialog } from "@/components/dashboard/shipped-order-details-dialog";
 import { OutboundShipmentVideoDialog } from "@/components/dashboard/outbound-shipment-video-dialog";
+import { formatOutboundPackLine } from "@/lib/warehouse-outbound-lines";
 import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
 
 function outboundVideoShipmentId(item: {
@@ -57,6 +58,19 @@ function outboundVideoShipmentId(item: {
 }): string | null {
   const id = String(item.requestId || item.shipmentRequestId || "").trim();
   return id || null;
+}
+
+function warehouseLineEditNotice(shipment: Record<string, unknown>): string | null {
+  const from = String(shipment.warehouseLineEditFrom ?? "").trim();
+  if (!from) return null;
+  if (Boolean(shipment.warehouseLineRemoved)) {
+    return `Warehouse updated: was ${from} · line removed`;
+  }
+  const qty = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
+  const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
+  const now = formatOutboundPackLine(qty, packOf);
+  if (from === now) return null;
+  return `Warehouse updated: ${from} → ${now}`;
 }
 
 function formatDate(date: ShippedItem["date"]) {
@@ -520,6 +534,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         createdAt: req.requestedAt,
         additionalServices: shipment.selectedAdditionalServices || (req as any).additionalServices,
         canCancelRequest: status === "Pending" && (req.status || "pending") === "pending" && index === 0,
+        warehouseLineEditNotice: warehouseLineEditNotice(shipment as Record<string, unknown>),
+        warehouseLineEditReason: String(shipment.warehouseLineEditReason ?? "").trim() || null,
       };
     };
 
@@ -765,6 +781,11 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="font-semibold text-sm">{item.productName}</div>
+                    {(item as { warehouseLineEditNotice?: string | null }).warehouseLineEditNotice ? (
+                      <p className="mt-1 text-[11px] font-normal text-amber-800">
+                        {(item as { warehouseLineEditNotice?: string | null }).warehouseLineEditNotice}
+                      </p>
+                    ) : null}
                     <div className="text-xs text-muted-foreground mt-1">{formatDate(item.date)}</div>
                   </div>
                   <div className="text-right">
@@ -944,6 +965,11 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                       <TableCell className="font-medium max-w-32 sm:max-w-none truncate">
                         <div className="flex flex-col sm:block">
                           <span className="font-medium">{item.productName}</span>
+                          {(item as { warehouseLineEditNotice?: string | null }).warehouseLineEditNotice ? (
+                            <p className="mt-1 text-[11px] font-normal text-amber-800 dark:text-amber-200">
+                              {(item as { warehouseLineEditNotice?: string | null }).warehouseLineEditNotice}
+                            </p>
+                          ) : null}
                           <div className="sm:hidden mt-1 space-y-0.5 text-xs text-gray-500">
                             <span>{formatDate(item.date)}</span>
                             <br />

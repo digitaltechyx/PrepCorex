@@ -1085,6 +1085,7 @@ export interface InventoryChangeLog {
     | "outbound_restored"
     | "outbound_line_restored"
     | "outbound_line_reserved"
+    | "outbound_line_pack_updated"
     | "outbound_dispatch"
     | "outbound_shipped"
     | "admin_ship"

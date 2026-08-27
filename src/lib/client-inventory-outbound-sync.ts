@@ -10,6 +10,7 @@ import {
   deleteField,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { formatOutboundPackLine } from "@/lib/warehouse-outbound-lines";
 import type { InventoryItem } from "@/types";
 
 export type ClientInventoryDeductionTiming = "create" | "confirm" | "dispatch";
@@ -960,6 +961,89 @@ function collectIntegrationSyncHints(
   }
 }
 
+function outboundLayoutChangeDetail(input: {
+  boxesBefore: number;
+  packOfBefore: number;
+  boxesAfter: number;
+  packOfAfter: number;
+}): string | null {
+  const before = formatOutboundPackLine(input.boxesBefore, input.packOfBefore);
+  const after = formatOutboundPackLine(input.boxesAfter, input.packOfAfter);
+  if (before === after) return null;
+  return `was ${before} · now ${after}`;
+}
+
+/**
+ * Audit trail when warehouse repacks a line without changing total units (inventory qty unchanged).
+ */
+export async function recordOutboundLineLayoutEdit(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+  lineIndex: number;
+  productId: string;
+  boxesBefore: number;
+  packOfBefore: number;
+  boxesAfter: number;
+  packOfAfter: number;
+  reason: string;
+}): Promise<void> {
+  const layoutDetail = outboundLayoutChangeDetail(input);
+  if (!layoutDetail) return;
+
+  const requestRef = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const inventoryRef = doc(db, `users/${input.clientUserId}/inventory`, input.productId);
+  const editAt = Timestamp.now();
+  const editKey = editAt.toMillis();
+
+  await runTransaction(db, async (transaction) => {
+    const [requestSnap, inventorySnap] = await Promise.all([
+      transaction.get(requestRef),
+      transaction.get(inventoryRef),
+    ]);
+    if (!requestSnap.exists() || !inventorySnap.exists()) return;
+
+    const data = requestSnap.data() as Record<string, unknown>;
+    const base = inventorySnap.data() as Omit<InventoryItem, "id">;
+    const service = serviceLabelForRequest(data);
+    const qty = Math.max(0, Number(base.quantity) || 0);
+    const unitsAfter = input.boxesAfter * Math.max(1, input.packOfAfter);
+
+    const changeLogRef = doc(
+      db,
+      "users",
+      input.clientUserId,
+      "inventoryChangeLogs",
+      `${input.shipmentRequestId}_${input.productId}_line${input.lineIndex}_layout_${editKey}`
+    );
+
+    transaction.set(changeLogRef, {
+      inventoryId: input.productId,
+      productName: base.productName,
+      sku: base.sku ?? null,
+      eventType: "outbound_line_pack_updated",
+      qtyBefore: qty,
+      qtyAfter: qty,
+      qtyChange: 0,
+      shipmentRequestId: input.shipmentRequestId,
+      shippedId: null,
+      service,
+      shipTo: null,
+      packOf: Math.max(1, input.packOfAfter),
+      boxesShipped: input.boxesAfter > 0 ? input.boxesAfter : null,
+      details: [
+        "Outbound line repacked — total units unchanged",
+        layoutDetail,
+        `${unitsAfter} units`,
+        input.reason ? `Reason: ${input.reason}` : "",
+        service ? `Service: ${service}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      at: editAt,
+    });
+  });
+}
+
 /**
  * Partial client inventory reserve/restore when warehouse edits one outbound line before dispatch.
  * Positive unitDelta = reserve more; negative = restore to sellable.
@@ -972,6 +1056,8 @@ export async function adjustClientInventoryForOutboundLineEdit(input: {
   unitDelta: number;
   packOf: number;
   boxesAfter: number;
+  boxesBefore?: number;
+  packOfBefore?: number;
   reason: string;
 }): Promise<ShopifyInventorySyncHint[]> {
   const unitDelta = Math.floor(input.unitDelta);
@@ -1051,6 +1137,15 @@ export async function adjustClientInventoryForOutboundLineEdit(input: {
 
     const boxesDelta =
       packOf > 0 ? Math.max(1, Math.round(Math.abs(unitDelta) / packOf)) : Math.abs(unitDelta);
+    const layoutDetail =
+      input.boxesBefore != null && input.packOfBefore != null
+        ? outboundLayoutChangeDetail({
+            boxesBefore: input.boxesBefore,
+            packOfBefore: input.packOfBefore,
+            boxesAfter,
+            packOfAfter: packOf,
+          })
+        : null;
 
     const changeLogRef = doc(
       db,
@@ -1076,6 +1171,7 @@ export async function adjustClientInventoryForOutboundLineEdit(input: {
       boxesShipped: boxesAfter > 0 ? boxesAfter : null,
       details: [
         detailLead,
+        layoutDetail,
         outboundPackDetailsLine(boxesDelta, packOf),
         input.reason ? `Reason: ${input.reason}` : "",
         service ? `Service: ${service}` : "",
