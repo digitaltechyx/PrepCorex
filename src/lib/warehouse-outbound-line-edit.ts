@@ -76,7 +76,7 @@ export type EditOutboundLineResult = {
 
 /**
  * Warehouse-only edit for one confirmed outbound line before dispatch.
- * Supports reduce qty, remove line, or increase qty (operator picks extra manually).
+ * Supports reduce qty, remove line, increase qty, or change pack size (operator picks extra manually).
  */
 export async function editOutboundLineAtWarehouse(input: {
   clientUserId: string;
@@ -85,6 +85,8 @@ export async function editOutboundLineAtWarehouse(input: {
   lineIndex: number;
   /** New box count; 0 removes the line from the order. */
   newBoxQuantity: number;
+  /** New pack size per box/case; defaults to existing line pack when omitted. */
+  newPackOf?: number;
   editedBy: string;
   reason: string;
 }): Promise<EditOutboundLineResult> {
@@ -137,12 +139,20 @@ export async function editOutboundLineAtWarehouse(input: {
   if (!lineMeta) throw new Error("Could not resolve shipment line.");
 
   const oldBoxes = lineMeta.boxes;
-  const packOf = lineMeta.packOf;
+  const oldPackOf = lineMeta.packOf;
+  const newPackOf = Math.max(
+    1,
+    Math.floor(
+      input.newPackOf != null && Number.isFinite(input.newPackOf)
+        ? input.newPackOf
+        : oldPackOf
+    ) || 1
+  );
   const oldUnits = shipmentUnits(data, shipment, lineIndex);
-  const newUnits = newBoxQuantity * packOf;
+  const newUnits = newBoxQuantity * newPackOf;
   const unitDelta = newUnits - oldUnits;
 
-  if (unitDelta === 0 && newBoxQuantity === oldBoxes) {
+  if (unitDelta === 0 && newBoxQuantity === oldBoxes && newPackOf === oldPackOf) {
     throw new Error("Quantity unchanged — nothing to update.");
   }
 
@@ -191,6 +201,7 @@ export async function editOutboundLineAtWarehouse(input: {
     nextShipments[lineIndex] = {
       ...shipment,
       quantity: newBoxQuantity,
+      packOf: newPackOf,
       warehouseLineEditedAt: lineEditedAt,
       warehouseLineEditedBy: input.editedBy,
       warehouseLineEditReason: reason,
@@ -209,7 +220,7 @@ export async function editOutboundLineAtWarehouse(input: {
       lineIndex,
       productId,
       unitDelta,
-      packOf,
+      packOf: newPackOf,
       boxesAfter: newBoxQuantity,
       reason,
     });

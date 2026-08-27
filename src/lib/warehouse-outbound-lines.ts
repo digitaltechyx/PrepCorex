@@ -46,6 +46,12 @@ function requestNeedsProductLookup(data: Record<string, unknown>): boolean {
   return false;
 }
 
+export function formatOutboundPackLine(boxes: number, packOf: number): string {
+  const qty = Math.max(0, Math.floor(boxes));
+  const pack = Math.max(1, Math.floor(packOf) || 1);
+  return `${qty} × pack of ${pack}`;
+}
+
 export function formatOutboundLineLabel(line: {
   sku: string;
   productName: string;

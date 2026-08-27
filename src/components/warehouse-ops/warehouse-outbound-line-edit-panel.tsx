@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   buildEditableShipmentLines,
   formatOutboundLineLabel,
+  formatOutboundPackLine,
   type EditableOutboundShipmentLine,
 } from "@/lib/warehouse-outbound-lines";
 import { editOutboundLineAtWarehouse } from "@/lib/warehouse-outbound-ops";
@@ -43,6 +44,7 @@ export function WarehouseOutboundLineEditPanel({
   const [loading, setLoading] = useState(true);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [newBoxes, setNewBoxes] = useState("");
+  const [newPackOf, setNewPackOf] = useState("");
   const [saving, setSaving] = useState(false);
   const [pickHints, setPickHints] = useState<OutboundPickSourceHint[]>([]);
 
@@ -79,12 +81,14 @@ export function WarehouseOutboundLineEditPanel({
   function startEdit(line: EditableOutboundShipmentLine) {
     setEditingIndex(line.lineIndex);
     setNewBoxes(String(line.boxes));
+    setNewPackOf(String(line.packOf));
     setPickHints([]);
   }
 
   function cancelEdit() {
     setEditingIndex(null);
     setNewBoxes("");
+    setNewPackOf("");
     setPickHints([]);
   }
 
@@ -112,14 +116,25 @@ export function WarehouseOutboundLineEditPanel({
     }
 
     const boxQty = remove ? 0 : Math.max(0, Math.floor(Number(newBoxes) || 0));
-    if (!remove && boxQty === line.boxes) {
-      toast({ title: "No change", description: "Quantity is the same as before." });
+    const packOf = remove
+      ? line.packOf
+      : Math.max(1, Math.floor(Number(newPackOf) || 0) || line.packOf);
+    if (!remove && packOf < 1) {
+      toast({
+        title: "Invalid pack size",
+        description: "Pack of must be at least 1.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!remove && boxQty === line.boxes && packOf === line.packOf) {
+      toast({ title: "No change", description: "Quantity and pack size are the same as before." });
       return;
     }
     if (!remove && boxQty < 1) {
       toast({
         title: "Invalid quantity",
-        description: "Use Remove line to drop this SKU, or enter at least 1 box.",
+        description: "Use Remove line to drop this SKU, or enter at least 1 for qty.",
         variant: "destructive",
       });
       return;
@@ -133,6 +148,7 @@ export function WarehouseOutboundLineEditPanel({
         warehouseId,
         lineIndex: line.lineIndex,
         newBoxQuantity: boxQty,
+        newPackOf: packOf,
         editedBy: String(operatorId),
         reason: trimmedReason,
       });
@@ -190,8 +206,8 @@ export function WarehouseOutboundLineEditPanel({
           Edit order lines
         </CardTitle>
         <CardDescription className="text-xs">
-          Reduce qty, remove a SKU, or increase qty before dispatch. Client inventory updates
-          automatically.
+          Reduce qty, remove a SKU, or change qty / pack size before dispatch. Client inventory
+          updates when total units change.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -208,8 +224,10 @@ export function WarehouseOutboundLineEditPanel({
                     Line {line.lineIndex + 1}: {formatOutboundLineLabel(line)}
                   </p>
                   <p className="text-muted-foreground">
-                    {line.boxes} box{line.boxes === 1 ? "" : "es"} × pack of {line.packOf} (
-                    {line.quantityUnits} units)
+                    {formatOutboundPackLine(line.boxes, line.packOf)}
+                    {line.quantityUnits !== line.boxes ? (
+                      <span> · {line.quantityUnits} units</span>
+                    ) : null}
                   </p>
                 </div>
                 {!editing ? (
@@ -242,7 +260,7 @@ export function WarehouseOutboundLineEditPanel({
                 <div className="flex flex-wrap items-end gap-2 pt-1">
                   <div className="space-y-1">
                     <Label htmlFor={`boxes-${line.lineIndex}`} className="text-xs">
-                      Boxes (pack of {line.packOf})
+                      Qty
                     </Label>
                     <Input
                       id={`boxes-${line.lineIndex}`}
@@ -254,6 +272,26 @@ export function WarehouseOutboundLineEditPanel({
                       disabled={saving}
                     />
                   </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`pack-${line.lineIndex}`} className="text-xs">
+                      Pack of
+                    </Label>
+                    <Input
+                      id={`pack-${line.lineIndex}`}
+                      type="number"
+                      min={1}
+                      className="h-8 w-24 text-xs"
+                      value={newPackOf}
+                      onChange={(e) => setNewPackOf(e.target.value)}
+                      disabled={saving}
+                    />
+                  </div>
+                  <p className="pb-1 text-muted-foreground">
+                    ={" "}
+                    {Math.max(0, Math.floor(Number(newBoxes) || 0)) *
+                      Math.max(1, Math.floor(Number(newPackOf) || 0) || 1)}{" "}
+                    units
+                  </p>
                   <Button
                     type="button"
                     size="sm"
