@@ -2,6 +2,7 @@ import {
   doc,
   getDoc,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   deleteField,
 } from "firebase/firestore";
@@ -175,13 +176,14 @@ export async function editOutboundLineAtWarehouse(input: {
     }
   }
 
+  const lineEditedAt = Timestamp.now();
   const nextShipments = [...shipments];
   if (newBoxQuantity === 0) {
     nextShipments[lineIndex] = {
       ...shipment,
       quantity: 0,
       warehouseLineRemoved: true,
-      warehouseLineEditedAt: serverTimestamp(),
+      warehouseLineEditedAt: lineEditedAt,
       warehouseLineEditedBy: input.editedBy,
       warehouseLineEditReason: reason,
     };
@@ -189,7 +191,7 @@ export async function editOutboundLineAtWarehouse(input: {
     nextShipments[lineIndex] = {
       ...shipment,
       quantity: newBoxQuantity,
-      warehouseLineEditedAt: serverTimestamp(),
+      warehouseLineEditedAt: lineEditedAt,
       warehouseLineEditedBy: input.editedBy,
       warehouseLineEditReason: reason,
     };
