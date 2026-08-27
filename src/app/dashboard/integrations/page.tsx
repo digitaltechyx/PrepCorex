@@ -97,6 +97,9 @@ type AmazonConnectionSummary = {
   sellingPartnerId?: string | null;
   storeName?: string | null;
   businessName?: string | null;
+  selectedListings?: Array<{ id: string; title?: string; sellerSku?: string }>;
+  selectedListingKeys?: string[];
+  selectedAsinKeys?: string[];
   marketplaces?: Array<{
     id?: string | null;
     name?: string | null;
@@ -152,7 +155,7 @@ const PLATFORMS: PlatformDef[] = [
     category: "marketplace",
     categoryLabel: "Marketplace",
     status: "live",
-    description: "Connect Amazon Seller Central (SP-API) to authorize PrepCorex for this account.",
+    description: "Connect Amazon Seller Central (SP-API) to link products and sync orders from PrepCorex.",
     accent: "from-amber-500/80 to-orange-600/80",
     ring: "ring-amber-500/15",
   },
@@ -1372,6 +1375,20 @@ export default function IntegrationsPage() {
                                   </p>
                                 </div>
                                 <div className="flex flex-wrap gap-1.5">
+                                  <Button variant="secondary" size="sm" className="h-8" asChild>
+                                    <Link
+                                      href={`/dashboard/integrations/amazon/listings?connectionId=${encodeURIComponent(conn.id)}`}
+                                    >
+                                      <Package className="h-3.5 w-3.5 mr-1" />
+                                      {Array.isArray(conn.selectedListings) && conn.selectedListings.length > 0
+                                        ? `${conn.selectedListings.length} products`
+                                        : Array.isArray(conn.selectedListingKeys) && conn.selectedListingKeys.length > 0
+                                          ? `${conn.selectedListingKeys.length} products`
+                                          : Array.isArray(conn.selectedAsinKeys) && conn.selectedAsinKeys.length > 0
+                                            ? `${conn.selectedAsinKeys.length} products`
+                                            : "Products"}
+                                    </Link>
+                                  </Button>
                                   <Button
                                     variant="ghost"
                                     size="sm"

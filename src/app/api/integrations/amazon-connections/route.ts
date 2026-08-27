@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { fetchAmazonSellerProfile, refreshAmazonAccessToken } from "@/lib/amazon-sp-api";
 
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
       .collection("amazonConnections")
       .get();
     const list = await Promise.all(
-      snapshot.docs.map(async (d) => {
+      snapshot.docs.map(async (d: QueryDocumentSnapshot) => {
         const data = d.data();
         let storeName = typeof data.storeName === "string" ? data.storeName.trim() : "";
         let businessName =
@@ -101,6 +102,8 @@ export async function GET(request: NextRequest) {
           businessName: businessName || null,
           marketplaceRegion: data.marketplaceRegion ?? "NA",
           selectedAsinKeys: Array.isArray(data.selectedAsinKeys) ? data.selectedAsinKeys : [],
+          selectedListingKeys: Array.isArray(data.selectedListingKeys) ? data.selectedListingKeys : [],
+          selectedListings: Array.isArray(data.selectedListings) ? data.selectedListings : [],
           marketplaces,
         };
       })

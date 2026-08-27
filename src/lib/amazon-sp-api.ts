@@ -277,21 +277,21 @@ function cleanName(value: unknown): string | null {
 
 function parseMarketplaceRows(rows: unknown): AmazonMarketplaceSummary[] {
   if (!Array.isArray(rows)) return [];
-  return rows
-    .map((row) => {
-      const rec = asRecord(row);
-      const marketplace = asRecord(rec.marketplace);
-      const id = marketplace.id != null ? String(marketplace.id).trim() : "";
-      if (!id) return null;
-      return {
-        id,
-        name: cleanName(marketplace.name),
-        countryCode: cleanName(marketplace.countryCode),
-        // Amazon returns the seller's storefront name on the participation, not the marketplace.
-        storeName: cleanName(rec.storeName),
-      };
-    })
-    .filter((row): row is AmazonMarketplaceSummary => Boolean(row));
+  const out: AmazonMarketplaceSummary[] = [];
+  for (const row of rows) {
+    const rec = asRecord(row);
+    const marketplace = asRecord(rec.marketplace);
+    const id = marketplace.id != null ? String(marketplace.id).trim() : "";
+    if (!id) continue;
+    out.push({
+      id,
+      name: cleanName(marketplace.name),
+      countryCode: cleanName(marketplace.countryCode),
+      // Amazon returns the seller's storefront name on the participation, not the marketplace.
+      storeName: cleanName(rec.storeName),
+    });
+  }
+  return out;
 }
 
 function participationListFrom(data: unknown): unknown {
@@ -360,4 +360,251 @@ export async function fetchAmazonSellerProfile(
     businessName,
     marketplaces,
   };
+}
+
+const AMAZON_TOKEN_REFRESH_BUFFER_SEC = 300;
+
+export type AmazonConnectionTokens = {
+  connectionId: string;
+  accessToken: string;
+  refreshToken: string;
+  sellingPartnerId: string | null;
+  marketplaces: AmazonMarketplaceSummary[];
+  environment: string;
+};
+
+/** Load connection and refresh LWA access token when near expiry. */
+export async function getValidAmazonToken(
+  uid: string,
+  connectionId?: string
+): Promise<AmazonConnectionTokens | null> {
+  const { adminDb } = await import("@/lib/firebase-admin");
+  const col = adminDb().collection("users").doc(uid).collection("amazonConnections");
+  let doc:
+    | {
+        data(): Record<string, unknown> | undefined;
+        ref: { update(x: Record<string, unknown>): Promise<void> };
+        id: string;
+      }
+    | null = null;
+  if (connectionId) {
+    const snap = await col.doc(connectionId).get();
+    if (snap.exists) doc = snap as typeof doc;
+  } else {
+    const snapshot = await col.limit(1).get();
+    if (!snapshot.empty) doc = snapshot.docs[0];
+  }
+  if (!doc) return null;
+
+  const data = doc.data() ?? {};
+  const connId = doc.id;
+  let accessToken = String(data.accessToken ?? "").trim();
+  const refreshToken = String(data.refreshToken ?? "").trim();
+  const expiresAt = data.expiresAt as { seconds: number } | undefined;
+  const sellingPartnerId =
+    typeof data.sellingPartnerId === "string" && data.sellingPartnerId.trim()
+      ? data.sellingPartnerId.trim()
+      : null;
+  const marketplaces = Array.isArray(data.marketplaces)
+    ? (data.marketplaces as AmazonMarketplaceSummary[])
+    : [];
+  const environment = typeof data.environment === "string" ? data.environment : "production";
+
+  if (!accessToken && !refreshToken) return null;
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const expSec = expiresAt?.seconds ?? 0;
+  const needsRefresh = !accessToken || expSec <= nowSec + AMAZON_TOKEN_REFRESH_BUFFER_SEC;
+
+  if (needsRefresh) {
+    if (!refreshToken) {
+      if (!accessToken) return null;
+    } else {
+      try {
+        const tokens = await refreshAmazonAccessToken(refreshToken);
+        accessToken = tokens.access_token;
+        await doc.ref.update({
+          accessToken: tokens.access_token,
+          expiresAt: {
+            seconds: nowSec + (tokens.expires_in || 3600),
+            nanoseconds: 0,
+          },
+        });
+      } catch (err) {
+        console.error("[getValidAmazonToken] refresh failed", connId, err);
+        if (!accessToken) return null;
+      }
+    }
+  }
+
+  return {
+    connectionId: connId,
+    accessToken,
+    refreshToken,
+    sellingPartnerId,
+    marketplaces,
+    environment,
+  };
+}
+
+export function buildAmazonListingKey(marketplaceId: string, sellerSku: string): string {
+  return `${marketplaceId.trim()}_${sellerSku.trim()}`;
+}
+
+export function sanitizeAmazonFirestoreKey(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 180);
+}
+
+export type AmazonListingRow = {
+  id: string;
+  sellerSku: string;
+  marketplaceId: string;
+  asin?: string;
+  title: string;
+  sku?: string;
+  status: string;
+  quantity?: number;
+  fulfillmentChannel?: string;
+  imageUrl?: string;
+};
+
+function parseAmazonListingStatus(statuses: unknown): string {
+  if (!Array.isArray(statuses) || statuses.length === 0) return "UNKNOWN";
+  return statuses.map((s) => String(s)).join(", ");
+}
+
+function quantityFromFulfillment(
+  fulfillment: unknown,
+  marketplaceId: string
+): { quantity: number; fulfillmentChannel?: string } {
+  if (!Array.isArray(fulfillment)) return { quantity: 0 };
+  let total = 0;
+  let channel: string | undefined;
+  for (const row of fulfillment) {
+    if (!row || typeof row !== "object") continue;
+    const rec = row as Record<string, unknown>;
+    const qty = Number(rec.quantity ?? 0);
+    const code = typeof rec.fulfillmentChannelCode === "string" ? rec.fulfillmentChannelCode : undefined;
+    if (Number.isFinite(qty) && qty > 0) {
+      total += qty;
+      if (!channel) channel = code;
+    }
+  }
+  void marketplaceId;
+  return { quantity: total, fulfillmentChannel: channel };
+}
+
+/** Fetch seller catalog listings via SP-API Listings Items search (paginated). */
+export async function fetchAmazonSellerListings(input: {
+  accessToken: string;
+  sellingPartnerId: string;
+  marketplaceIds: string[];
+}): Promise<{ listings: AmazonListingRow[]; pagesFetched: number }> {
+  const marketplaceIds = input.marketplaceIds.filter(Boolean);
+  if (marketplaceIds.length === 0) {
+    throw new Error("No Amazon marketplace IDs on this connection. Reconnect Amazon from Integrations.");
+  }
+
+  const listings: AmazonListingRow[] = [];
+  const seen = new Set<string>();
+  let pageToken: string | undefined;
+  let pagesFetched = 0;
+  const maxPages = 100;
+
+  while (pagesFetched < maxPages) {
+    const query: Record<string, string> = {
+      marketplaceIds: marketplaceIds.join(","),
+      includedData: "summaries,attributes,fulfillmentAvailability",
+      pageSize: "20",
+    };
+    if (pageToken) query.pageToken = pageToken;
+
+    const res = await amazonSpApiGet({
+      path: `/listings/2021-08-01/items/${encodeURIComponent(input.sellingPartnerId)}`,
+      accessToken: input.accessToken,
+      query,
+    });
+
+    if (!res.ok) {
+      const errBody = res.data as Record<string, unknown>;
+      const errors = Array.isArray(errBody.errors) ? errBody.errors : [];
+      const first = errors[0] as { message?: string; code?: string } | undefined;
+      const detail =
+        first?.message ||
+        (typeof errBody.message === "string" ? errBody.message : null) ||
+        `Amazon SP-API HTTP ${res.status}`;
+      throw new Error(detail);
+    }
+
+    const payload = asRecord(res.data);
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    for (const item of items) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const sellerSku = String(row.sku ?? "").trim();
+      if (!sellerSku) continue;
+
+      const summaries = Array.isArray(row.summaries) ? row.summaries : [];
+      const fulfillment = row.fulfillmentAvailability;
+      if (summaries.length === 0) {
+        const marketplaceId = marketplaceIds[0]!;
+        const id = buildAmazonListingKey(marketplaceId, sellerSku);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const { quantity, fulfillmentChannel } = quantityFromFulfillment(fulfillment, marketplaceId);
+        listings.push({
+          id,
+          sellerSku,
+          marketplaceId,
+          title: sellerSku,
+          sku: sellerSku,
+          status: "UNKNOWN",
+          quantity,
+          fulfillmentChannel,
+        });
+        continue;
+      }
+
+      for (const summaryRaw of summaries) {
+        if (!summaryRaw || typeof summaryRaw !== "object") continue;
+        const summary = summaryRaw as Record<string, unknown>;
+        const marketplaceId = String(summary.marketplaceId ?? marketplaceIds[0] ?? "").trim();
+        if (!marketplaceId) continue;
+        const id = buildAmazonListingKey(marketplaceId, sellerSku);
+        if (seen.has(id)) continue;
+        seen.add(id);
+
+        const { quantity, fulfillmentChannel } = quantityFromFulfillment(fulfillment, marketplaceId);
+        const mainImage = asRecord(summary.mainImage);
+        const imageUrl =
+          typeof mainImage.link === "string" && mainImage.link.startsWith("http")
+            ? mainImage.link
+            : undefined;
+
+        listings.push({
+          id,
+          sellerSku,
+          marketplaceId,
+          asin: typeof summary.asin === "string" ? summary.asin : undefined,
+          title:
+            (typeof summary.itemName === "string" && summary.itemName.trim()) ||
+            sellerSku,
+          sku: sellerSku,
+          status: parseAmazonListingStatus(summary.status),
+          quantity,
+          fulfillmentChannel,
+          imageUrl,
+        });
+      }
+    }
+
+    pagesFetched += 1;
+    const pagination = asRecord(payload.pagination);
+    const next = typeof pagination.nextToken === "string" ? pagination.nextToken.trim() : "";
+    if (!next) break;
+    pageToken = next;
+  }
+
+  listings.sort((a, b) => a.title.localeCompare(b.title));
+  return { listings, pagesFetched };
 }

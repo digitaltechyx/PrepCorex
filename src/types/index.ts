@@ -715,7 +715,7 @@ export interface InventoryItem {
   } | string;
   status: 'In Stock' | 'Out of Stock';
   /** Set when item is synced from an external integration (read-only in inventory list). */
-  source?: 'shopify' | 'ebay' | 'woocommerce' | 'tiktok';
+  source?: 'shopify' | 'ebay' | 'woocommerce' | 'tiktok' | 'amazon';
   shopifyVariantId?: string;
   shopifyProductId?: string;
   /** Shopify inventory_item_id (for inventory_levels API and webhooks). */
@@ -735,6 +735,11 @@ export interface InventoryItem {
   ebayConnectionId?: string;
   ebayOfferId?: string;
   ebayListingId?: string;
+  /** Amazon linked seller listing (SKU + marketplace) */
+  amazonConnectionId?: string;
+  amazonSellerSku?: string;
+  amazonAsin?: string;
+  amazonMarketplaceId?: string;
   sku?: string;
   retailIdentifier?: string;
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
@@ -1594,6 +1599,20 @@ export interface TikTokSelectedProduct {
   skuId: string;
   title: string;
   sku?: string;
+}
+
+/** One Amazon seller listing selected for PrepCorex inventory / order sync. */
+export interface AmazonSelectedListing {
+  /** Stable key: `{marketplaceId}_{sellerSku}` */
+  id: string;
+  sellerSku: string;
+  marketplaceId: string;
+  asin?: string;
+  title: string;
+  sku?: string;
+  status?: string;
+  quantity?: number;
+  fulfillmentChannel?: string;
 }
 
 /** One connected TikTok Shop for a user. */
