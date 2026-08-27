@@ -409,3 +409,6 @@ export async function cancelConfirmedOutboundAtWarehouse(input: {
     reason,
   });
 }
+
+export { editOutboundLineAtWarehouse } from "@/lib/warehouse-outbound-line-edit";
+export type { EditOutboundLineResult } from "@/lib/warehouse-outbound-line-edit";

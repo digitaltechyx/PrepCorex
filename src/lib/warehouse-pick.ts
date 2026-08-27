@@ -126,39 +126,116 @@ type PickMovementEvent = {
   quantity: number;
 };
 
-async function loadPickEventsForOrder(
+export type DetailedPickMovementEvent = {
+  type: "pick" | "pick_reverse";
+  sku: string;
+  quantity: number;
+  cartonId: string;
+  cartonCode: string;
+  lineId: string;
+  fromBinId: string;
+  fromBinPath: string;
+  atMs: number;
+};
+
+export type OutboundPickSourceHint = {
+  sku: string;
+  binPath: string;
+  cartonCode: string;
+  quantity: number;
+};
+
+function eventAtMs(value: unknown): number {
+  if (!value) return 0;
+  if (typeof value === "object" && value !== null && "seconds" in value) {
+    return Number((value as { seconds: number }).seconds) * 1000;
+  }
+  if (typeof value === "string") {
+    const t = new Date(value).getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  return 0;
+}
+
+async function loadDetailedPickMovementEvents(
   warehouseId: string,
   shipmentRequestId: string
-): Promise<PickMovementEvent[]> {
+): Promise<DetailedPickMovementEvent[]> {
+  const types = new Set(["pick", "pick_reverse"]);
   try {
     const snap = await getDocs(
       query(
         collection(db, WAREHOUSES, warehouseId, "movementEvents"),
-        where("type", "==", "pick"),
         where("shipmentRequestId", "==", shipmentRequestId)
       )
     );
-    return snap.docs.map((d) => {
-      const data = d.data() as Record<string, unknown>;
-      return {
-        sku: String(data.sku ?? ""),
-        quantity: Math.max(0, Math.floor(Number(data.quantity) || 0)),
-      };
-    });
+    return snap.docs
+      .map((d) => {
+        const data = d.data() as Record<string, unknown>;
+        const type = String(data.type ?? "");
+        if (!types.has(type)) return null;
+        return {
+          type: type as "pick" | "pick_reverse",
+          sku: String(data.sku ?? ""),
+          quantity: Math.max(0, Math.floor(Number(data.quantity) || 0)),
+          cartonId: String(data.cartonId ?? ""),
+          cartonCode: String(data.cartonCode ?? ""),
+          lineId: String(data.lineId ?? ""),
+          fromBinId: String(data.fromBinId ?? ""),
+          fromBinPath: String(data.fromBinPath ?? ""),
+          atMs: eventAtMs(data.at),
+        } satisfies DetailedPickMovementEvent;
+      })
+      .filter((row): row is DetailedPickMovementEvent => Boolean(row));
   } catch {
-    const snap = await getDocs(
-      query(collection(db, WAREHOUSES, warehouseId, "movementEvents"), where("type", "==", "pick"))
-    );
+    const snap = await getDocs(collection(db, WAREHOUSES, warehouseId, "movementEvents"));
     return snap.docs
       .filter((d) => String(d.data().shipmentRequestId ?? "") === shipmentRequestId)
       .map((d) => {
         const data = d.data() as Record<string, unknown>;
+        const type = String(data.type ?? "");
+        if (!types.has(type)) return null;
         return {
+          type: type as "pick" | "pick_reverse",
           sku: String(data.sku ?? ""),
           quantity: Math.max(0, Math.floor(Number(data.quantity) || 0)),
-        };
-      });
+          cartonId: String(data.cartonId ?? ""),
+          cartonCode: String(data.cartonCode ?? ""),
+          lineId: String(data.lineId ?? ""),
+          fromBinId: String(data.fromBinId ?? ""),
+          fromBinPath: String(data.fromBinPath ?? ""),
+          atMs: eventAtMs(data.at),
+        } satisfies DetailedPickMovementEvent;
+      })
+      .filter((row): row is DetailedPickMovementEvent => Boolean(row));
   }
+}
+
+/** Net floor-picked units per SKU (pick minus pick_reverse). */
+export async function loadNetPickedBySku(
+  warehouseId: string,
+  shipmentRequestId: string
+): Promise<Map<string, number>> {
+  const events = await loadDetailedPickMovementEvents(warehouseId, shipmentRequestId);
+  const net = new Map<string, number>();
+  for (const event of events) {
+    if (!event.sku || event.quantity < 1) continue;
+    const signed = event.type === "pick_reverse" ? -event.quantity : event.quantity;
+    net.set(event.sku, (net.get(event.sku) ?? 0) + signed);
+  }
+  for (const [sku, qty] of net) {
+    if (qty <= 0) net.delete(sku);
+    else net.set(sku, qty);
+  }
+  return net;
+}
+
+async function loadPickEventsForOrder(
+  warehouseId: string,
+  shipmentRequestId: string
+): Promise<PickMovementEvent[]> {
+  const net = await loadNetPickedBySku(warehouseId, shipmentRequestId);
+  return [...net.entries()].map(([sku, quantity]) => ({ sku, quantity }));
 }
 
 /** True when pick movement events satisfy every order line (picked lines are excluded from the pick plan pool). */
@@ -683,6 +760,199 @@ function pickLineQuantity(
     ...pickedMeta,
   });
   return { nextLines: next, pickedLineId: newId, pickedQty: qty };
+}
+
+function unpickLineQuantity(
+  lines: WarehouseCartonLine[],
+  lineId: string,
+  unpickQty: number,
+  input: { binId: string }
+): { nextLines: WarehouseCartonLine[]; unpickedQty: number } {
+  const idx = lines.findIndex((l) => l.lineId === lineId);
+  if (idx < 0) throw new Error(`Line ${lineId} not found.`);
+
+  const line = lines[idx];
+  if (line.allocationStatus !== "picked") {
+    throw new Error(`Line ${line.sku} is not picked.`);
+  }
+
+  const qty = Math.min(Math.floor(unpickQty), line.quantity);
+  if (qty < 1) throw new Error("Unpick quantity must be at least 1.");
+
+  const next = [...lines];
+  if (qty === line.quantity) {
+    next[idx] = { ...line, allocationStatus: "unallocated" as const };
+    return { nextLines: next, unpickedQty: qty };
+  }
+
+  const newId = nextCartonLineId(next);
+  next[idx] = { ...line, quantity: line.quantity - qty };
+  next.push({
+    ...line,
+    lineId: newId,
+    quantity: qty,
+    binId: input.binId || line.binId,
+    allocationStatus: "unallocated" as const,
+  });
+  return { nextLines: next, unpickedQty: qty };
+}
+
+/**
+ * Return units from picked cartons back to the floor for one SKU (LIFO by pick time).
+ */
+export async function reverseWarehousePicksForSkuQuantity(input: {
+  warehouseId: string;
+  clientUserId: string;
+  shipmentRequestId: string;
+  sku: string;
+  unitsToUnpick: number;
+  operatorId?: string | null;
+  reason?: string | null;
+}): Promise<number> {
+  const sku = input.sku.trim();
+  const target = Math.floor(input.unitsToUnpick);
+  if (!sku || target < 1) return 0;
+
+  const events = (await loadDetailedPickMovementEvents(input.warehouseId, input.shipmentRequestId))
+    .filter((e) => e.type === "pick" && e.sku === sku && e.quantity > 0)
+    .sort((a, b) => b.atMs - a.atMs);
+
+  if (events.length === 0) return 0;
+
+  const batch = writeBatch(db);
+  let remaining = target;
+  let totalUnpicked = 0;
+
+  for (const event of events) {
+    if (remaining <= 0) break;
+
+    const carton = await getWarehouseCarton(input.warehouseId, event.cartonId);
+    if (!carton) continue;
+
+    const baseLines =
+      carton.lines && carton.lines.length > 0
+        ? carton.lines
+        : [
+            {
+              lineId: "L1",
+              sku: carton.sku,
+              quantity: carton.quantity,
+              lot: carton.lot ?? null,
+              expiry: carton.expiry ?? null,
+              condition: (carton.status === "damaged" ? "damaged" : "good") as
+                | "good"
+                | "damaged",
+              binId: carton.binId ?? null,
+              allocationStatus: "unallocated" as const,
+              clientId: carton.clientId ?? null,
+            } satisfies WarehouseCartonLine,
+          ];
+
+    const liveLine = baseLines.find((l) => l.lineId === event.lineId);
+    if (!liveLine || liveLine.allocationStatus !== "picked") continue;
+
+    const take = Math.min(remaining, liveLine.quantity, event.quantity);
+    if (take < 1) continue;
+
+    const unpicked = unpickLineQuantity(baseLines, event.lineId, take, {
+      binId: event.fromBinId || liveLine.binId || "",
+    });
+    remaining -= unpicked.unpickedQty;
+    totalUnpicked += unpicked.unpickedQty;
+
+    const { status, binId } = rollCartonBinStateFromLines(carton, unpicked.nextLines);
+    batch.update(warehouseCartonDocRef(input.warehouseId, carton.id), {
+      lines: linesToFirestorePayload(unpicked.nextLines),
+      status,
+      binId,
+      updatedAt: serverTimestamp(),
+    });
+
+    const eventsRef = collection(db, WAREHOUSES, input.warehouseId, "movementEvents");
+    batch.set(doc(eventsRef), {
+      type: "pick_reverse",
+      shipmentRequestId: input.shipmentRequestId,
+      clientUserId: input.clientUserId,
+      cartonId: carton.id,
+      cartonCode: carton.cartonCode,
+      lineId: event.lineId,
+      sku,
+      quantity: unpicked.unpickedQty,
+      fromBinId: event.fromBinId || liveLine.binId || null,
+      fromBinPath: event.fromBinPath || null,
+      operatorId: input.operatorId ?? null,
+      reason: input.reason?.trim() || null,
+      at: serverTimestamp(),
+    });
+  }
+
+  if (totalUnpicked < 1) return 0;
+  await batch.commit();
+  return totalUnpicked;
+}
+
+/** Bins/cartons already used when picking this SKU on the order (for qty-increase hints). */
+export async function getPickSourceHintsForSku(input: {
+  warehouseId: string;
+  shipmentRequestId: string;
+  sku: string;
+}): Promise<OutboundPickSourceHint[]> {
+  const sku = input.sku.trim();
+  if (!sku) return [];
+
+  const events = (await loadDetailedPickMovementEvents(input.warehouseId, input.shipmentRequestId))
+    .filter((e) => e.sku === sku)
+    .sort((a, b) => a.atMs - b.atMs);
+
+  const netByKey = new Map<string, OutboundPickSourceHint>();
+  for (const event of events) {
+    const key = `${event.fromBinPath || event.fromBinId}::${event.cartonCode || event.cartonId}`;
+    const signed = event.type === "pick_reverse" ? -event.quantity : event.quantity;
+    if (signed === 0) continue;
+    const existing = netByKey.get(key) ?? {
+      sku,
+      binPath: event.fromBinPath || event.fromBinId || "—",
+      cartonCode: event.cartonCode || event.cartonId,
+      quantity: 0,
+    };
+    existing.quantity += signed;
+    netByKey.set(key, existing);
+  }
+
+  return [...netByKey.values()].filter((row) => row.quantity > 0);
+}
+
+export async function reconcilePickStatusAfterLineEdit(input: {
+  warehouseId: string;
+  clientUserId: string;
+  shipmentRequestId: string;
+  lines: OutboundPickLine[];
+  operatorId?: string | null;
+}): Promise<void> {
+  const net = await loadNetPickedBySku(input.warehouseId, input.shipmentRequestId);
+  const anyPicks = net.size > 0;
+  const fullyPicked =
+    input.lines.length > 0 &&
+    input.lines.every((line) => (net.get(line.sku) ?? 0) >= line.quantityUnits);
+
+  if (fullyPicked) {
+    await markPickOrderStatus({
+      clientUserId: input.clientUserId,
+      shipmentRequestId: input.shipmentRequestId,
+      warehouseId: input.warehouseId,
+      status: "picked",
+      operatorId: input.operatorId,
+    });
+    return;
+  }
+
+  await markPickOrderStatus({
+    clientUserId: input.clientUserId,
+    shipmentRequestId: input.shipmentRequestId,
+    warehouseId: input.warehouseId,
+    status: anyPicks ? "picking" : "ready",
+    operatorId: input.operatorId,
+  });
 }
 
 export async function markPickOrderStatus(input: {

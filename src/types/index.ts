@@ -1078,6 +1078,8 @@ export interface InventoryChangeLog {
   eventType:
     | "outbound_awaiting_ship"
     | "outbound_restored"
+    | "outbound_line_restored"
+    | "outbound_line_reserved"
     | "outbound_dispatch"
     | "outbound_shipped"
     | "admin_ship"

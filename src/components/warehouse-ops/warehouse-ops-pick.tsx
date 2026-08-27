@@ -52,6 +52,7 @@ import {
   type PendingOutboundRequest,
 } from "@/lib/warehouse-outbound-ops";
 import { formatOutboundLineLabel } from "@/lib/warehouse-outbound-lines";
+import { WarehouseOutboundLineEditPanel } from "@/components/warehouse-ops/warehouse-outbound-line-edit-panel";
 import { isOpsSupervisor } from "@/lib/warehouse-ops-permissions";
 import type { WarehouseDoc } from "@/types";
 import {
@@ -66,6 +67,12 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import {
+  buildOrderLinesFromRequestData,
+  loadClientProductMap,
+} from "@/lib/warehouse-outbound-lines";
 
 type Props = {
   warehouse: WarehouseDoc;
@@ -442,6 +449,23 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     } finally {
       setDismissing(false);
     }
+  }
+
+  async function reloadSelectedOrderAfterLineEdit() {
+    if (!selectedOrder) return;
+    const snap = await getDoc(
+      doc(db, `users/${selectedOrder.clientUserId}/shipmentRequests`, selectedOrder.id)
+    );
+    if (!snap.exists()) {
+      resetToQueue();
+      return;
+    }
+    const data = snap.data() as Record<string, unknown>;
+    const products = await loadClientProductMap(selectedOrder.clientUserId);
+    const lines = buildOrderLinesFromRequestData(data, products);
+    const updated: OutboundPickOrder = { ...selectedOrder, lines };
+    setSelectedOrder(updated);
+    await loadPlanForOrder(updated);
   }
 
   async function handleCancelConfirmed(order: OutboundPickOrder) {
@@ -1104,6 +1128,14 @@ export function WarehouseOpsPick({ warehouse }: Props) {
           </Button>
         </CardContent>
       </Card>
+
+      <WarehouseOutboundLineEditPanel
+        warehouseId={warehouse.id}
+        clientUserId={selectedOrder.clientUserId}
+        shipmentRequestId={selectedOrder.id}
+        operatorId={operatorId}
+        onEdited={() => void reloadSelectedOrderAfterLineEdit()}
+      />
 
       <WarehouseMobileCameraRecorder
         jobType="pick"

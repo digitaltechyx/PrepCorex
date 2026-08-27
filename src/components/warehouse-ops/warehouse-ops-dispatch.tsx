@@ -30,6 +30,7 @@ import { linesToWarehouseCameraSummaries } from "@/lib/warehouse-camera-types";
 import { useWarehouseOpsClients } from "@/hooks/use-warehouse-ops-clients";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { WarehouseOpsHeader } from "@/components/warehouse-ops/warehouse-ops-header";
+import { WarehouseOutboundLineEditPanel } from "@/components/warehouse-ops/warehouse-outbound-line-edit-panel";
 import { WarehouseOpsDispatchLog } from "@/components/warehouse-ops/warehouse-ops-dispatch-log";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -809,6 +810,22 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
                   {matchedOrder.lines.map((l) => `${l.quantityUnits}× ${l.sku}`).join(" · ")}
                 </p>
               </div>
+
+              <WarehouseOutboundLineEditPanel
+                warehouseId={warehouse.id}
+                clientUserId={matchedOrder.clientUserId}
+                shipmentRequestId={matchedOrder.id}
+                operatorId={operatorId}
+                onEdited={() => {
+                  setMatchedOrder(null);
+                  setScanValue("");
+                  setScanError(null);
+                  toast({
+                    title: "Order updated",
+                    description: "Scan the parcel again to continue dispatch QC.",
+                  });
+                }}
+              />
 
               <WarehouseMobileCameraRecorder
                 jobType="dispatch"

@@ -464,7 +464,11 @@ export function buildInventoryHistory(
         ? "Outbound awaiting ship"
         : log.eventType === "outbound_restored"
           ? "Outbound cancelled — restored"
-          : log.eventType === "outbound_dispatch"
+          : log.eventType === "outbound_line_restored"
+            ? "Outbound line edited — restored"
+            : log.eventType === "outbound_line_reserved"
+              ? "Outbound line edited — additional reserve"
+              : log.eventType === "outbound_dispatch"
             ? "Outbound dispatched"
             : log.eventType === "outbound_shipped"
               ? "Outbound shipped"
@@ -513,7 +517,9 @@ export function buildInventoryHistory(
         fallbackText: log.details,
         shipmentRequestId: log.shipmentRequestId,
         cancelReason:
-          log.eventType === "outbound_restored"
+          log.eventType === "outbound_restored" ||
+          log.eventType === "outbound_line_restored" ||
+          log.eventType === "outbound_line_reserved"
             ? cancelReasonFromChangeLogDetails(log.details)
             : null,
       });
@@ -522,6 +528,7 @@ export function buildInventoryHistory(
     // Restored stock shows as inbound-style increase; awaiting/dispatch stay on outbound tab.
     const historyEventType =
       log.eventType === "outbound_restored" ||
+      log.eventType === "outbound_line_restored" ||
       log.eventType === "shopify_qf_product_correct_credit"
         ? ("restock" as const)
         : ("shipped" as const);
@@ -537,9 +544,9 @@ export function buildInventoryHistory(
       user: "Fulfillment",
       shipmentRequestId: log.shipmentRequestId ?? null,
       outboundLinkKind:
-        log.eventType === "outbound_awaiting_ship"
+        log.eventType === "outbound_awaiting_ship" || log.eventType === "outbound_line_reserved"
           ? "reserve"
-          : log.eventType === "outbound_restored"
+          : log.eventType === "outbound_restored" || log.eventType === "outbound_line_restored"
             ? "restore"
             : log.eventType === "outbound_dispatch" || log.eventType === "outbound_shipped"
               ? "dispatch"

@@ -49,13 +49,18 @@ import {
   type FbaAwaitingLabelOrder,
 } from "@/lib/fba-shipment-workflow";
 import { formatOutboundLineLabel } from "@/lib/warehouse-outbound-lines";
+import { WarehouseOutboundLineEditPanel } from "@/components/warehouse-ops/warehouse-outbound-line-edit-panel";
 import { cancelConfirmedOutboundAtWarehouse } from "@/lib/warehouse-outbound-ops";
 import { FbaPackDimsForm } from "@/components/warehouse-ops/fba-master-case-form";
 import type { WarehouseDoc } from "@/types";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import { readProductUnitMeasurements, type BoxSuggestionLine } from "@/lib/box-suggestion";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import {
+  buildOrderLinesFromRequestData,
+  loadClientProductMap,
+} from "@/lib/warehouse-outbound-lines";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -243,6 +248,23 @@ export function WarehouseOpsPack({ warehouse }: Props) {
   useEffect(() => {
     void refreshFbaAwaitingLabel();
   }, [refreshFbaAwaitingLabel, orders.length]);
+
+  async function reloadSelectedOrderAfterLineEdit() {
+    if (!selectedOrder) return;
+    const snap = await getDoc(
+      doc(db, `users/${selectedOrder.clientUserId}/shipmentRequests`, selectedOrder.id)
+    );
+    if (!snap.exists()) {
+      resetToQueue();
+      return;
+    }
+    const data = snap.data() as Record<string, unknown>;
+    const products = await loadClientProductMap(selectedOrder.clientUserId);
+    const lines = buildOrderLinesFromRequestData(data, products);
+    const updated: OutboundPackOrder = { ...selectedOrder, lines };
+    setSelectedOrder(updated);
+    await refreshPlan(updated);
+  }
 
   async function refreshPlan(order: OutboundPackOrder) {
     setLoadingPlan(true);
@@ -1191,6 +1213,14 @@ export function WarehouseOpsPack({ warehouse }: Props) {
           </CardContent>
         )}
       </Card>
+
+      <WarehouseOutboundLineEditPanel
+        warehouseId={warehouse.id}
+        clientUserId={selectedOrder.clientUserId}
+        shipmentRequestId={selectedOrder.id}
+        operatorId={operatorId}
+        onEdited={() => void reloadSelectedOrderAfterLineEdit()}
+      />
 
       <WarehouseMobileCameraRecorder
         jobType="pack"

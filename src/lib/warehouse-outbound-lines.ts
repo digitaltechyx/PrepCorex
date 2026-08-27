@@ -73,6 +73,56 @@ export function formatOutboundLineLabel(line: {
   return `${line.quantityUnits}× product`;
 }
 
+export type EditableOutboundShipmentLine = {
+  lineIndex: number;
+  sku: string;
+  productName: string;
+  boxes: number;
+  packOf: number;
+  quantityUnits: number;
+  productId?: string;
+  isPrepOnly: boolean;
+  removedAtWarehouse: boolean;
+};
+
+export function buildEditableShipmentLines(
+  data: Record<string, unknown>,
+  products: ClientProductMap
+): EditableOutboundShipmentLine[] {
+  const shipments = Array.isArray(data.shipments)
+    ? (data.shipments as Array<Record<string, unknown>>)
+    : [];
+  const lines: EditableOutboundShipmentLine[] = [];
+  shipments.forEach((shipment, lineIndex) => {
+    const productId = String(shipment.productId ?? "").trim();
+    const inboundId = String(shipment.sourceInventoryRequestId ?? "").trim();
+    const isPrep = Boolean(inboundId) || productId.startsWith("prep:");
+    const removedAtWarehouse = Boolean(shipment.warehouseLineRemoved);
+    const product = productId ? products.get(productId) : undefined;
+    const sku =
+      String(shipment.sku ?? product?.sku ?? "").trim() ||
+      (productId && !productId.startsWith("prep:") ? productId : "") ||
+      "pending";
+    const boxes = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
+    const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
+    const quantityUnits = boxes * packOf;
+    if (!productId && !isPrep) return;
+    lines.push({
+      lineIndex,
+      sku,
+      productName:
+        String(shipment.productName ?? product?.productName ?? sku).trim() || sku,
+      boxes,
+      packOf,
+      quantityUnits,
+      productId: productId || undefined,
+      isPrepOnly: isPrep,
+      removedAtWarehouse,
+    });
+  });
+  return lines;
+}
+
 export function buildOrderLinesFromRequestData(
   data: Record<string, unknown>,
   products: ClientProductMap
@@ -82,6 +132,7 @@ export function buildOrderLinesFromRequestData(
     : [];
   const lines: OutboundPickLine[] = [];
   for (const shipment of shipments) {
+    if (Boolean(shipment.warehouseLineRemoved)) continue;
     const productId = String(shipment.productId ?? "").trim();
     const inboundId = String(shipment.sourceInventoryRequestId ?? "").trim();
     const isPrep = Boolean(inboundId) || productId.startsWith("prep:");
@@ -102,7 +153,7 @@ export function buildOrderLinesFromRequestData(
       productName:
         String(shipment.productName ?? product?.productName ?? sku).trim() || sku,
       quantityUnits,
-      productId: productId || undefined,
+      productId: productId || sku,
     });
   }
   return lines;

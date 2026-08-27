@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   query,
   runTransaction,
@@ -892,6 +893,206 @@ export async function restoreClientInventoryForOutboundRequest(input: {
       clientInventoryDeductedAt: deleteField(),
       clientInventoryRestoredAt: restoredAt,
     });
+  });
+
+  return shopifyHints;
+}
+
+function collectIntegrationSyncHints(
+  productId: string,
+  working: Omit<InventoryItem, "id">,
+  shopifyHints: ShopifyInventorySyncHint[]
+): void {
+  const currentInventory = working;
+  if (currentInventory.source === "shopify" && currentInventory.shop && currentInventory.shopifyVariantId) {
+    shopifyHints.push({
+      productId,
+      newQuantity: working.quantity,
+      source: currentInventory.source,
+      shop: currentInventory.shop,
+      shopifyVariantId: currentInventory.shopifyVariantId,
+      shopifyInventoryItemId: currentInventory.shopifyInventoryItemId,
+    });
+  }
+  if (
+    currentInventory.source === "woocommerce" &&
+    currentInventory.woocommerceConnectionId &&
+    currentInventory.woocommerceProductId
+  ) {
+    shopifyHints.push({
+      productId,
+      newQuantity: working.quantity,
+      source: currentInventory.source,
+      woocommerceConnectionId: currentInventory.woocommerceConnectionId,
+      woocommerceProductId: currentInventory.woocommerceProductId,
+      woocommerceVariationId: currentInventory.woocommerceVariationId,
+    });
+  }
+  if (
+    currentInventory.source === "tiktok" &&
+    currentInventory.tiktokProductId &&
+    currentInventory.tiktokSkuId &&
+    (currentInventory.tiktokConnectionId || currentInventory.tiktokShopId)
+  ) {
+    shopifyHints.push({
+      productId,
+      newQuantity: working.quantity,
+      source: currentInventory.source,
+      tiktokConnectionId: currentInventory.tiktokConnectionId,
+      tiktokProductId: currentInventory.tiktokProductId,
+      tiktokSkuId: currentInventory.tiktokSkuId,
+      tiktokShopId: currentInventory.tiktokShopId,
+    });
+  }
+  if (
+    currentInventory.source === "ebay" &&
+    currentInventory.ebayConnectionId &&
+    (currentInventory.ebayOfferId || currentInventory.ebayListingId)
+  ) {
+    shopifyHints.push({
+      productId,
+      newQuantity: working.quantity,
+      source: currentInventory.source,
+      ebayConnectionId: currentInventory.ebayConnectionId,
+      ebayOfferId: currentInventory.ebayOfferId,
+      ebayListingId: currentInventory.ebayListingId,
+    });
+  }
+}
+
+/**
+ * Partial client inventory reserve/restore when warehouse edits one outbound line before dispatch.
+ * Positive unitDelta = reserve more; negative = restore to sellable.
+ */
+export async function adjustClientInventoryForOutboundLineEdit(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+  lineIndex: number;
+  productId: string;
+  unitDelta: number;
+  packOf: number;
+  boxesAfter: number;
+  reason: string;
+}): Promise<ShopifyInventorySyncHint[]> {
+  const unitDelta = Math.floor(input.unitDelta);
+  if (unitDelta === 0) return [];
+
+  const requestRef = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const shopifyHints: ShopifyInventorySyncHint[] = [];
+  const editAt = Timestamp.now();
+  const editKey = editAt.toMillis();
+
+  if (unitDelta > 0) {
+    const inventoryRef = doc(db, `users/${input.clientUserId}/inventory`, input.productId);
+    const [inventorySnap, requestSnap] = await Promise.all([
+      getDoc(inventoryRef),
+      getDoc(requestRef),
+    ]);
+    if (!inventorySnap.exists()) throw new Error("Product not found in inventory.");
+    const base = inventorySnap.data() as Omit<InventoryItem, "id">;
+    const reqData = requestSnap.exists()
+      ? (requestSnap.data() as Record<string, unknown>)
+      : {};
+    const committed = await getCommittedOutboundUnits(
+      input.clientUserId,
+      input.productId,
+      input.shipmentRequestId
+    );
+    const sellable = hasClientInventoryDeducted(reqData)
+      ? Math.max(0, Number(base.quantity))
+      : Math.max(0, Number(base.quantity) - committed);
+    if (sellable < unitDelta) {
+      throw new Error(
+        `Not enough sellable stock. Available: ${sellable}, needed: ${unitDelta}.`
+      );
+    }
+  }
+
+  await runTransaction(db, async (transaction) => {
+    const requestSnap = await transaction.get(requestRef);
+    if (!requestSnap.exists()) throw new Error("Order not found.");
+
+    const data = requestSnap.data() as Record<string, unknown>;
+    if (!hasClientInventoryDeducted(data)) return;
+    if (data.warehouseDispatchStatus === "dispatched") {
+      throw new Error("Cannot adjust inventory after dispatch.");
+    }
+    if (data.crossdockFulfillment === true || String(data.crossdockLinkedUnitId ?? "").trim()) {
+      return;
+    }
+
+    const inventoryRef = doc(db, `users/${input.clientUserId}/inventory`, input.productId);
+    const inventorySnap = await transaction.get(inventoryRef);
+    if (!inventorySnap.exists()) throw new Error("Product not found in inventory.");
+
+    const base = inventorySnap.data() as Omit<InventoryItem, "id">;
+    const shipments = Array.isArray(data.shipments)
+      ? (data.shipments as Array<Record<string, unknown>>)
+      : [];
+    const shipment = shipments[input.lineIndex];
+    const selectedSourceLocationId = String(shipment?.sourceLocationId ?? "").trim();
+    const service = serviceLabelForRequest(data);
+    const packOf = Math.max(1, Math.floor(input.packOf) || 1);
+    const boxesAfter = Math.max(0, Math.floor(input.boxesAfter) || 0);
+
+    const qtyBefore = base.quantity;
+    const applied =
+      unitDelta > 0
+        ? applyLocationDeduction(base, unitDelta, selectedSourceLocationId)
+        : applyLocationRestore(base, Math.abs(unitDelta), selectedSourceLocationId);
+
+    const eventType = unitDelta > 0 ? "outbound_line_reserved" : "outbound_line_restored";
+    const detailLead =
+      unitDelta > 0
+        ? "Outbound line edited — additional reserve"
+        : boxesAfter === 0
+          ? "Outbound line removed — restored"
+          : "Outbound line edited — restored";
+
+    const boxesDelta =
+      packOf > 0 ? Math.max(1, Math.round(Math.abs(unitDelta) / packOf)) : Math.abs(unitDelta);
+
+    const changeLogRef = doc(
+      db,
+      "users",
+      input.clientUserId,
+      "inventoryChangeLogs",
+      `${input.shipmentRequestId}_${input.productId}_line${input.lineIndex}_edit_${editKey}`
+    );
+
+    transaction.set(changeLogRef, {
+      inventoryId: input.productId,
+      productName: base.productName,
+      sku: base.sku ?? null,
+      eventType,
+      qtyBefore,
+      qtyAfter: applied.newQuantity,
+      qtyChange: unitDelta > 0 ? -unitDelta : Math.abs(unitDelta),
+      shipmentRequestId: input.shipmentRequestId,
+      shippedId: null,
+      service,
+      shipTo: null,
+      packOf,
+      boxesShipped: boxesAfter > 0 ? boxesAfter : null,
+      details: [
+        detailLead,
+        outboundPackDetailsLine(boxesDelta, packOf),
+        input.reason ? `Reason: ${input.reason}` : "",
+        service ? `Service: ${service}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      at: editAt,
+    });
+
+    transaction.update(inventoryRef, {
+      quantity: applied.newQuantity,
+      status: applied.newStatus as InventoryItem["status"],
+      locationId: applied.nextPrimaryLocationId,
+      locationQuantities: applied.locationQuantities,
+    });
+
+    collectIntegrationSyncHints(input.productId, { ...base, quantity: applied.newQuantity }, shopifyHints);
   });
 
   return shopifyHints;
