@@ -567,7 +567,9 @@ function HistoryTable({ rows }: { rows: InventoryHistoryRow[] }) {
                         variant="outline"
                         className={cn(
                           "font-normal text-[10px]",
-                          EVENT_BADGE[r.eventType as InventoryHistoryEventType]
+                          r.event === "Pack details change"
+                            ? "bg-amber-100 text-amber-900 border-amber-200"
+                            : EVENT_BADGE[r.eventType as InventoryHistoryEventType]
                         )}
                       >
                         {r.event}

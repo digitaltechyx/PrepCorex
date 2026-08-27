@@ -137,6 +137,22 @@ function formatHistoryBy(user: string, event: string): string {
   return "PSF Operations";
 }
 
+function isPackDetailsChangeLog(log: InventoryChangeLog): boolean {
+  if (log.eventType === "outbound_line_pack_updated") return true;
+  const change = Number(log.qtyChange);
+  const before = Number(log.qtyBefore);
+  const after = Number(log.qtyAfter);
+  if (!Number.isFinite(change) || change !== 0) return false;
+  if (!Number.isFinite(before) || !Number.isFinite(after) || before !== after) return false;
+  const d = String(log.details ?? "").toLowerCase();
+  return (
+    d.includes("repacked") ||
+    d.includes("pack details") ||
+    (d.includes("was ") && d.includes(" now ")) ||
+    (d.includes("pack of") && Boolean(String(log.shipmentRequestId ?? "").trim()))
+  );
+}
+
 /** Outbound Details column: "qty 4 pack of 12" plus request id when present. */
 function formatOutboundShipmentDetails(input: {
   units?: number | null;
@@ -459,8 +475,11 @@ export function buildInventoryHistory(
     if (log.inventoryId !== item.id && !skusMatch(item, log.sku) && !namesMatch(item, log.productName)) {
       continue;
     }
-    const eventLabel =
-      log.eventType === "outbound_awaiting_ship"
+    const packDetailsChange = isPackDetailsChangeLog(log);
+
+    const eventLabel = packDetailsChange
+      ? "Pack details change"
+      : log.eventType === "outbound_awaiting_ship"
         ? "Outbound awaiting ship"
         : log.eventType === "outbound_restored"
           ? "Outbound cancelled — restored"
@@ -468,21 +487,23 @@ export function buildInventoryHistory(
             ? "Outbound line edited — restored"
             : log.eventType === "outbound_line_reserved"
               ? "Outbound line edited — additional reserve"
-              : log.eventType === "outbound_line_pack_updated"
-                ? "Outbound line repacked"
               : log.eventType === "outbound_dispatch"
-            ? "Outbound dispatched"
-            : log.eventType === "outbound_shipped"
-              ? "Outbound shipped"
-              : log.eventType === "dispose"
-                ? "Disposed"
-                : log.eventType === "shopify_quick_fulfill" ||
-                    log.eventType === "shopify_qf_product_correct_credit" ||
-                    log.eventType === "shopify_qf_product_correct_debit"
-                  ? "Shopify quick fulfill"
-                  : log.eventType === "ebay_quick_fulfill"
-                    ? "eBay quick fulfill"
-                    : "Stock removed";
+                ? "Outbound dispatched"
+                : log.eventType === "outbound_shipped"
+                  ? "Outbound shipped"
+                  : log.eventType === "dispose"
+                    ? "Disposed"
+                    : log.eventType === "shopify_quick_fulfill" ||
+                        log.eventType === "shopify_qf_product_correct_credit" ||
+                        log.eventType === "shopify_qf_product_correct_debit"
+                      ? "Shopify quick fulfill"
+                      : log.eventType === "ebay_quick_fulfill"
+                        ? "eBay quick fulfill"
+                        : Number(log.qtyChange) === 0 &&
+                            Number.isFinite(Number(log.qtyBefore)) &&
+                            Number(log.qtyBefore) === Number(log.qtyAfter)
+                          ? "Pack details change"
+                          : "Stock removed";
 
     const shippedLine = findShippedLineForChangeLog(sources.shipped, log, item);
     const requestPack = findPackFromShipmentRequest(sources, log, item);
@@ -500,6 +521,10 @@ export function buildInventoryHistory(
       requestPack?.boxesShipped ??
       null;
     const details = (() => {
+      if (packDetailsChange) {
+        const stored = String(log.details ?? "").trim();
+        if (stored) return stored;
+      }
       const isShopifyQf =
         log.eventType === "shopify_quick_fulfill" ||
         log.eventType === "shopify_qf_product_correct_credit" ||
@@ -527,7 +552,7 @@ export function buildInventoryHistory(
       });
     })();
 
-    const isPackLayoutOnly = log.eventType === "outbound_line_pack_updated";
+    const isPackLayoutOnly = packDetailsChange;
 
     // Restored stock shows as inbound-style increase; awaiting/dispatch stay on outbound tab.
     const historyEventType =

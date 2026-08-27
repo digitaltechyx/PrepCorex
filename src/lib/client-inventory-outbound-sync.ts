@@ -1031,7 +1031,7 @@ export async function recordOutboundLineLayoutEdit(input: {
       packOf: Math.max(1, input.packOfAfter),
       boxesShipped: input.boxesAfter > 0 ? input.boxesAfter : null,
       details: [
-        "Outbound line repacked — total units unchanged",
+        "Pack details change — total units unchanged",
         layoutDetail,
         `${unitsAfter} units`,
         input.reason ? `Reason: ${input.reason}` : "",
