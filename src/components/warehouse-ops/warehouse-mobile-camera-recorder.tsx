@@ -79,7 +79,15 @@ const PRE_LIVE_COUNTDOWN_SECONDS = 10;
 const MAX_LIVE_SESSION_MS = 2 * 60 * 1000;
 const PALM_HOLD_MS = 2_000;
 const GESTURE_SAMPLE_MS = 150;
-const VOICE_END_PHRASES = ["end session", "end the session"];
+const VOICE_END_PHRASES = [
+  "end session",
+  "end the session",
+  // Mobile speech services commonly transcribe spoken "end" as "and".
+  "and session",
+  "and the session",
+  "stop recording",
+  "stop the recording",
+];
 
 type HandsFreeStopMethod = "gesture" | "voice";
 type VoicePermissionStatus = "unknown" | "requesting" | "granted" | "denied" | "unsupported";
@@ -127,9 +135,7 @@ function transcriptRequestsSessionEnd(transcript: string): boolean {
     .replace(/[.,!?]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return VOICE_END_PHRASES.some(
-    (phrase) => normalized === phrase || normalized.endsWith(` ${phrase}`)
-  );
+  return VOICE_END_PHRASES.some((phrase) => normalized.includes(phrase));
 }
 
 async function createCameraTrack(facingMode: CameraFacingMode): Promise<LocalVideoTrack> {
@@ -261,6 +267,7 @@ export function WarehouseMobileCameraRecorder({
   const [voiceStatus, setVoiceStatus] = useState<
     "off" | "checking" | "listening" | "unavailable"
   >("off");
+  const [lastVoiceTranscript, setLastVoiceTranscript] = useState("");
   const [voicePermissionStatus, setVoicePermissionStatus] =
     useState<VoicePermissionStatus>("unknown");
   const [handsFreeStopMethod, setHandsFreeStopMethod] =
@@ -434,8 +441,10 @@ export function WarehouseMobileCameraRecorder({
     const recognition = new Recognition();
     // Speech processing is controlled by the mobile browser and may use its speech service.
     // Microphone audio is never attached to our MediaRecorder or LiveKit tracks.
-    recognition.continuous = true;
-    recognition.interimResults = false;
+    // Interim results make the command responsive in a noisy warehouse where the browser may
+    // wait too long (or never decide) that a phrase is final.
+    recognition.continuous = false;
+    recognition.interimResults = true;
     recognition.lang = "en-US";
     recognition.maxAlternatives = 5;
     recognition.onresult = (event) => {
@@ -444,6 +453,9 @@ export function WarehouseMobileCameraRecorder({
         if (!result) continue;
         for (let alternativeIndex = 0; alternativeIndex < result.length; alternativeIndex += 1) {
           const transcript = result[alternativeIndex]?.transcript ?? "";
+          if (alternativeIndex === 0 && transcript.trim()) {
+            setLastVoiceTranscript(transcript.trim().slice(0, 80));
+          }
           if (!transcriptRequestsSessionEnd(transcript)) continue;
           handsFreeActiveRef.current = false;
           setHandsFreeStopMethod("voice");
@@ -485,6 +497,7 @@ export function WarehouseMobileCameraRecorder({
     handsFreeActiveRef.current = true;
     setGestureStatus("loading");
     setVoiceStatus(voicePermissionGrantedRef.current ? "checking" : "off");
+    setLastVoiceTranscript("");
     setHandsFreeStopMethod(null);
     // Voice should be ready immediately; palm model loading must not delay microphone listening.
     startVoiceControl();
@@ -1009,7 +1022,8 @@ export function WarehouseMobileCameraRecorder({
             Record this {jobLabel.toLowerCase()} with the phone camera if you want. After a 10
             second countdown the client can watch live for up to 2 minutes. Completed clips stay on
             this device until you upload to Google Drive (now or later from Gallery / dispatch).
-            Hold an open palm for 2 seconds or say &quot;End session&quot; to stop
+            Hold an open palm for 2 seconds or say &quot;End session&quot; / &quot;Stop
+            recording&quot; to stop
             hands-free.
           </CardDescription>
         </CardHeader>
@@ -1153,7 +1167,7 @@ export function WarehouseMobileCameraRecorder({
                       <MicOff className="h-3 w-3" />
                     )}
                     {voiceStatus === "listening"
-                      ? 'Say "End session"'
+                      ? 'Say "End session" or "Stop recording"'
                       : voiceStatus === "checking"
                         ? "Starting voice control"
                         : voiceStatus === "off"
@@ -1163,6 +1177,11 @@ export function WarehouseMobileCameraRecorder({
                   <span className="text-muted-foreground">
                     Audio is never added to the live stream or recording.
                   </span>
+                  {voiceStatus === "listening" && lastVoiceTranscript ? (
+                    <span className="w-full text-muted-foreground">
+                      Heard: &quot;{lastVoiceTranscript}&quot;
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
               {handsFreeStopMethod ? (
