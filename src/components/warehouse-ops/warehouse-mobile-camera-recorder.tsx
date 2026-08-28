@@ -86,6 +86,7 @@ const VOICE_END_PHRASES = [
 ];
 
 type HandsFreeStopMethod = "gesture" | "voice";
+type VoicePermissionStatus = "unknown" | "requesting" | "granted" | "denied" | "unsupported";
 type GestureRecognizerInstance = {
   recognizeForVideo(
     video: HTMLVideoElement,
@@ -234,6 +235,7 @@ export function WarehouseMobileCameraRecorder({
   const palmStartedAtRef = useRef(0);
   const lastGestureSampleRef = useRef(0);
   const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const voicePermissionGrantedRef = useRef(false);
   const handsFreeActiveRef = useRef(false);
   const stopRecordingRef = useRef<
     (options?: { autoStop?: boolean; handsFree?: HandsFreeStopMethod }) => Promise<void>
@@ -258,8 +260,10 @@ export function WarehouseMobileCameraRecorder({
   >("loading");
   const [palmHoldProgress, setPalmHoldProgress] = useState(0);
   const [voiceStatus, setVoiceStatus] = useState<
-    "checking" | "listening" | "unavailable"
-  >("checking");
+    "off" | "checking" | "listening" | "unavailable"
+  >("off");
+  const [voicePermissionStatus, setVoicePermissionStatus] =
+    useState<VoicePermissionStatus>("unknown");
   const [handsFreeStopMethod, setHandsFreeStopMethod] =
     useState<HandsFreeStopMethod | null>(null);
 
@@ -288,6 +292,36 @@ export function WarehouseMobileCameraRecorder({
   useEffect(() => {
     onRecordingChange?.(Boolean(session));
   }, [onRecordingChange, session]);
+
+  useEffect(() => {
+    if (!getSpeechRecognitionConstructor() || !navigator.mediaDevices?.getUserMedia) {
+      setVoicePermissionStatus("unsupported");
+      return;
+    }
+    if (!navigator.permissions?.query) return;
+
+    let active = true;
+    void navigator.permissions
+      .query({ name: "microphone" as PermissionName })
+      .then((permission) => {
+        if (!active) return;
+        const applyPermission = () => {
+          if (!active) return;
+          const granted = permission.state === "granted";
+          voicePermissionGrantedRef.current = granted;
+          setVoicePermissionStatus(
+            granted ? "granted" : permission.state === "denied" ? "denied" : "unknown"
+          );
+        };
+        applyPermission();
+        permission.onchange = applyPermission;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   function clearSessionTimers() {
     if (sessionLimitTimerRef.current != null) {
@@ -388,6 +422,10 @@ export function WarehouseMobileCameraRecorder({
   }
 
   function startVoiceControl() {
+    if (!voicePermissionGrantedRef.current) {
+      setVoiceStatus("off");
+      return;
+    }
     const Recognition = getSpeechRecognitionConstructor();
     if (!Recognition) {
       setVoiceStatus("unavailable");
@@ -395,12 +433,8 @@ export function WarehouseMobileCameraRecorder({
     }
 
     const recognition = new Recognition();
-    // Enforce local recognition. If the browser cannot guarantee this, voice control stays off.
-    if (!("processLocally" in recognition)) {
-      setVoiceStatus("unavailable");
-      return;
-    }
-    recognition.processLocally = true;
+    // Speech processing is controlled by the mobile browser and may use its speech service.
+    // Microphone audio is never attached to our MediaRecorder or LiveKit tracks.
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
@@ -446,17 +480,63 @@ export function WarehouseMobileCameraRecorder({
     stopHandsFreeControls();
     handsFreeActiveRef.current = true;
     setGestureStatus("loading");
-    setVoiceStatus("checking");
+    setVoiceStatus(voicePermissionGrantedRef.current ? "checking" : "off");
     setHandsFreeStopMethod(null);
     const recognizer = await loadGestureRecognizer();
     if (recognizer && handsFreeActiveRef.current) startPalmControl(recognizer);
     if (handsFreeActiveRef.current) startVoiceControl();
   }
 
+  async function requestVoiceCommandPermission() {
+    if (!navigator.mediaDevices?.getUserMedia || !getSpeechRecognitionConstructor()) {
+      voicePermissionGrantedRef.current = false;
+      setVoicePermissionStatus("unsupported");
+      setVoiceStatus("unavailable");
+      toast({
+        variant: "destructive",
+        title: "Voice command unavailable",
+        description: "This browser does not support microphone voice commands. Palm and manual Stop still work.",
+      });
+      return;
+    }
+
+    setVoicePermissionStatus("requesting");
+    try {
+      // The temporary stream exists only to trigger the browser's permission prompt from this
+      // button tap. It is stopped immediately and is never attached to LiveKit or MediaRecorder.
+      const permissionStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+      permissionStream.getTracks().forEach((track) => track.stop());
+      voicePermissionGrantedRef.current = true;
+      setVoicePermissionStatus("granted");
+      setVoiceStatus("off");
+      toast({
+        title: "Voice command enabled",
+        description: 'During a live session, say "PrepCorex, end session." Audio is not included in video.',
+      });
+    } catch (error) {
+      voicePermissionGrantedRef.current = false;
+      setVoicePermissionStatus("denied");
+      setVoiceStatus("unavailable");
+      toast({
+        variant: "destructive",
+        title: "Microphone permission not enabled",
+        description:
+          error instanceof Error && error.name === "NotAllowedError"
+            ? "Allow microphone access in this site's browser settings, then try again."
+            : "The microphone could not be opened. Palm and manual Stop still work.",
+      });
+    }
+  }
+
   function scheduleSessionTimers() {
     clearSessionTimers();
     sessionLimitTimerRef.current = window.setTimeout(() => {
-      void stopRecording({ autoStop: true });
+      // Use the latest callback/state. This timer is scheduled in the render that starts the
+      // session, before React has committed the new session state.
+      void stopRecordingRef.current({ autoStop: true });
     }, MAX_LIVE_SESSION_MS);
     elapsedTimerRef.current = window.setInterval(() => {
       if (startedAtRef.current > 0) {
@@ -1070,8 +1150,10 @@ export function WarehouseMobileCameraRecorder({
                     {voiceStatus === "listening"
                       ? 'Say "PrepCorex, end session"'
                       : voiceStatus === "checking"
-                        ? "Checking local voice control"
-                        : "Local voice control unavailable"}
+                        ? "Starting voice control"
+                        : voiceStatus === "off"
+                          ? "Voice command not enabled"
+                          : "Voice control unavailable"}
                   </Badge>
                   <span className="text-muted-foreground">
                     Audio is never added to the live stream or recording.
@@ -1092,10 +1174,29 @@ export function WarehouseMobileCameraRecorder({
                 <p>
                   Camera access is used only after you tap Start. You get a 10 second on-screen
                   countdown to frame the shot before the client goes live. Sessions auto-stop after
-                  2 minutes. Palm gesture, local voice command, and manual Stop can end sooner. Live
-                  and saved video never include microphone audio. Keep this page open and the phone
-                  screen awake while recording.
+                  2 minutes. Palm gesture, voice command, and manual Stop can end sooner. Live and
+                  saved video never include microphone audio. The browser may process speech only
+                  to recognize the command. Keep this page open and the phone screen awake while recording.
                 </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void requestVoiceCommandPermission()}
+                  disabled={voicePermissionStatus === "requesting"}
+                >
+                  {voicePermissionStatus === "requesting" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : voicePermissionStatus === "granted" ? (
+                    <Mic className="mr-2 h-4 w-4 text-emerald-600" />
+                  ) : (
+                    <Mic className="mr-2 h-4 w-4" />
+                  )}
+                  {voicePermissionStatus === "granted"
+                    ? "Voice command enabled"
+                    : voicePermissionStatus === "denied"
+                      ? "Try microphone permission again"
+                      : "Enable voice command"}
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
