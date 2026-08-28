@@ -242,6 +242,8 @@ export function WarehouseMobileCameraRecorder({
   const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const voicePermissionGrantedRef = useRef(false);
   const handsFreeActiveRef = useRef(false);
+  const activeSessionRef = useRef<WarehouseCameraSession | null>(null);
+  const stoppingRef = useRef(false);
   const stopRecordingRef = useRef<
     (options?: { autoStop?: boolean; handsFree?: HandsFreeStopMethod }) => Promise<void>
   >(async () => undefined);
@@ -721,6 +723,9 @@ export function WarehouseMobileCameraRecorder({
       pausedTotalRef.current = 0;
       setElapsedMs(0);
       scheduleSessionTimers();
+      // Keep an immediately available session for voice/gesture/timer callbacks. React state
+      // may not have committed yet when a hands-free command arrives.
+      activeSessionRef.current = created.session;
       setSession(created.session);
       setCountdownRemaining(null);
       setServerSessions((prev) => [created.session, ...prev]);
@@ -851,12 +856,13 @@ export function WarehouseMobileCameraRecorder({
     autoStop?: boolean;
     handsFree?: HandsFreeStopMethod;
   }) {
-    if (!user || !session || !recorderRef.current || stopping) return;
+    const activeSession = activeSessionRef.current;
+    if (!user || !activeSession || !recorderRef.current || stoppingRef.current) return;
+    stoppingRef.current = true;
     setStopping(true);
     if (options?.handsFree) setHandsFreeStopMethod(options.handsFree);
     stopHandsFreeControls();
     clearSessionTimers();
-    const activeSession = session;
     const recorder = recorderRef.current;
     const activeTrack = videoTrackRef.current;
     try {
@@ -913,6 +919,7 @@ export function WarehouseMobileCameraRecorder({
       setServerSessions((prev) =>
         prev.map((row) => (row.id === updated.id ? updated : row))
       );
+      activeSessionRef.current = null;
       setSession(null);
       setElapsedMs(0);
       await saveLocalWarehouseCameraClip(localClip);
@@ -944,6 +951,7 @@ export function WarehouseMobileCameraRecorder({
       roomRef.current = null;
       recorderStreamRef.current = null;
       setActiveTrackId(null);
+      stoppingRef.current = false;
       setStopping(false);
     }
   }
