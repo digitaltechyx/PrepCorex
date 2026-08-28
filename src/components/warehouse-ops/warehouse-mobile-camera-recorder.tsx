@@ -10,7 +10,10 @@ import {
 import {
   Download,
   ExternalLink,
+  Hand,
   Loader2,
+  Mic,
+  MicOff,
   Pause,
   Play,
   Square,
@@ -74,6 +77,60 @@ type CameraFacingMode = "environment" | "user";
 
 const PRE_LIVE_COUNTDOWN_SECONDS = 10;
 const MAX_LIVE_SESSION_MS = 2 * 60 * 1000;
+const PALM_HOLD_MS = 2_000;
+const GESTURE_SAMPLE_MS = 150;
+const VOICE_END_PHRASES = [
+  "prepcorex end session",
+  "prep corex end session",
+  "prep core x end session",
+];
+
+type HandsFreeStopMethod = "gesture" | "voice";
+type GestureRecognizerInstance = {
+  recognizeForVideo(
+    video: HTMLVideoElement,
+    timestampMs: number
+  ): { gestures?: Array<Array<{ categoryName?: string; score?: number }>> };
+  close(): void;
+};
+
+type BrowserSpeechRecognitionEvent = {
+  resultIndex: number;
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+};
+
+type BrowserSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  processLocally?: boolean;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+function getSpeechRecognitionConstructor(): BrowserSpeechRecognitionConstructor | null {
+  if (typeof window === "undefined") return null;
+  const speechWindow = window as typeof window & {
+    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  };
+  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+}
+
+function transcriptRequestsSessionEnd(transcript: string): boolean {
+  const normalized = transcript
+    .toLowerCase()
+    .replace(/[.,!?]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return VOICE_END_PHRASES.some((phrase) => normalized.includes(phrase));
+}
 
 async function createCameraTrack(facingMode: CameraFacingMode): Promise<LocalVideoTrack> {
   const resolution = VideoPresets.h720.resolution;
@@ -172,6 +229,15 @@ export function WarehouseMobileCameraRecorder({
   const sessionLimitTimerRef = useRef<number | null>(null);
   const elapsedTimerRef = useRef<number | null>(null);
   const goLiveInProgressRef = useRef(false);
+  const gestureRecognizerRef = useRef<GestureRecognizerInstance | null>(null);
+  const gestureAnimationRef = useRef<number | null>(null);
+  const palmStartedAtRef = useRef(0);
+  const lastGestureSampleRef = useRef(0);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const handsFreeActiveRef = useRef(false);
+  const stopRecordingRef = useRef<
+    (options?: { autoStop?: boolean; handsFree?: HandsFreeStopMethod }) => Promise<void>
+  >(async () => undefined);
 
   const [session, setSession] = useState<WarehouseCameraSession | null>(null);
   const [serverSessions, setServerSessions] = useState<WarehouseCameraSession[]>([]);
@@ -187,6 +253,15 @@ export function WarehouseMobileCameraRecorder({
     useState<CameraFacingMode>("environment");
   const [activeTrackId, setActiveTrackId] = useState<string | null>(null);
   const [switchingCamera, setSwitchingCamera] = useState(false);
+  const [gestureStatus, setGestureStatus] = useState<
+    "loading" | "ready" | "holding" | "unavailable"
+  >("loading");
+  const [palmHoldProgress, setPalmHoldProgress] = useState(0);
+  const [voiceStatus, setVoiceStatus] = useState<
+    "checking" | "listening" | "unavailable"
+  >("checking");
+  const [handsFreeStopMethod, setHandsFreeStopMethod] =
+    useState<HandsFreeStopMethod | null>(null);
 
   const refreshLists = useCallback(async () => {
     if (!user || linkedIds.length === 0) return;
@@ -223,6 +298,159 @@ export function WarehouseMobileCameraRecorder({
       window.clearInterval(elapsedTimerRef.current);
       elapsedTimerRef.current = null;
     }
+  }
+
+  function stopHandsFreeControls() {
+    handsFreeActiveRef.current = false;
+    if (gestureAnimationRef.current != null) {
+      window.cancelAnimationFrame(gestureAnimationRef.current);
+      gestureAnimationRef.current = null;
+    }
+    palmStartedAtRef.current = 0;
+    lastGestureSampleRef.current = 0;
+    setPalmHoldProgress(0);
+    speechRecognitionRef.current?.abort();
+    speechRecognitionRef.current = null;
+  }
+
+  async function loadGestureRecognizer(): Promise<GestureRecognizerInstance | null> {
+    if (gestureRecognizerRef.current) {
+      setGestureStatus("ready");
+      return gestureRecognizerRef.current;
+    }
+    try {
+      const { FilesetResolver, GestureRecognizer } = await import("@mediapipe/tasks-vision");
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm"
+      );
+      const modelAssetPath =
+        "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
+      let recognizer: GestureRecognizerInstance;
+      try {
+        recognizer = (await GestureRecognizer.createFromOptions(vision, {
+          baseOptions: { modelAssetPath, delegate: "GPU" },
+          runningMode: "VIDEO",
+          numHands: 1,
+        })) as GestureRecognizerInstance;
+      } catch {
+        recognizer = (await GestureRecognizer.createFromOptions(vision, {
+          baseOptions: { modelAssetPath },
+          runningMode: "VIDEO",
+          numHands: 1,
+        })) as GestureRecognizerInstance;
+      }
+      gestureRecognizerRef.current = recognizer;
+      setGestureStatus("ready");
+      return recognizer;
+    } catch (error) {
+      console.warn("[warehouse-camera] palm recognition unavailable", error);
+      setGestureStatus("unavailable");
+      return null;
+    }
+  }
+
+  function startPalmControl(recognizer: GestureRecognizerInstance) {
+    const detect = (now: number) => {
+      if (!handsFreeActiveRef.current) return;
+      gestureAnimationRef.current = window.requestAnimationFrame(detect);
+      if (now - lastGestureSampleRef.current < GESTURE_SAMPLE_MS) return;
+      lastGestureSampleRef.current = now;
+
+      const video = previewRef.current;
+      if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+
+      try {
+        const result = recognizer.recognizeForVideo(video, now);
+        const topGesture = result.gestures?.[0]?.[0];
+        const openPalm =
+          topGesture?.categoryName === "Open_Palm" && Number(topGesture.score ?? 0) >= 0.65;
+        if (!openPalm) {
+          palmStartedAtRef.current = 0;
+          setPalmHoldProgress(0);
+          setGestureStatus("ready");
+          return;
+        }
+
+        if (!palmStartedAtRef.current) palmStartedAtRef.current = now;
+        const progress = Math.min(100, ((now - palmStartedAtRef.current) / PALM_HOLD_MS) * 100);
+        setPalmHoldProgress(progress);
+        setGestureStatus("holding");
+        if (progress >= 100) {
+          handsFreeActiveRef.current = false;
+          setHandsFreeStopMethod("gesture");
+          void stopRecordingRef.current({ handsFree: "gesture" });
+        }
+      } catch (error) {
+        console.warn("[warehouse-camera] palm detection failed", error);
+      }
+    };
+    gestureAnimationRef.current = window.requestAnimationFrame(detect);
+  }
+
+  function startVoiceControl() {
+    const Recognition = getSpeechRecognitionConstructor();
+    if (!Recognition) {
+      setVoiceStatus("unavailable");
+      return;
+    }
+
+    const recognition = new Recognition();
+    // Enforce local recognition. If the browser cannot guarantee this, voice control stays off.
+    if (!("processLocally" in recognition)) {
+      setVoiceStatus("unavailable");
+      return;
+    }
+    recognition.processLocally = true;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i]?.[0]?.transcript ?? "";
+        if (!transcriptRequestsSessionEnd(transcript)) continue;
+        handsFreeActiveRef.current = false;
+        setHandsFreeStopMethod("voice");
+        recognition.abort();
+        void stopRecordingRef.current({ handsFree: "voice" });
+        return;
+      }
+    };
+    recognition.onerror = (event) => {
+      if (event.error !== "aborted" && handsFreeActiveRef.current) {
+        setVoiceStatus("unavailable");
+      }
+    };
+    recognition.onend = () => {
+      if (!handsFreeActiveRef.current) return;
+      window.setTimeout(() => {
+        if (!handsFreeActiveRef.current) return;
+        try {
+          recognition.start();
+          setVoiceStatus("listening");
+        } catch {
+          setVoiceStatus("unavailable");
+        }
+      }, 250);
+    };
+    speechRecognitionRef.current = recognition;
+    try {
+      recognition.start();
+      setVoiceStatus("listening");
+    } catch {
+      speechRecognitionRef.current = null;
+      setVoiceStatus("unavailable");
+    }
+  }
+
+  async function startHandsFreeControls() {
+    stopHandsFreeControls();
+    handsFreeActiveRef.current = true;
+    setGestureStatus("loading");
+    setVoiceStatus("checking");
+    setHandsFreeStopMethod(null);
+    const recognizer = await loadGestureRecognizer();
+    if (recognizer && handsFreeActiveRef.current) startPalmControl(recognizer);
+    if (handsFreeActiveRef.current) startVoiceControl();
   }
 
   function scheduleSessionTimers() {
@@ -293,6 +521,9 @@ export function WarehouseMobileCameraRecorder({
     return () => {
       onRecordingChange?.(false);
       clearSessionTimers();
+      stopHandsFreeControls();
+      gestureRecognizerRef.current?.close();
+      gestureRecognizerRef.current = null;
       recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
       detachPreviewTrack();
       videoTrackRef.current?.stop();
@@ -395,6 +626,7 @@ export function WarehouseMobileCameraRecorder({
       setSession(created.session);
       setCountdownRemaining(null);
       setServerSessions((prev) => [created.session, ...prev]);
+      void startHandsFreeControls();
       toast({
         title: "Recording and live view started",
         description: `${clientDisplayName} can now watch this ${jobLabel.toLowerCase()} live.`,
@@ -477,6 +709,7 @@ export function WarehouseMobileCameraRecorder({
 
   async function pauseRecording() {
     if (!user || !session || recorderRef.current?.state !== "recording") return;
+    stopHandsFreeControls();
     recorderRef.current.pause();
     videoTrackRef.current?.mute();
     pausedAtRef.current = Date.now();
@@ -486,6 +719,7 @@ export function WarehouseMobileCameraRecorder({
     } catch (error) {
       recorderRef.current.resume();
       videoTrackRef.current?.unmute();
+      void startHandsFreeControls();
       toast({
         variant: "destructive",
         title: "Pause failed",
@@ -503,6 +737,7 @@ export function WarehouseMobileCameraRecorder({
     try {
       const updated = await updateWarehouseCameraSession(user, session.id, "resume");
       setSession(updated);
+      void startHandsFreeControls();
     } catch (error) {
       recorderRef.current.pause();
       videoTrackRef.current?.mute();
@@ -514,13 +749,27 @@ export function WarehouseMobileCameraRecorder({
     }
   }
 
-  async function stopRecording(options?: { autoStop?: boolean }) {
+  async function stopRecording(options?: {
+    autoStop?: boolean;
+    handsFree?: HandsFreeStopMethod;
+  }) {
     if (!user || !session || !recorderRef.current || stopping) return;
     setStopping(true);
+    if (options?.handsFree) setHandsFreeStopMethod(options.handsFree);
+    stopHandsFreeControls();
     clearSessionTimers();
     const activeSession = session;
     const recorder = recorderRef.current;
+    const activeTrack = videoTrackRef.current;
     try {
+      // Privacy first: remove the camera from the live room before finalizing the local file.
+      // `false` keeps the source track alive for the immediate MediaRecorder stop below.
+      activeTrack?.mute();
+      if (activeTrack && roomRef.current) {
+        await roomRef.current.localParticipant
+          .unpublishTrack(activeTrack, false)
+          .catch(() => undefined);
+      }
       const blob = await new Promise<Blob>((resolve, reject) => {
         recorder.onerror = () => reject(new Error("The phone could not finish the video file"));
         recorder.onstop = () => {
@@ -534,7 +783,6 @@ export function WarehouseMobileCameraRecorder({
         0,
         Date.now() - startedAtRef.current - pausedTotalRef.current - pauseInProgress
       );
-      const activeTrack = videoTrackRef.current;
       const previewEl = previewRef.current;
       if (activeTrack && previewEl) {
         activeTrack.detach(previewEl);
@@ -577,6 +825,14 @@ export function WarehouseMobileCameraRecorder({
           title: "Recording stopped",
           description: "The 2 minute session limit was reached.",
         });
+      } else if (options?.handsFree) {
+        toast({
+          title: "Session completed",
+          description:
+            options.handsFree === "gesture"
+              ? "Open-palm gesture recognized. Live view and recording stopped."
+              : "Voice command recognized. Live view and recording stopped.",
+        });
       }
     } catch (error) {
       toast({
@@ -593,6 +849,8 @@ export function WarehouseMobileCameraRecorder({
       setStopping(false);
     }
   }
+
+  stopRecordingRef.current = stopRecording;
 
   async function uploadClip(clip: LocalWarehouseCameraClip) {
     if (!user) return;
@@ -666,6 +924,8 @@ export function WarehouseMobileCameraRecorder({
             Record this {jobLabel.toLowerCase()} with the phone camera if you want. After a 10
             second countdown the client can watch live for up to 2 minutes. Completed clips stay on
             this device until you upload to Google Drive (now or later from Gallery / dispatch).
+            Hold an open palm for 2 seconds or say &quot;PrepCorex, end session&quot; to stop
+            hands-free.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -719,6 +979,12 @@ export function WarehouseMobileCameraRecorder({
                     <Badge className="absolute bottom-3 left-3 bg-black/75 text-white hover:bg-black/75 tabular-nums">
                       {formatDuration(elapsedMs)} / {formatDuration(MAX_LIVE_SESSION_MS)}
                     </Badge>
+                    {gestureStatus === "holding" ? (
+                      <div className="absolute inset-x-4 bottom-12 rounded-lg bg-amber-500/95 p-3 text-center text-sm font-semibold text-black">
+                        Hold palm to end session
+                        <Progress className="mt-2 h-2" value={palmHoldProgress} />
+                      </div>
+                    ) : null}
                   </>
                 )}
                 <Badge className="absolute right-3 top-3 bg-black/70 text-white hover:bg-black/70">
@@ -746,7 +1012,7 @@ export function WarehouseMobileCameraRecorder({
                 </div>
               ) : (
               <div className="grid grid-cols-3 gap-2">
-                {session.status === "paused" ? (
+                {session?.status === "paused" ? (
                   <Button onClick={() => void resumeRecording()} variant="outline">
                     <Play className="mr-2 h-4 w-4" />
                     Resume
@@ -783,6 +1049,40 @@ export function WarehouseMobileCameraRecorder({
                 </Button>
               </div>
               )}
+              {session && session.status !== "paused" ? (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Badge variant="outline" className="gap-1">
+                    <Hand className="h-3 w-3" />
+                    {gestureStatus === "loading"
+                      ? "Palm control loading"
+                      : gestureStatus === "unavailable"
+                        ? "Palm control unavailable"
+                        : gestureStatus === "holding"
+                          ? "Hold palm steady"
+                          : "Palm control ready"}
+                  </Badge>
+                  <Badge variant="outline" className="gap-1">
+                    {voiceStatus === "listening" ? (
+                      <Mic className="h-3 w-3" />
+                    ) : (
+                      <MicOff className="h-3 w-3" />
+                    )}
+                    {voiceStatus === "listening"
+                      ? 'Say "PrepCorex, end session"'
+                      : voiceStatus === "checking"
+                        ? "Checking local voice control"
+                        : "Local voice control unavailable"}
+                  </Badge>
+                  <span className="text-muted-foreground">
+                    Audio is never added to the live stream or recording.
+                  </span>
+                </div>
+              ) : null}
+              {handsFreeStopMethod ? (
+                <p className="text-xs text-muted-foreground">
+                  Last session ended by {handsFreeStopMethod === "gesture" ? "palm gesture" : "voice command"}.
+                </p>
+              ) : null}
             </>
           ) : (
             <Alert>
@@ -792,8 +1092,9 @@ export function WarehouseMobileCameraRecorder({
                 <p>
                   Camera access is used only after you tap Start. You get a 10 second on-screen
                   countdown to frame the shot before the client goes live. Sessions auto-stop after
-                  2 minutes (or stop manually). Keep this page open and the phone screen awake while
-                  recording.
+                  2 minutes. Palm gesture, local voice command, and manual Stop can end sooner. Live
+                  and saved video never include microphone audio. Keep this page open and the phone
+                  screen awake while recording.
                 </p>
                 <Button
                   type="button"

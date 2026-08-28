@@ -19,7 +19,11 @@ This section supersedes older pilot statements below that assume an RTSP camera,
 
 - The warehouse operator records from PrepCorex Ops on a phone/tablet for **receive**, and optionally for outbound **pick**, **pack**, and **dispatch**.
 - Before each clip, the operator can choose the phone's **front or back camera**.
-- Recording supports **pause, resume, stop, and multiple clips** per stage / linked request or shipment.
+- A **10-second private framing countdown** runs before the camera publishes live and starts recording.
+- Recording supports **pause, resume, manual stop, and multiple clips** per stage / linked request or shipment.
+- While live, the operator can end hands-free by holding an **open palm for two seconds** (on-device MediaPipe gesture recognition). On browsers that guarantee local speech recognition, the operator can also say **"PrepCorex, end session"**.
+- Voice-command microphone input is never added to the LiveKit track or MediaRecorder stream. Live and saved clips remain **video-only**; unsupported local speech recognition is disabled rather than falling back to cloud speech.
+- Sessions automatically stop at **two minutes** as a privacy failsafe; manual and hands-free stop remain the normal controls.
 - The same phone video track publishes to a private **LiveKit Cloud** room while recording.
 - For inbound, the client sees **Receiving live now** with the product, SKU, and request ID, and can watch only sessions linked to their account.
 - When receive live stops, Inventory shows **Live session ended for {product/SKU}** until dismissed.
