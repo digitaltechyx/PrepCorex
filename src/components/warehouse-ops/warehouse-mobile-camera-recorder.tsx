@@ -79,11 +79,7 @@ const PRE_LIVE_COUNTDOWN_SECONDS = 10;
 const MAX_LIVE_SESSION_MS = 2 * 60 * 1000;
 const PALM_HOLD_MS = 2_000;
 const GESTURE_SAMPLE_MS = 150;
-const VOICE_END_PHRASES = [
-  "prepcorex end session",
-  "prep corex end session",
-  "prep core x end session",
-];
+const VOICE_END_PHRASES = ["end session", "end the session"];
 
 type HandsFreeStopMethod = "gesture" | "voice";
 type VoicePermissionStatus = "unknown" | "requesting" | "granted" | "denied" | "unsupported";
@@ -97,13 +93,14 @@ type GestureRecognizerInstance = {
 
 type BrowserSpeechRecognitionEvent = {
   resultIndex: number;
-  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+  results: ArrayLike<ArrayLike<{ transcript: string; confidence?: number }> & { isFinal?: boolean }>;
 };
 
 type BrowserSpeechRecognition = {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
+  maxAlternatives: number;
   processLocally?: boolean;
   onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
   onend: (() => void) | null;
@@ -130,7 +127,9 @@ function transcriptRequestsSessionEnd(transcript: string): boolean {
     .replace(/[.,!?]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return VOICE_END_PHRASES.some((phrase) => normalized.includes(phrase));
+  return VOICE_END_PHRASES.some(
+    (phrase) => normalized === phrase || normalized.endsWith(` ${phrase}`)
+  );
 }
 
 async function createCameraTrack(facingMode: CameraFacingMode): Promise<LocalVideoTrack> {
@@ -436,17 +435,22 @@ export function WarehouseMobileCameraRecorder({
     // Speech processing is controlled by the mobile browser and may use its speech service.
     // Microphone audio is never attached to our MediaRecorder or LiveKit tracks.
     recognition.continuous = true;
-    recognition.interimResults = true;
+    recognition.interimResults = false;
     recognition.lang = "en-US";
+    recognition.maxAlternatives = 5;
     recognition.onresult = (event) => {
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const transcript = event.results[i]?.[0]?.transcript ?? "";
-        if (!transcriptRequestsSessionEnd(transcript)) continue;
-        handsFreeActiveRef.current = false;
-        setHandsFreeStopMethod("voice");
-        recognition.abort();
-        void stopRecordingRef.current({ handsFree: "voice" });
-        return;
+        const result = event.results[i];
+        if (!result) continue;
+        for (let alternativeIndex = 0; alternativeIndex < result.length; alternativeIndex += 1) {
+          const transcript = result[alternativeIndex]?.transcript ?? "";
+          if (!transcriptRequestsSessionEnd(transcript)) continue;
+          handsFreeActiveRef.current = false;
+          setHandsFreeStopMethod("voice");
+          recognition.abort();
+          void stopRecordingRef.current({ handsFree: "voice" });
+          return;
+        }
       }
     };
     recognition.onerror = (event) => {
@@ -464,7 +468,7 @@ export function WarehouseMobileCameraRecorder({
         } catch {
           setVoiceStatus("unavailable");
         }
-      }, 250);
+      }, 500);
     };
     speechRecognitionRef.current = recognition;
     try {
@@ -482,9 +486,10 @@ export function WarehouseMobileCameraRecorder({
     setGestureStatus("loading");
     setVoiceStatus(voicePermissionGrantedRef.current ? "checking" : "off");
     setHandsFreeStopMethod(null);
+    // Voice should be ready immediately; palm model loading must not delay microphone listening.
+    startVoiceControl();
     const recognizer = await loadGestureRecognizer();
     if (recognizer && handsFreeActiveRef.current) startPalmControl(recognizer);
-    if (handsFreeActiveRef.current) startVoiceControl();
   }
 
   async function requestVoiceCommandPermission() {
@@ -514,7 +519,7 @@ export function WarehouseMobileCameraRecorder({
       setVoiceStatus("off");
       toast({
         title: "Voice command enabled",
-        description: 'During a live session, say "PrepCorex, end session." Audio is not included in video.',
+        description: 'During a live session, say "End session." Audio is not included in video.',
       });
     } catch (error) {
       voicePermissionGrantedRef.current = false;
@@ -1004,7 +1009,7 @@ export function WarehouseMobileCameraRecorder({
             Record this {jobLabel.toLowerCase()} with the phone camera if you want. After a 10
             second countdown the client can watch live for up to 2 minutes. Completed clips stay on
             this device until you upload to Google Drive (now or later from Gallery / dispatch).
-            Hold an open palm for 2 seconds or say &quot;PrepCorex, end session&quot; to stop
+            Hold an open palm for 2 seconds or say &quot;End session&quot; to stop
             hands-free.
           </CardDescription>
         </CardHeader>
@@ -1148,7 +1153,7 @@ export function WarehouseMobileCameraRecorder({
                       <MicOff className="h-3 w-3" />
                     )}
                     {voiceStatus === "listening"
-                      ? 'Say "PrepCorex, end session"'
+                      ? 'Say "End session"'
                       : voiceStatus === "checking"
                         ? "Starting voice control"
                         : voiceStatus === "off"

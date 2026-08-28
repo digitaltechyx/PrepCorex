@@ -21,7 +21,7 @@ This section supersedes older pilot statements below that assume an RTSP camera,
 - Before each clip, the operator can choose the phone's **front or back camera**.
 - A **10-second private framing countdown** runs before the camera publishes live and starts recording.
 - Recording supports **pause, resume, manual stop, and multiple clips** per stage / linked request or shipment.
-- While live, the operator can end hands-free by holding an **open palm for two seconds** (on-device MediaPipe gesture recognition). On supported browsers, the operator can also say **"PrepCorex, end session"**.
+- While live, the operator can end hands-free by holding an **open palm for two seconds** (on-device MediaPipe gesture recognition). On supported browsers, the operator can also say **"End session"**. Voice listening starts immediately and does not wait for the palm model to load.
 - An explicit **Enable voice command** button requests microphone permission before recording. Voice-command microphone input is never added to the LiveKit track or MediaRecorder stream, so live and saved clips remain **video-only**. The mobile browser may process speech through its speech service solely to recognize the command.
 - Sessions automatically stop at **two minutes** as a privacy failsafe; manual and hands-free stop remain the normal controls.
 - The same phone video track publishes to a private **LiveKit Cloud** room while recording.
