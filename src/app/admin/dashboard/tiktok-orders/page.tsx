@@ -66,6 +66,9 @@ function TikTokOrdersAdminContent() {
   const [providersLoadingByOrder, setProvidersLoadingByOrder] = useState<Record<string, boolean>>(
     {}
   );
+  const [providerLoadErrorByOrder, setProviderLoadErrorByOrder] = useState<Record<string, string>>(
+    {}
+  );
   const loadedProviderOrdersRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -126,6 +129,7 @@ function TikTokOrdersAdminContent() {
     setProvidersByOrder({});
     setProviderByOrder({});
     setProvidersLoadingByOrder({});
+    setProviderLoadErrorByOrder({});
   }, [selectedUser?.uid]);
 
   useEffect(() => {
@@ -151,6 +155,7 @@ function TikTokOrdersAdminContent() {
             orderId: order.id,
           });
           if (order.deliveryOptionId) qs.set("deliveryOptionId", order.deliveryOptionId);
+          if (order.deliveryOptionName) qs.set("deliveryOptionName", order.deliveryOptionName);
           const res = await fetch(`/api/tiktok/shipping-providers?${qs.toString()}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
@@ -159,7 +164,17 @@ function TikTokOrdersAdminContent() {
           const providers = Array.isArray(data.providers)
             ? (data.providers as TikTokShippingProviderOption[])
             : [];
+          const detail =
+            typeof data.detail === "string"
+              ? data.detail
+              : typeof data.error === "string"
+                ? data.error
+                : "";
           setProvidersByOrder((prev) => ({ ...prev, [cacheKey]: providers }));
+          setProviderLoadErrorByOrder((prev) => ({
+            ...prev,
+            [cacheKey]: providers.length ? "" : detail || "No carriers returned from TikTok.",
+          }));
           if (providers.length) {
             setProviderByOrder((prev) => {
               if (prev[cacheKey]) return prev;
@@ -366,7 +381,8 @@ function TikTokOrdersAdminContent() {
                         </Select>
                       ) : (
                         <p className="text-xs text-amber-700 py-2">
-                          No carriers returned. Refresh orders or reconnect TikTok, then try again.
+                          {providerLoadErrorByOrder[o.id] ||
+                            "No carriers returned. Refresh orders or reconnect TikTok, then try again."}
                         </p>
                       )}
                     </div>

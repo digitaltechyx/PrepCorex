@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import {
   extractDeliveryOptionId,
+  extractDeliveryOptionName,
   fetchTikTokShippingProviders,
   loadTikTokOrderDetail,
 } from "@/lib/tiktok-fulfillment";
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
   const connectionId = searchParams.get("connectionId")?.trim() || "";
   const orderId = searchParams.get("orderId")?.trim() || "";
   let deliveryOptionId = searchParams.get("deliveryOptionId")?.trim() || "";
+  let deliveryOptionName = searchParams.get("deliveryOptionName")?.trim() || "";
 
   if (!connectionId) {
     return NextResponse.json({ error: "Missing connectionId" }, { status: 400 });
@@ -72,15 +74,19 @@ export async function GET(request: NextRequest) {
     const accessToken = await getValidTikTokAccessToken(ref, data);
     const shopCipher = (data.shopCipher as string) || null;
 
-    if (!deliveryOptionId && orderId) {
+    if (orderId) {
       const loaded = await loadTikTokOrderDetail({ accessToken, shopCipher, orderId });
-      if (loaded.order) deliveryOptionId = extractDeliveryOptionId(loaded.order);
+      if (loaded.order) {
+        if (!deliveryOptionId) deliveryOptionId = extractDeliveryOptionId(loaded.order);
+        if (!deliveryOptionName) deliveryOptionName = extractDeliveryOptionName(loaded.order);
+      }
     }
 
     const listed = await fetchTikTokShippingProviders({
       accessToken,
       shopCipher,
       deliveryOptionId,
+      deliveryOptionName,
     });
 
     return NextResponse.json({

@@ -49,10 +49,66 @@ function normalizeProviderList(payload: unknown): TikTokShippingProvider[] {
   return out;
 }
 
+function providersFromDeliveryOptionList(
+  payload: unknown,
+  deliveryOptionId?: string,
+  deliveryOptionName?: string
+): TikTokShippingProvider[] {
+  const root = asRecord(payload) ?? {};
+  const list = root.delivery_option_list;
+  if (!Array.isArray(list)) return [];
+
+  const wantedId = str(deliveryOptionId);
+  const wantedName = str(deliveryOptionName).toLowerCase();
+  const out: TikTokShippingProvider[] = [];
+
+  for (const raw of list) {
+    const option = asRecord(raw);
+    if (!option) continue;
+    const optionId = str(option.delivery_option_id);
+    const optionName = str(option.delivery_option_name).toLowerCase();
+    if (wantedId && optionId && optionId !== wantedId) continue;
+    if (!wantedId && wantedName && optionName && optionName !== wantedName) continue;
+
+    for (const provider of normalizeProviderList(option.shipping_provider_list)) {
+      if (!out.some((p) => p.id === provider.id)) out.push(provider);
+    }
+  }
+
+  // If filters were too strict, fall back to every carrier TikTok returned.
+  if (!out.length && (wantedId || wantedName)) {
+    return providersFromDeliveryOptionList(payload);
+  }
+  return out;
+}
+
 export function extractDeliveryOptionId(orderLike: unknown): string {
   const order = asRecord(orderLike);
   if (!order) return "";
-  return str(order.delivery_option_id ?? order.delivery_option);
+
+  const direct = str(order.delivery_option_id);
+  if (direct) return direct;
+
+  for (const bucket of [order.line_items, order.item_list, order.order_line_items]) {
+    if (!Array.isArray(bucket)) continue;
+    for (const raw of bucket) {
+      const line = asRecord(raw);
+      const fromLine = str(line?.delivery_option_id);
+      if (fromLine) return fromLine;
+    }
+  }
+
+  // Some payloads only expose a numeric delivery option reference.
+  const numeric = str(order.delivery_option);
+  if (/^\d+$/.test(numeric)) return numeric;
+
+  return "";
+}
+
+export function extractDeliveryOptionName(orderLike: unknown): string {
+  const order = asRecord(orderLike);
+  if (!order) return "";
+  return str(order.delivery_option_name ?? order.delivery_option_description ?? order.delivery_option);
 }
 
 export function extractShippingProviderId(orderLike: unknown): string {
@@ -107,25 +163,29 @@ export async function loadTikTokOrderDetail(options: {
 export async function fetchTikTokShippingProviders(options: {
   accessToken: string;
   shopCipher: string | null;
-  deliveryOptionId: string;
+  deliveryOptionId?: string;
+  deliveryOptionName?: string;
 }): Promise<{ providers: TikTokShippingProvider[]; errorDetail?: string }> {
   const deliveryOptionId = str(options.deliveryOptionId);
-  if (!deliveryOptionId) {
-    return { providers: [], errorDetail: "Missing delivery_option_id on order." };
-  }
+  const deliveryOptionName = str(options.deliveryOptionName);
 
-  const attempts: Array<{ path: string; query?: Record<string, string> }> = [
-    {
-      path: "/fulfillment/202309/shipping_providers",
-      query: { delivery_option_id: deliveryOptionId },
-    },
-    {
-      path: "/logistics/202309/shipping_providers",
-      query: { delivery_option_id: deliveryOptionId },
-    },
-    { path: "/fulfillment/202309/shipping_providers" },
+  const attempts: Array<{ path: string; query?: Record<string, string> }> = [];
+  if (deliveryOptionId) {
+    attempts.push(
+      {
+        path: "/logistics/202309/shipping_providers",
+        query: { delivery_option_id: deliveryOptionId },
+      },
+      {
+        path: "/fulfillment/202309/shipping_providers",
+        query: { delivery_option_id: deliveryOptionId },
+      }
+    );
+  }
+  attempts.push(
     { path: "/logistics/202309/shipping_providers" },
-  ];
+    { path: "/fulfillment/202309/shipping_providers" }
+  );
 
   let lastDetail = "";
   for (const attempt of attempts) {
@@ -140,8 +200,17 @@ export async function fetchTikTokShippingProviders(options: {
       lastDetail = parseTikTokError(res);
       continue;
     }
+
+    const fromDeliveryOptions = providersFromDeliveryOptionList(
+      res.data,
+      deliveryOptionId,
+      deliveryOptionName
+    );
+    if (fromDeliveryOptions.length) return { providers: fromDeliveryOptions };
+
     const providers = normalizeProviderList(res.data);
     if (providers.length) return { providers };
+
     const deliveryOptions = asRecord(res.data)?.delivery_options;
     if (Array.isArray(deliveryOptions)) {
       for (const option of deliveryOptions) {
@@ -167,10 +236,12 @@ export async function resolveTikTokShippingProviderId(options: {
   if (fromOrder) return { shippingProviderId: fromOrder, providers: [] };
 
   const deliveryOptionId = options.orderLike ? extractDeliveryOptionId(options.orderLike) : "";
+  const deliveryOptionName = options.orderLike ? extractDeliveryOptionName(options.orderLike) : "";
   const listed = await fetchTikTokShippingProviders({
     accessToken: options.accessToken,
     shopCipher: options.shopCipher,
     deliveryOptionId,
+    deliveryOptionName,
   });
   const first = listed.providers[0]?.id ?? "";
   if (first) return { shippingProviderId: first, providers: listed.providers };
