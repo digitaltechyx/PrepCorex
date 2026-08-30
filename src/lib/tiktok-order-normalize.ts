@@ -219,6 +219,17 @@ export function normalizeTikTokOrder(
     ? lineRaw.map(normalizeLineItem).filter((x): x is TikTokOrderLineItem => Boolean(x))
     : [];
 
+  let deliveryOptionId = str(raw.delivery_option_id) || null;
+  if (!deliveryOptionId && Array.isArray(lineRaw)) {
+    for (const item of lineRaw) {
+      const fromLine = str(asRecord(item)?.delivery_option_id);
+      if (fromLine) {
+        deliveryOptionId = fromLine;
+        break;
+      }
+    }
+  }
+
   return {
     id: String(raw.id ?? raw.order_id ?? ""),
     status: str(raw.status) || str(raw.order_status),
@@ -238,7 +249,7 @@ export function normalizeTikTokOrder(
       str(raw.shipping_provider_name) ||
       str(asRecord(raw.shipping_provider)?.name),
     shippingProviderId: str(raw.shipping_provider_id) || null,
-    deliveryOptionId: str(raw.delivery_option_id) || null,
+    deliveryOptionId,
     deliveryOptionName: str(raw.delivery_option_name) || str(raw.delivery_option),
   };
 }
