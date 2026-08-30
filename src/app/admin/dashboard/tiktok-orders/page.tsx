@@ -353,6 +353,11 @@ function TikTokOrdersAdminContent() {
                   </div>
 
                   <TikTokOrderDetailBody order={o} compact />
+                  {o.deliveryOptionName ? (
+                    <p className="text-xs text-muted-foreground">
+                      Delivery: {o.deliveryOptionName}
+                    </p>
+                  ) : null}
 
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end border-t pt-3">
                     <div className="flex-1 space-y-1">

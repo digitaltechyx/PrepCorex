@@ -2,9 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { parseTikTokError, tikTokApiRequest } from "@/lib/tiktok-api";
 import {
+  extractOrderDeliveryOption,
+  extractPackageDeliveryOption,
+  isPlatformLogisticsDeliveryOption,
+  isSellerShippedDeliveryOption,
   loadTikTokOrderDetail,
+  loadTikTokPackageDetail,
   resolveTikTokShippingProviderId,
-  selfShipmentBody,
+  shipTikTokSellerPackage,
 } from "@/lib/tiktok-fulfillment";
 import {
   getValidTikTokAccessToken,
@@ -271,24 +276,128 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const shipExtras = selfShipmentBody(trackingNumber, shippingProviderId);
+    const orderDelivery = extractOrderDeliveryOption(orderDetail.order);
+    if (
+      orderDetail.order &&
+      isPlatformLogisticsDeliveryOption(orderDelivery.raw) &&
+      !isSellerShippedDeliveryOption(orderDelivery.raw) &&
+      !isSellerShippedDeliveryOption(orderDelivery.name)
+    ) {
+      return NextResponse.json(
+        {
+          error: "This order uses TikTok/platform shipping",
+          detail:
+            "Seller tracking upload is only supported for merchant self-ship (SEND_BY_SELLER) orders. Create labels through TikTok Seller Center or use a seller-shipped sandbox order for fulfilment testing.",
+          deliveryOption: orderDelivery.name || orderDelivery.id || null,
+        },
+        { status: 400 }
+      );
+    }
 
-    // Preferred seller-fulfill path: update shipping info on the order (no package required)
+    const shipExtras = {
+      tracking_number: trackingNumber,
+      shipping_provider_id: shippingProviderId,
+    };
+
+    // Preferred seller-fulfill path: ship package with self_shipment (TikTok 202309 API).
+    const resolvePackageForShip = async (): Promise<{
+      packageId: string;
+      detail?: string;
+      platformPackage?: boolean;
+    }> => {
+      let candidateId = packageId || orderDetail.packageIdFromOrder;
+      if (!candidateId) {
+        const searched = await searchPackages();
+        if (searched.errorDetail && /access denied|scope/i.test(searched.errorDetail)) {
+          return { packageId: "", detail: searched.errorDetail };
+        }
+        candidateId = searched.packageId;
+      }
+
+      let lineItemIds = [...clientLineItemIds];
+      if (!lineItemIds.length) lineItemIds = orderDetail.lineItemIds;
+
+      const ensureSellerPackage = async (): Promise<string> => {
+        if (candidateId) {
+          const loaded = await loadTikTokPackageDetail({
+            accessToken,
+            shopCipher,
+            packageId: candidateId,
+          });
+          const delivery = extractPackageDeliveryOption(loaded.pkg);
+          if (
+            loaded.pkg &&
+            isPlatformLogisticsDeliveryOption(delivery) &&
+            !isSellerShippedDeliveryOption(delivery)
+          ) {
+            candidateId = "";
+          }
+        }
+
+        if (candidateId) return candidateId;
+
+        const created = await createPackage(lineItemIds);
+        if (created.packageId) return created.packageId;
+
+        const again = await searchPackages();
+        return again.packageId;
+      };
+
+      const resolvedId = await ensureSellerPackage();
+      if (!resolvedId) {
+        return {
+          packageId: "",
+          detail:
+            lineItemIds.length === 0
+              ? "TikTok did not return line items for packaging."
+              : "Could not create or find a seller-shippable package for this order.",
+        };
+      }
+
+      return { packageId: resolvedId };
+    };
+
+    const packageForShip = await resolvePackageForShip();
+    let lastShipDetail = packageForShip.detail || "";
+    if (packageForShip.detail && /access denied|scope/i.test(packageForShip.detail)) {
+      return NextResponse.json(
+        {
+          error: "Failed to load packages for order",
+          detail: `${packageForShip.detail} Enable Fulfillment Basic and Package Write in Partner Center → Manage API, approve, then Disconnect and Connect TikTok again.`,
+        },
+        { status: 502 }
+      );
+    }
+
+    if (packageForShip.packageId) {
+      const shipped = await shipTikTokSellerPackage({
+        accessToken,
+        shopCipher,
+        packageId: packageForShip.packageId,
+        trackingNumber,
+        shippingProviderId,
+      });
+      if (shipped.ok) {
+        return NextResponse.json({
+          ok: true,
+          mode: shipped.mode,
+          packageId: packageForShip.packageId,
+          trackingNumber,
+          shippingProviderId,
+        });
+      }
+
+      lastShipDetail = shipped.detail;
+      packageId = packageForShip.packageId;
+    } else {
+      packageId = "";
+    }
+
+    // Secondary: order-level shipping update (some markets).
     const orderShipAttempts: Array<{ path: string; body: Record<string, unknown> }> = [
       {
         path: `/fulfillment/202309/orders/${encodeURIComponent(orderId)}/shipping_info/update`,
-        body: {
-          tracking_number: trackingNumber,
-          shipping_provider_id: shippingProviderId,
-        },
-      },
-      {
-        path: `/fulfillment/202309/orders/${encodeURIComponent(orderId)}/packages`,
-        body: {
-          tracking_number: trackingNumber,
-          shipping_provider_id: shippingProviderId,
-          ...(clientLineItemIds.length ? { order_line_item_ids: clientLineItemIds } : {}),
-        },
+        body: shipExtras,
       },
     ];
 
@@ -304,125 +413,76 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           ok: true,
           mode: "order_shipping_info",
-          packageId: null,
+          packageId: packageId || null,
           trackingNumber,
-          shippingProviderId: shippingProviderId || null,
+          shippingProviderId,
         });
       }
+      lastShipDetail = parseTikTokError(res);
     }
 
-    // Fallback: package search → create → ship package
     if (!packageId) {
-      const searched = await searchPackages();
-      if (searched.errorDetail && /access denied|scope/i.test(searched.errorDetail)) {
-        return NextResponse.json(
-          {
-            error: "Failed to load packages for order",
-            detail: `${searched.errorDetail} Enable Fulfillment Basic and Package Write in Partner Center → Manage API, approve, then Disconnect and Connect TikTok again.`,
-          },
-          { status: 502 }
-        );
-      }
-      packageId = searched.packageId;
-    }
-
-    let lineItemIds = [...clientLineItemIds];
-    if (!packageId) packageId = orderDetail.packageIdFromOrder;
-    if (!lineItemIds.length) lineItemIds = orderDetail.lineItemIds;
-
-    if (!packageId) {
-      const created = await createPackage(lineItemIds);
-      packageId = created.packageId;
-      if (!packageId) {
-        const again = await searchPackages();
-        packageId = again.packageId;
-      }
+      const resolved = await resolvePackageForShip();
+      packageId = resolved.packageId;
       if (!packageId) {
         return NextResponse.json(
           {
             error: "Could not mark this TikTok order as shipped",
             detail:
-              lineItemIds.length === 0
-                ? "TikTok did not return line items for packaging, and order-level shipping update also failed. Confirm the order is AWAITING_SHIPMENT and fulfillment scopes are approved, then reconnect TikTok."
-                : created.detail ||
-                  "Package create failed. Check fulfillment scopes and reconnect TikTok.",
+              lastShipDetail ||
+              resolved.detail ||
+              "Confirm the order is AWAITING_SHIPMENT, uses seller shipping, and fulfilment scopes are approved.",
           },
           { status: 502 }
         );
       }
     }
 
-    const shipBody: Record<string, unknown> = {
-      tracking_number: trackingNumber,
-      shipping_provider_id: shippingProviderId,
-    };
-
-    const shipRes = await tikTokApiRequest({
-      method: "POST",
-      path: `/fulfillment/202309/packages/${encodeURIComponent(packageId)}/shipping_info/update`,
-      accessToken,
-      shopCipher,
-      body: shipBody,
-    });
-
-    if (shipRes.code !== 0) {
-      const altAttempts = [
-        {
-          path: "/fulfillment/202309/packages/ship",
-          body: {
-            package_id: packageId,
-            ...shipExtras,
-          },
+    // Last resort for seller packages: update shipping info (provider_id per TikTok SDK).
+    const updateAttempts = [
+      {
+        path: `/fulfillment/202309/packages/${encodeURIComponent(packageId)}/shipping_info/update`,
+        body: {
+          package_id: packageId,
+          tracking_number: trackingNumber,
+          provider_id: shippingProviderId,
         },
-        {
-          path: `/fulfillment/202309/packages/${encodeURIComponent(packageId)}/ship`,
-          body: shipExtras,
-        },
-        {
-          path: `/fulfillment/202309/packages/${encodeURIComponent(packageId)}/shipping_info/update`,
-          body: {
-            tracking_number: trackingNumber,
-            provider_id: shippingProviderId,
-          },
-        },
-      ] as const;
+      },
+      {
+        path: `/fulfillment/202309/packages/${encodeURIComponent(packageId)}/shipping_info/update`,
+        body: shipExtras,
+      },
+    ] as const;
 
-      let lastAlt = "";
-      let shipped = false;
-      for (const attempt of altAttempts) {
-        const alt = await tikTokApiRequest({
-          method: "POST",
-          path: attempt.path,
-          accessToken,
-          shopCipher,
-          body: attempt.body,
+    let lastUpdateDetail = lastShipDetail;
+    for (const attempt of updateAttempts) {
+      const res = await tikTokApiRequest({
+        method: "POST",
+        path: attempt.path,
+        accessToken,
+        shopCipher,
+        body: attempt.body,
+      });
+      if (res.code === 0) {
+        return NextResponse.json({
+          ok: true,
+          mode: "package_shipping_info",
+          packageId,
+          trackingNumber,
+          shippingProviderId,
         });
-        if (alt.code === 0) {
-          shipped = true;
-          break;
-        }
-        lastAlt = parseTikTokError(alt);
       }
-      if (!shipped) {
-        return NextResponse.json(
-          {
-            error: "Failed to update delivery status",
-            detail: parseTikTokError(shipRes),
-            altDetail: lastAlt || undefined,
-            packageId,
-          },
-          { status: 502 }
-        );
-      }
+      lastUpdateDetail = parseTikTokError(res);
     }
 
-    return NextResponse.json({
-      ok: true,
-      mode: "package_shipping_info",
-      packageId,
-      trackingNumber,
-      shippingProviderId: shippingProviderId || null,
-    });
+    return NextResponse.json(
+      {
+        error: "Failed to update delivery status",
+        detail: lastUpdateDetail || "TikTok rejected all ship attempts for this order.",
+        packageId,
+      },
+      { status: 502 }
+    );
   } catch (err: unknown) {
     if (err instanceof TikTokReconnectRequired) {
       return NextResponse.json({ error: err.message, reconnect: true }, { status: 401 });

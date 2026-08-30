@@ -277,12 +277,6 @@ export async function resolveTikTokShippingProviderId(options: {
   orderLike: Record<string, unknown> | null;
   preferredProviderId?: string;
 }): Promise<{ shippingProviderId: string; providers: TikTokShippingProvider[]; errorDetail?: string }> {
-  const preferred = str(options.preferredProviderId);
-  if (preferred) return { shippingProviderId: preferred, providers: [] };
-
-  const fromOrder = options.orderLike ? extractShippingProviderId(options.orderLike) : "";
-  if (fromOrder) return { shippingProviderId: fromOrder, providers: [] };
-
   const deliveryOptionId = options.orderLike ? extractDeliveryOptionId(options.orderLike) : "";
   const deliveryOptionName = options.orderLike ? extractDeliveryOptionName(options.orderLike) : "";
   const listed = await fetchTikTokShippingProviders({
@@ -292,11 +286,31 @@ export async function resolveTikTokShippingProviderId(options: {
     deliveryOptionName,
     orderLike: options.orderLike,
   });
+
+  const preferred = str(options.preferredProviderId);
+  if (preferred) {
+    const match = listed.providers.find((p) => p.id === preferred);
+    if (match) return { shippingProviderId: match.id, providers: listed.providers };
+    // Keep caller selection when TikTok list could not be loaded.
+    if (!listed.providers.length) {
+      return { shippingProviderId: preferred, providers: listed.providers };
+    }
+  }
+
+  const fromOrder = options.orderLike ? extractShippingProviderId(options.orderLike) : "";
+  if (fromOrder) {
+    const match = listed.providers.find((p) => p.id === fromOrder);
+    if (match) return { shippingProviderId: match.id, providers: listed.providers };
+    if (!listed.providers.length) {
+      return { shippingProviderId: fromOrder, providers: listed.providers };
+    }
+  }
+
   const first = listed.providers[0]?.id ?? "";
   if (first) return { shippingProviderId: first, providers: listed.providers };
 
   return {
-    shippingProviderId: "",
+    shippingProviderId: preferred || fromOrder,
     providers: listed.providers,
     errorDetail: listed.errorDetail,
   };
@@ -309,4 +323,159 @@ export function selfShipmentBody(trackingNumber: string, shippingProviderId: str
       shipping_provider_id: shippingProviderId,
     },
   };
+}
+
+function deliveryOptionToken(value: unknown): string {
+  return str(value).toUpperCase();
+}
+
+/** True when TikTok marks the order/package as merchant self-ship (SEND_BY_SELLER). */
+export function isSellerShippedDeliveryOption(value: unknown): boolean {
+  const token = deliveryOptionToken(value);
+  if (!token) return false;
+  if (
+    token.includes("SEND_BY_SELLER") ||
+    token.includes("SELLER_SHIP") ||
+    token.includes("MERCHANT") ||
+    token === "SELLER"
+  ) {
+    return true;
+  }
+  if (
+    token.includes("TIKTOK") ||
+    token.includes("PLATFORM") ||
+    token.includes("4PL") ||
+    token.includes("FBT")
+  ) {
+    return false;
+  }
+  // Common numeric enum in package detail payloads.
+  if (token === "2") return true;
+  return false;
+}
+
+/** True when fulfilment is handled by TikTok/platform logistics (not seller tracking upload). */
+export function isPlatformLogisticsDeliveryOption(value: unknown): boolean {
+  const token = deliveryOptionToken(value);
+  if (!token) return false;
+  if (
+    token.includes("TIKTOK") ||
+    token.includes("PLATFORM") ||
+    token.includes("4PL") ||
+    token.includes("FBT")
+  ) {
+    return true;
+  }
+  if (isSellerShippedDeliveryOption(value)) return false;
+  if (token === "1") return true;
+  return false;
+}
+
+export function extractOrderDeliveryOption(orderLike: unknown): {
+  id: string;
+  name: string;
+  raw: unknown;
+} {
+  const order = asRecord(orderLike);
+  if (!order) return { id: "", name: "", raw: null };
+  return {
+    id: extractDeliveryOptionId(order),
+    name: extractDeliveryOptionName(order),
+    raw: order.delivery_option ?? order.delivery_option_id ?? null,
+  };
+}
+
+export function extractPackageDeliveryOption(packageLike: unknown): unknown {
+  const pkg = asRecord(packageLike);
+  if (!pkg) return null;
+  return pkg.delivery_option ?? pkg.delivery_option_id ?? pkg.delivery_option_name ?? null;
+}
+
+/** Load package detail (delivery_option, status) before seller ship attempts. */
+export async function loadTikTokPackageDetail(options: {
+  accessToken: string;
+  shopCipher: string | null;
+  packageId: string;
+}): Promise<{ pkg: Record<string, unknown> | null; errorDetail?: string }> {
+  const attempts: Array<{ method: "GET" | "POST"; path: string; body?: Record<string, unknown> }> = [
+    {
+      method: "GET",
+      path: `/fulfillment/202309/packages/${encodeURIComponent(options.packageId)}`,
+    },
+    {
+      method: "POST",
+      path: "/fulfillment/202309/packages/detail",
+      body: { package_id: options.packageId },
+    },
+    {
+      method: "POST",
+      path: "/fulfillment/202309/packages/detail",
+      body: { package_id_list: [options.packageId] },
+    },
+  ];
+
+  let lastDetail = "";
+  for (const attempt of attempts) {
+    const res = await tikTokApiRequest<Record<string, unknown>>({
+      method: attempt.method,
+      path: attempt.path,
+      accessToken: options.accessToken,
+      shopCipher: options.shopCipher,
+      body: attempt.body ?? null,
+    });
+    if (res.code !== 0) {
+      lastDetail = parseTikTokError(res);
+      continue;
+    }
+    const data = res.data ?? {};
+    const candidates = [
+      data,
+      asRecord(data.package),
+      Array.isArray(data.packages) ? asRecord(data.packages[0]) : null,
+      Array.isArray(data.package_list) ? asRecord(data.package_list[0]) : null,
+    ];
+    for (const candidate of candidates) {
+      if (candidate) return { pkg: candidate };
+    }
+    lastDetail = "Package detail returned no package payload.";
+  }
+
+  return { pkg: null, errorDetail: lastDetail || undefined };
+}
+
+export async function shipTikTokSellerPackage(options: {
+  accessToken: string;
+  shopCipher: string | null;
+  packageId: string;
+  trackingNumber: string;
+  shippingProviderId: string;
+}): Promise<{ ok: true; mode: string } | { ok: false; detail: string }> {
+  const shipExtras = selfShipmentBody(options.trackingNumber, options.shippingProviderId);
+  const attempts: Array<{ path: string; body: Record<string, unknown>; mode: string }> = [
+    {
+      path: "/fulfillment/202309/packages/ship",
+      body: { package_id: options.packageId, ...shipExtras },
+      mode: "packages_ship",
+    },
+    {
+      path: `/fulfillment/202309/packages/${encodeURIComponent(options.packageId)}/ship`,
+      body: { package_id: options.packageId, ...shipExtras },
+      mode: "package_ship_by_id",
+    },
+  ];
+
+  let lastDetail = "";
+  for (const attempt of attempts) {
+    const res = await tikTokApiRequest({
+      method: "POST",
+      path: attempt.path,
+      accessToken: options.accessToken,
+      shopCipher: options.shopCipher,
+      body: attempt.body,
+    });
+    if (res.code === 0) return { ok: true, mode: attempt.mode };
+    lastDetail = parseTikTokError(res);
+  }
+
+  return { ok: false, detail: lastDetail || "Ship package failed." };
 }
