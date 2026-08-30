@@ -49,39 +49,6 @@ function normalizeProviderList(payload: unknown): TikTokShippingProvider[] {
   return out;
 }
 
-function providersFromDeliveryOptionList(
-  payload: unknown,
-  deliveryOptionId?: string,
-  deliveryOptionName?: string
-): TikTokShippingProvider[] {
-  const root = asRecord(payload) ?? {};
-  const list = root.delivery_option_list;
-  if (!Array.isArray(list)) return [];
-
-  const wantedId = str(deliveryOptionId);
-  const wantedName = str(deliveryOptionName).toLowerCase();
-  const out: TikTokShippingProvider[] = [];
-
-  for (const raw of list) {
-    const option = asRecord(raw);
-    if (!option) continue;
-    const optionId = str(option.delivery_option_id);
-    const optionName = str(option.delivery_option_name).toLowerCase();
-    if (wantedId && optionId && optionId !== wantedId) continue;
-    if (!wantedId && wantedName && optionName && optionName !== wantedName) continue;
-
-    for (const provider of normalizeProviderList(option.shipping_provider_list)) {
-      if (!out.some((p) => p.id === provider.id)) out.push(provider);
-    }
-  }
-
-  // If filters were too strict, fall back to every carrier TikTok returned.
-  if (!out.length && (wantedId || wantedName)) {
-    return providersFromDeliveryOptionList(payload);
-  }
-  return out;
-}
-
 export function extractDeliveryOptionId(orderLike: unknown): string {
   const order = asRecord(orderLike);
   if (!order) return "";
@@ -109,6 +76,84 @@ export function extractDeliveryOptionName(orderLike: unknown): string {
   const order = asRecord(orderLike);
   if (!order) return "";
   return str(order.delivery_option_name ?? order.delivery_option_description ?? order.delivery_option);
+}
+
+type DeliveryOptionCandidate = { id: string; name: string };
+
+async function listDeliveryOptionCandidates(options: {
+  accessToken: string;
+  shopCipher: string | null;
+  warehouseId?: string;
+}): Promise<DeliveryOptionCandidate[]> {
+  const out: DeliveryOptionCandidate[] = [];
+  const warehouseIds: string[] = [];
+
+  if (options.warehouseId) {
+    warehouseIds.push(options.warehouseId);
+  } else {
+    const whRes = await tikTokApiRequest<{ warehouses?: Array<Record<string, unknown>> }>({
+      method: "GET",
+      path: "/logistics/202309/warehouses",
+      accessToken: options.accessToken,
+      shopCipher: options.shopCipher,
+    });
+    if (whRes.code === 0) {
+      for (const wh of whRes.data?.warehouses ?? []) {
+        const row = asRecord(wh);
+        const id = str(row?.id ?? row?.warehouse_id);
+        if (id) warehouseIds.push(id);
+      }
+    }
+  }
+
+  for (const warehouseId of warehouseIds) {
+    const optRes = await tikTokApiRequest<Record<string, unknown>>({
+      method: "GET",
+      path: `/logistics/202309/warehouses/${encodeURIComponent(warehouseId)}/delivery_options`,
+      accessToken: options.accessToken,
+      shopCipher: options.shopCipher,
+    });
+    if (optRes.code !== 0) continue;
+
+    const opts = [
+      ...(Array.isArray(optRes.data?.delivery_options) ? optRes.data.delivery_options : []),
+      ...(Array.isArray(optRes.data?.delivery_option_list) ? optRes.data.delivery_option_list : []),
+    ];
+    for (const raw of opts) {
+      const row = asRecord(raw);
+      if (!row) continue;
+      const id = str(row.delivery_option_id ?? row.id);
+      if (!id || out.some((candidate) => candidate.id === id)) continue;
+      out.push({
+        id,
+        name: str(row.delivery_option_name ?? row.name),
+      });
+    }
+  }
+
+  return out;
+}
+
+function pickDeliveryOptionId(
+  candidates: DeliveryOptionCandidate[],
+  preferredId?: string,
+  preferredName?: string
+): string {
+  const wantedId = str(preferredId);
+  if (wantedId) return wantedId;
+
+  const wantedName = str(preferredName).toLowerCase();
+  if (wantedName) {
+    const exact = candidates.find((c) => c.name.toLowerCase() === wantedName);
+    if (exact) return exact.id;
+    const partial = candidates.find(
+      (c) =>
+        c.name.toLowerCase().includes(wantedName) || wantedName.includes(c.name.toLowerCase())
+    );
+    if (partial) return partial.id;
+  }
+
+  return candidates[0]?.id ?? "";
 }
 
 export function extractShippingProviderId(orderLike: unknown): string {
@@ -159,68 +204,71 @@ export async function loadTikTokOrderDetail(options: {
   return { order: null, errorDetail: lastDetail || undefined };
 }
 
-/** TikTok requires delivery_option_id when listing eligible carriers. */
+/** TikTok lists carriers at GET /logistics/202309/delivery_options/{id}/shipping_providers */
 export async function fetchTikTokShippingProviders(options: {
   accessToken: string;
   shopCipher: string | null;
   deliveryOptionId?: string;
   deliveryOptionName?: string;
-}): Promise<{ providers: TikTokShippingProvider[]; errorDetail?: string }> {
-  const deliveryOptionId = str(options.deliveryOptionId);
-  const deliveryOptionName = str(options.deliveryOptionName);
+  orderLike?: Record<string, unknown> | null;
+}): Promise<{
+  providers: TikTokShippingProvider[];
+  deliveryOptionId?: string;
+  errorDetail?: string;
+}> {
+  const warehouseId = options.orderLike ? str(asRecord(options.orderLike)?.warehouse_id) : "";
+  const candidates = await listDeliveryOptionCandidates({
+    accessToken: options.accessToken,
+    shopCipher: options.shopCipher,
+    warehouseId: warehouseId || undefined,
+  });
 
-  const attempts: Array<{ path: string; query?: Record<string, string> }> = [];
-  if (deliveryOptionId) {
-    attempts.push(
-      {
-        path: "/logistics/202309/shipping_providers",
-        query: { delivery_option_id: deliveryOptionId },
-      },
-      {
-        path: "/fulfillment/202309/shipping_providers",
-        query: { delivery_option_id: deliveryOptionId },
-      }
-    );
-  }
-  attempts.push(
-    { path: "/logistics/202309/shipping_providers" },
-    { path: "/fulfillment/202309/shipping_providers" }
+  const resolvedId = pickDeliveryOptionId(
+    candidates,
+    str(options.deliveryOptionId) ||
+      (options.orderLike ? extractDeliveryOptionId(options.orderLike) : ""),
+    str(options.deliveryOptionName) ||
+      (options.orderLike ? extractDeliveryOptionName(options.orderLike) : "")
   );
 
+  const idsToTry = [
+    resolvedId,
+    ...candidates.map((candidate) => candidate.id).filter((id) => id && id !== resolvedId),
+  ].filter(Boolean);
+
+  if (!idsToTry.length) {
+    return {
+      providers: [],
+      errorDetail: "Could not resolve delivery_option_id for this TikTok shop.",
+    };
+  }
+
   let lastDetail = "";
-  for (const attempt of attempts) {
+  for (const deliveryOptionId of idsToTry) {
     const res = await tikTokApiRequest<Record<string, unknown>>({
       method: "GET",
-      path: attempt.path,
+      path: `/logistics/202309/delivery_options/${encodeURIComponent(deliveryOptionId)}/shipping_providers`,
       accessToken: options.accessToken,
       shopCipher: options.shopCipher,
-      query: attempt.query,
     });
     if (res.code !== 0) {
       lastDetail = parseTikTokError(res);
       continue;
     }
 
-    const fromDeliveryOptions = providersFromDeliveryOptionList(
-      res.data,
-      deliveryOptionId,
-      deliveryOptionName
-    );
-    if (fromDeliveryOptions.length) return { providers: fromDeliveryOptions };
-
     const providers = normalizeProviderList(res.data);
-    if (providers.length) return { providers };
-
-    const deliveryOptions = asRecord(res.data)?.delivery_options;
-    if (Array.isArray(deliveryOptions)) {
-      for (const option of deliveryOptions) {
-        const fromOption = normalizeProviderList(asRecord(option)?.shipping_provider_list);
-        if (fromOption.length) return { providers: fromOption };
-      }
+    if (providers.length) {
+      return { providers, deliveryOptionId };
     }
+
+    lastDetail = "Shipping providers endpoint returned an empty list.";
   }
 
-  return { providers: [], errorDetail: lastDetail || "No shipping providers returned." };
+  return {
+    providers: [],
+    deliveryOptionId: resolvedId || undefined,
+    errorDetail: lastDetail || "No shipping providers returned.",
+  };
 }
 
 export async function resolveTikTokShippingProviderId(options: {
@@ -242,6 +290,7 @@ export async function resolveTikTokShippingProviderId(options: {
     shopCipher: options.shopCipher,
     deliveryOptionId,
     deliveryOptionName,
+    orderLike: options.orderLike,
   });
   const first = listed.providers[0]?.id ?? "";
   if (first) return { shippingProviderId: first, providers: listed.providers };

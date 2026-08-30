@@ -74,11 +74,13 @@ export async function GET(request: NextRequest) {
     const accessToken = await getValidTikTokAccessToken(ref, data);
     const shopCipher = (data.shopCipher as string) || null;
 
+    let orderLike: Record<string, unknown> | null = null;
     if (orderId) {
       const loaded = await loadTikTokOrderDetail({ accessToken, shopCipher, orderId });
-      if (loaded.order) {
-        if (!deliveryOptionId) deliveryOptionId = extractDeliveryOptionId(loaded.order);
-        if (!deliveryOptionName) deliveryOptionName = extractDeliveryOptionName(loaded.order);
+      orderLike = loaded.order;
+      if (orderLike) {
+        if (!deliveryOptionId) deliveryOptionId = extractDeliveryOptionId(orderLike);
+        if (!deliveryOptionName) deliveryOptionName = extractDeliveryOptionName(orderLike);
       }
     }
 
@@ -87,11 +89,12 @@ export async function GET(request: NextRequest) {
       shopCipher,
       deliveryOptionId,
       deliveryOptionName,
+      orderLike,
     });
 
     return NextResponse.json({
       providers: listed.providers,
-      deliveryOptionId: deliveryOptionId || null,
+      deliveryOptionId: listed.deliveryOptionId || deliveryOptionId || null,
       ...(listed.errorDetail && listed.providers.length === 0
         ? { detail: listed.errorDetail }
         : {}),
