@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
@@ -10,6 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +36,8 @@ type TikTokConnectionSummary = {
   shopName?: string;
   shopId?: string;
 };
+
+type TikTokShippingProviderOption = { id: string; name: string };
 
 function TikTokOrdersAdminContent() {
   const { user } = useAuth();
@@ -50,6 +59,14 @@ function TikTokOrdersAdminContent() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [fulfillingId, setFulfillingId] = useState<string | null>(null);
   const [trackingByOrder, setTrackingByOrder] = useState<Record<string, string>>({});
+  const [providerByOrder, setProviderByOrder] = useState<Record<string, string>>({});
+  const [providersByOrder, setProvidersByOrder] = useState<
+    Record<string, TikTokShippingProviderOption[]>
+  >({});
+  const [providersLoadingByOrder, setProvidersLoadingByOrder] = useState<Record<string, boolean>>(
+    {}
+  );
+  const loadedProviderOrdersRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!userIdParam || !selectableUsers.length) return;
@@ -104,14 +121,88 @@ function TikTokOrdersAdminContent() {
     void fetchOrders();
   }, [fetchOrders]);
 
+  useEffect(() => {
+    loadedProviderOrdersRef.current = new Set();
+    setProvidersByOrder({});
+    setProviderByOrder({});
+    setProvidersLoadingByOrder({});
+  }, [selectedUser?.uid]);
+
+  useEffect(() => {
+    if (!user || !selectedUser?.uid || orders.length === 0) return;
+
+    const awaiting = orders.filter(
+      (o) => String(o.status ?? "").toUpperCase() === "AWAITING_SHIPMENT" && o.connectionId
+    );
+    if (!awaiting.length) return;
+
+    let cancelled = false;
+    (async () => {
+      const token = await user.getIdToken();
+      for (const order of awaiting) {
+        const cacheKey = order.id;
+        if (loadedProviderOrdersRef.current.has(cacheKey)) continue;
+        loadedProviderOrdersRef.current.add(cacheKey);
+        setProvidersLoadingByOrder((prev) => ({ ...prev, [cacheKey]: true }));
+        try {
+          const qs = new URLSearchParams({
+            userId: selectedUser.uid,
+            connectionId: order.connectionId,
+            orderId: order.id,
+          });
+          if (order.deliveryOptionId) qs.set("deliveryOptionId", order.deliveryOptionId);
+          const res = await fetch(`/api/tiktok/shipping-providers?${qs.toString()}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const data = await res.json().catch(() => ({}));
+          if (cancelled) return;
+          const providers = Array.isArray(data.providers)
+            ? (data.providers as TikTokShippingProviderOption[])
+            : [];
+          setProvidersByOrder((prev) => ({ ...prev, [cacheKey]: providers }));
+          if (providers.length) {
+            setProviderByOrder((prev) => {
+              if (prev[cacheKey]) return prev;
+              const preferred =
+                order.shippingProviderId &&
+                providers.some((p) => p.id === order.shippingProviderId)
+                  ? order.shippingProviderId
+                  : providers[0]?.id;
+              return preferred ? { ...prev, [cacheKey]: preferred } : prev;
+            });
+          }
+        } catch {
+          if (!cancelled) setProvidersByOrder((prev) => ({ ...prev, [cacheKey]: [] }));
+        } finally {
+          if (!cancelled) {
+            setProvidersLoadingByOrder((prev) => ({ ...prev, [cacheKey]: false }));
+          }
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, selectedUser?.uid, orders]);
+
   const handleFulfill = async (order: TikTokNormalizedOrder) => {
     if (!user || !selectedUser?.uid || !order.connectionId) return;
     const trackingNumber = (trackingByOrder[order.id] || "").trim();
+    const shippingProviderId = (providerByOrder[order.id] || order.shippingProviderId || "").trim();
     if (!trackingNumber) {
       toast({
         variant: "destructive",
         title: "Tracking required",
         description: "Enter a tracking number before marking shipped.",
+      });
+      return;
+    }
+    if (!shippingProviderId) {
+      toast({
+        variant: "destructive",
+        title: "Carrier required",
+        description: "Select a shipping carrier before marking shipped.",
       });
       return;
     }
@@ -126,6 +217,7 @@ function TikTokOrdersAdminContent() {
           connectionId: order.connectionId,
           orderId: order.id,
           trackingNumber,
+          shippingProviderId,
           orderLineItemIds: order.lineItems.map((li) => li.id).filter(Boolean),
         }),
       });
@@ -248,6 +340,36 @@ function TikTokOrdersAdminContent() {
                   <TikTokOrderDetailBody order={o} compact />
 
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end border-t pt-3">
+                    <div className="flex-1 space-y-1">
+                      <Label htmlFor={`carrier-${o.id}`} className="text-xs">
+                        Shipping carrier
+                      </Label>
+                      {providersLoadingByOrder[o.id] ? (
+                        <p className="text-xs text-muted-foreground py-2">Loading carriers…</p>
+                      ) : (providersByOrder[o.id]?.length ?? 0) > 0 ? (
+                        <Select
+                          value={providerByOrder[o.id] ?? o.shippingProviderId ?? ""}
+                          onValueChange={(value) =>
+                            setProviderByOrder((prev) => ({ ...prev, [o.id]: value }))
+                          }
+                        >
+                          <SelectTrigger id={`carrier-${o.id}`}>
+                            <SelectValue placeholder="Select carrier" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(providersByOrder[o.id] ?? []).map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="text-xs text-amber-700 py-2">
+                          No carriers returned. Refresh orders or reconnect TikTok, then try again.
+                        </p>
+                      )}
+                    </div>
                     <div className="flex-1 space-y-1">
                       <Label htmlFor={`track-${o.id}`} className="text-xs">
                         Tracking number

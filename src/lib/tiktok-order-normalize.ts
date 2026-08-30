@@ -45,6 +45,8 @@ export type TikTokNormalizedOrder = {
   lineItems: TikTokOrderLineItem[];
   trackingNumbers: string[];
   shippingProvider: string | null;
+  shippingProviderId: string | null;
+  deliveryOptionId: string | null;
   deliveryOptionName: string | null;
 };
 
@@ -235,6 +237,8 @@ export function normalizeTikTokOrder(
       str(raw.shipping_provider) ||
       str(raw.shipping_provider_name) ||
       str(asRecord(raw.shipping_provider)?.name),
+    shippingProviderId: str(raw.shipping_provider_id) || null,
+    deliveryOptionId: str(raw.delivery_option_id) || null,
     deliveryOptionName: str(raw.delivery_option_name) || str(raw.delivery_option),
   };
 }
