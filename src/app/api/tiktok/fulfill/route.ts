@@ -3,13 +3,17 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { parseTikTokError, tikTokApiRequest } from "@/lib/tiktok-api";
 import {
   extractOrderDeliveryOption,
+  extractOrderFulfillmentSignals,
   extractPackageDeliveryOption,
   isPlatformLogisticsDeliveryOption,
   isSellerShippedDeliveryOption,
+  isTikTokNotSellerShippedError,
+  isTikTokPlatformShippingOrder,
   loadTikTokOrderDetail,
   loadTikTokPackageDetail,
   resolveTikTokShippingProviderId,
   shipTikTokSellerPackage,
+  TIKTOK_PLATFORM_SHIPPING_DETAIL,
 } from "@/lib/tiktok-fulfillment";
 import {
   getValidTikTokAccessToken,
@@ -277,18 +281,15 @@ export async function POST(request: NextRequest) {
     }
 
     const orderDelivery = extractOrderDeliveryOption(orderDetail.order);
-    if (
-      orderDetail.order &&
-      isPlatformLogisticsDeliveryOption(orderDelivery.raw) &&
-      !isSellerShippedDeliveryOption(orderDelivery.raw) &&
-      !isSellerShippedDeliveryOption(orderDelivery.name)
-    ) {
+    if (orderDetail.order && isTikTokPlatformShippingOrder(orderDetail.order)) {
+      const signals = extractOrderFulfillmentSignals(orderDetail.order);
       return NextResponse.json(
         {
           error: "This order uses TikTok/platform shipping",
-          detail:
-            "Seller tracking upload is only supported for merchant self-ship (SEND_BY_SELLER) orders. Create labels through TikTok Seller Center or use a seller-shipped sandbox order for fulfilment testing.",
+          detail: TIKTOK_PLATFORM_SHIPPING_DETAIL,
           deliveryOption: orderDelivery.name || orderDelivery.id || null,
+          shippingType: signals.shippingType || null,
+          fulfillmentType: signals.fulfillmentType || null,
         },
         { status: 400 }
       );
@@ -389,6 +390,17 @@ export async function POST(request: NextRequest) {
 
       lastShipDetail = shipped.detail;
       packageId = packageForShip.packageId;
+
+      if (isTikTokNotSellerShippedError(shipped.detail)) {
+        return NextResponse.json(
+          {
+            error: "This order uses TikTok/platform shipping",
+            detail: TIKTOK_PLATFORM_SHIPPING_DETAIL,
+            packageId,
+          },
+          { status: 400 }
+        );
+      }
     } else {
       packageId = "";
     }
@@ -419,6 +431,27 @@ export async function POST(request: NextRequest) {
         });
       }
       lastShipDetail = parseTikTokError(res);
+      if (isTikTokNotSellerShippedError(lastShipDetail)) {
+        return NextResponse.json(
+          {
+            error: "This order uses TikTok/platform shipping",
+            detail: TIKTOK_PLATFORM_SHIPPING_DETAIL,
+            packageId: packageId || null,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (isTikTokNotSellerShippedError(lastShipDetail)) {
+      return NextResponse.json(
+        {
+          error: "This order uses TikTok/platform shipping",
+          detail: TIKTOK_PLATFORM_SHIPPING_DETAIL,
+          packageId: packageId || null,
+        },
+        { status: 400 }
+      );
     }
 
     if (!packageId) {
@@ -473,6 +506,27 @@ export async function POST(request: NextRequest) {
         });
       }
       lastUpdateDetail = parseTikTokError(res);
+      if (isTikTokNotSellerShippedError(lastUpdateDetail)) {
+        return NextResponse.json(
+          {
+            error: "This order uses TikTok/platform shipping",
+            detail: TIKTOK_PLATFORM_SHIPPING_DETAIL,
+            packageId,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (isTikTokNotSellerShippedError(lastUpdateDetail)) {
+      return NextResponse.json(
+        {
+          error: "This order uses TikTok/platform shipping",
+          detail: TIKTOK_PLATFORM_SHIPPING_DETAIL,
+          packageId,
+        },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json(

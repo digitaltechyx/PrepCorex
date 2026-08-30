@@ -78,7 +78,7 @@ export function extractDeliveryOptionName(orderLike: unknown): string {
   return str(order.delivery_option_name ?? order.delivery_option_description ?? order.delivery_option);
 }
 
-type DeliveryOptionCandidate = { id: string; name: string };
+type DeliveryOptionCandidate = { id: string; name: string; type: string };
 
 async function listDeliveryOptionCandidates(options: {
   accessToken: string;
@@ -127,6 +127,7 @@ async function listDeliveryOptionCandidates(options: {
       out.push({
         id,
         name: str(row.delivery_option_name ?? row.name),
+        type: str(row.type ?? row.delivery_option_type),
       });
     }
   }
@@ -215,7 +216,18 @@ export async function fetchTikTokShippingProviders(options: {
   providers: TikTokShippingProvider[];
   deliveryOptionId?: string;
   errorDetail?: string;
+  platformShipping?: boolean;
 }> {
+  if (options.orderLike && isTikTokPlatformShippingOrder(options.orderLike)) {
+    return {
+      providers: [],
+      deliveryOptionId: extractDeliveryOptionId(options.orderLike),
+      platformShipping: true,
+      errorDetail:
+        "This order uses Standard/TikTok platform shipping. TikTok assigns the carrier — PrepCorex cannot list seller carriers for it. Enable Ship by seller in TikTok Seller Center, then place a SEND_BY_SELLER test order.",
+    };
+  }
+
   const warehouseId = options.orderLike ? str(asRecord(options.orderLike)?.warehouse_id) : "";
   const candidates = await listDeliveryOptionCandidates({
     accessToken: options.accessToken,
@@ -231,8 +243,17 @@ export async function fetchTikTokShippingProviders(options: {
       (options.orderLike ? extractDeliveryOptionName(options.orderLike) : "")
   );
 
+  const sellerOptionIds = candidates
+    .filter(
+      (candidate) =>
+        candidate.type.toUpperCase() === "SEND_BY_SELLER" ||
+        candidate.name.toUpperCase().includes("SELLER")
+    )
+    .map((candidate) => candidate.id);
+
   const idsToTry = [
     resolvedId,
+    ...sellerOptionIds.filter((id) => id && id !== resolvedId),
     ...candidates.map((candidate) => candidate.id).filter((id) => id && id !== resolvedId),
   ].filter(Boolean);
 
@@ -267,7 +288,10 @@ export async function fetchTikTokShippingProviders(options: {
   return {
     providers: [],
     deliveryOptionId: resolvedId || undefined,
-    errorDetail: lastDetail || "No shipping providers returned.",
+    errorDetail:
+      sellerOptionIds.length === 0
+        ? "No Ship by seller delivery option found for this TikTok shop. In Seller Center → Shipping settings, add a seller-shipped template, then create a test order with that option."
+        : lastDetail || "No shipping providers returned for this order's delivery option.",
   };
 }
 
@@ -327,6 +351,102 @@ export function selfShipmentBody(trackingNumber: string, shippingProviderId: str
 
 function deliveryOptionToken(value: unknown): string {
   return str(value).toUpperCase();
+}
+
+function isPlatformDeliveryOptionLabel(name: string): boolean {
+  const token = name.toUpperCase().trim();
+  if (!token) return false;
+  if (token.includes("SEND_BY_SELLER") || token.includes("SELLER SHIP") || token.includes("SHIP BY SELLER")) {
+    return false;
+  }
+  if (/^(STANDARD|ECONOMY|EXPRESS)(\s+SHIPPING)?$/.test(token)) return true;
+  if (
+    token.includes("STANDARD SHIPPING") ||
+    token.includes("ECONOMY SHIPPING") ||
+    token.includes("EXPRESS SHIPPING")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function isTikTokNotSellerShippedError(message: string): boolean {
+  return /not shipped by sellers|shipped by sellers/i.test(message);
+}
+
+export const TIKTOK_PLATFORM_SHIPPING_DETAIL =
+  "This order uses TikTok/platform shipping. PrepCorex can only upload tracking for merchant self-ship (SELLER / SEND_BY_SELLER) orders. Ship via TikTok Seller Center, or create a seller-shipped sandbox order for fulfilment testing.";
+
+export function extractOrderFulfillmentSignals(orderLike: unknown): {
+  shippingType: string;
+  fulfillmentType: string;
+  deliveryOptionType: string;
+} {
+  const order = asRecord(orderLike);
+  if (!order) return { shippingType: "", fulfillmentType: "", deliveryOptionType: "" };
+  return {
+    shippingType: str(order.shipping_type ?? order.shippingType),
+    fulfillmentType: str(order.fulfillment_type ?? order.fulfillmentType),
+    deliveryOptionType: str(order.delivery_option_type ?? order.deliveryOptionType),
+  };
+}
+
+/** True when TikTok handles labels/logistics — seller tracking upload is not allowed. */
+export function isTikTokPlatformShippingOrder(orderLike: unknown): boolean {
+  const order = asRecord(orderLike);
+  if (!order) return false;
+
+  const { shippingType, fulfillmentType, deliveryOptionType } =
+    extractOrderFulfillmentSignals(order);
+  const shippingToken = shippingType.toUpperCase();
+  const fulfillmentToken = fulfillmentType.toUpperCase();
+  const deliveryTypeToken = deliveryOptionType.toUpperCase();
+  const deliveryName = extractDeliveryOptionName(order).toUpperCase();
+
+  if (shippingToken === "TIKTOK") return true;
+  if (fulfillmentToken.includes("FULFILLMENT_BY_TIKTOK") || fulfillmentToken === "FBT") {
+    return true;
+  }
+  if (deliveryTypeToken === "SEND_BY_SELLER") return false;
+  if (shippingToken === "SELLER") return false;
+  if (fulfillmentToken.includes("FULFILLMENT_BY_SELLER")) return false;
+  if (isPlatformDeliveryOptionLabel(deliveryName)) return true;
+  if (deliveryName.includes("SEND_BY_SELLER") || deliveryName.includes("SELLER SHIP")) {
+    return false;
+  }
+  if (
+    deliveryTypeToken &&
+    ["STANDARD", "EXPRESS", "ECONOMY"].includes(deliveryTypeToken) &&
+    deliveryTypeToken !== "SEND_BY_SELLER"
+  ) {
+    return true;
+  }
+
+  const delivery = extractOrderDeliveryOption(order);
+  if (
+    isPlatformLogisticsDeliveryOption(delivery.raw) &&
+    !isSellerShippedDeliveryOption(delivery.raw) &&
+    !isSellerShippedDeliveryOption(delivery.name)
+  ) {
+    return true;
+  }
+
+  for (const bucket of [order.line_items, order.item_list, order.order_line_items]) {
+    if (!Array.isArray(bucket)) continue;
+    for (const raw of bucket) {
+      const line = asRecord(raw);
+      if (!line) continue;
+      const lineShipping = str(line.shipping_type).toUpperCase();
+      if (lineShipping === "TIKTOK") return true;
+      if (lineShipping === "SELLER") return false;
+      const lineType = str(line.delivery_option_type).toUpperCase();
+      if (lineType === "SEND_BY_SELLER") return false;
+      const lineName = str(line.delivery_option_name).toUpperCase();
+      if (isPlatformDeliveryOptionLabel(lineName)) return true;
+    }
+  }
+
+  return false;
 }
 
 /** True when TikTok marks the order/package as merchant self-ship (SEND_BY_SELLER). */

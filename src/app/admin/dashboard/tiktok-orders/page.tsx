@@ -39,6 +39,28 @@ type TikTokConnectionSummary = {
 
 type TikTokShippingProviderOption = { id: string; name: string };
 
+function orderStatusToken(status: string | null | undefined): string {
+  return String(status ?? "").toUpperCase();
+}
+
+function canMarkTikTokOrderShipped(order: TikTokNormalizedOrder): boolean {
+  return order.sellerShippable && orderStatusToken(order.status) === "AWAITING_SHIPMENT";
+}
+
+function fulfillBlockedMessage(order: TikTokNormalizedOrder): string | null {
+  const status = orderStatusToken(order.status);
+  if (status === "ON_HOLD") {
+    return "This order is ON_HOLD in TikTok. Release it in TikTok Seller Center before shipping.";
+  }
+  if (!order.sellerShippable) {
+    return "Standard/TikTok platform shipping — TikTok assigns the carrier and label. PrepCorex Mark shipped only works for Ship by seller (SEND_BY_SELLER) orders.";
+  }
+  if (status !== "AWAITING_SHIPMENT") {
+    return `Order status is ${status}. Only AWAITING_SHIPMENT orders can be marked shipped here.`;
+  }
+  return null;
+}
+
 function TikTokOrdersAdminContent() {
   const { user } = useAuth();
   const router = useRouter();
@@ -136,7 +158,7 @@ function TikTokOrdersAdminContent() {
     if (!user || !selectedUser?.uid || orders.length === 0) return;
 
     const awaiting = orders.filter(
-      (o) => String(o.status ?? "").toUpperCase() === "AWAITING_SHIPMENT" && o.connectionId
+      (o) => canMarkTikTokOrderShipped(o) && o.connectionId
     );
     if (!awaiting.length) return;
 
@@ -173,7 +195,12 @@ function TikTokOrdersAdminContent() {
           setProvidersByOrder((prev) => ({ ...prev, [cacheKey]: providers }));
           setProviderLoadErrorByOrder((prev) => ({
             ...prev,
-            [cacheKey]: providers.length ? "" : detail || "No carriers returned from TikTok.",
+            [cacheKey]: providers.length
+              ? ""
+              : detail ||
+                (data.platformShipping
+                  ? "Platform shipping order — no seller carriers available."
+                  : "No carriers returned from TikTok."),
           }));
           if (providers.length) {
             setProviderByOrder((prev) => {
@@ -203,6 +230,14 @@ function TikTokOrdersAdminContent() {
 
   const handleFulfill = async (order: TikTokNormalizedOrder) => {
     if (!user || !selectedUser?.uid || !order.connectionId) return;
+    if (!canMarkTikTokOrderShipped(order)) {
+      toast({
+        variant: "destructive",
+        title: "Cannot mark shipped",
+        description: fulfillBlockedMessage(order) || "This order cannot be marked shipped in PrepCorex.",
+      });
+      return;
+    }
     const trackingNumber = (trackingByOrder[order.id] || "").trim();
     const shippingProviderId = (providerByOrder[order.id] || order.shippingProviderId || "").trim();
     if (!trackingNumber) {
@@ -353,12 +388,29 @@ function TikTokOrdersAdminContent() {
                   </div>
 
                   <TikTokOrderDetailBody order={o} compact />
-                  {o.deliveryOptionName ? (
+                  {(o.deliveryOptionName || o.shippingType || o.fulfillmentType) && (
                     <p className="text-xs text-muted-foreground">
-                      Delivery: {o.deliveryOptionName}
+                      {[
+                        o.deliveryOptionName ? `Delivery: ${o.deliveryOptionName}` : null,
+                        o.shippingType ? `Shipping: ${o.shippingType}` : null,
+                        o.fulfillmentType ? `Fulfillment: ${o.fulfillmentType}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                  {!o.sellerShippable ? (
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                      {fulfillBlockedMessage(o) ||
+                        "TikTok/platform shipping — labels and tracking are managed in TikTok Seller Center."}
+                    </p>
+                  ) : orderStatusToken(o.status) === "ON_HOLD" ? (
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                      {fulfillBlockedMessage(o)}
                     </p>
                   ) : null}
 
+                  {canMarkTikTokOrderShipped(o) ? (
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end border-t pt-3">
                     <div className="flex-1 space-y-1">
                       <Label htmlFor={`carrier-${o.id}`} className="text-xs">
@@ -387,7 +439,7 @@ function TikTokOrdersAdminContent() {
                       ) : (
                         <p className="text-xs text-amber-700 py-2">
                           {providerLoadErrorByOrder[o.id] ||
-                            "No carriers returned. Refresh orders or reconnect TikTok, then try again."}
+                            "No carriers returned. Confirm this is a Ship by seller order."}
                         </p>
                       )}
                     </div>
@@ -418,6 +470,11 @@ function TikTokOrdersAdminContent() {
                       Mark shipped
                     </Button>
                   </div>
+                  ) : fulfillBlockedMessage(o) ? (
+                    <p className="text-xs text-muted-foreground border-t pt-3">
+                      Mark shipped is not available for this order.
+                    </p>
+                  ) : null}
                 </li>
               ))}
             </ul>

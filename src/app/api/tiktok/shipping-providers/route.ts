@@ -95,6 +95,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       providers: listed.providers,
       deliveryOptionId: listed.deliveryOptionId || deliveryOptionId || null,
+      platformShipping: listed.platformShipping ?? false,
       ...(listed.errorDetail && listed.providers.length === 0
         ? { detail: listed.errorDetail }
         : {}),

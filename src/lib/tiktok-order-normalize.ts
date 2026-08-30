@@ -48,6 +48,11 @@ export type TikTokNormalizedOrder = {
   shippingProviderId: string | null;
   deliveryOptionId: string | null;
   deliveryOptionName: string | null;
+  shippingType: string | null;
+  fulfillmentType: string | null;
+  deliveryOptionType: string | null;
+  /** false when TikTok/platform shipping — Mark shipped is not supported */
+  sellerShippable: boolean;
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -210,6 +215,59 @@ function collectTracking(rawOrder: Record<string, unknown>): string[] {
   return out;
 }
 
+function isPlatformDeliveryOptionLabel(name: string): boolean {
+  const token = name.toUpperCase().trim();
+  if (!token) return false;
+  if (token.includes("SEND_BY_SELLER") || token.includes("SELLER SHIP") || token.includes("SHIP BY SELLER")) {
+    return false;
+  }
+  if (/^(STANDARD|ECONOMY|EXPRESS)(\s+SHIPPING)?$/.test(token)) return true;
+  if (
+    token.includes("STANDARD SHIPPING") ||
+    token.includes("ECONOMY SHIPPING") ||
+    token.includes("EXPRESS SHIPPING")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function inferSellerShippable(raw: Record<string, unknown>): boolean {
+  const shippingType = str(raw.shipping_type)?.toUpperCase() ?? "";
+  const fulfillmentType = str(raw.fulfillment_type)?.toUpperCase() ?? "";
+  const deliveryOptionType = str(raw.delivery_option_type)?.toUpperCase() ?? "";
+  const deliveryName = (str(raw.delivery_option_name) || str(raw.delivery_option) || "").toUpperCase();
+
+  if (shippingType === "TIKTOK") return false;
+  if (shippingType === "SELLER") return true;
+  if (fulfillmentType.includes("FULFILLMENT_BY_TIKTOK") || fulfillmentType === "FBT") return false;
+  if (fulfillmentType.includes("FULFILLMENT_BY_SELLER")) return true;
+  if (deliveryOptionType === "SEND_BY_SELLER") return true;
+  if (deliveryOptionType && ["STANDARD", "EXPRESS", "ECONOMY"].includes(deliveryOptionType)) {
+    return false;
+  }
+  if (isPlatformDeliveryOptionLabel(deliveryName)) return false;
+  if (deliveryName.includes("SEND_BY_SELLER") || deliveryName.includes("SELLER SHIP")) return true;
+
+  for (const bucket of [raw.line_items, raw.item_list]) {
+    if (!Array.isArray(bucket)) continue;
+    for (const item of bucket) {
+      const line = asRecord(item);
+      if (!line) continue;
+      const lineShipping = str(line.shipping_type)?.toUpperCase() ?? "";
+      if (lineShipping === "TIKTOK") return false;
+      if (lineShipping === "SELLER") return true;
+      const lineType = str(line.delivery_option_type)?.toUpperCase() ?? "";
+      if (lineType === "SEND_BY_SELLER") return true;
+      if (lineType && ["STANDARD", "EXPRESS", "ECONOMY"].includes(lineType)) return false;
+      const lineName = str(line.delivery_option_name)?.toUpperCase() ?? "";
+      if (isPlatformDeliveryOptionLabel(lineName)) return false;
+    }
+  }
+
+  return false;
+}
+
 export function normalizeTikTokOrder(
   raw: Record<string, unknown>,
   meta: { connectionId: string; shopId?: string | null; shopName?: string }
@@ -251,6 +309,10 @@ export function normalizeTikTokOrder(
     shippingProviderId: str(raw.shipping_provider_id) || null,
     deliveryOptionId,
     deliveryOptionName: str(raw.delivery_option_name) || str(raw.delivery_option),
+    shippingType: str(raw.shipping_type),
+    fulfillmentType: str(raw.fulfillment_type),
+    deliveryOptionType: str(raw.delivery_option_type),
+    sellerShippable: inferSellerShippable(raw),
   };
 }
 
