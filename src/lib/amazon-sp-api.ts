@@ -225,6 +225,27 @@ export async function amazonSpApiGet<T = unknown>(input: {
   accessToken: string;
   query?: Record<string, string>;
 }): Promise<{ ok: boolean; status: number; data: T | Record<string, unknown> }> {
+  return amazonSpApiRequest<T>({ method: "GET", ...input });
+}
+
+/** Minimal SP-API POST helper (LWA access token only). */
+export async function amazonSpApiPost<T = unknown>(input: {
+  path: string;
+  accessToken: string;
+  query?: Record<string, string>;
+  body?: unknown;
+}): Promise<{ ok: boolean; status: number; data: T | Record<string, unknown> }> {
+  return amazonSpApiRequest<T>({ method: "POST", ...input });
+}
+
+/** Minimal SP-API request helper (LWA access token only). */
+export async function amazonSpApiRequest<T = unknown>(input: {
+  method: "GET" | "POST" | "PUT" | "PATCH";
+  path: string;
+  accessToken: string;
+  query?: Record<string, string>;
+  body?: unknown;
+}): Promise<{ ok: boolean; status: number; data: T | Record<string, unknown> }> {
   const base = getAmazonSpApiEndpoint();
   const url = new URL(input.path.startsWith("http") ? input.path : `${base}${input.path}`);
   if (input.query) {
@@ -232,13 +253,16 @@ export async function amazonSpApiGet<T = unknown>(input: {
       if (v) url.searchParams.set(k, v);
     }
   }
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: {
-      "x-amz-access-token": input.accessToken,
-      Accept: "application/json",
-    },
-  });
+  const headers: Record<string, string> = {
+    "x-amz-access-token": input.accessToken,
+    Accept: "application/json",
+  };
+  const init: RequestInit = { method: input.method, headers };
+  if (input.body != null && input.method !== "GET") {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(input.body);
+  }
+  const res = await fetch(url.toString(), init);
   const data = (await res.json().catch(() => ({}))) as T | Record<string, unknown>;
   return { ok: res.ok, status: res.status, data };
 }

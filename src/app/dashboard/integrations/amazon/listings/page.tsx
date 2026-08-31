@@ -201,7 +201,7 @@ export default function AmazonListingsPage() {
             Amazon products we fulfill
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Select seller SKUs from your Amazon catalog to link into PrepCorex inventory. Order sync will come in a later step.
+            Select seller SKUs from your Amazon catalog to link into PrepCorex inventory. Synced orders appear under Amazon Orders.
           </p>
           {amazonEnvironment && (
             <p className="text-sm mt-2 font-medium">

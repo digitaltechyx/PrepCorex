@@ -447,6 +447,7 @@ export type UserFeature =
   | "manage_shipstation_orders"
   | "manage_woocommerce_orders"
   | "manage_tiktok_orders"
+  | "manage_amazon_orders"
   | "manage_inventory_admin"
   | "manage_notifications"
   | "ops_dashboard"

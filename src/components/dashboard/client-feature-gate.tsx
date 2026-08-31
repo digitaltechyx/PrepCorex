@@ -79,7 +79,8 @@ export function ClientFeatureGate({ children }: { children: React.ReactNode }) {
       hasFeature(userProfile, "manage_ebay_orders") ||
       hasFeature(userProfile, "manage_shipstation_orders") ||
       hasFeature(userProfile, "manage_woocommerce_orders") ||
-      hasFeature(userProfile, "manage_tiktok_orders"))
+      hasFeature(userProfile, "manage_tiktok_orders") ||
+      hasFeature(userProfile, "manage_amazon_orders"))
   ) {
     return <>{children}</>;
   }

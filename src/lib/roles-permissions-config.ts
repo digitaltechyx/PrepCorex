@@ -78,6 +78,7 @@ export const ADMIN_FEATURES_CONFIG: { value: UserFeature; label: string; descrip
   { value: "manage_shipstation_orders", label: "ShipStation Orders", description: "Access to ShipStation orders and labels" },
   { value: "manage_woocommerce_orders", label: "WooCommerce Orders", description: "Access to WooCommerce orders and fulfillment" },
   { value: "manage_tiktok_orders", label: "TikTok Shop Orders", description: "Access to TikTok Shop orders and fulfillment" },
+  { value: "manage_amazon_orders", label: "Amazon Orders", description: "Access to Amazon FBM/FBA orders and fulfillment" },
   { value: "manage_inventory_admin", label: "Inventory Management", description: "Access to admin inventory management" },
   { value: "manage_notifications", label: "Notifications", description: "Access to notifications and pending requests" },
 ];

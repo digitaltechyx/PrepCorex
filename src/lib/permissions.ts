@@ -41,6 +41,7 @@ export function getDefaultFeaturesForRole(role: UserRole): UserFeature[] {
       "manage_shipstation_orders",
       "manage_woocommerce_orders",
       "manage_tiktok_orders",
+      "manage_amazon_orders",
     ];
   } else if (role === "warehouse_operator") {
     return ["ops_dashboard", "ops_receive", "ops_view_expected_inbound"];

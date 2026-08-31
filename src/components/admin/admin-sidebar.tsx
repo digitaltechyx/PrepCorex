@@ -254,7 +254,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/integrations",
       icon: Plug,
       color: "text-green-600",
-      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders", "manage_woocommerce_orders", "manage_tiktok_orders"] as const satisfies readonly UserFeature[],
+      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders", "manage_woocommerce_orders", "manage_tiktok_orders", "manage_amazon_orders"] as const satisfies readonly UserFeature[],
     },
     {
       title: "Shopify Orders",
@@ -271,6 +271,14 @@ export function AdminSidebar() {
       color: "text-fuchsia-600",
       badge: null,
       requiredFeature: "manage_tiktok_orders" as const,
+    },
+    {
+      title: "Amazon Orders",
+      url: "/admin/dashboard/amazon-orders",
+      icon: ShoppingBag,
+      color: "text-orange-600",
+      badge: null,
+      requiredFeature: "manage_amazon_orders" as const,
     },
     {
       title: "eBay Orders",

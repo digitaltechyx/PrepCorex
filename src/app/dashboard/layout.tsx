@@ -52,7 +52,9 @@ export default function DashboardLayout({
       hasFeature(userProfile, "manage_shopify_orders") ||
       hasFeature(userProfile, "manage_ebay_orders") ||
       hasFeature(userProfile, "manage_shipstation_orders") ||
-      hasFeature(userProfile, "manage_woocommerce_orders");
+      hasFeature(userProfile, "manage_woocommerce_orders") ||
+      hasFeature(userProfile, "manage_tiktok_orders") ||
+      hasFeature(userProfile, "manage_amazon_orders");
     if (hasAdminRole && !hasUserRole && !hasAgentRole && canManageOrderIntegrations) {
       router.replace("/admin/dashboard/integrations");
     }
@@ -80,7 +82,9 @@ export default function DashboardLayout({
         (hasFeature(userProfile, "manage_shopify_orders") ||
           hasFeature(userProfile, "manage_ebay_orders") ||
           hasFeature(userProfile, "manage_shipstation_orders") ||
-          hasFeature(userProfile, "manage_woocommerce_orders"));
+          hasFeature(userProfile, "manage_woocommerce_orders") ||
+          hasFeature(userProfile, "manage_tiktok_orders") ||
+          hasFeature(userProfile, "manage_amazon_orders"));
 
       // Check if user is trying to access agent dashboard
       const isOnAgentDashboard = pathname?.startsWith("/dashboard/agent");
@@ -175,7 +179,9 @@ export default function DashboardLayout({
     (hasFeature(userProfile, "manage_shopify_orders") ||
       hasFeature(userProfile, "manage_ebay_orders") ||
       hasFeature(userProfile, "manage_shipstation_orders") ||
-      hasFeature(userProfile, "manage_woocommerce_orders"));
+      hasFeature(userProfile, "manage_woocommerce_orders") ||
+      hasFeature(userProfile, "manage_tiktok_orders") ||
+      hasFeature(userProfile, "manage_amazon_orders"));
 
   if (
     userProfile &&

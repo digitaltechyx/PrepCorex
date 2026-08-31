@@ -386,6 +386,15 @@ export function DashboardSidebar() {
       requiredFeature: "view_tiktok_orders" as const,
     },
     {
+      title: "Amazon Orders",
+      url: "/dashboard/amazon-orders",
+      icon: ShoppingBag,
+      color: "text-orange-600",
+      badge: null,
+      requiredRole: "user" as const,
+      requiredFeature: "view_amazon_orders" as const,
+    },
+    {
       title: "ShipStation Orders",
       url: "/dashboard/shipstation-orders",
       icon: Ship,
@@ -559,7 +568,8 @@ export function DashboardSidebar() {
       hasFeature(userProfile, "manage_ebay_orders") ||
       hasFeature(userProfile, "manage_shipstation_orders") ||
       hasFeature(userProfile, "manage_woocommerce_orders") ||
-      hasFeature(userProfile, "manage_tiktok_orders")) &&
+      hasFeature(userProfile, "manage_tiktok_orders") ||
+      hasFeature(userProfile, "manage_amazon_orders")) &&
     onClientIntegrationsSubtree;
 
   const showAffiliateAccess =

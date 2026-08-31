@@ -77,6 +77,7 @@ const ORDER_PATH_TO_PLATFORM: Record<string, IntegrationPlatformId> = {
   "/dashboard/shopify-orders": "shopify",
   "/dashboard/ebay-orders": "ebay",
   "/dashboard/tiktok-orders": "tiktok",
+  "/dashboard/amazon-orders": "amazon",
   "/dashboard/shipstation-orders": "shipstation",
   "/dashboard/woocommerce-orders": "woocommerce",
 };
