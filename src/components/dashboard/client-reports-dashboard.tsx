@@ -218,9 +218,9 @@ function downloadCsv(filename: string, csv: string) {
 export function ClientReportsDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [preset, setPreset] = useState<"this_month" | "last_30" | "last_month" | "custom" | "all">("this_month");
-  const [fromDate, setFromDate] = useState<Date | undefined>(startOfMonth(new Date()));
-  const [toDate, setToDate] = useState<Date | undefined>(endOfMonth(new Date()));
+  const [preset, setPreset] = useState<"this_month" | "last_30" | "last_month" | "custom" | "all">("all");
+  const [fromDate, setFromDate] = useState<Date | undefined>(undefined);
+  const [toDate, setToDate] = useState<Date | undefined>(undefined);
   const [tab, setTab] = useState<ClientReportTab>("overview");
   const [summary, setSummary] = useState<ClientReportSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -385,43 +385,58 @@ export function ClientReportsDashboard() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="space-y-1">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Period</p>
-            <Select
-              value={preset}
-              onValueChange={(v) => setPreset(v as typeof preset)}
-            >
-              <SelectTrigger className="w-[180px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="this_month">This month</SelectItem>
-                <SelectItem value="last_30">Last 30 days</SelectItem>
-                <SelectItem value="last_month">Last month</SelectItem>
-                <SelectItem value="custom">Custom range</SelectItem>
-                <SelectItem value="all">All time</SelectItem>
-              </SelectContent>
-            </Select>
+    <Card className="overflow-hidden border-2 shadow-xl">
+      <CardHeader className="bg-gradient-to-r from-slate-800 via-slate-700 to-slate-900 pb-4 text-white">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-2xl font-bold text-white">
+              <BarChart3 className="h-6 w-6" />
+              Reports
+            </CardTitle>
+            <CardDescription className="mt-2 text-slate-200">
+              See how much you save on labels and prep — plus inventory, invoices, and detailed
+              savings breakdowns
+            </CardDescription>
           </div>
-          {preset === "custom" ? (
-            <div className="w-full sm:w-[280px]">
-              <DateRangePicker
-                fromDate={fromDate}
-                toDate={toDate}
-                setFromDate={setFromDate}
-                setToDate={setToDate}
-              />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end shrink-0">
+            <div className="space-y-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-300">Period</p>
+              <Select value={preset} onValueChange={(v) => setPreset(v as typeof preset)}>
+                <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white [&>svg]:text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="this_month">This month</SelectItem>
+                  <SelectItem value="last_30">Last 30 days</SelectItem>
+                  <SelectItem value="last_month">Last month</SelectItem>
+                  <SelectItem value="custom">Custom range</SelectItem>
+                  <SelectItem value="all">All time</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          ) : null}
+            <Button
+              variant="secondary"
+              className="bg-white text-slate-900 hover:bg-slate-100"
+              onClick={handleExport}
+              disabled={!summary || loading}
+            >
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              Download CSV
+            </Button>
+          </div>
         </div>
-        <Button variant="outline" onClick={handleExport} disabled={!summary || loading}>
-          <FileSpreadsheet className="mr-2 h-4 w-4" />
-          Download CSV
-        </Button>
-      </div>
+      </CardHeader>
+      <CardContent className="space-y-6 p-6">
+      {preset === "custom" ? (
+        <div className="w-full max-w-md">
+          <DateRangePicker
+            fromDate={fromDate}
+            toDate={toDate}
+            setFromDate={setFromDate}
+            setToDate={setToDate}
+          />
+        </div>
+      ) : null}
 
       {loading && !summary ? (
         <Skeleton className="h-64 w-full rounded-xl" />
@@ -839,7 +854,7 @@ export function ClientReportsDashboard() {
             {summary.savings.benchmarks.bands.length > 0 ? (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">USPS / UPS / FedEx rate card</CardTitle>
+                  <CardTitle className="text-base">Estimated USPS / UPS / FedEx rate card</CardTitle>
                   <CardDescription>
                     Each GOFO label is compared to the band that matches its parcel weight.
                   </CardDescription>
@@ -957,7 +972,8 @@ export function ClientReportsDashboard() {
           </TabsContent>
         </Tabs>
       )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 

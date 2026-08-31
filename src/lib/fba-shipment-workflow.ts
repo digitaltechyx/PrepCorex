@@ -64,8 +64,23 @@ export function formatFbaBoxGroupSummary(
   return `Group ${index + 1}: ${group.boxCount} box${group.boxCount === 1 ? "" : "es"} · ${group.weight} ${group.weightUnit} each · ${dims}`;
 }
 
+export function isSimpleFbaPalletPack(pallet: FbaPalletPack): boolean {
+  const group = pallet.boxGroups[0];
+  return (
+    pallet.boxCount === 1 &&
+    pallet.boxGroups.length === 1 &&
+    pallet.palletTareWeight === 0 &&
+    !!group
+  );
+}
+
 export function formatFbaPalletSummary(pallet: FbaPalletPack): string {
   const unit = pallet.weightUnit || "lb";
+  const group = pallet.boxGroups[0];
+  if (isSimpleFbaPalletPack(pallet) && group) {
+    const dims = `${group.length}×${group.width}×${group.height} ${group.dimensionUnit}`;
+    return `Pallet ${pallet.palletNumber}: ${pallet.totalWeight} ${unit} · ${dims}`;
+  }
   return `Pallet ${pallet.palletNumber}: ${pallet.boxCount} box${pallet.boxCount === 1 ? "" : "es"} · tare ${pallet.palletTareWeight} ${unit} + boxes ${pallet.boxesWeight} ${unit} = ${pallet.totalWeight} ${unit}`;
 }
 
@@ -78,9 +93,11 @@ export function formatFbaPackDimsForClient(data: {
   if (data.fbaShipMode === "ltl" || (data.fbaPallets?.length ?? 0) > 0) {
     for (const pallet of data.fbaPallets ?? []) {
       lines.push(formatFbaPalletSummary(pallet));
-      pallet.boxGroups.forEach((group, index) => {
-        lines.push(`  ${formatFbaBoxGroupSummary(group, index)}`);
-      });
+      if (!isSimpleFbaPalletPack(pallet)) {
+        pallet.boxGroups.forEach((group, index) => {
+          lines.push(`  ${formatFbaBoxGroupSummary(group, index)}`);
+        });
+      }
     }
     return lines;
   }
