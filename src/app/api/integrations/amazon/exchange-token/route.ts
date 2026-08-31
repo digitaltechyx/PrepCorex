@@ -6,6 +6,7 @@ import {
   fetchAmazonSellerProfile,
   getAmazonRedirectUri,
   isAmazonSpApiSandbox,
+  refreshAmazonConnectionMarketplaces,
 } from "@/lib/amazon-sp-api";
 
 export const dynamic = "force-dynamic";
@@ -62,11 +63,30 @@ export async function POST(request: NextRequest) {
     const tokens = await exchangeAmazonAuthorizationCode({ code, redirectUri });
     const now = new Date();
     const expiresIn = tokens.expires_in || 3600;
-    const profile = await fetchAmazonSellerProfile(tokens.access_token);
+    let profile = await fetchAmazonSellerProfile(tokens.access_token);
 
     const db = adminDb();
     const col = db.collection("users").doc(uid).collection("amazonConnections");
     const snapshot = await col.limit(1).get();
+
+    const shouldAdd = addNew || state.a === 1;
+    const connectionRef = shouldAdd
+      ? col.doc()
+      : !snapshot.empty
+        ? snapshot.docs[0]!.ref
+        : col.doc();
+    const connectionId = connectionRef.id;
+
+    if (profile.marketplaces.length === 0) {
+      profile = {
+        ...profile,
+        marketplaces: await refreshAmazonConnectionMarketplaces({
+          uid,
+          connectionId,
+          accessToken: tokens.access_token,
+        }),
+      };
+    }
 
     const docData = {
       accessToken: tokens.access_token,
@@ -82,20 +102,10 @@ export async function POST(request: NextRequest) {
       },
       environment: isAmazonSpApiSandbox() ? "sandbox" : "production",
       marketplaceRegion: process.env.AMAZON_SP_API_REGION || "NA",
+      lastVerifiedAt: { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 },
     };
 
-    let connectionId: string;
-    const shouldAdd = addNew || state.a === 1;
-    if (shouldAdd) {
-      const ref = await col.add(docData);
-      connectionId = ref.id;
-    } else if (!snapshot.empty) {
-      await snapshot.docs[0]!.ref.update(docData);
-      connectionId = snapshot.docs[0]!.id;
-    } else {
-      const ref = await col.add(docData);
-      connectionId = ref.id;
-    }
+    await connectionRef.set(docData, { merge: true });
 
     const res = NextResponse.json({
       ok: true,

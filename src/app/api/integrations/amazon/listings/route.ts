@@ -3,6 +3,7 @@ import { adminAuth } from "@/lib/firebase-admin";
 import {
   fetchAmazonSellerListings,
   getValidAmazonToken,
+  refreshAmazonConnectionMarketplaces,
   type AmazonMarketplaceSummary,
 } from "@/lib/amazon-sp-api";
 
@@ -54,12 +55,23 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const marketplaceIds = marketplaceIdsFromConnection(conn.marketplaces);
+  let marketplaceIds = marketplaceIdsFromConnection(conn.marketplaces);
+  if (marketplaceIds.length === 0) {
+    const refreshed = await refreshAmazonConnectionMarketplaces({
+      uid,
+      connectionId: conn.connectionId,
+      accessToken: conn.accessToken,
+    });
+    marketplaceIds = marketplaceIdsFromConnection(refreshed);
+  }
+
   if (marketplaceIds.length === 0) {
     return NextResponse.json(
       {
         error:
           "No Amazon marketplaces found on this connection. Disconnect and reconnect Amazon from Integrations.",
+        hint:
+          "Ensure the PrepCorex SP-API app has the Product Listing role and that Seller Central authorization completed. If you use production Amazon, confirm AMAZON_SP_API_SANDBOX is not set to true on the server.",
       },
       { status: 400 }
     );

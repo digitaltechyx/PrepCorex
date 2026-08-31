@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import {
   amazonSpApiGet,
   isAmazonSpApiSandbox,
+  parseAmazonMarketplaceParticipations,
   refreshAmazonAccessToken,
 } from "@/lib/amazon-sp-api";
 
@@ -80,14 +81,7 @@ export async function GET(request: NextRequest) {
     }
 
     const now = Math.floor(Date.now() / 1000);
-    const participations = Array.isArray(verify.data.payload) ? verify.data.payload : [];
-    const marketplaces = participations
-      .map((p) => ({
-        id: p.marketplace?.id ?? null,
-        name: p.marketplace?.name ?? null,
-        countryCode: p.marketplace?.countryCode ?? null,
-      }))
-      .filter((m) => m.id);
+    const marketplaces = parseAmazonMarketplaceParticipations(verify.data);
 
     await ref.update({
       accessToken: tokens.access_token,

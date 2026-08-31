@@ -275,20 +275,28 @@ function cleanName(value: unknown): string | null {
   return text || null;
 }
 
+function strValue(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
 function parseMarketplaceRows(rows: unknown): AmazonMarketplaceSummary[] {
   if (!Array.isArray(rows)) return [];
   const out: AmazonMarketplaceSummary[] = [];
   for (const row of rows) {
     const rec = asRecord(row);
     const marketplace = asRecord(rec.marketplace);
-    const id = marketplace.id != null ? String(marketplace.id).trim() : "";
+    const id =
+      strValue(marketplace.id) ||
+      strValue(marketplace.marketplaceId) ||
+      strValue(rec.marketplaceId) ||
+      strValue(rec.marketplace_id) ||
+      (typeof rec.marketplace === "string" ? strValue(rec.marketplace) : "");
     if (!id) continue;
     out.push({
       id,
-      name: cleanName(marketplace.name),
-      countryCode: cleanName(marketplace.countryCode),
-      // Amazon returns the seller's storefront name on the participation, not the marketplace.
-      storeName: cleanName(rec.storeName),
+      name: cleanName(marketplace.name) || cleanName(rec.marketplaceName),
+      countryCode: cleanName(marketplace.countryCode) || cleanName(rec.countryCode),
+      storeName: cleanName(rec.storeName) || cleanName(rec.storeFrontName),
     });
   }
   return out;
@@ -297,11 +305,13 @@ function parseMarketplaceRows(rows: unknown): AmazonMarketplaceSummary[] {
 function participationListFrom(data: unknown): unknown {
   const root = asRecord(data);
   if (Array.isArray(root.payload)) return root.payload;
+  if (Array.isArray(root.marketplaceParticipationList)) return root.marketplaceParticipationList;
   const payload = payloadRecord(data);
   if (Array.isArray(payload.marketplaceParticipationList)) {
     return payload.marketplaceParticipationList;
   }
   if (Array.isArray(payload.payload)) return payload.payload;
+  if (Array.isArray(payload.participations)) return payload.participations;
   return [];
 }
 
@@ -360,6 +370,54 @@ export async function fetchAmazonSellerProfile(
     businessName,
     marketplaces,
   };
+}
+
+/** Re-fetch marketplaces from SP-API and persist on the connection doc when missing/stale. */
+export async function refreshAmazonConnectionMarketplaces(input: {
+  uid: string;
+  connectionId: string;
+  accessToken: string;
+}): Promise<AmazonMarketplaceSummary[]> {
+  const profile = await fetchAmazonSellerProfile(input.accessToken);
+  let marketplaces = profile.marketplaces;
+
+  if (marketplaces.length === 0) {
+    const participations = await amazonSpApiGet({
+      path: "/sellers/v1/marketplaceParticipations",
+      accessToken: input.accessToken,
+    });
+    if (participations.ok) {
+      marketplaces = parseMarketplaceRows(participationListFrom(participations.data));
+    } else {
+      console.warn(
+        "[refreshAmazonConnectionMarketplaces] marketplaceParticipations failed",
+        participations.status,
+        participations.data
+      );
+    }
+  }
+
+  if (marketplaces.length > 0) {
+    const { adminDb } = await import("@/lib/firebase-admin");
+    await adminDb()
+      .collection("users")
+      .doc(input.uid)
+      .collection("amazonConnections")
+      .doc(input.connectionId)
+      .update({
+        marketplaces,
+        ...(profile.storeName ? { storeName: profile.storeName } : {}),
+        ...(profile.businessName ? { businessName: profile.businessName } : {}),
+        lastVerifiedAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 },
+      });
+  }
+
+  return marketplaces;
+}
+
+/** Parse marketplace participations payload from Sellers API responses. */
+export function parseAmazonMarketplaceParticipations(data: unknown): AmazonMarketplaceSummary[] {
+  return parseMarketplaceRows(participationListFrom(data));
 }
 
 const AMAZON_TOKEN_REFRESH_BUFFER_SEC = 300;
