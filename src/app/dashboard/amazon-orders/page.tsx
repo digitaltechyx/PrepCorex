@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, RefreshCw, ShoppingBag } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import type { AmazonNormalizedOrder } from "@/lib/amazon-order-normalize";
 import { AmazonOrderDetailBody } from "@/components/integrations/amazon-order-detail";
 
@@ -32,6 +34,7 @@ function AmazonOrdersContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [storeFilter, setStoreFilter] = useState<string>("all");
+  const [orderTab, setOrderTab] = useState<"fbm" | "fba">("fbm");
 
   useEffect(() => {
     if (connectionParam) setStoreFilter(connectionParam);
@@ -93,10 +96,26 @@ function AmazonOrdersContent() {
     void fetchOrders();
   }, [user, fetchOrders]);
 
-  const filteredOrders = useMemo(() => {
+  const accountOrders = useMemo(() => {
     if (storeFilter === "all") return orders;
     return orders.filter((o) => o.connectionId === storeFilter);
   }, [orders, storeFilter]);
+
+  const fbmOrders = useMemo(
+    () => accountOrders.filter((o) => !o.isFba),
+    [accountOrders]
+  );
+  const fbaOrders = useMemo(
+    () => accountOrders.filter((o) => o.isFba),
+    [accountOrders]
+  );
+  const fbmCount = fbmOrders.length;
+  const fbaCount = fbaOrders.length;
+
+  useEffect(() => {
+    if (orderTab === "fbm" && fbmCount === 0 && fbaCount > 0) setOrderTab("fba");
+    if (orderTab === "fba" && fbaCount === 0 && fbmCount > 0) setOrderTab("fbm");
+  }, [orderTab, fbmCount, fbaCount]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -152,18 +171,57 @@ function AmazonOrdersContent() {
               <Loader2 className="h-5 w-5 animate-spin" />
               Loading orders…
             </div>
-          ) : filteredOrders.length === 0 ? (
+          ) : accountOrders.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8">
               No Amazon orders yet. Connect Amazon from Integrations, then refresh.
             </p>
           ) : (
-            <div className="space-y-4">
-              {filteredOrders.map((order) => (
-                <div key={order.id} className="rounded-lg border p-4">
-                  <AmazonOrderDetailBody order={order} compact />
-                </div>
-              ))}
-            </div>
+            <Tabs value={orderTab} onValueChange={(v) => setOrderTab(v as "fbm" | "fba")}>
+              <TabsList className="mb-4">
+                <TabsTrigger value="fbm" className="gap-2">
+                  FBM Orders
+                  <Badge
+                    variant={orderTab === "fbm" ? "default" : "secondary"}
+                    className="h-5 min-w-5 px-1.5 text-[10px] tabular-nums"
+                  >
+                    {fbmCount}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="fba" className="gap-2">
+                  FBA Orders
+                  <Badge
+                    variant={orderTab === "fba" ? "default" : "secondary"}
+                    className="h-5 min-w-5 px-1.5 text-[10px] tabular-nums"
+                  >
+                    {fbaCount}
+                  </Badge>
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="fbm" className="mt-0 space-y-4">
+                {fbmOrders.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6">No FBM orders in this view.</p>
+                ) : (
+                  fbmOrders.map((order) => (
+                    <div key={order.id} className="rounded-lg border p-4">
+                      <AmazonOrderDetailBody order={order} compact />
+                    </div>
+                  ))
+                )}
+              </TabsContent>
+
+              <TabsContent value="fba" className="mt-0 space-y-4">
+                {fbaOrders.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6">No FBA orders in this view.</p>
+                ) : (
+                  fbaOrders.map((order) => (
+                    <div key={order.id} className="rounded-lg border p-4">
+                      <AmazonOrderDetailBody order={order} compact />
+                    </div>
+                  ))
+                )}
+              </TabsContent>
+            </Tabs>
           )}
         </CardContent>
       </Card>

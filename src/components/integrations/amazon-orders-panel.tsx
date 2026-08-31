@@ -33,8 +33,8 @@ import { AmazonOrderDetailBody } from "@/components/integrations/amazon-order-de
 import { AmazonQuickFulfillDialog } from "@/components/admin/amazon-quick-fulfill-dialog";
 import { Eye, Loader2, Package, RefreshCw, Search, ShoppingBag, Truck, Users } from "lucide-react";
 
-type ChannelFilter = "all" | "fbm" | "fba";
 type StatusFilter = "all" | "open" | "shipped";
+type AmazonPanelTab = "fbm" | "fba" | "fba-inventory" | "fba-inbound";
 
 type FbaInventoryRow = {
   sellerSku: string;
@@ -79,7 +79,7 @@ export function AmazonOrdersPanel() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>("all");
+  const [activeTab, setActiveTab] = useState<AmazonPanelTab>("fbm");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState("");
@@ -198,27 +198,111 @@ export function AmazonOrdersPanel() {
     void fetchOrders("cache");
   }, [fetchOrders]);
 
-  const filteredOrders = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return orders.filter((o) => {
-      if (channelFilter === "fbm" && o.isFba) return false;
-      if (channelFilter === "fba" && !o.isFba) return false;
-      if (statusFilter === "open" && !isOpenOrder(o)) return false;
-      if (statusFilter === "shipped" && isOpenOrder(o)) return false;
-      if (!q) return true;
-      const hay = [
-        o.amazonOrderId,
-        o.storeName,
-        o.ownerName,
-        o.ownerEmail,
-        ...o.lineItems.map((li) => li.sellerSku || li.title),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [orders, search, channelFilter, statusFilter]);
+  const applySearchAndStatus = useCallback(
+    (list: AdminAmazonOrder[]) => {
+      const q = search.trim().toLowerCase();
+      return list.filter((o) => {
+        if (statusFilter === "open" && !isOpenOrder(o)) return false;
+        if (statusFilter === "shipped" && isOpenOrder(o)) return false;
+        if (!q) return true;
+        const hay = [
+          o.amazonOrderId,
+          o.storeName,
+          o.ownerName,
+          o.ownerEmail,
+          ...o.lineItems.map((li) => li.sellerSku || li.title),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(q);
+      });
+    },
+    [search, statusFilter]
+  );
+
+  const fbmOrders = useMemo(
+    () => applySearchAndStatus(orders.filter((o) => !o.isFba)),
+    [orders, applySearchAndStatus]
+  );
+  const fbaOrders = useMemo(
+    () => applySearchAndStatus(orders.filter((o) => o.isFba)),
+    [orders, applySearchAndStatus]
+  );
+  const fbmCount = useMemo(() => orders.filter((o) => !o.isFba).length, [orders]);
+  const fbaCount = useMemo(() => orders.filter((o) => o.isFba).length, [orders]);
+
+  useEffect(() => {
+    if (activeTab !== "fbm" && activeTab !== "fba") return;
+    if (activeTab === "fbm" && fbmCount === 0 && fbaCount > 0) setActiveTab("fba");
+    if (activeTab === "fba" && fbaCount === 0 && fbmCount > 0) setActiveTab("fbm");
+  }, [activeTab, fbmCount, fbaCount]);
+
+  const renderOrderList = (list: AdminAmazonOrder[], emptyLabel: string) => {
+    if (loading || usersLoading) {
+      return (
+        <div className="flex items-center gap-2 text-muted-foreground py-8">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Loading orders…
+        </div>
+      );
+    }
+    if (list.length === 0) {
+      return (
+        <p className="text-sm text-muted-foreground py-8">
+          {orders.length === 0
+            ? "No Amazon orders found. Connect Amazon from Integrations and run Sync live."
+            : emptyLabel}
+        </p>
+      );
+    }
+    return (
+      <div className="space-y-3">
+        {list.map((order) => (
+          <div key={`${order.ownerUserId}_${order.id}`} className="rounded-lg border p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold">{order.amazonOrderId}</p>
+                  <Badge variant={order.isFba ? "secondary" : "outline"} className="text-[10px]">
+                    {order.isFba ? "FBA" : "FBM"}
+                  </Badge>
+                  <Badge variant="outline" className="capitalize text-[10px]">
+                    {order.orderStatus || "unknown"}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {formatWhen(order.createdAt)} · {order.storeName} · {order.ownerName}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {order.lineItems.length} line(s)
+                  {order.orderTotal ? ` · ${order.currency || "USD"} ${order.orderTotal}` : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 shrink-0">
+                <Button size="sm" variant="outline" onClick={() => setDetailsOrder(order)}>
+                  <Eye className="h-4 w-4 mr-1" />
+                  Details
+                </Button>
+                {order.sellerFulfillable ? (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setFulfillOrder(order);
+                      setFulfillDialogOpen(true);
+                    }}
+                  >
+                    <Truck className="h-4 w-4 mr-1" />
+                    Quick Fulfill
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   const handleSync = async () => {
     if (!user) return;
@@ -284,18 +368,38 @@ export function AmazonOrdersPanel() {
           </div>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="orders">
-            <TabsList>
-              <TabsTrigger value="orders">Orders</TabsTrigger>
-              <TabsTrigger value="fba-inventory" onClick={() => void fetchFba()}>
-                FBA inventory
+          <Tabs
+            value={activeTab}
+            onValueChange={(v) => {
+              const tab = v as AmazonPanelTab;
+              setActiveTab(tab);
+              if (tab === "fba-inventory" || tab === "fba-inbound") void fetchFba();
+            }}
+          >
+            <TabsList className="mb-4 flex-wrap h-auto">
+              <TabsTrigger value="fbm" className="gap-2">
+                FBM Orders
+                <Badge
+                  variant={activeTab === "fbm" ? "default" : "secondary"}
+                  className="h-5 min-w-5 px-1.5 text-[10px] tabular-nums"
+                >
+                  {fbmCount}
+                </Badge>
               </TabsTrigger>
-              <TabsTrigger value="fba-inbound" onClick={() => void fetchFba()}>
-                FBA inbound
+              <TabsTrigger value="fba" className="gap-2">
+                FBA Orders
+                <Badge
+                  variant={activeTab === "fba" ? "default" : "secondary"}
+                  className="h-5 min-w-5 px-1.5 text-[10px] tabular-nums"
+                >
+                  {fbaCount}
+                </Badge>
               </TabsTrigger>
+              <TabsTrigger value="fba-inventory">FBA inventory</TabsTrigger>
+              <TabsTrigger value="fba-inbound">FBA inbound</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="orders" className="space-y-4 mt-4">
+            <TabsContent value="fbm" className="space-y-4 mt-0">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <div className="relative flex-1">
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -306,16 +410,6 @@ export function AmazonOrdersPanel() {
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </div>
-                <Select value={channelFilter} onValueChange={(v) => setChannelFilter(v as ChannelFilter)}>
-                  <SelectTrigger className="w-full sm:w-[140px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All channels</SelectItem>
-                    <SelectItem value="fbm">FBM only</SelectItem>
-                    <SelectItem value="fba">FBA only</SelectItem>
-                  </SelectContent>
-                </Select>
                 <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
                   <SelectTrigger className="w-full sm:w-[140px]">
                     <SelectValue />
@@ -327,66 +421,32 @@ export function AmazonOrdersPanel() {
                   </SelectContent>
                 </Select>
               </div>
+              {renderOrderList(fbmOrders, "No FBM orders match your filters.")}
+            </TabsContent>
 
-              {loading || usersLoading ? (
-                <div className="flex items-center gap-2 text-muted-foreground py-8">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  Loading orders…
+            <TabsContent value="fba" className="space-y-4 mt-0">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    className="pl-8"
+                    placeholder="Search order ID, SKU, client…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
                 </div>
-              ) : filteredOrders.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-8">
-                  No Amazon orders found. Connect Amazon from Integrations and run Sync live.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {filteredOrders.map((order) => (
-                    <div key={`${order.ownerUserId}_${order.id}`} className="rounded-lg border p-4">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-semibold">{order.amazonOrderId}</p>
-                            <Badge variant={order.isFba ? "secondary" : "outline"} className="text-[10px]">
-                              {order.isFba ? "FBA" : "FBM"}
-                            </Badge>
-                            <Badge variant="outline" className="capitalize text-[10px]">
-                              {order.orderStatus || "unknown"}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {formatWhen(order.createdAt)} · {order.storeName} · {order.ownerName}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {order.lineItems.length} line(s)
-                            {order.orderTotal ? ` · ${order.currency || "USD"} ${order.orderTotal}` : ""}
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2 shrink-0">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setDetailsOrder(order)}
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            Details
-                          </Button>
-                          {order.sellerFulfillable ? (
-                            <Button
-                              size="sm"
-                              onClick={() => {
-                                setFulfillOrder(order);
-                                setFulfillDialogOpen(true);
-                              }}
-                            >
-                              <Truck className="h-4 w-4 mr-1" />
-                              Quick Fulfill
-                            </Button>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+                  <SelectTrigger className="w-full sm:w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All status</SelectItem>
+                    <SelectItem value="open">Open</SelectItem>
+                    <SelectItem value="shipped">Shipped</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {renderOrderList(fbaOrders, "No FBA orders match your filters.")}
             </TabsContent>
 
             <TabsContent value="fba-inventory" className="mt-4">
