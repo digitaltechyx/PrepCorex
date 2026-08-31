@@ -74,7 +74,19 @@ export type AmazonFbaInboundPlanRow = {
   createdAt: string | null;
   lastUpdatedAt: string | null;
   marketplaceIds: string[];
+  sourceAddressLabel: string | null;
 };
+
+function formatAmazonAddressLabel(raw: unknown): string | null {
+  const addr = asRecord(raw);
+  const parts = [
+    String(addr.companyName ?? addr.CompanyName ?? "").trim(),
+    String(addr.city ?? addr.City ?? "").trim(),
+    String(addr.stateOrProvinceCode ?? addr.StateOrProvinceCode ?? "").trim(),
+    String(addr.countryCode ?? addr.CountryCode ?? "").trim(),
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
+}
 
 export function resolveAmazonMarketplaceIds(
   marketplaces: AmazonMarketplaceSummary[],
@@ -395,6 +407,7 @@ export async function fetchAmazonFbaInboundPlans(input: {
           marketplaceIds: Array.isArray(rec.marketplaceIds)
             ? rec.marketplaceIds.map(String)
             : [],
+          sourceAddressLabel: formatAmazonAddressLabel(rec.sourceAddress ?? rec.SourceAddress),
         });
       }
     }

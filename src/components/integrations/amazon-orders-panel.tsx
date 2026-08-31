@@ -31,7 +31,8 @@ import {
 } from "@/components/ui/dialog";
 import { AmazonOrderDetailBody } from "@/components/integrations/amazon-order-detail";
 import { AmazonQuickFulfillDialog } from "@/components/admin/amazon-quick-fulfill-dialog";
-import { Eye, Loader2, Package, RefreshCw, Search, ShoppingBag, Truck, Users } from "lucide-react";
+import { AmazonFbaInboundCreateDialog } from "@/components/admin/amazon-fba-inbound-create-dialog";
+import { Eye, Loader2, Package, Plus, RefreshCw, Search, ShoppingBag, Truck, Users } from "lucide-react";
 
 type StatusFilter = "all" | "open" | "shipped";
 type AmazonPanelTab = "fbm" | "fba" | "fba-inventory" | "fba-inbound";
@@ -51,7 +52,14 @@ type FbaInboundRow = {
   name: string | null;
   status: string | null;
   createdAt: string | null;
+  sourceAddressLabel?: string | null;
 };
+
+function inboundPlanTitle(plan: FbaInboundRow) {
+  if (plan.name?.trim()) return plan.name.trim();
+  if (plan.createdAt) return `FBA inbound · ${formatWhen(plan.createdAt)}`;
+  return "FBA inbound plan";
+}
 
 function formatWhen(raw?: string | null) {
   if (!raw) return "—";
@@ -86,6 +94,7 @@ export function AmazonOrdersPanel() {
   const [detailsOrder, setDetailsOrder] = useState<AdminAmazonOrder | null>(null);
   const [fulfillDialogOpen, setFulfillDialogOpen] = useState(false);
   const [fulfillOrder, setFulfillOrder] = useState<AdminAmazonOrder | null>(null);
+  const [inboundCreateOpen, setInboundCreateOpen] = useState(false);
 
   const [fbaLoading, setFbaLoading] = useState(false);
   const [fbaInventory, setFbaInventory] = useState<FbaInventoryRow[]>([]);
@@ -197,6 +206,18 @@ export function AmazonOrdersPanel() {
   useEffect(() => {
     void fetchOrders("cache");
   }, [fetchOrders]);
+
+  useEffect(() => {
+    if (userFilter !== "all") void fetchFba();
+    else {
+      setFbaInventory([]);
+      setFbaInbound([]);
+    }
+  }, [userFilter, fetchFba]);
+
+  const fbaInventoryCount = fbaInventory.length;
+  const fbaInboundCount = fbaInbound.length;
+  const fbaOpsCountsReady = userFilter !== "all" && !fbaLoading;
 
   const applySearchAndStatus = useCallback(
     (list: AdminAmazonOrder[]) => {
@@ -395,8 +416,24 @@ export function AmazonOrdersPanel() {
                   {fbaCount}
                 </Badge>
               </TabsTrigger>
-              <TabsTrigger value="fba-inventory">FBA inventory</TabsTrigger>
-              <TabsTrigger value="fba-inbound">FBA inbound</TabsTrigger>
+              <TabsTrigger value="fba-inventory" className="gap-2">
+                FBA inventory
+                <Badge
+                  variant={activeTab === "fba-inventory" ? "default" : "secondary"}
+                  className="h-5 min-w-5 px-1.5 text-[10px] tabular-nums"
+                >
+                  {userFilter === "all" ? "—" : fbaOpsCountsReady ? fbaInventoryCount : "…"}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="fba-inbound" className="gap-2">
+                FBA inbound
+                <Badge
+                  variant={activeTab === "fba-inbound" ? "default" : "secondary"}
+                  className="h-5 min-w-5 px-1.5 text-[10px] tabular-nums"
+                >
+                  {userFilter === "all" ? "—" : fbaOpsCountsReady ? fbaInboundCount : "…"}
+                </Badge>
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="fbm" className="space-y-4 mt-0">
@@ -452,7 +489,7 @@ export function AmazonOrdersPanel() {
             <TabsContent value="fba-inventory" className="mt-4">
               {userFilter === "all" ? (
                 <p className="text-sm text-muted-foreground py-6">
-                  Select a single client to view FBA inventory at Amazon fulfillment centers.
+                  Select a single client to view FBA stock at Amazon fulfillment centers.
                 </p>
               ) : fbaLoading ? (
                 <div className="flex items-center gap-2 text-muted-foreground py-8">
@@ -492,9 +529,17 @@ export function AmazonOrdersPanel() {
             <TabsContent value="fba-inbound" className="mt-4">
               {userFilter === "all" ? (
                 <p className="text-sm text-muted-foreground py-6">
-                  Select a single client to view FBA inbound shipment plans.
+                  Select a single client to view inbound shipment plans to Amazon FCs.
                 </p>
-              ) : fbaLoading ? (
+              ) : (
+                <div className="flex justify-end mb-3">
+                  <Button size="sm" onClick={() => setInboundCreateOpen(true)} disabled={fbaLoading}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create inbound plan
+                  </Button>
+                </div>
+              )}
+              {userFilter === "all" ? null : fbaLoading ? (
                 <div className="flex items-center gap-2 text-muted-foreground py-8">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   Loading inbound plans…
@@ -502,19 +547,35 @@ export function AmazonOrdersPanel() {
               ) : fbaInbound.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-6">No inbound plans returned.</p>
               ) : (
-                <div className="space-y-2">
-                  {fbaInbound.map((plan) => (
-                    <div key={plan.inboundPlanId} className="rounded-lg border p-3 flex items-center gap-3">
-                      <Package className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-sm">{plan.name || plan.inboundPlanId}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {plan.status || "—"} · {formatWhen(plan.createdAt)}
-                        </p>
+                <>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Inbound plans are restock shipments into Amazon FCs. Creation is admin-only;
+                    clients can view synced plans here if enabled later.
+                  </p>
+                  <div className="space-y-2">
+                    {fbaInbound.map((plan) => (
+                      <div key={plan.inboundPlanId} className="rounded-lg border p-3 flex items-center gap-3">
+                        <Package className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-sm">{inboundPlanTitle(plan)}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            <Badge variant="outline" className="text-[10px] mr-1 capitalize">
+                              {plan.status || "unknown"}
+                            </Badge>
+                            {plan.sourceAddressLabel ? (
+                              <>Ship from {plan.sourceAddressLabel}</>
+                            ) : (
+                              <>Created {formatWhen(plan.createdAt)}</>
+                            )}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground/70 font-mono truncate mt-0.5" title={plan.inboundPlanId}>
+                            Plan {plan.inboundPlanId}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </>
               )}
             </TabsContent>
           </Tabs>
@@ -539,6 +600,19 @@ export function AmazonOrdersPanel() {
           return user.getIdToken();
         }}
         onCompleted={() => void fetchOrders("cache")}
+      />
+
+      <AmazonFbaInboundCreateDialog
+        open={inboundCreateOpen}
+        onOpenChange={setInboundCreateOpen}
+        clientUserId={userFilter}
+        clientLabel={selectedUser ? formatUserDisplayName(selectedUser) : undefined}
+        fbaInventory={fbaInventory}
+        getAuthToken={async () => {
+          if (!user) throw new Error("Not signed in");
+          return user.getIdToken();
+        }}
+        onCompleted={() => void fetchFba()}
       />
     </div>
   );
