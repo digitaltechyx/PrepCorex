@@ -16,6 +16,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { NavMenuCountBadge } from "@/components/ui/nav-menu-count-badge";
+import { NavMenuTruncatedLabel } from "@/components/ui/nav-menu-truncated-label";
 import {
   LayoutDashboard,
   History,
@@ -33,7 +34,7 @@ import {
   UserCheck,
   DollarSign,
   Upload,
-  FileUp,
+  Tags,
   ArrowLeftRight,
   FolderOpen,
   BarChart3,
@@ -41,6 +42,8 @@ import {
   Ship,
   ChevronLeft,
   ChevronDown,
+  ClipboardList,
+  MoreHorizontal,
   Shield,
   ShieldAlert,
   XCircle,
@@ -72,6 +75,33 @@ type LocationDoc = {
   active?: boolean;
   isDefaultInbound?: boolean;
 };
+
+/** Sentinel url — Orders parent is a dropdown, not its own page. */
+const ORDERS_MENU_ROOT = "/__orders_menu__";
+
+const ORDER_CHILD_PATHS = [
+  "/dashboard/shipped-orders",
+  "/dashboard/shopify-orders",
+  "/dashboard/ebay-orders",
+  "/dashboard/tiktok-orders",
+  "/dashboard/amazon-orders",
+  "/dashboard/shipstation-orders",
+  "/dashboard/woocommerce-orders",
+];
+
+/** Sentinel url — Labels parent is a dropdown, not its own page. */
+const LABELS_MENU_ROOT = "/__labels_menu__";
+
+const LABEL_CHILD_PATHS = ["/dashboard/buy-labels", "/dashboard/track-shipment"];
+
+/** Sentinel url — Show more parent is a dropdown, not its own page. */
+const SHOW_MORE_MENU_ROOT = "/__show_more_menu__";
+
+const SHOW_MORE_CHILD_PATHS = [
+  "/dashboard/reports",
+  "/dashboard/documents",
+  "/dashboard/integrations",
+];
 
 export function DashboardSidebar() {
   const pathname = usePathname();
@@ -144,17 +174,51 @@ export function DashboardSidebar() {
     });
   }, [allActiveLocations]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
-  const [inventoryMenuOpen, setInventoryMenuOpen] = useState(() =>
-    pathname === "/dashboard/inventory" || pathname?.startsWith("/dashboard/create-shipment-with-labels")
+  const inventoryChildPaths = [
+    "/dashboard/create-shipment-with-labels",
+    "/dashboard/product-returns",
+    "/dashboard/recycle-bin",
+    "/dashboard/quarantine",
+    "/dashboard/restock-history",
+    "/dashboard/edit-logs",
+    "/dashboard/delete-logs",
+  ];
+  const isInventoryChildPath = inventoryChildPaths.some(
+    (path) => pathname === path || pathname?.startsWith(`${path}/`)
   );
+  const isOrderChildPath = ORDER_CHILD_PATHS.some(
+    (path) => pathname === path || pathname?.startsWith(`${path}/`)
+  );
+  const isLabelChildPath = LABEL_CHILD_PATHS.some(
+    (path) => pathname === path || pathname?.startsWith(`${path}/`)
+  );
+  const isShowMoreChildPath = SHOW_MORE_CHILD_PATHS.some(
+    (path) => pathname === path || pathname?.startsWith(`${path}/`)
+  );
+  const [inventoryMenuOpen, setInventoryMenuOpen] = useState(
+    () => pathname === "/dashboard/inventory" || isInventoryChildPath
+  );
+  const [labelsMenuOpen, setLabelsMenuOpen] = useState(() => isLabelChildPath);
+  const [ordersMenuOpen, setOrdersMenuOpen] = useState(() => isOrderChildPath);
+  const [showMoreMenuOpen, setShowMoreMenuOpen] = useState(() => isShowMoreChildPath);
   useEffect(() => {
     if (
       pathname === "/dashboard/inventory" ||
       pathname?.startsWith("/dashboard/inventory/") ||
-      pathname === "/dashboard/create-shipment-with-labels" ||
-      pathname?.startsWith("/dashboard/create-shipment-with-labels/")
+      inventoryChildPaths.some(
+        (path) => pathname === path || pathname?.startsWith(`${path}/`)
+      )
     ) {
       setInventoryMenuOpen(true);
+    }
+    if (LABEL_CHILD_PATHS.some((path) => pathname === path || pathname?.startsWith(`${path}/`))) {
+      setLabelsMenuOpen(true);
+    }
+    if (ORDER_CHILD_PATHS.some((path) => pathname === path || pathname?.startsWith(`${path}/`))) {
+      setOrdersMenuOpen(true);
+    }
+    if (SHOW_MORE_CHILD_PATHS.some((path) => pathname === path || pathname?.startsWith(`${path}/`))) {
+      setShowMoreMenuOpen(true);
     }
   }, [pathname]);
   const pickDefaultFromPool = (pool: LocationDoc[]) => {
@@ -634,7 +698,102 @@ export function DashboardSidebar() {
     pathname?.startsWith("/dashboard/create-shipment-with-labels/");
   const isAddInventoryPath =
     pathname === "/dashboard/inventory" && searchParams?.get?.("action") === "add-inventory";
-  const navMenuItems = menuItems.filter((item) => item.url !== "/dashboard/create-shipment-with-labels");
+  const inventoryNestedItems = menuItems.filter((item) =>
+    [
+      "/dashboard/product-returns",
+      "/dashboard/recycle-bin",
+      "/dashboard/quarantine",
+      "/dashboard/restock-history",
+      "/dashboard/edit-logs",
+      "/dashboard/delete-logs",
+    ].includes(item.url)
+  );
+  const inventoryNestedUrls = new Set(inventoryNestedItems.map((item) => item.url));
+  const ordersNestedItems = menuItems.filter((item) => ORDER_CHILD_PATHS.includes(item.url));
+  const ordersNestedUrls = new Set(ordersNestedItems.map((item) => item.url));
+  const ordersMenuBadge = (() => {
+    const total = ordersNestedItems.reduce((sum, item) => sum + (Number(item.badge) || 0), 0);
+    return total > 0 ? total : null;
+  })();
+  const ordersMenuHref = ordersNestedItems[0]?.url ?? "/dashboard/shipped-orders";
+  const labelsNestedItems = menuItems
+    .filter((item) => LABEL_CHILD_PATHS.includes(item.url))
+    .sort((a, b) => LABEL_CHILD_PATHS.indexOf(a.url) - LABEL_CHILD_PATHS.indexOf(b.url));
+  const labelsNestedUrls = new Set(labelsNestedItems.map((item) => item.url));
+  const labelsMenuBadge = (() => {
+    const total = labelsNestedItems.reduce((sum, item) => sum + (Number(item.badge) || 0), 0);
+    return total > 0 ? total : null;
+  })();
+  const labelsMenuHref = labelsNestedItems[0]?.url ?? "/dashboard/buy-labels";
+  const showMoreNestedItems = menuItems
+    .filter((item) => SHOW_MORE_CHILD_PATHS.includes(item.url))
+    .sort(
+      (a, b) => SHOW_MORE_CHILD_PATHS.indexOf(a.url) - SHOW_MORE_CHILD_PATHS.indexOf(b.url)
+    );
+  const showMoreNestedUrls = new Set(showMoreNestedItems.map((item) => item.url));
+  const showMoreMenuBadge = (() => {
+    const total = showMoreNestedItems.reduce((sum, item) => sum + (Number(item.badge) || 0), 0);
+    return total > 0 ? total : null;
+  })();
+  const showMoreMenuHref = showMoreNestedItems[0]?.url ?? "/dashboard/reports";
+
+  const navMenuItemsBase = menuItems.filter(
+    (item) =>
+      item.url !== "/dashboard/create-shipment-with-labels" &&
+      !inventoryNestedUrls.has(item.url) &&
+      !ordersNestedUrls.has(item.url) &&
+      !labelsNestedUrls.has(item.url) &&
+      !showMoreNestedUrls.has(item.url)
+  );
+
+  const navMenuItems = (() => {
+    const byUrl = new Map(navMenuItemsBase.map((item) => [item.url, item]));
+    const ordered: (typeof navMenuItemsBase)[number][] = [];
+
+    const dashboard = byUrl.get("/dashboard");
+    if (dashboard) ordered.push(dashboard);
+
+    const inventory = byUrl.get("/dashboard/inventory");
+    if (inventory) ordered.push(inventory);
+
+    if (ordersNestedItems.length > 0) {
+      ordered.push({
+        title: "Orders",
+        url: ORDERS_MENU_ROOT,
+        icon: ClipboardList,
+        color: "text-teal-600",
+        badge: ordersMenuBadge,
+      });
+    }
+
+    if (labelsNestedItems.length > 0) {
+      ordered.push({
+        title: "Labels",
+        url: LABELS_MENU_ROOT,
+        icon: Tags,
+        color: "text-blue-600",
+        badge: labelsMenuBadge,
+      });
+    }
+
+    const invoices = byUrl.get("/dashboard/invoices");
+    if (invoices) ordered.push(invoices);
+
+    const pricing = byUrl.get("/dashboard/pricing");
+    if (pricing) ordered.push(pricing);
+
+    if (showMoreNestedItems.length > 0) {
+      ordered.push({
+        title: "Show more",
+        url: SHOW_MORE_MENU_ROOT,
+        icon: MoreHorizontal,
+        color: "text-slate-600",
+        badge: showMoreMenuBadge,
+      });
+    }
+
+    return ordered;
+  })();
 
   return (
     <Sidebar className="border-r border-border/40 bg-gradient-to-b from-background to-muted/20">
@@ -718,9 +877,10 @@ export function DashboardSidebar() {
                                 isActive ? item.color : "text-muted-foreground"
                               )}
                             />
-                            <span className={cn("min-w-0 flex-1 truncate font-medium transition-colors", isActive && "font-semibold")}>
-                              {item.title}
-                            </span>
+                            <NavMenuTruncatedLabel
+                              label={item.title}
+                              className={cn("font-medium transition-colors", isActive && "font-semibold")}
+                            />
                             {item.badge !== null && item.badge !== undefined && (
                               <NavMenuCountBadge
                                 count={item.badge}
@@ -801,11 +961,328 @@ export function DashboardSidebar() {
                   {navMenuItems.map((item) => {
                     const Icon = item.icon;
                     const isInventoryRoot = item.url === "/dashboard/inventory";
-                    const isActive = isInventoryRoot ? isInventoryPath || isOutboundPath : pathname === item.url;
+                    const isLabelsRoot = item.url === LABELS_MENU_ROOT;
+                    const isOrdersRoot = item.url === ORDERS_MENU_ROOT;
+                    const isShowMoreRoot = item.url === SHOW_MORE_MENU_ROOT;
+                    const isActive = isInventoryRoot
+                      ? isInventoryPath || isOutboundPath || isInventoryChildPath
+                      : isLabelsRoot
+                        ? isLabelChildPath
+                        : isOrdersRoot
+                          ? isOrderChildPath
+                          : isShowMoreRoot
+                            ? isShowMoreChildPath
+                            : pathname === item.url;
 
                     return (
                       <SidebarMenuItem key={item.url}>
-                        {isInventoryRoot ? (
+                        {isShowMoreRoot ? (
+                          <div className="space-y-1">
+                            <SidebarMenuButton
+                              isActive={isActive}
+                              tooltip={item.title}
+                              onClick={() => {
+                                if (isShowMoreChildPath) {
+                                  setShowMoreMenuOpen((prev) => !prev);
+                                }
+                              }}
+                              className={cn(
+                                "group relative h-11 rounded-lg transition-all duration-200",
+                                isActive
+                                  ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
+                                  : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                              )}
+                            >
+                              <Link
+                                href={showMoreMenuHref}
+                                className="flex w-full min-w-0 items-center gap-3 pr-1"
+                              >
+                                <Icon
+                                  className={cn(
+                                    "h-5 w-5 shrink-0 transition-transform group-hover:scale-110",
+                                    isActive ? item.color : "text-muted-foreground"
+                                  )}
+                                />
+                                <NavMenuTruncatedLabel
+                                  label={item.title}
+                                  className={cn(
+                                    "font-medium transition-colors",
+                                    isActive && "font-semibold"
+                                  )}
+                                />
+                                {item.badge !== null && item.badge !== undefined && (
+                                  <NavMenuCountBadge
+                                    count={item.badge}
+                                    className={cn(
+                                      "bg-primary text-primary-foreground shadow-sm",
+                                      isActive && "bg-primary/90"
+                                    )}
+                                  />
+                                )}
+                                <ChevronDown
+                                  className={cn(
+                                    "h-4 w-4 shrink-0 transition-transform",
+                                    showMoreMenuOpen && "rotate-180"
+                                  )}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setShowMoreMenuOpen((prev) => !prev);
+                                  }}
+                                />
+                              </Link>
+                            </SidebarMenuButton>
+                            {showMoreMenuOpen && (
+                              <div className="ml-6 space-y-1 border-l border-border/50 pl-3">
+                                {showMoreNestedItems.map((nestedItem) => {
+                                  const NestedIcon = nestedItem.icon;
+                                  const isNestedActive =
+                                    pathname === nestedItem.url ||
+                                    pathname?.startsWith(`${nestedItem.url}/`);
+                                  return (
+                                    <SidebarMenuButton
+                                      key={nestedItem.url}
+                                      asChild
+                                      isActive={isNestedActive}
+                                      className={cn(
+                                        "h-9 rounded-md text-sm",
+                                        isNestedActive
+                                          ? "bg-primary/10 text-primary"
+                                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                                      )}
+                                    >
+                                      <Link
+                                        href={nestedItem.url}
+                                        className="flex w-full min-w-0 items-center gap-2 pr-1"
+                                      >
+                                        <NestedIcon
+                                          className={cn(
+                                            "h-4 w-4 shrink-0",
+                                            isNestedActive
+                                              ? nestedItem.color
+                                              : "text-muted-foreground"
+                                          )}
+                                        />
+                                        <NavMenuTruncatedLabel label={nestedItem.title} />
+                                        {nestedItem.badge !== null &&
+                                          nestedItem.badge !== undefined && (
+                                            <NavMenuCountBadge
+                                              count={nestedItem.badge}
+                                              className="bg-primary text-primary-foreground shadow-sm"
+                                            />
+                                          )}
+                                      </Link>
+                                    </SidebarMenuButton>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        ) : isLabelsRoot ? (
+                          <div className="space-y-1">
+                            <SidebarMenuButton
+                              isActive={isActive}
+                              tooltip={item.title}
+                              onClick={() => {
+                                if (isLabelChildPath) {
+                                  setLabelsMenuOpen((prev) => !prev);
+                                }
+                              }}
+                              className={cn(
+                                "group relative h-11 rounded-lg transition-all duration-200",
+                                isActive
+                                  ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
+                                  : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                              )}
+                            >
+                              <Link
+                                href={labelsMenuHref}
+                                className="flex w-full min-w-0 items-center gap-3 pr-1"
+                              >
+                                <Icon
+                                  className={cn(
+                                    "h-5 w-5 shrink-0 transition-transform group-hover:scale-110",
+                                    isActive ? item.color : "text-muted-foreground"
+                                  )}
+                                />
+                                <NavMenuTruncatedLabel
+                                  label={item.title}
+                                  className={cn(
+                                    "font-medium transition-colors",
+                                    isActive && "font-semibold"
+                                  )}
+                                />
+                                {item.badge !== null && item.badge !== undefined && (
+                                  <NavMenuCountBadge
+                                    count={item.badge}
+                                    className={cn(
+                                      "bg-primary text-primary-foreground shadow-sm",
+                                      isActive && "bg-primary/90"
+                                    )}
+                                  />
+                                )}
+                                <ChevronDown
+                                  className={cn(
+                                    "h-4 w-4 shrink-0 transition-transform",
+                                    labelsMenuOpen && "rotate-180"
+                                  )}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setLabelsMenuOpen((prev) => !prev);
+                                  }}
+                                />
+                              </Link>
+                            </SidebarMenuButton>
+                            {labelsMenuOpen && (
+                              <div className="ml-6 space-y-1 border-l border-border/50 pl-3">
+                                {labelsNestedItems.map((nestedItem) => {
+                                  const NestedIcon = nestedItem.icon;
+                                  const isNestedActive =
+                                    pathname === nestedItem.url ||
+                                    pathname?.startsWith(`${nestedItem.url}/`);
+                                  return (
+                                    <SidebarMenuButton
+                                      key={nestedItem.url}
+                                      asChild
+                                      isActive={isNestedActive}
+                                      className={cn(
+                                        "h-9 rounded-md text-sm",
+                                        isNestedActive
+                                          ? "bg-primary/10 text-primary"
+                                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                                      )}
+                                    >
+                                      <Link
+                                        href={nestedItem.url}
+                                        className="flex w-full min-w-0 items-center gap-2 pr-1"
+                                      >
+                                        <NestedIcon
+                                          className={cn(
+                                            "h-4 w-4 shrink-0",
+                                            isNestedActive
+                                              ? nestedItem.color
+                                              : "text-muted-foreground"
+                                          )}
+                                        />
+                                        <NavMenuTruncatedLabel label={nestedItem.title} />
+                                        {nestedItem.badge !== null &&
+                                          nestedItem.badge !== undefined && (
+                                            <NavMenuCountBadge
+                                              count={nestedItem.badge}
+                                              className="bg-primary text-primary-foreground shadow-sm"
+                                            />
+                                          )}
+                                      </Link>
+                                    </SidebarMenuButton>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        ) : isOrdersRoot ? (
+                          <div className="space-y-1">
+                            <SidebarMenuButton
+                              isActive={isActive}
+                              tooltip={item.title}
+                              onClick={() => {
+                                if (isOrderChildPath) {
+                                  setOrdersMenuOpen((prev) => !prev);
+                                }
+                              }}
+                              className={cn(
+                                "group relative h-11 rounded-lg transition-all duration-200",
+                                isActive
+                                  ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
+                                  : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                              )}
+                            >
+                              <Link
+                                href={ordersMenuHref}
+                                className="flex w-full min-w-0 items-center gap-3 pr-1"
+                              >
+                                <Icon
+                                  className={cn(
+                                    "h-5 w-5 shrink-0 transition-transform group-hover:scale-110",
+                                    isActive ? item.color : "text-muted-foreground"
+                                  )}
+                                />
+                                <NavMenuTruncatedLabel
+                                  label={item.title}
+                                  className={cn(
+                                    "font-medium transition-colors",
+                                    isActive && "font-semibold"
+                                  )}
+                                />
+                                {item.badge !== null && item.badge !== undefined && (
+                                  <NavMenuCountBadge
+                                    count={item.badge}
+                                    className={cn(
+                                      "bg-primary text-primary-foreground shadow-sm",
+                                      isActive && "bg-primary/90"
+                                    )}
+                                  />
+                                )}
+                                <ChevronDown
+                                  className={cn(
+                                    "h-4 w-4 shrink-0 transition-transform",
+                                    ordersMenuOpen && "rotate-180"
+                                  )}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setOrdersMenuOpen((prev) => !prev);
+                                  }}
+                                />
+                              </Link>
+                            </SidebarMenuButton>
+                            {ordersMenuOpen && (
+                              <div className="ml-6 space-y-1 border-l border-border/50 pl-3">
+                                {ordersNestedItems.map((nestedItem) => {
+                                  const NestedIcon = nestedItem.icon;
+                                  const isNestedActive =
+                                    pathname === nestedItem.url ||
+                                    pathname?.startsWith(`${nestedItem.url}/`);
+                                  return (
+                                    <SidebarMenuButton
+                                      key={nestedItem.url}
+                                      asChild
+                                      isActive={isNestedActive}
+                                      className={cn(
+                                        "h-9 rounded-md text-sm",
+                                        isNestedActive
+                                          ? "bg-primary/10 text-primary"
+                                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                                      )}
+                                    >
+                                      <Link
+                                        href={nestedItem.url}
+                                        className="flex w-full min-w-0 items-center gap-2 pr-1"
+                                      >
+                                        <NestedIcon
+                                          className={cn(
+                                            "h-4 w-4 shrink-0",
+                                            isNestedActive
+                                              ? nestedItem.color
+                                              : "text-muted-foreground"
+                                          )}
+                                        />
+                                        <NavMenuTruncatedLabel label={nestedItem.title} />
+                                        {nestedItem.badge !== null &&
+                                          nestedItem.badge !== undefined && (
+                                            <NavMenuCountBadge
+                                              count={nestedItem.badge}
+                                              className="bg-primary text-primary-foreground shadow-sm"
+                                            />
+                                          )}
+                                      </Link>
+                                    </SidebarMenuButton>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        ) : isInventoryRoot ? (
                           <div className="space-y-1">
                             <SidebarMenuButton
                               isActive={isActive}
@@ -829,9 +1306,10 @@ export function DashboardSidebar() {
                                     isActive ? item.color : "text-muted-foreground"
                                   )}
                                 />
-                                <span className={cn("min-w-0 flex-1 truncate font-medium transition-colors", isActive && "font-semibold")}>
-                                  {item.title}
-                                </span>
+                                <NavMenuTruncatedLabel
+                                  label={item.title}
+                                  className={cn("font-medium transition-colors", isActive && "font-semibold")}
+                                />
                                 {item.badge !== null && item.badge !== undefined && (
                                   <NavMenuCountBadge
                                     count={item.badge}
@@ -870,7 +1348,7 @@ export function DashboardSidebar() {
                                     href="/dashboard/inventory?action=add-inventory"
                                     className="flex w-full min-w-0 items-center gap-2 pr-1"
                                   >
-                                    <span className="min-w-0 flex-1 truncate">Inbound Shipment</span>
+                                    <NavMenuTruncatedLabel label="Inbound Shipment" />
                                     {pendingInboundCount > 0 && (
                                       <NavMenuCountBadge count={pendingInboundCount} className="bg-primary text-primary-foreground shadow-sm" />
                                     )}
@@ -890,12 +1368,44 @@ export function DashboardSidebar() {
                                     href="/dashboard/create-shipment-with-labels"
                                     className="flex w-full min-w-0 items-center gap-2 pr-1"
                                   >
-                                    <span className="min-w-0 flex-1 truncate">Outbound Shipment</span>
+                                    <NavMenuTruncatedLabel label="Outbound Shipment" />
                                     {pendingOutboundCount > 0 && (
                                       <NavMenuCountBadge count={pendingOutboundCount} className="bg-primary text-primary-foreground shadow-sm" />
                                     )}
                                   </Link>
                                 </SidebarMenuButton>
+                                {inventoryNestedItems.map((nestedItem) => {
+                                  const isNestedActive =
+                                    pathname === nestedItem.url ||
+                                    pathname?.startsWith(`${nestedItem.url}/`);
+                                  return (
+                                    <SidebarMenuButton
+                                      key={nestedItem.url}
+                                      asChild
+                                      isActive={isNestedActive}
+                                      className={cn(
+                                        "h-9 rounded-md text-sm",
+                                        isNestedActive
+                                          ? "bg-primary/10 text-primary"
+                                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                                      )}
+                                    >
+                                      <Link
+                                        href={nestedItem.url}
+                                        className="flex w-full min-w-0 items-center gap-2 pr-1"
+                                      >
+                                        <NavMenuTruncatedLabel label={nestedItem.title} />
+                                        {nestedItem.badge !== null &&
+                                          nestedItem.badge !== undefined && (
+                                            <NavMenuCountBadge
+                                              count={nestedItem.badge}
+                                              className="bg-primary text-primary-foreground shadow-sm"
+                                            />
+                                          )}
+                                      </Link>
+                                    </SidebarMenuButton>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -918,14 +1428,13 @@ export function DashboardSidebar() {
                                   isActive ? item.color : "text-muted-foreground"
                                 )}
                               />
-                              <span
+                              <NavMenuTruncatedLabel
+                                label={item.title}
                                 className={cn(
-                                  "min-w-0 flex-1 truncate font-medium transition-colors",
+                                  "font-medium transition-colors",
                                   isActive && "font-semibold"
                                 )}
-                              >
-                                {item.title}
-                              </span>
+                              />
                               {item.badge !== null && item.badge !== undefined && (
                                 <NavMenuCountBadge
                                   count={item.badge}
@@ -978,11 +1487,10 @@ export function DashboardSidebar() {
                                   isActive ? item.color : "text-muted-foreground"
                                 )}
                               />
-                              <span
-                                className={cn("min-w-0 flex-1 truncate font-medium transition-colors", isActive && "font-semibold")}
-                              >
-                                {item.title}
-                              </span>
+                              <NavMenuTruncatedLabel
+                                label={item.title}
+                                className={cn("font-medium transition-colors", isActive && "font-semibold")}
+                              />
                               {item.badge !== null && item.badge !== undefined && (
                                 <NavMenuCountBadge
                                   count={item.badge}

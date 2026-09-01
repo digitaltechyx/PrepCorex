@@ -203,6 +203,16 @@ const parseDateOnlyLocal = (value?: string): Date | null => {
   return Number.isFinite(date.getTime()) ? date : null;
 };
 
+const formatDateOnlyDisplay = (
+  value?: string,
+  options: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric" }
+): string | undefined => {
+  if (!value) return undefined;
+  const localDate = parseDateOnlyLocal(String(value).trim());
+  if (!localDate) return undefined;
+  return localDate.toLocaleDateString("en-US", options);
+};
+
 const TZ_NEW_JERSEY = "America/New_York";
 
 const getTodayDateInputInNJ = (): string => {
@@ -260,6 +270,10 @@ const createEmptyInvoiceForm = (): Omit<ExternalInvoice, "id"> => {
 const formatDate = (value?: any) => {
   if (!value) return "—";
   try {
+    if (typeof value === "string") {
+      const dateOnly = formatDateOnlyDisplay(value, {});
+      if (dateOnly) return dateOnly;
+    }
     const date = typeof value === "string" ? new Date(value) : value?.toDate?.() || new Date(value);
     if (Number.isNaN(date.getTime())) return "—";
     return date.toLocaleDateString();
@@ -689,6 +703,8 @@ export function InvoiceManagementPortal() {
 
   const buildInvoicePdfData = (invoice: ExternalInvoice) => {
     const formatDateForPdf = (dateStr?: string) => {
+      const formatted = formatDateOnlyDisplay(dateStr);
+      if (formatted) return formatted;
       if (!dateStr) return undefined;
       try {
         const date = new Date(dateStr);
@@ -1815,6 +1831,22 @@ Prep Services FBA Team`;
     }
   };
 
+  const openMarkPaidDialog = (invoice: ExternalInvoice) => {
+    const outstanding = Math.max(
+      0,
+      Number((getGrandTotalWithLateFee(invoice) - Number(invoice.amountPaid ?? 0)).toFixed(2))
+    );
+    setPaidInvoice(invoice);
+    setPaidForm({
+      paymentDate: new Date().toISOString().slice(0, 10),
+      amountPaid: outstanding > 0 ? String(outstanding) : "",
+      method: "Zelle",
+      reference: "",
+      notes: "",
+    });
+    setPaidDialogOpen(true);
+  };
+
   const applyPartialPayment = async () => {
     if (!partialInvoice) return;
     const amount = toNumber(partialAmount);
@@ -1883,6 +1915,7 @@ Prep Services FBA Team`;
     }
     setSaving(true);
     try {
+      const wasDraft = paidInvoice.status === "draft";
       const currentPaid = Number(paidInvoice.amountPaid ?? 0);
       const invoiceTotal = getGrandTotalWithLateFee(paidInvoice);
       const updatedPaid = Number((currentPaid + amount).toFixed(2));
@@ -1917,6 +1950,9 @@ Prep Services FBA Team`;
       });
 
       toast({ title: "Payment recorded." });
+      if (newStatus === "paid" && wasDraft) {
+        setActiveTab("paid");
+      }
       setPaidDialogOpen(false);
       setPaidInvoice(null);
       setPaidForm({
@@ -2303,8 +2339,7 @@ Prep Services FBA Team`;
                       title="Paid"
                       disabled={paymentsDisabled}
                       onClick={() => {
-                        setPaidInvoice(invoice);
-                        setPaidDialogOpen(true);
+                        openMarkPaidDialog(invoice);
                       }}
                     >
                       <CheckCircle className="h-4 w-4" />
@@ -2396,8 +2431,7 @@ Prep Services FBA Team`;
                       title="Paid"
                       disabled={paymentsDisabled}
                       onClick={() => {
-                        setPaidInvoice(invoice);
-                        setPaidDialogOpen(true);
+                        openMarkPaidDialog(invoice);
                       }}
                     >
                       <CheckCircle className="h-4 w-4" />
@@ -3169,6 +3203,14 @@ Prep Services FBA Team`;
                             </Button>
                             <Button variant="outline" size="sm" onClick={() => openEmailDialog(invoice)}>
                               Send
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-green-300 text-green-700 hover:bg-green-50 dark:border-green-800 dark:text-green-300 dark:hover:bg-green-950/30"
+                              onClick={() => openMarkPaidDialog(invoice)}
+                            >
+                              Paid
                             </Button>
                             <Button variant="destructive" size="sm" onClick={() => handleDeleteInvoice(invoice)}>
                               Delete
