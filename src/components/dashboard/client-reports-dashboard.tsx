@@ -68,6 +68,13 @@ const prepValueChartConfig = {
   market: { label: "Typical 3PL", color: "hsl(262 60% 78%)" },
 } satisfies ChartConfig;
 
+const prepBenchmarkChartConfig = {
+  fba: { label: "FBA prep", color: "hsl(262 83% 58%)" },
+  fbm: { label: "FBM pick/pack", color: "hsl(221 83% 53%)" },
+  crossdock: { label: "Cross-dock", color: "hsl(38 92% 50%)" },
+  returns: { label: "Returns handling", color: "hsl(24 95% 53%)" },
+} satisfies ChartConfig;
+
 type ValueBarRow = { name: string; amount: number; fill: string; key: string };
 
 function ValueComparisonBarChart({
@@ -292,28 +299,81 @@ export function ClientReportsDashboard() {
     ]);
   }, [summary]);
 
-  const prepChartData = useMemo(() => {
+  const prepSummaryChartData = useMemo(() => {
     if (!summary) return [];
     const p = summary.savings.prep;
-    const rows = [
-      { name: "Your PrepCorex rate", amount: p.paidTotal },
-      { name: "Typical 3PL (est.)", amount: p.estimatedMarket },
-    ];
+    return [
+      {
+        key: "paid",
+        name: "Your PrepCorex rate",
+        amount: p.paidTotal,
+        fill: prepValueChartConfig.paid.color,
+      },
+      {
+        key: "market",
+        name: "Typical 3PL (est.)",
+        amount: p.estimatedMarket,
+        fill: prepValueChartConfig.market.color,
+      },
+      {
+        key: "save",
+        name: "Your est. save",
+        amount: p.savedOnPrep,
+        fill: prepValueChartConfig.save.color,
+      },
+    ] satisfies ValueBarRow[];
+  }, [summary]);
+
+  const prepBenchmarkChartData = useMemo(() => {
+    if (!summary) return [];
+    const p = summary.savings.prep;
+    const rows: ValueBarRow[] = [];
     if (p.fbaUnitCount > 0) {
-      rows.push({ name: "Typical FBA (est.)", amount: p.estimatedFba });
+      rows.push({
+        key: "fba",
+        name: "Typical FBA (est.)",
+        amount: p.estimatedFba,
+        fill: prepBenchmarkChartConfig.fba.color,
+      });
     }
     if (p.fbmUnitCount > 0) {
-      rows.push({ name: "Typical FBM (est.)", amount: p.estimatedFbm });
+      rows.push({
+        key: "fbm",
+        name: "Typical FBM (est.)",
+        amount: p.estimatedFbm,
+        fill: prepBenchmarkChartConfig.fbm.color,
+      });
     }
     if (p.crossdockUnitCount > 0) {
-      rows.push({ name: "Typical cross-dock (est.)", amount: p.estimatedCrossdock });
+      rows.push({
+        key: "crossdock",
+        name: "Typical cross-dock (est.)",
+        amount: p.estimatedCrossdock,
+        fill: prepBenchmarkChartConfig.crossdock.color,
+      });
     }
     if (p.returnsUnitCount > 0) {
-      rows.push({ name: "Typical returns (est.)", amount: p.estimatedReturns });
+      rows.push({
+        key: "returns",
+        name: "Typical returns (est.)",
+        amount: p.estimatedReturns,
+        fill: prepBenchmarkChartConfig.returns.color,
+      });
     }
-    rows.push({ name: "Your est. save", amount: p.savedOnPrep });
-    return withRankedBarFills(rows);
+    return rows;
   }, [summary]);
+
+  const prepSummaryMarketTotal = useMemo(() => {
+    if (!summary) return 0;
+    return summary.savings.prep.estimatedMarket;
+  }, [summary]);
+
+  const prepBenchmarkMarketTotal = useMemo(() => {
+    if (prepBenchmarkChartData.length === 0) return 0;
+    return Math.round(
+      prepBenchmarkChartData.reduce((sum, row) => sum + row.amount, 0) * 100
+    ) / 100;
+  }, [prepBenchmarkChartData]);
 
   const valueOverview = useMemo(() => {
     if (!summary) return null;
@@ -724,6 +784,59 @@ export function ClientReportsDashboard() {
           </TabsContent>
 
           <TabsContent value="savings" className="space-y-4">
+            {summary.savings.prep.unitCount > 0 || summary.savings.prep.paidTotal > 0 ? (
+              <div
+                className={
+                  prepBenchmarkChartData.length > 0
+                    ? "grid gap-4 lg:grid-cols-2"
+                    : "grid gap-4"
+                }
+              >
+                <Card className="border-violet-200/80 bg-violet-50/30 shadow-sm dark:border-violet-900 dark:bg-violet-950/15">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Scissors className="h-4 w-4 text-violet-600" />
+                      Your prep cost vs typical 3PL
+                    </CardTitle>
+                    <CardDescription>
+                      Your estimated PrepCorex total, typical 3PL market pricing for the same
+                      units, and your estimated savings. Uses your {summary.savings.prep.profileLabel}{" "}
+                      pricing profile.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ValueComparisonBarChart
+                      data={prepSummaryChartData}
+                      config={prepValueChartConfig}
+                      marketTotal={prepSummaryMarketTotal}
+                    />
+                  </CardContent>
+                </Card>
+
+                {prepBenchmarkChartData.length > 0 ? (
+                  <Card className="border-slate-200 bg-slate-50/40 shadow-sm dark:border-slate-800 dark:bg-slate-950/20">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Package className="h-4 w-4 text-slate-600 dark:text-slate-300" />
+                        Typical 3PL benchmark by service
+                      </CardTitle>
+                      <CardDescription>
+                        Estimated market cost for each prep service type in this period, based on
+                        the same unit volumes and admin benchmark rates.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ValueComparisonBarChart
+                        data={prepBenchmarkChartData}
+                        config={prepBenchmarkChartConfig}
+                        marketTotal={prepBenchmarkMarketTotal}
+                      />
+                    </CardContent>
+                  </Card>
+                ) : null}
+              </div>
+            ) : null}
+
             <Card className="border-violet-200 bg-violet-50/40 dark:border-violet-900 dark:bg-violet-950/20">
               <CardHeader>
                 <CardTitle className="text-base">Estimated savings vs typical 3PL prep rates</CardTitle>
@@ -797,17 +910,20 @@ export function ClientReportsDashboard() {
               </div>
             ) : null}
 
-            {summary.savings.prep.unitCount > 0 || summary.savings.prep.paidTotal > 0 ? (
-              <Card>
+            {summary.savings.labelCount > 0 ? (
+              <Card className="border-emerald-200/80 bg-emerald-50/30 shadow-sm dark:border-emerald-900 dark:bg-emerald-950/15">
                 <CardHeader>
-                  <CardTitle className="text-base">Your rate vs typical 3PL prep totals</CardTitle>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Truck className="h-4 w-4 text-emerald-600" />
+                    Paid vs estimated courier totals
+                  </CardTitle>
                   <CardDescription>
-                    Green is lower cost. Your PrepCorex estimate uses your {summary.savings.prep.profileLabel}{" "}
-                    profile rates; typical 3PL uses admin market benchmarks on the same units.
+                    What you paid compared with estimated USPS, UPS, and FedEx totals for the same
+                    labels. Lowest total is green, highest is red.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <RankedAmountBarChart data={prepChartData} />
+                  <RankedAmountBarChart data={savingsChartData} />
                 </CardContent>
               </Card>
             ) : null}
@@ -880,20 +996,6 @@ export function ClientReportsDashboard() {
                       ))}
                     </TableBody>
                   </Table>
-                </CardContent>
-              </Card>
-            ) : null}
-
-            {summary.savings.labelCount > 0 ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Paid vs estimated courier totals</CardTitle>
-                  <CardDescription>
-                    Lowest total is green, highest is red.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <RankedAmountBarChart data={savingsChartData} />
                 </CardContent>
               </Card>
             ) : null}
