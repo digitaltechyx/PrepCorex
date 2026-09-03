@@ -39,7 +39,7 @@ firebase functions:config:get
 If missing, set (replace URL and secret):
 
 ```powershell
-firebase functions:config:set app.url="https://dev.prepservicesfba.com" cron.secret="YOUR_CRON_SECRET"
+firebase functions:config:set app.url="https://prepcorex.com" cron.secret="YOUR_CRON_SECRET"
 ```
 
 ## 3. Deploy outbound cron functions
@@ -69,7 +69,7 @@ This deploys/updates:
 **Refresh cron:**
 
 ```powershell
-curl.exe -X POST "https://dev.prepservicesfba.com/api/outbound-tracking/cron?secret=YOUR_CRON_SECRET"
+curl.exe -X POST "https://prepcorex.com/api/outbound-tracking/cron?secret=YOUR_CRON_SECRET"
 ```
 
 Expected: `{"success":true,"refreshed":0}` (or higher if open trackings exist).
@@ -77,7 +77,7 @@ Expected: `{"success":true,"refreshed":0}` (or higher if open trackings exist).
 **Digest cron (manual test — sends email if there are items to report):**
 
 ```powershell
-curl.exe -X POST "https://dev.prepservicesfba.com/api/outbound-tracking/digest?secret=YOUR_CRON_SECRET"
+curl.exe -X POST "https://prepcorex.com/api/outbound-tracking/digest?secret=YOUR_CRON_SECRET"
 ```
 
 Expected: `{"success":true,"refreshed":0,"firstChanges":0,"stale":0,"emailSent":false}`

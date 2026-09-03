@@ -11,7 +11,7 @@ function readCronConfig() {
     /* no runtime config */
   }
   const baseUrl =
-    process.env.APP_URL || configAppUrl || "https://dev.prepservicesfba.com";
+    process.env.APP_URL || configAppUrl || "https://prepcorex.com";
   const secret =
     process.env.CRON_SECRET ||
     process.env.INBOUND_TRACKING_CRON_SECRET ||
