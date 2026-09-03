@@ -165,6 +165,15 @@ export async function refreshOutboundTrackerEntry(id: string): Promise<OutboundT
   return updated;
 }
 
+export async function deleteOutboundTrackerEntry(id: string): Promise<boolean> {
+  const db = getAdminDb();
+  const ref = db.collection(OUTBOUND_TRACKING_COLLECTION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return false;
+  await ref.delete();
+  return true;
+}
+
 export async function refreshOpenOutboundTrackerEntries(limit = 200): Promise<number> {
   const db = getAdminDb();
   const snap = await db

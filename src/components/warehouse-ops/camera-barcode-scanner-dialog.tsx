@@ -64,30 +64,47 @@ export function CameraBarcodeScannerDialog({
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
       const formatsToSupport = [
         Html5QrcodeSupportedFormats.QR_CODE,
+        Html5QrcodeSupportedFormats.DATA_MATRIX,
+        Html5QrcodeSupportedFormats.PDF_417,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.CODE_93,
+        Html5QrcodeSupportedFormats.CODABAR,
+        Html5QrcodeSupportedFormats.ITF,
         Html5QrcodeSupportedFormats.EAN_13,
         Html5QrcodeSupportedFormats.EAN_8,
         Html5QrcodeSupportedFormats.UPC_A,
         Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.CODE_93,
-        Html5QrcodeSupportedFormats.ITF,
+        Html5QrcodeSupportedFormats.RSS_14,
       ];
 
-      const scanner = new Html5Qrcode(regionId, { verbose: false });
-      scannerRef.current = scanner;
+      const scanner = new Html5Qrcode(regionId, {
+        verbose: false,
+        formatsToSupport,
+        useBarCodeDetectorIfSupported: true,
+      });
 
       await scanner.start(
         { facingMode },
         {
-          fps: 12,
+          fps: 15,
+          // Wide, shallow scan region — 1D shipping barcodes read better than square QR boxes.
           qrbox: (viewfinderWidth, viewfinderHeight) => ({
-            width: Math.floor(viewfinderWidth * 0.92),
-            height: Math.floor(Math.min(viewfinderHeight * 0.38, 180)),
+            width: Math.floor(viewfinderWidth * 0.95),
+            height: Math.floor(Math.min(viewfinderHeight * 0.28, 160)),
           }),
           aspectRatio: 1.777,
-          formatsToSupport,
           disableFlip: false,
+          videoConstraints: {
+            facingMode: { ideal: facingMode },
+            width: { min: 640, ideal: 1280 },
+            height: { min: 480, ideal: 720 },
+            // @ts-expect-error focusMode is supported on mobile Chrome/Safari
+            focusMode: { ideal: "continuous" },
+          },
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true,
+          },
         },
         (decodedText) => {
           const text = decodedText.trim();
@@ -112,6 +129,7 @@ export function CameraBarcodeScannerDialog({
           // per-frame miss — expected while aiming
         }
       );
+      scannerRef.current = scanner;
       setStatus("scanning");
     } catch (e) {
       setStatus("error");
@@ -180,7 +198,7 @@ export function CameraBarcodeScannerDialog({
           {status === "scanning" ? (
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3">
               <p className="text-xs text-white/90 text-center">
-                Align barcode inside the box — scan is automatic
+                Hold the label barcode flat inside the wide box — scan is automatic
               </p>
             </div>
           ) : null}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireFullAdmin } from "@/lib/api-admin-auth";
 import {
   addOutboundTrackerEntry,
+  deleteOutboundTrackerEntry,
   listOutboundTrackerEntries,
   refreshOutboundTrackerEntry,
 } from "@/lib/outbound-tracking-service";
@@ -85,6 +86,31 @@ export async function PATCH(request: NextRequest) {
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Failed to refresh tracking." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const auth = await requireFullAdmin(request);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const id = String(request.nextUrl.searchParams.get("id") || "").trim();
+  if (!id) {
+    return NextResponse.json({ error: "id is required." }, { status: 400 });
+  }
+
+  try {
+    const deleted = await deleteOutboundTrackerEntry(id);
+    if (!deleted) {
+      return NextResponse.json({ error: "Tracking not found." }, { status: 404 });
+    }
+    return NextResponse.json({ success: true });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Failed to delete tracking." },
       { status: 500 }
     );
   }

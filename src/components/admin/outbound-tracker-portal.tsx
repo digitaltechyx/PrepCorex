@@ -17,6 +17,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -34,6 +44,7 @@ import {
   Truck,
   CheckCircle2,
   Clock,
+  Trash2,
 } from "lucide-react";
 
 const BADGE_CLASS = {
@@ -62,6 +73,8 @@ export function OutboundTrackerPortal() {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<OutboundTrackerEntry | null>(null);
   const [manualTracking, setManualTracking] = useState("");
 
   const isAdmin = hasRole(userProfile, "admin");
@@ -171,6 +184,35 @@ export function OutboundTrackerPortal() {
         });
       } finally {
         setRefreshingId(null);
+      }
+    },
+    [authHeaders, toast]
+  );
+
+  const deleteOne = useCallback(
+    async (entry: OutboundTrackerEntry) => {
+      setDeletingId(entry.id);
+      try {
+        const headers = await authHeaders();
+        const res = await fetch(`/api/outbound-tracking?id=${encodeURIComponent(entry.id)}`, {
+          method: "DELETE",
+          headers,
+        });
+        if (!res.ok) throw new Error(await readApiError(res, "Delete failed."));
+        setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+        toast({
+          title: "Tracking removed",
+          description: entry.trackingNumber,
+        });
+      } catch (e) {
+        toast({
+          variant: "destructive",
+          title: "Delete failed",
+          description: e instanceof Error ? e.message : "Could not delete tracking.",
+        });
+      } finally {
+        setDeletingId(null);
+        setDeleteTarget(null);
       }
     },
     [authHeaders, toast]
@@ -298,7 +340,7 @@ export function OutboundTrackerPortal() {
                   <TableHead>Scanned</TableHead>
                   <TableHead>Last checked</TableHead>
                   <TableHead>Added by</TableHead>
-                  <TableHead className="w-[80px]" />
+                  <TableHead className="w-[96px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -333,22 +375,39 @@ export function OutboundTrackerPortal() {
                         {entry.addedByName || "—"}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          disabled={entry.isClosed || refreshingId === entry.id}
-                          onClick={() => void refreshOne(entry.id)}
-                          title="Refresh status"
-                        >
-                          <RefreshCw
-                            className={cn(
-                              "h-4 w-4",
-                              refreshingId === entry.id && "animate-spin"
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={entry.isClosed || refreshingId === entry.id || deletingId === entry.id}
+                            onClick={() => void refreshOne(entry.id)}
+                            title="Refresh status"
+                          >
+                            <RefreshCw
+                              className={cn(
+                                "h-4 w-4",
+                                refreshingId === entry.id && "animate-spin"
+                              )}
+                            />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            disabled={deletingId === entry.id}
+                            onClick={() => setDeleteTarget(entry)}
+                            title="Remove tracking"
+                          >
+                            {deletingId === entry.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
                             )}
-                          />
-                        </Button>
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -358,6 +417,32 @@ export function OutboundTrackerPortal() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove tracking?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove{" "}
+              <span className="font-mono font-medium">{deleteTarget?.trackingNumber}</span> from
+              Outbound Tracker? This stops polling and removes it from the daily digest.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!deletingId}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!!deletingId}
+              onClick={(e) => {
+                e.preventDefault();
+                if (deleteTarget) void deleteOne(deleteTarget);
+              }}
+            >
+              {deletingId ? "Removing…" : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
