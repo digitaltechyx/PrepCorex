@@ -21,6 +21,10 @@ function entryFromFirestore(id: string, raw: FirebaseFirestore.DocumentData): Ou
     trackingNumber: String(raw.trackingNumber || ""),
     carrier: raw.carrier != null ? String(raw.carrier) : null,
     addedAt: raw.addedAt as OutboundTrackerEntry["addedAt"],
+    addedVia:
+      raw.addedVia === "scan" || raw.addedVia === "manual"
+        ? raw.addedVia
+        : "manual",
     addedBy: raw.addedBy != null ? String(raw.addedBy) : null,
     addedByName: raw.addedByName != null ? String(raw.addedByName) : null,
     baselineStatus: raw.baselineStatus != null ? String(raw.baselineStatus) : null,
@@ -115,6 +119,7 @@ export async function addOutboundTrackerEntry(input: {
   carrier?: string | null;
   addedBy: string;
   addedByName?: string | null;
+  addedVia?: "scan" | "manual";
 }): Promise<OutboundTrackerEntry> {
   const tn = normalizeTrackingNumber(input.trackingNumber);
   if (!tn) throw new Error("Tracking number is required.");
@@ -136,6 +141,7 @@ export async function addOutboundTrackerEntry(input: {
     trackingNumber: tn,
     carrier,
     addedAt: now,
+    addedVia: input.addedVia === "scan" ? "scan" : "manual",
     addedBy: input.addedBy,
     addedByName: input.addedByName ?? null,
     isDelivered: false,

@@ -8,6 +8,8 @@ import type { OutboundTrackerEntry } from "@/types";
 import {
   formatOutboundTrackerDate,
   normalizeTrackingNumber,
+  outboundTrackerAddedDate,
+  outboundTrackerAddedViaLabel,
   statusBadgeVariant,
 } from "@/lib/outbound-tracking";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
@@ -127,7 +129,7 @@ export function OutboundTrackerPortal() {
   }, [entries]);
 
   const addTracking = useCallback(
-    async (raw: string) => {
+    async (raw: string, addedVia: "scan" | "manual" = "manual") => {
       const trackingNumber = normalizeTrackingNumber(raw);
       if (!trackingNumber) {
         toast({ variant: "destructive", title: "Enter a tracking number." });
@@ -140,7 +142,7 @@ export function OutboundTrackerPortal() {
         const res = await fetch("/api/outbound-tracking", {
           method: "POST",
           headers,
-          body: JSON.stringify({ trackingNumber, carrier }),
+          body: JSON.stringify({ trackingNumber, carrier, addedVia }),
         });
         if (!res.ok) throw new Error(await readApiError(res, "Failed to add tracking."));
         const data = (await res.json()) as { entry: OutboundTrackerEntry };
@@ -282,7 +284,7 @@ export function OutboundTrackerPortal() {
             className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
             onSubmit={(e) => {
               e.preventDefault();
-              void addTracking(manualTracking);
+              void addTracking(manualTracking, "manual");
             }}
           >
             <Input
@@ -298,7 +300,7 @@ export function OutboundTrackerPortal() {
                 Add
               </Button>
               <ScanCameraButton
-                onScan={(text) => void addTracking(text)}
+                onScan={(text) => void addTracking(text, "scan")}
                 showLabel
                 label="Scan"
                 disabled={adding}
@@ -337,7 +339,7 @@ export function OutboundTrackerPortal() {
                   <TableHead>Tracking</TableHead>
                   <TableHead>Carrier</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Scanned</TableHead>
+                  <TableHead>Added</TableHead>
                   <TableHead>Last checked</TableHead>
                   <TableHead>Added by</TableHead>
                   <TableHead className="w-[96px] text-right">Actions</TableHead>
@@ -366,7 +368,10 @@ export function OutboundTrackerPortal() {
                         ) : null}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {formatOutboundTrackerDate(entry.addedAt)}
+                        <p>{outboundTrackerAddedDate(entry)}</p>
+                        <p className="text-[10px] text-muted-foreground/80">
+                          {outboundTrackerAddedViaLabel(entry.addedVia)}
+                        </p>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {formatOutboundTrackerDate(entry.lastCheckedAt)}

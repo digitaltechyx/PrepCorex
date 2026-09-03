@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  let body: { trackingNumber?: string; carrier?: string | null };
+  let body: { trackingNumber?: string; carrier?: string | null; addedVia?: "scan" | "manual" };
   try {
     body = await request.json();
   } catch {
@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
       carrier: body.carrier ?? null,
       addedBy: auth.uid,
       addedByName: auth.name,
+      addedVia: body.addedVia === "scan" ? "scan" : "manual",
     });
     return NextResponse.json({ entry });
   } catch (e) {

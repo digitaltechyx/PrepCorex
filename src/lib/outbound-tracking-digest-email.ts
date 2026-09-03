@@ -32,7 +32,7 @@ export async function sendOutboundTrackerDigestEmail(input: {
       lines.push(`Tracking: ${row.trackingNumber}`);
       lines.push(`  Was: ${row.fromLabel}`);
       lines.push(`  Now: ${row.toLabel}`);
-      lines.push(`  Scanned: ${formatOutboundTrackerDate(row.addedAt)}`);
+      lines.push(`  Added: ${formatOutboundTrackerDate(row.addedAt)}`);
       lines.push("");
     }
   }
@@ -43,7 +43,7 @@ export async function sendOutboundTrackerDigestEmail(input: {
     for (const row of input.stale) {
       lines.push(`Tracking: ${row.trackingNumber}`);
       lines.push(`  Status since scan: ${row.statusLabel}`);
-      lines.push(`  Scanned: ${formatOutboundTrackerDate(row.addedAt)}`);
+      lines.push(`  Added: ${formatOutboundTrackerDate(row.addedAt)}`);
       lines.push("");
     }
   }

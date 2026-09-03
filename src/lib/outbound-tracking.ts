@@ -10,12 +10,32 @@ export function toMillis(value: unknown): number | null {
     const t = new Date(value).getTime();
     return Number.isFinite(t) ? t : null;
   }
-  if (typeof value === "object" && value !== null && "seconds" in value) {
-    const sec = Number((value as { seconds: number }).seconds);
-    return Number.isFinite(sec) ? sec * 1000 : null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    const sec = record.seconds ?? record._seconds;
+    if (sec != null) {
+      const n = Number(sec);
+      return Number.isFinite(n) ? n * 1000 : null;
+    }
   }
   if (value instanceof Date) return value.getTime();
   return null;
+}
+
+/** Display date for when the tracking was scanned or manually added. */
+export function outboundTrackerAddedDate(
+  entry: Pick<OutboundTrackerEntry, "addedAt">
+): string {
+  return formatOutboundTrackerDate(entry.addedAt);
+}
+
+export function outboundTrackerAddedViaLabel(
+  addedVia?: OutboundTrackerEntry["addedVia"]
+): string {
+  return addedVia === "scan" ? "Scanned" : "Manual";
 }
 
 export function normalizeTrackingNumber(raw: string): string {

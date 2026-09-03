@@ -1133,6 +1133,8 @@ export interface OutboundTrackerEntry {
   trackingNumber: string;
   carrier?: string | null;
   addedAt?: { seconds: number; nanoseconds: number } | string | Date;
+  /** How the admin added this tracking (scan vs typed). */
+  addedVia?: "scan" | "manual";
   addedBy?: string | null;
   addedByName?: string | null;
   /** Status captured when admin first scanned/added. */
