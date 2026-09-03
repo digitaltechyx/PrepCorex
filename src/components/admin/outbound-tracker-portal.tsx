@@ -6,11 +6,23 @@ import { hasRole } from "@/lib/permissions";
 import { useRouter } from "next/navigation";
 import type { OutboundTrackerEntry } from "@/types";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   formatOutboundTrackerDate,
+  filterOutboundTrackerEntries,
   normalizeTrackingNumber,
+  OUTBOUND_TRACKER_DEFAULT_FILTERS,
   outboundTrackerAddedDate,
   outboundTrackerAddedViaLabel,
+  outboundTrackerFilterOptions,
   statusBadgeVariant,
+  type OutboundTrackerFilters,
+  type OutboundTrackerStatusFilter,
 } from "@/lib/outbound-tracking";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { detectCarrier } from "@/lib/carrier-detect";
@@ -47,7 +59,19 @@ import {
   CheckCircle2,
   Clock,
   Trash2,
+  Search,
+  X,
 } from "lucide-react";
+
+const STATUS_FILTER_LABELS: Record<OutboundTrackerStatusFilter, string> = {
+  all: "All statuses",
+  active: "Active (open)",
+  delivered: "Delivered",
+  in_transit: "In transit",
+  pending: "Label / pre-transit",
+  not_found: "Not found",
+  error: "Error",
+};
 
 const BADGE_CLASS = {
   pending: "bg-amber-50 text-amber-800 border-amber-200",
@@ -78,8 +102,32 @@ export function OutboundTrackerPortal() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OutboundTrackerEntry | null>(null);
   const [manualTracking, setManualTracking] = useState("");
+  const [filters, setFilters] = useState<OutboundTrackerFilters>(
+    OUTBOUND_TRACKER_DEFAULT_FILTERS
+  );
 
   const isAdmin = hasRole(userProfile, "admin");
+
+  const setFilter = useCallback(
+    <K extends keyof OutboundTrackerFilters>(key: K, value: OutboundTrackerFilters[K]) => {
+      setFilters((prev) => ({ ...prev, [key]: value }));
+    },
+    []
+  );
+
+  const clearFilters = useCallback(() => {
+    setFilters(OUTBOUND_TRACKER_DEFAULT_FILTERS);
+  }, []);
+
+  const hasActiveFilters = useMemo(
+    () =>
+      filters.search.trim() !== "" ||
+      filters.carrier !== "all" ||
+      filters.status !== "all" ||
+      filters.addedVia !== "all" ||
+      filters.addedBy !== "all",
+    [filters]
+  );
 
   const authHeaders = useCallback(async (): Promise<HeadersInit> => {
     if (!user) throw new Error("Not signed in.");
@@ -127,6 +175,13 @@ export function OutboundTrackerPortal() {
     ).length;
     return { total: entries.length, active, delivered, inTransit };
   }, [entries]);
+
+  const filterOptions = useMemo(() => outboundTrackerFilterOptions(entries), [entries]);
+
+  const filteredEntries = useMemo(
+    () => filterOutboundTrackerEntries(entries, filters),
+    [entries, filters]
+  );
 
   const addTracking = useCallback(
     async (raw: string, addedVia: "scan" | "manual" = "manual") => {
@@ -239,13 +294,29 @@ export function OutboundTrackerPortal() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card
+          className={cn(
+            "cursor-pointer transition-colors hover:border-primary/40",
+            !hasActiveFilters && "border-primary/30"
+          )}
+          onClick={() => {
+            clearFilters();
+          }}
+        >
           <CardHeader className="pb-2">
             <CardDescription>Total tracked</CardDescription>
             <CardTitle className="text-3xl">{stats.total}</CardTitle>
           </CardHeader>
         </Card>
-        <Card>
+        <Card
+          className={cn(
+            "cursor-pointer transition-colors hover:border-primary/40",
+            filters.status === "active" && "border-primary ring-1 ring-primary/20"
+          )}
+          onClick={() => {
+            setFilters({ ...OUTBOUND_TRACKER_DEFAULT_FILTERS, status: "active" });
+          }}
+        >
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1">
               <Truck className="h-3.5 w-3.5" /> Active
@@ -253,7 +324,15 @@ export function OutboundTrackerPortal() {
             <CardTitle className="text-3xl">{stats.active}</CardTitle>
           </CardHeader>
         </Card>
-        <Card>
+        <Card
+          className={cn(
+            "cursor-pointer transition-colors hover:border-primary/40",
+            filters.status === "in_transit" && "border-primary ring-1 ring-primary/20"
+          )}
+          onClick={() => {
+            setFilters({ ...OUTBOUND_TRACKER_DEFAULT_FILTERS, status: "in_transit" });
+          }}
+        >
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1">
               <Clock className="h-3.5 w-3.5" /> In transit
@@ -261,7 +340,15 @@ export function OutboundTrackerPortal() {
             <CardTitle className="text-3xl">{stats.inTransit}</CardTitle>
           </CardHeader>
         </Card>
-        <Card>
+        <Card
+          className={cn(
+            "cursor-pointer transition-colors hover:border-primary/40",
+            filters.status === "delivered" && "border-primary ring-1 ring-primary/20"
+          )}
+          onClick={() => {
+            setFilters({ ...OUTBOUND_TRACKER_DEFAULT_FILTERS, status: "delivered" });
+          }}
+        >
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1">
               <CheckCircle2 className="h-3.5 w-3.5" /> Delivered
@@ -317,11 +404,99 @@ export function OutboundTrackerPortal() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <PackageSearch className="h-5 w-5" />
-            Dispatched outbounds
-          </CardTitle>
+        <CardHeader className="space-y-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <PackageSearch className="h-5 w-5" />
+              Dispatched outbounds
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Showing {filteredEntries.length} of {entries.length}
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="relative max-w-xl">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={filters.search}
+                onChange={(e) => setFilter("search", e.target.value)}
+                placeholder="Search tracking, carrier, status, added by…"
+                className="pl-9"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={filters.status}
+                onValueChange={(v) => setFilter("status", v as OutboundTrackerStatusFilter)}
+              >
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(STATUS_FILTER_LABELS) as OutboundTrackerStatusFilter[]).map(
+                    (key) => (
+                      <SelectItem key={key} value={key}>
+                        {STATUS_FILTER_LABELS[key]}
+                      </SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
+
+              <Select value={filters.carrier} onValueChange={(v) => setFilter("carrier", v)}>
+                <SelectTrigger className="w-full sm:w-[140px]">
+                  <SelectValue placeholder="Carrier" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All carriers</SelectItem>
+                  {filterOptions.carriers.map((carrier) => (
+                    <SelectItem key={carrier} value={carrier}>
+                      {carrier}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={filters.addedVia}
+                onValueChange={(v) =>
+                  setFilter("addedVia", v as OutboundTrackerFilters["addedVia"])
+                }
+              >
+                <SelectTrigger className="w-full sm:w-[140px]">
+                  <SelectValue placeholder="Added via" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Scan + manual</SelectItem>
+                  <SelectItem value="scan">Scanned only</SelectItem>
+                  <SelectItem value="manual">Manual only</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={filters.addedBy} onValueChange={(v) => setFilter("addedBy", v)}>
+                <SelectTrigger className="w-full sm:w-[160px]">
+                  <SelectValue placeholder="Added by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All users</SelectItem>
+                  {filterOptions.addedByNames.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {hasActiveFilters ? (
+                <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
+                  <X className="mr-1 h-4 w-4" />
+                  Clear filters
+                </Button>
+              ) : null}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
@@ -331,6 +506,17 @@ export function OutboundTrackerPortal() {
           ) : entries.length === 0 ? (
             <p className="px-6 py-10 text-center text-sm text-muted-foreground">
               No trackings yet. Scan or enter a label above.
+            </p>
+          ) : filteredEntries.length === 0 ? (
+            <p className="px-6 py-10 text-center text-sm text-muted-foreground">
+              No trackings match your filters.{" "}
+              <button
+                type="button"
+                className="font-medium text-primary underline-offset-4 hover:underline"
+                onClick={clearFilters}
+              >
+                Clear filters
+              </button>
             </p>
           ) : (
             <Table>
@@ -346,7 +532,7 @@ export function OutboundTrackerPortal() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {entries.map((entry) => {
+                {filteredEntries.map((entry) => {
                   const variant = statusBadgeVariant(entry);
                   return (
                     <TableRow key={entry.id}>

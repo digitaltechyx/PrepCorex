@@ -38,6 +38,109 @@ export function outboundTrackerAddedViaLabel(
   return addedVia === "scan" ? "Scanned" : "Manual";
 }
 
+export type OutboundTrackerStatusFilter =
+  | "all"
+  | "active"
+  | "delivered"
+  | "in_transit"
+  | "pending"
+  | "not_found"
+  | "error";
+
+export type OutboundTrackerFilters = {
+  search: string;
+  carrier: string;
+  status: OutboundTrackerStatusFilter;
+  addedVia: "all" | "scan" | "manual";
+  addedBy: string;
+};
+
+export const OUTBOUND_TRACKER_DEFAULT_FILTERS: OutboundTrackerFilters = {
+  search: "",
+  carrier: "all",
+  status: "all",
+  addedVia: "all",
+  addedBy: "all",
+};
+
+function entryStatusFilterKey(
+  entry: OutboundTrackerEntry
+): OutboundTrackerStatusFilter | null {
+  const variant = statusBadgeVariant(entry);
+  if (entry.lastError || variant === "error") return "error";
+  if (entry.isDelivered || entry.isClosed || variant === "delivered") return "delivered";
+  if (entry.lastStatusLabel === "Not found" || variant === "unknown") return "not_found";
+  if (variant === "pending") return "pending";
+  if (variant === "transit") return "in_transit";
+  if (!entry.isClosed) return "active";
+  return null;
+}
+
+export function filterOutboundTrackerEntries(
+  entries: OutboundTrackerEntry[],
+  filters: OutboundTrackerFilters
+): OutboundTrackerEntry[] {
+  const q = filters.search.trim().toLowerCase();
+
+  return entries.filter((entry) => {
+    if (filters.carrier !== "all") {
+      const carrier = (entry.carrier || "Unknown").trim();
+      if (carrier.toLowerCase() !== filters.carrier.toLowerCase()) return false;
+    }
+
+    if (filters.addedVia !== "all" && entry.addedVia !== filters.addedVia) {
+      return false;
+    }
+
+    if (filters.addedBy !== "all") {
+      const name = (entry.addedByName || "Unknown").trim();
+      if (name !== filters.addedBy) return false;
+    }
+
+    if (filters.status !== "all") {
+      if (filters.status === "active") {
+        if (entry.isClosed) return false;
+      } else {
+        const key = entryStatusFilterKey(entry);
+        if (key !== filters.status) return false;
+      }
+    }
+
+    if (!q) return true;
+
+    const haystack = [
+      entry.trackingNumber,
+      entry.carrier,
+      entry.addedByName,
+      entry.lastStatusLabel,
+      entry.lastStatus,
+      entry.lastStatusDetails,
+      entry.lastError,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(q);
+  });
+}
+
+export function outboundTrackerFilterOptions(entries: OutboundTrackerEntry[]): {
+  carriers: string[];
+  addedByNames: string[];
+} {
+  const carriers = new Set<string>();
+  const addedByNames = new Set<string>();
+  for (const entry of entries) {
+    carriers.add((entry.carrier || "Unknown").trim());
+    if (entry.addedByName?.trim()) addedByNames.add(entry.addedByName.trim());
+  }
+  return {
+    carriers: [...carriers].sort((a, b) => a.localeCompare(b)),
+    addedByNames: [...addedByNames].sort((a, b) => a.localeCompare(b)),
+  };
+}
+
 export function normalizeTrackingNumber(raw: string): string {
   return raw.trim().replace(/\s+/g, "");
 }
