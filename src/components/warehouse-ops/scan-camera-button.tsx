@@ -32,14 +32,16 @@ export function ScanCameraButton({
   scannerDescription,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const buttonSize = showLabel && size === "icon" ? "default" : size;
+  const isIconOnly = buttonSize === "icon";
 
   return (
     <>
       <Button
         type="button"
-        size={size}
+        size={buttonSize}
         variant={variant}
-        className={cn(size === "icon" ? "h-9 w-9 shrink-0" : "", className)}
+        className={cn(isIconOnly ? "h-9 w-9 shrink-0" : "shrink-0", className)}
         disabled={disabled}
         onClick={() => setOpen(true)}
         title="Scan with phone camera"

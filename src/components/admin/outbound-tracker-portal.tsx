@@ -237,7 +237,7 @@ export function OutboundTrackerPortal() {
         </CardHeader>
         <CardContent>
           <form
-            className="flex flex-col gap-3 sm:flex-row sm:items-center"
+            className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
             onSubmit={(e) => {
               e.preventDefault();
               void addTracking(manualTracking);
@@ -247,11 +247,11 @@ export function OutboundTrackerPortal() {
               value={manualTracking}
               onChange={(e) => setManualTracking(e.target.value)}
               placeholder="Tracking number"
-              className="sm:max-w-md"
+              className="w-full sm:min-w-[220px] sm:max-w-md sm:flex-1"
               disabled={adding}
             />
-            <div className="flex items-center gap-2">
-              <Button type="submit" disabled={adding}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" disabled={adding} className="shrink-0">
                 {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Add
               </Button>
@@ -263,7 +263,7 @@ export function OutboundTrackerPortal() {
                 scannerTitle="Scan outbound label"
                 scannerDescription="Point at the courier barcode or QR on the shipping label."
               />
-              <Button type="button" variant="outline" onClick={() => void loadEntries()} disabled={loading}>
+              <Button type="button" variant="outline" className="shrink-0" onClick={() => void loadEntries()} disabled={loading}>
                 <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
                 Reload
               </Button>
