@@ -1127,9 +1127,6 @@ export interface InboundTrackingEntry {
   lastError?: string | null;
 }
 
-  lastError?: string | null;
-}
-
 /** Admin outbound parcel tracker (standalone scan list). Collection: outboundTracker. */
 export interface OutboundTrackerEntry {
   id: string;
