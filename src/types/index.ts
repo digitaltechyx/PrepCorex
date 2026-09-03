@@ -1127,6 +1127,38 @@ export interface InboundTrackingEntry {
   lastError?: string | null;
 }
 
+  lastError?: string | null;
+}
+
+/** Admin outbound parcel tracker (standalone scan list). Collection: outboundTracker. */
+export interface OutboundTrackerEntry {
+  id: string;
+  trackingNumber: string;
+  carrier?: string | null;
+  addedAt?: { seconds: number; nanoseconds: number } | string | Date;
+  addedBy?: string | null;
+  addedByName?: string | null;
+  /** Status captured when admin first scanned/added. */
+  baselineStatus?: string | null;
+  baselineStatusLabel?: string | null;
+  lastStatus?: string | null;
+  lastStatusLabel?: string | null;
+  lastStatusDetails?: string | null;
+  lastCheckedAt?: { seconds: number; nanoseconds: number } | string | Date;
+  lastError?: string | null;
+  isDelivered?: boolean;
+  /** Stop Shippo polling after delivered. */
+  isClosed?: boolean;
+  /** Included in daily digest after first status change from baseline (once). */
+  firstChangeNotifiedAt?: { seconds: number; nanoseconds: number } | string | Date | null;
+  /** Included in daily digest when 48h pass with no change (once). */
+  staleNotifiedAt?: { seconds: number; nanoseconds: number } | string | Date | null;
+  /** Queued for next 7am digest — first status change detected. */
+  pendingFirstChangeDigest?: boolean;
+  pendingFirstChangeFromLabel?: string | null;
+  pendingFirstChangeToLabel?: string | null;
+}
+
 /** User outbound shipment request (stored under users/{uid}/shipmentRequests). */
 export interface ShipmentRequest {
   id: string;

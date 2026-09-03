@@ -1,5 +1,5 @@
 {
-  "name": "psf-inbound-tracking-cron",
+  "name": "psf-stockflow-inbound-cron",
   "private": true,
   "engines": {
     "node": "20"

@@ -43,6 +43,7 @@ import {
   ClipboardList,
   ArrowRightLeft,
   Search,
+  PackageSearch,
   ChevronDown,
   MoreHorizontal,
 } from "lucide-react";
@@ -66,6 +67,7 @@ const OPERATION_CHILD_PATHS = [
   "/admin/dashboard/internal-move",
   "/admin/dashboard/cycle-count-reports",
   "/admin/dashboard/warehouse-allocate",
+  "/admin/dashboard/outbound-tracker",
   "/warehouse-ops",
 ];
 
@@ -287,6 +289,14 @@ export function AdminSidebar() {
       icon: Boxes,
       color: "text-emerald-600",
       requiredFeature: "manage_inventory_admin" as const,
+    },
+    {
+      title: "Outbound Tracker",
+      url: "/admin/dashboard/outbound-tracker",
+      icon: PackageSearch,
+      color: "text-orange-600",
+      requiredFeature: "admin_dashboard" as const,
+      adminOnly: true,
     },
     {
       title: "Warehouse Ops",

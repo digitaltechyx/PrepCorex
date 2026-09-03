@@ -402,6 +402,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Outbound tracker — server/admin API only (Admin SDK)
+    match /outboundTracker/{docId} {
+      allow read, write: if false;
+    }
+
     // Internal site-to-site move requests (admin create; ops confirm at source)
     match /internalMoveRequests/{requestId} {
       allow read: if isAdminOrSubAdmin() || isWarehouseOperator();

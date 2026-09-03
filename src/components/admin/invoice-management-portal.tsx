@@ -16,6 +16,7 @@ import { db } from "@/lib/firebase";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { readFetchError } from "@/lib/invoice-utils";
 import { cn } from "@/lib/utils";
 import { generateQuoteInvoicePdfBlob } from "@/lib/quote-invoice-generator";
 import { Badge } from "@/components/ui/badge";

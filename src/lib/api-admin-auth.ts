@@ -39,6 +39,62 @@ export function isAdminLikeUserDoc(data: FirebaseFirestore.DocumentData | undefi
   return false;
 }
 
+export function isFullAdminUserDoc(data: FirebaseFirestore.DocumentData | undefined | null): boolean {
+  if (!data) return false;
+  if (data.isAdmin === true || data.admin === true || data.is_admin === true) return true;
+  const role = normalizeRole(data.role || data.userRole || data.userType);
+  if (role === "admin") return true;
+  const roles = Array.isArray(data.roles) ? data.roles.map(normalizeRole) : [];
+  return roles.includes("admin");
+}
+
+export function isFullAdminToken(claims: Record<string, unknown> | undefined): boolean {
+  if (!claims) return false;
+  if (claims.admin === true || claims.isAdmin === true) return true;
+  const role = normalizeRole(claims.role);
+  if (role === "admin") return true;
+  const roles = Array.isArray(claims.roles) ? claims.roles.map(normalizeRole) : [];
+  return roles.includes("admin");
+}
+
+export async function requireFullAdmin(request: NextRequest) {
+  const header = request.headers.get("authorization") || "";
+  if (!header.startsWith("Bearer ")) {
+    return { ok: false as const, status: 401, error: "Unauthorized" };
+  }
+
+  const token = header.slice("Bearer ".length).trim();
+  if (!token) {
+    return { ok: false as const, status: 401, error: "Unauthorized" };
+  }
+
+  try {
+    const decoded = await adminAuth().verifyIdToken(token);
+    const uid = decoded?.uid;
+    if (!uid) {
+      return { ok: false as const, status: 401, error: "Unauthorized" };
+    }
+
+    if (isFullAdminToken(decoded as Record<string, unknown>)) {
+      return { ok: true as const, uid, name: String(decoded.name || decoded.email || "") };
+    }
+
+    const snap = await adminDb().collection("users").doc(uid).get();
+    const data = snap.exists ? snap.data() : null;
+    if (!snap.exists || !isFullAdminUserDoc(data)) {
+      return { ok: false as const, status: 403, error: "Admin only" };
+    }
+
+    return {
+      ok: true as const,
+      uid,
+      name: String(data?.name || data?.email || ""),
+    };
+  } catch {
+    return { ok: false as const, status: 401, error: "Unauthorized" };
+  }
+}
+
 export async function requireAdmin(request: NextRequest) {
   const header = request.headers.get("authorization") || "";
   if (!header.startsWith("Bearer ")) {
