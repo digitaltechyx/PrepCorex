@@ -84,7 +84,7 @@ export function buildClientReportCsv(summary: ClientReportSummary, tab: ClientRe
       "Metric,Value",
       `Pricing profile,${s.prep.profileLabel}`,
       `Units prepped,${s.prep.unitCount}`,
-      `Your PrepCorex rate (est.),${money(s.prep.paidTotal)}`,
+      `Paid to PrepCorex (est.),${money(s.prep.paidTotal)}`,
       `PrepCorex FBA (est.),${money(s.prep.paidFba)}`,
       `PrepCorex FBM (est.),${money(s.prep.paidFbm)}`,
       `PrepCorex cross-dock (est.),${money(s.prep.paidCrossdock)}`,

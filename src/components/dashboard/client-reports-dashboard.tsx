@@ -56,15 +56,17 @@ const savingsChartConfig = {
   amount: { label: "Amount", color: "hsl(142 71% 35%)" },
 } satisfies ChartConfig;
 
+const EST_SAVE_COLOR = "hsl(142 71% 35%)";
+
 const shippingValueChartConfig = {
   paid: { label: "You paid", color: "hsl(215 16% 47%)" },
-  save: { label: "Est. save", color: "hsl(24 95% 53%)" },
+  save: { label: "Est. save", color: EST_SAVE_COLOR },
   market: { label: "Typical market", color: "hsl(24 70% 78%)" },
 } satisfies ChartConfig;
 
 const prepValueChartConfig = {
-  paid: { label: "Your PrepCorex rate", color: "hsl(215 16% 47%)" },
-  save: { label: "Est. save", color: "hsl(262 83% 58%)" },
+  paid: { label: "Paid to PrepCorex", color: "hsl(215 16% 47%)" },
+  save: { label: "Est. save", color: EST_SAVE_COLOR },
   market: { label: "Typical 3PL", color: "hsl(262 60% 78%)" },
 } satisfies ChartConfig;
 
@@ -305,7 +307,7 @@ export function ClientReportsDashboard() {
     return [
       {
         key: "paid",
-        name: "Your PrepCorex rate",
+        name: "Paid to PrepCorex",
         amount: p.paidTotal,
         fill: prepValueChartConfig.paid.color,
       },
@@ -417,13 +419,13 @@ export function ClientReportsDashboard() {
           key: "save",
           name: "Est. save",
           amount: shippingSaved,
-          fill: "hsl(24 95% 53%)",
+          fill: shippingValueChartConfig.save.color,
         },
       ] satisfies ValueBarRow[],
       prepChartData: [
         {
           key: "paid",
-          name: "Your PrepCorex rate",
+          name: "Paid to PrepCorex",
           amount: prepPaid,
           fill: "hsl(215 16% 47%)",
         },
@@ -431,7 +433,7 @@ export function ClientReportsDashboard() {
           key: "save",
           name: "Est. save",
           amount: prepSaved,
-          fill: "hsl(262 83% 58%)",
+          fill: prepValueChartConfig.save.color,
         },
       ] satisfies ValueBarRow[],
     };
@@ -853,7 +855,7 @@ export function ClientReportsDashboard() {
                   icon={<Scissors className="h-4 w-4" />}
                 />
                 <StatCard
-                  title="Your PrepCorex rate (est.)"
+                  title="Paid to PrepCorex (est.)"
                   value={money(summary.savings.prep.paidTotal)}
                   hint={`${summary.savings.prep.unitCount} unit${summary.savings.prep.unitCount === 1 ? "" : "s"} · ${summary.savings.prep.profileLabel} pricing table`}
                   icon={<Receipt className="h-4 w-4" />}

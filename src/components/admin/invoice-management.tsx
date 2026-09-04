@@ -40,13 +40,20 @@ import {
 } from "@/lib/discount-trail";
 import type { DiscountTrailEntry } from "@/types";
 import { getDueDateChangeFieldResets } from "@/lib/client-invoice-lifecycle";
-import { formatDateInputForDisplay } from "@/lib/nj-date";
+import { formatDateInputForDisplay, getTodayDateInputInNJ } from "@/lib/nj-date";
+
+function isOverduePendingInvoice(invoice: Invoice, todayKey = getTodayDateInputInNJ()): boolean {
+  if (invoice.status !== "pending") return false;
+  const due = String(invoice.dueDate || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return false;
+  return due < todayKey;
+}
 
 interface InvoiceManagementProps {
   users: UserProfile[];
   /**
-   * From URL (e.g. ?tab=pending). Maps to the user-list filter: pending → "Unpaid Invoices",
-   * paid → "Paid Invoices"; also sets per-user invoice sub-tabs when a user is opened.
+   * From URL (e.g. ?tab=pending). Maps to the user-list filter: pending → "Unpaid Users",
+   * paid → "Paid Users"; also sets per-user invoice sub-tabs when a user is opened.
    */
   initialTab?: "pending" | "paid" | null;
 }
@@ -61,6 +68,7 @@ interface UserInvoiceSummary {
   user: UserProfile;
   pendingCount: number;
   paidCount: number;
+  overdueCount: number;
   totalAmount: number;
 }
 
@@ -372,10 +380,12 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   }, [selectedUser, userInvoices]);
 
   // Calculate summary for each user
+  const todayKey = getTodayDateInputInNJ();
   const userSummaries: UserInvoiceSummary[] = users.map(user => {
     const invoices = userInvoices[user.uid] || [];
     const pendingCount = invoices.filter(inv => inv.status === 'pending').length;
     const paidCount = invoices.filter(inv => inv.status === 'paid').length;
+    const overdueCount = invoices.filter(inv => isOverduePendingInvoice(inv, todayKey)).length;
     const totalAmount = invoices
       .filter(inv => inv.status === 'pending')
       .reduce((sum, inv) => sum + inv.grandTotal, 0);
@@ -384,6 +394,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       user,
       pendingCount,
       paidCount,
+      overdueCount,
       totalAmount,
     };
   });
@@ -394,13 +405,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       (sum, s) => sum + (Number.isFinite(s.totalAmount) ? s.totalAmount : 0),
       0
     );
-    const todayKey = new Date().toISOString().slice(0, 10);
-    const overdueInvoices = allInvoices.filter((inv) => {
-      if (inv.status !== "pending") return false;
-      const due = String(inv.dueDate || "").trim().slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return false;
-      return due < todayKey;
-    }).length;
+    const overdueInvoices = allInvoices.filter((inv) => isOverduePendingInvoice(inv, todayKey)).length;
     const todaysRevenue = allInvoices
       .filter((inv) => inv.status === "paid" && String(inv.date || "").slice(0, 10) === todayKey)
       .reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
@@ -1188,7 +1193,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                 >
                   <div className="flex items-center justify-center gap-2">
                     <Clock className="h-4 w-4" />
-                    <span>Unpaid Invoices</span>
+                    <span>Unpaid Users</span>
                     <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
                       {userSummaries.filter(({ pendingCount }) => pendingCount > 0).length}
                     </span>
@@ -1200,7 +1205,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                 >
                   <div className="flex items-center justify-center gap-2">
                     <CheckCircle className="h-4 w-4" />
-                    <span>Paid Invoices</span>
+                    <span>Paid Users</span>
                     <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                       {userSummaries.filter(({ pendingCount, paidCount }) => pendingCount === 0 && paidCount > 0).length}
                     </span>
@@ -1233,12 +1238,13 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                     <TableHead className="min-w-[260px]">User</TableHead>
                     <TableHead className="min-w-[260px]">Email</TableHead>
                     <TableHead className="min-w-[120px] text-right">Pending</TableHead>
+                    <TableHead className="min-w-[100px] text-right">Overdue</TableHead>
                     <TableHead className="min-w-[100px] text-right">Paid</TableHead>
                     <TableHead className="min-w-[180px] text-right">Pending Amount</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paginatedUsers.map(({ user, pendingCount, paidCount, totalAmount }, idx) => (
+                  {paginatedUsers.map(({ user, pendingCount, paidCount, overdueCount, totalAmount }, idx) => (
                     <TableRow
                       key={`${user.uid || user.email || 'user'}-${idx}`}
                       className="cursor-pointer hover:bg-indigo-50/40 transition-colors"
@@ -1250,6 +1256,14 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                       <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
                       <TableCell className="text-right">
                         <Badge variant={pendingCount > 0 ? "secondary" : "outline"}>{pendingCount}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={overdueCount > 0 ? "destructive" : "outline"}
+                          className={overdueCount > 0 ? "" : "text-muted-foreground"}
+                        >
+                          {overdueCount}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right">
                         <Badge variant="default" className="bg-green-100 text-green-800">{paidCount}</Badge>

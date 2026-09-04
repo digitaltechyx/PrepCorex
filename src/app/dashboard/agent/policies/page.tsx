@@ -77,6 +77,7 @@ const strictRules = [
       "Commission starts when the client becomes a qualified referred customer",
       "Recommended start date: client's first paid invoice",
       "After 12 months, that client's future invoices generate zero commission",
+      "When the window expires, the client is automatically removed from your Active Clients tab",
     ],
   },
   {
@@ -182,6 +183,7 @@ const examples = [
       "Client A first pays on March 10, 2026",
       "Agent earns commission on Client A's eligible paid invoices until March 9, 2027",
       "From March 10, 2027 onward, Client A generates zero commission",
+      "Client A is automatically removed from the agent's Active Clients tab after the window expires",
     ],
   },
 ];
@@ -194,6 +196,7 @@ const dashboardItems = [
   "Consecutive qualifying months streak",
   "Next tier target",
   "Countdown until each client's commission expires",
+  "Automatic removal from Active Clients when a client's 12-month window ends",
   "Pending commission balance",
   "Paid commission history",
 ];
@@ -218,6 +221,74 @@ export default function AffiliatePoliciesPage() {
               </p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* 12-MONTH COMMISSION DISCLAIMER */}
+      <Card className="border-amber-300 bg-gradient-to-br from-amber-50 via-orange-50/40 to-white shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base text-amber-950">
+            <AlertTriangle className="h-5 w-5 text-amber-600" />
+            Important Disclaimer — 12-Month Commission Period
+          </CardTitle>
+          <CardDescription className="text-amber-900/80">
+            Please read this carefully. It explains how long you earn commission on each referred client and what happens
+            when that period ends.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm text-amber-950">
+          <p>
+            Under the PrepCorex Affiliate Commission Program, you may earn commission on each referred client for a
+            fixed period of <span className="font-semibold">one year (12 months) only</span>. This is not a lifetime
+            commission arrangement.
+          </p>
+
+          <div className="rounded-lg border border-amber-200 bg-white/70 p-4 space-y-3">
+            <h4 className="font-semibold text-slate-900">How the 12-month window works</h4>
+            <ul className="space-y-2 text-slate-700">
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                <span>
+                  The 12-month commission period begins on the date of the referred client&apos;s{" "}
+                  <span className="font-semibold">first paid invoice</span>.
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                <span>
+                  While inside this window, you earn commission on eligible <span className="font-semibold">paid
+                  invoices</span> from that client, at your current Bronze, Silver, or Gold tier rate.
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+                <span>
+                  When the 12-month period ends, that client&apos;s <span className="font-semibold">future invoices
+                  no longer generate any commission</span> for you — even if the client continues using PrepCorex.
+                </span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-4 space-y-2">
+            <h4 className="font-semibold text-slate-900">What happens on your dashboard</h4>
+            <p className="text-slate-700">
+              Once a client&apos;s 12-month commission window expires, that client is{" "}
+              <span className="font-semibold">automatically removed from your Active Clients tab</span> in the affiliate
+              dashboard. They are no longer counted as a commission-eligible active client because the program pays
+              commission on each referral for one year only.
+            </p>
+            <p className="text-slate-600 text-xs">
+              Your past commission records and payout history for that client remain available. Only forward-looking
+              commission eligibility ends. To grow ongoing earnings, continue referring new clients — each new referral
+              starts its own independent 12-month commission window.
+            </p>
+          </div>
+
+          <p className="text-xs text-amber-900/90 italic border-t border-amber-200 pt-3">
+            By participating in the affiliate program, you acknowledge that commission is limited to twelve (12) months
+            per referred client and that expired clients will no longer appear in your Active Clients list.
+          </p>
         </CardContent>
       </Card>
 
@@ -390,6 +461,13 @@ export default function AffiliatePoliciesPage() {
             <li className="flex items-start gap-2">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
               <span>Creates a fair but disciplined model</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+              <span>
+                After expiry, the client is automatically removed from your Active Clients tab because they are no
+                longer commission-eligible
+              </span>
             </li>
           </ul>
         </CardContent>

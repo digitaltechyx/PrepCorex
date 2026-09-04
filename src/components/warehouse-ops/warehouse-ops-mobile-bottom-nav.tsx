@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Ellipsis,
   Home,
+  LayoutDashboard,
   Move,
   Package,
   PackagePlus,
@@ -25,7 +26,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useWarehouseOpsLive } from "@/components/warehouse-ops/warehouse-ops-live-provider";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { getOpsNavItems } from "@/lib/warehouse-ops-permissions";
-import { hasFeature } from "@/lib/permissions";
+import { hasFeature, hasRole } from "@/lib/permissions";
 import {
   Sheet,
   SheetClose,
@@ -110,6 +111,8 @@ export function WarehouseOpsMobileBottomNav() {
   const onHoldCount = stats.awaitingPutaway;
   const alertCount = stats.quarantineUnits > 0 ? 1 : 0;
   const moreItems = getOpsNavItems(userProfile).filter((item) => !PRIMARY_ROUTES.has(item.href));
+  const showAdminDashboardLink =
+    hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
 
   return (
     <nav
@@ -168,6 +171,18 @@ export function WarehouseOpsMobileBottomNav() {
             <SheetTitle>More warehouse tools</SheetTitle>
             <SheetDescription>Open secondary floor and quality workflows.</SheetDescription>
           </SheetHeader>
+
+          {showAdminDashboardLink ? (
+            <SheetClose asChild>
+              <Link
+                href="/admin/dashboard"
+                className="mt-4 flex items-center gap-3 rounded-2xl border border-orange-200/60 bg-orange-50/50 p-3.5 text-sm font-semibold text-orange-900 dark:border-orange-900/40 dark:bg-orange-950/20 dark:text-orange-100"
+              >
+                <LayoutDashboard className="h-5 w-5 shrink-0" />
+                Back to admin dashboard
+              </Link>
+            </SheetClose>
+          ) : null}
 
           <div className="mt-5 grid grid-cols-2 gap-3">
             {moreItems.map((item) => {

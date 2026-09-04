@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -25,13 +26,24 @@ import {
   PlugZap,
   FileText,
   Copy,
+  Pencil,
+  Check,
+  X,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { hasRole } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
-import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
+import {
+  getDefaultInboundShippingName,
+  getInboundShippingName,
+  hasCustomInboundShippingName,
+} from "@/lib/inbound-shipping-name";
+import { db } from "@/lib/firebase";
+import { doc, updateDoc, deleteField } from "firebase/firestore";
+import { useToast } from "@/hooks/use-toast";
 import { useDashboardNav } from "@/contexts/dashboard-nav-context";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
@@ -153,6 +165,7 @@ function isDateInRange(date: Date | null, from?: Date, to?: Date): boolean {
 
 export default function DashboardPage() {
   const { userProfile } = useAuth();
+  const { toast } = useToast();
   const router = useRouter();
   const nav = useDashboardNav();
   const [trendRange, setTrendRange] = useState<7 | 14 | 30>(14);
@@ -261,11 +274,71 @@ export default function DashboardPage() {
     return "border-[1.5px] border-solid border-green-500";
   }, [selectedWarehouse, isSelectedWarehouseAssigned]);
 
-  const shippingName = useMemo(() => {
-    const company = userProfile?.companyName?.trim();
-    if (company) return company;
-    return userProfile?.name?.trim() || "-";
-  }, [userProfile?.companyName, userProfile?.name]);
+  const shippingName = useMemo(() => getInboundShippingName(userProfile), [userProfile]);
+  const defaultShippingName = useMemo(
+    () => getDefaultInboundShippingName(userProfile),
+    [userProfile]
+  );
+  const [isEditingShippingName, setIsEditingShippingName] = useState(false);
+  const [shippingNameDraft, setShippingNameDraft] = useState("");
+  const [savingShippingName, setSavingShippingName] = useState(false);
+
+  useEffect(() => {
+    if (!isEditingShippingName) {
+      setShippingNameDraft(shippingName === "-" ? "" : shippingName);
+    }
+  }, [shippingName, isEditingShippingName]);
+
+  const startEditingShippingName = useCallback(() => {
+    setShippingNameDraft(shippingName === "-" ? defaultShippingName : shippingName);
+    setIsEditingShippingName(true);
+  }, [defaultShippingName, shippingName]);
+
+  const cancelEditingShippingName = useCallback(() => {
+    setShippingNameDraft(shippingName === "-" ? "" : shippingName);
+    setIsEditingShippingName(false);
+  }, [shippingName]);
+
+  const saveShippingName = useCallback(async () => {
+    if (!userProfile?.uid) return;
+    const trimmed = shippingNameDraft.trim();
+    const normalizedDefault = defaultShippingName.trim();
+
+    if (!trimmed) {
+      toast({
+        title: "Shipping name required",
+        description: "Enter a name for your inbound shipments or cancel to keep the current value.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSavingShippingName(true);
+    try {
+      const userRef = doc(db, "users", userProfile.uid);
+      if (trimmed === normalizedDefault) {
+        await updateDoc(userRef, { inboundShippingName: deleteField() });
+      } else {
+        await updateDoc(userRef, { inboundShippingName: trimmed });
+      }
+      setIsEditingShippingName(false);
+      toast({
+        title: trimmed === normalizedDefault ? "Using company name" : "Shipping name saved",
+        description:
+          trimmed === normalizedDefault
+            ? "Your shipment address will show your default company name."
+            : "Suppliers will see this name on your inbound shipment address.",
+      });
+    } catch {
+      toast({
+        title: "Could not save shipping name",
+        description: "Please try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingShippingName(false);
+    }
+  }, [defaultShippingName, shippingNameDraft, toast, userProfile?.uid]);
 
   const hasDateRange = Boolean(dateRangeFrom && dateRangeTo);
 
@@ -756,9 +829,6 @@ export default function DashboardPage() {
                       .join(", ");
 
                     const text = [
-                      ...(selectedWarehouse.name?.trim()
-                        ? [formatWarehouseDisplayName(selectedWarehouse.name)]
-                        : []),
                       shippingName !== "-" ? shippingName : "",
                       selectedWarehouse.street1 || "",
                       street2WithClientId || "",
@@ -785,10 +855,70 @@ export default function DashboardPage() {
               {selectedWarehouse ? (
                 <>
                   <div className="grid grid-cols-[110px_1fr] gap-y-1 text-sm">
-                    <span className="text-muted-foreground">Warehouse:</span>
-                    <span className="font-medium">{formatWarehouseDisplayName(selectedWarehouse.name)}</span>
                     <span className="text-muted-foreground">Shipping Name:</span>
-                    <span className="font-medium text-primary">{shippingName}</span>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      {isEditingShippingName ? (
+                        <>
+                          <Input
+                            value={shippingNameDraft}
+                            onChange={(e) => setShippingNameDraft(e.target.value)}
+                            className="h-8 text-sm"
+                            placeholder={defaultShippingName || "Company name"}
+                            disabled={savingShippingName}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void saveShippingName();
+                              if (e.key === "Escape") cancelEditingShippingName();
+                            }}
+                            autoFocus
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0 text-emerald-600"
+                            onClick={() => void saveShippingName()}
+                            disabled={savingShippingName}
+                            aria-label="Save shipping name"
+                          >
+                            {savingShippingName ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            onClick={cancelEditingShippingName}
+                            disabled={savingShippingName}
+                            aria-label="Cancel editing shipping name"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-medium text-primary">{shippingName}</span>
+                          {hasCustomInboundShippingName(userProfile) ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                              Custom
+                            </Badge>
+                          ) : null}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 text-muted-foreground"
+                            onClick={startEditingShippingName}
+                            aria-label="Edit shipping name"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                     <span className="text-muted-foreground">Street1:</span>
                     <span>{selectedWarehouse.street1 || "-"}</span>
                     <span className="text-muted-foreground">Street2:</span>
@@ -806,7 +936,8 @@ export default function DashboardPage() {
                   </div>
                   <p className="mt-4 text-sm text-muted-foreground">
                     To ensure accurate processing and avoid any misplacement, all shipments to our warehouse must be
-                    addressed with your company name.
+                    addressed with your company name. You can edit the shipping name above if your supplier uses a
+                    different label.
                   </p>
                   {!isSelectedWarehouseAssigned && (
                     <div className="mt-4 rounded-md bg-white p-3 text-center shadow-sm">

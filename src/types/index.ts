@@ -468,6 +468,8 @@ export interface UserProfile {
   phone: string | null;
   password?: string | null;
   companyName?: string | null;
+  /** Optional override for the name on inbound warehouse shipments (defaults to company name). */
+  inboundShippingName?: string | null;
   ein?: string | null;
   address?: string | null;
   city?: string | null;

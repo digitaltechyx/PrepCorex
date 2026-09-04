@@ -371,6 +371,55 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
 
   return (
     <div className="space-y-6">
+      {loading ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-[280px]" />
+          <Skeleton className="h-[280px]" />
+        </div>
+      ) : summary ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardContent className="p-5">
+              <h4 className="font-semibold mb-3">
+                {summary.period.allTime ? "Monthly Revenue Trend (last 24 months)" : "Revenue Trend"}
+              </h4>
+              <ChartContainer config={revenueChartConfig} className="h-[240px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={summary.charts.revenueByDay}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="value" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-5">
+              <h4 className="font-semibold mb-3">
+                {summary.period.allTime ? "Monthly Activity Trend (last 24 months)" : "Activity Trend"}
+              </h4>
+              <ChartContainer config={activityChartConfig} className="h-[240px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={summary.charts.activityByDay}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Legend />
+                    <Bar dataKey="shipped" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="received" fill="#a855f7" radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="requests" fill="#22c55e" radius={[2, 2, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
       <Card className="border-slate-200 shadow-sm">
         <CardContent className="p-5 space-y-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -715,48 +764,6 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               </div>
             </CardContent>
           </Card>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardContent className="p-5">
-                <h4 className="font-semibold mb-3">
-                  {summary.period.allTime ? "Monthly Revenue Trend (last 24 months)" : "Revenue Trend"}
-                </h4>
-                <ChartContainer config={revenueChartConfig} className="h-[240px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={summary.charts.revenueByDay}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                      <YAxis tick={{ fontSize: 10 }} />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar dataKey="value" fill="#4f46e5" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-5">
-                <h4 className="font-semibold mb-3">
-                  {summary.period.allTime ? "Monthly Activity Trend (last 24 months)" : "Activity Trend"}
-                </h4>
-                <ChartContainer config={activityChartConfig} className="h-[240px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={summary.charts.activityByDay}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                      <YAxis tick={{ fontSize: 10 }} />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Legend />
-                      <Bar dataKey="shipped" fill="#3b82f6" radius={[2, 2, 0, 0]} />
-                      <Bar dataKey="received" fill="#a855f7" radius={[2, 2, 0, 0]} />
-                      <Bar dataKey="requests" fill="#22c55e" radius={[2, 2, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-          </div>
 
           <Tabs value={reportTab} onValueChange={(v) => setReportTab(v as AdminReportType)}>
             <TabsList className="flex flex-wrap h-auto gap-1">

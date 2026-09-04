@@ -36,7 +36,8 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { Shield } from "lucide-react";
+import { Shield, LayoutDashboard } from "lucide-react";
+import { hasRole } from "@/lib/permissions";
 
 const NAV_ICONS: Record<string, LucideIcon> = {
   "/warehouse-ops": Home,
@@ -92,6 +93,8 @@ export function WarehouseOpsSidebar() {
   const { setOpenMobile, isMobile } = useSidebar();
   const navItems = getOpsNavItems(userProfile);
   const supervisor = isOpsSupervisor(userProfile);
+  const showAdminDashboardLink =
+    hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
 
   const grouped = GROUP_ORDER.map((group) => ({
     group,
@@ -179,9 +182,34 @@ export function WarehouseOpsSidebar() {
         ))}
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-orange-200/30 p-2 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
-        Scan-first · Mobile ready
-      </SidebarFooter>
+      {showAdminDashboardLink ? (
+        <SidebarFooter className="border-t border-orange-200/30 p-2 space-y-2">
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                tooltip="Admin dashboard"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <Link
+                  href="/admin/dashboard"
+                  onClick={() => isMobile && setOpenMobile(false)}
+                >
+                  <LayoutDashboard className="h-4 w-4 shrink-0" />
+                  <span>Back to admin dashboard</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+          <p className="px-2 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+            Scan-first · Mobile ready
+          </p>
+        </SidebarFooter>
+      ) : (
+        <SidebarFooter className="border-t border-orange-200/30 p-2 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+          Scan-first · Mobile ready
+        </SidebarFooter>
+      )}
     </Sidebar>
   );
 }

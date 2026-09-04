@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut, Package, Shield, Warehouse } from "lucide-react";
+import { LayoutDashboard, LogOut, Package, Shield, Warehouse } from "lucide-react";
 import { signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
@@ -44,6 +44,8 @@ export function WarehouseOpsTopbar() {
   const { userProfile } = useAuth();
   const { warehouses, selectedWarehouse, setSelectedWarehouseId, loading } = useWarehouseOps();
   const supervisor = isOpsSupervisor(userProfile);
+  const showAdminDashboardLink =
+    hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
 
   return (
     <header className="sticky top-0 z-40 flex h-14 sm:h-16 shrink-0 items-center gap-2 sm:gap-4 border-b border-border/40 bg-background/95 px-3 sm:px-4 lg:px-6 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -94,6 +96,15 @@ export function WarehouseOpsTopbar() {
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        {showAdminDashboardLink ? (
+          <Button variant="outline" size="sm" className="hidden h-9 gap-1.5 sm:inline-flex" asChild>
+            <Link href="/admin/dashboard">
+              <LayoutDashboard className="h-4 w-4" />
+              <span className="hidden md:inline">Admin dashboard</span>
+            </Link>
+          </Button>
+        ) : null}
+
         {supervisor ? (
           <Badge variant="secondary" className="hidden gap-1 sm:inline-flex text-xs">
             <Shield className="h-3 w-3" />
