@@ -115,11 +115,13 @@ export async function POST(request: NextRequest) {
   if (!auth.canOperate) {
     return NextResponse.json({ error: "Warehouse camera access required" }, { status: 403 });
   }
-  if (!livekitConfigured()) {
+
+  const body = await request.json().catch(() => ({}));
+  const fileImport = String(body.source || "").trim() === "file_import";
+  if (!fileImport && !livekitConfigured()) {
     return NextResponse.json({ error: "LiveKit is not configured" }, { status: 503 });
   }
 
-  const body = await request.json().catch(() => ({}));
   const jobType = normalizeWarehouseCameraJobType(body.jobType);
   if (!canOperateJobType(auth, jobType)) {
     return NextResponse.json(
@@ -220,6 +222,12 @@ export async function POST(request: NextRequest) {
   const ref = adminDb().collection(WAREHOUSE_CAMERA_SESSIONS_COLLECTION).doc();
   const roomName = `prepcorex-${jobType}-${ref.id}`;
   const now = adminFieldValue().serverTimestamp();
+  const importMimeType = fileImport
+    ? String(body.mimeType || "video/webm").slice(0, 100)
+    : null;
+  const importSizeBytes = fileImport
+    ? Math.max(0, Math.floor(Number(body.sizeBytes) || 0))
+    : null;
   const payload = {
     roomName,
     clientUserId,
@@ -233,20 +241,32 @@ export async function POST(request: NextRequest) {
     warehouseLabel: cleanCameraLabel(body.warehouseLabel, warehouseId),
     operatorId: auth.uid,
     operatorName: cleanCameraLabel(auth.name, "Warehouse"),
-    status: "live",
+    status: fileImport ? "stopped" : "live",
     clipNumber: Math.max(1, Math.floor(Number(body.clipNumber) || 1)),
-    mimeType: null,
-    durationMs: null,
-    sizeBytes: null,
+    mimeType: importMimeType,
+    durationMs: fileImport ? 0 : null,
+    sizeBytes: importSizeBytes,
     startedAt: now,
     pausedAt: null,
     resumedAt: null,
-    endedAt: null,
+    endedAt: fileImport ? now : null,
     updatedAt: now,
     uploadError: null,
     driveFile: null,
+    ...(fileImport ? { source: "file_import" } : {}),
   };
   await ref.set(payload);
+
+  const serialized = serializeCameraSession(ref.id, {
+    ...payload,
+    startedAt: new Date(),
+    updatedAt: new Date(),
+    ...(fileImport ? { endedAt: new Date() } : {}),
+  });
+
+  if (fileImport) {
+    return NextResponse.json({ session: serialized }, { status: 201 });
+  }
 
   const token = await createWarehouseCameraToken({
     identity: `warehouse-${auth.uid}-${ref.id}`,
@@ -257,11 +277,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json(
     {
-      session: serializeCameraSession(ref.id, {
-        ...payload,
-        startedAt: new Date(),
-        updatedAt: new Date(),
-      }),
+      session: serialized,
       token,
       url: process.env.LIVEKIT_URL,
       roomName,

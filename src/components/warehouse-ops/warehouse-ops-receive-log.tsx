@@ -45,6 +45,8 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
+import { buildReceiveLogVideoContext } from "@/lib/receive-log-video-context";
+import { ReceiveLogVideoUpload } from "@/components/warehouse-ops/receive-log-video-upload";
 
 type Props = {
   warehouse: WarehouseDoc;
@@ -89,6 +91,7 @@ type LogEntry = {
     lot: string | null;
     expiry: string | null;
     condition: "good" | "damaged";
+    inventoryRequestId?: string | null;
   }>;
   searchText: string;
 };
@@ -204,6 +207,7 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
                 lot: l.lot ?? null,
                 expiry: l.expiry ?? null,
                 condition: l.condition,
+                inventoryRequestId: l.inventoryRequestId ?? c.inventoryRequestId ?? null,
               }))
             : [
                 {
@@ -213,6 +217,7 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
                   lot: c.lot ?? null,
                   expiry: c.expiry ?? null,
                   condition: "good" as const,
+                  inventoryRequestId: c.inventoryRequestId ?? null,
                 },
               ];
         const receivedBy = resolveReceiver(c.receivedBy);
@@ -407,7 +412,7 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
             <CardDescription>
               Full audit of what was received, when, and by whom — cartons,
               pallets, packages, cross-dock and returns. Download labels again
-              for any lot/code below.
+              or upload receiving video linked to the inbound request.
             </CardDescription>
           </div>
           <Button
@@ -567,10 +572,31 @@ export function WarehouseOpsReceiveLog({ warehouse }: Props) {
                     <Badge variant="outline">{e.typeLabel}</Badge>
                     <Badge variant="secondary">{e.statusLabel}</Badge>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                     <span className="text-xs text-muted-foreground">
                       {fmtDateTime(e.receivedAt)}
                     </span>
+                    {(() => {
+                      const videoContext = buildReceiveLogVideoContext({
+                        carton: e.carton,
+                        pallet: e.pallet,
+                        clientLabel: e.clientLabel,
+                        lines: e.lines,
+                        users: allUsers,
+                      });
+                      return (
+                        <ReceiveLogVideoUpload
+                          warehouseId={warehouse.id}
+                          warehouseLabel={warehouse.code || warehouse.name || warehouse.id}
+                          clientUserId={videoContext.clientUserId ?? ""}
+                          clientDisplayName={videoContext.clientDisplayName}
+                          inventoryRequestIds={videoContext.inventoryRequestIds}
+                          requestSummaries={videoContext.requestSummaries}
+                          disabled={!videoContext.canUpload}
+                          disabledReason={videoContext.disabledReason}
+                        />
+                      );
+                    })()}
                     <Button
                       type="button"
                       variant="outline"

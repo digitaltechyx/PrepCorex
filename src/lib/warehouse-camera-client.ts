@@ -44,12 +44,15 @@ export async function createWarehouseCameraSession(
     warehouseId: string;
     warehouseLabel: string;
     clipNumber: number;
+    source?: "file_import";
+    mimeType?: string;
+    sizeBytes?: number;
   }
 ): Promise<{
   session: WarehouseCameraSession;
-  token: string;
-  url: string;
-  roomName: string;
+  token?: string;
+  url?: string;
+  roomName?: string;
 }> {
   return cameraFetch(user, "/api/warehouse-camera/sessions", {
     method: "POST",
@@ -76,6 +79,45 @@ export async function listWarehouseCameraSessions(
     `/api/warehouse-camera/sessions?${params.toString()}`
   );
   return data.sessions;
+}
+
+export async function importWarehouseCameraVideoFile(
+  user: User,
+  input: {
+    jobType?: "receive" | "pick" | "pack" | "dispatch";
+    clientUserId: string;
+    clientDisplayName: string;
+    inventoryRequestIds?: string[];
+    shipmentRequestIds?: string[];
+    requestSummaries?: Array<{
+      id: string;
+      productName: string;
+      sku: string | null;
+      quantity: number;
+    }>;
+    warehouseId: string;
+    warehouseLabel: string;
+    clipNumber: number;
+    file: File;
+  },
+  onProgress?: (percent: number) => void
+): Promise<WarehouseCameraSession> {
+  const mimeType = input.file.type || "video/webm";
+  const { session } = await createWarehouseCameraSession(user, {
+    jobType: input.jobType ?? "receive",
+    clientUserId: input.clientUserId,
+    clientDisplayName: input.clientDisplayName,
+    inventoryRequestIds: input.inventoryRequestIds,
+    shipmentRequestIds: input.shipmentRequestIds,
+    requestSummaries: input.requestSummaries,
+    warehouseId: input.warehouseId,
+    warehouseLabel: input.warehouseLabel,
+    clipNumber: input.clipNumber,
+    source: "file_import",
+    mimeType,
+    sizeBytes: input.file.size,
+  });
+  return uploadWarehouseCameraClipToDrive(user, session.id, input.file, onProgress);
 }
 
 export async function updateWarehouseCameraSession(
