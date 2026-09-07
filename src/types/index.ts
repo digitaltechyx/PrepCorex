@@ -1204,6 +1204,8 @@ export interface ShipmentRequest {
   warehouseDispatchStatus?: "ready" | "dispatched";
   warehouseDispatchedAt?: { seconds: number; nanoseconds: number } | string;
   warehouseDispatchedBy?: string | null;
+  /** Set when dispatch creates the client `shipped` record and inventory sync. */
+  warehouseDispatchedClientSyncAt?: { seconds: number; nanoseconds: number } | string;
   /**
    * When client sellable inventory was decremented.
    * - create: reserved when the outbound request was submitted (default for new requests)

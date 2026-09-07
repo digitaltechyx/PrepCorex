@@ -50,6 +50,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ShippedOrderDetailsDialog } from "@/components/dashboard/shipped-order-details-dialog";
 import { OutboundShipmentVideoDialog } from "@/components/dashboard/outbound-shipment-video-dialog";
 import { formatOutboundPackLine } from "@/lib/warehouse-outbound-lines";
+import { isWarehouseDispatchedRequest } from "@/lib/warehouse-outbound-request-status";
 import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
 
 function outboundVideoShipmentId(item: {
@@ -151,6 +152,11 @@ const DATE_FILTER_KEYS = new Set(["all", "today", "week", "month", "year"]);
 
 function isOpenShipmentRequestStatus(status: string | undefined | null): boolean {
   return OPEN_SHIPMENT_REQUEST_STATUSES.has(String(status || "").toLowerCase());
+}
+
+function isOpenUndispatchedShipmentRequest(req: ShipmentRequest): boolean {
+  if (!isOpenShipmentRequestStatus(req.status)) return false;
+  return !isWarehouseDispatchedRequest(req as unknown as Record<string, unknown>);
 }
 
 function displayStatusForOpenRequest(
@@ -292,9 +298,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     return map;
   }, [restockHistory]);
 
-  const pendingCount = pendingShipmentRequests.filter((req) =>
-    isOpenShipmentRequestStatus(req.status)
-  ).length;
+  const pendingCount = pendingShipmentRequests.filter(isOpenUndispatchedShipmentRequest).length;
   const rejectedCount = pendingShipmentRequests.filter(req => req.status?.toLowerCase() === "rejected").length;
   const cancelledCount = pendingShipmentRequests.filter(req => req.status === "cancelled").length;
 
@@ -539,14 +543,41 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
       };
     };
 
+    const shippedRequestIds = new Set<string>();
+    data.forEach((item) => {
+      const id = String((item as { shipmentRequestId?: string }).shipmentRequestId ?? "").trim();
+      if (id) shippedRequestIds.add(id);
+    });
+
     // Open outbound requests (pending admin, confirmed/awaiting ship, or awaiting FBA label)
     const pendingItems: any[] = [];
     pendingShipmentRequests
-      .filter((req) => isOpenShipmentRequestStatus(req.status))
+      .filter(isOpenUndispatchedShipmentRequest)
       .forEach((req) => {
         const rowStatus = displayStatusForOpenRequest(req.status);
         (req.shipments || []).forEach((shipment, index) => {
           pendingItems.push(convertShipmentToDisplay(req, shipment, rowStatus, index));
+        });
+      });
+
+    // Warehouse dispatched but no row in `shipped` yet (legacy sync gap)
+    const dispatchedFallbackItems: any[] = [];
+    pendingShipmentRequests
+      .filter((req) => isWarehouseDispatchedRequest(req as unknown as Record<string, unknown>))
+      .filter((req) => !shippedRequestIds.has(req.id))
+      .forEach((req) => {
+        const dispatchDate =
+          (req as { warehouseDispatchedAt?: unknown }).warehouseDispatchedAt ||
+          (req as { warehouseDispatchedClientSyncAt?: unknown }).warehouseDispatchedClientSyncAt ||
+          req.confirmedAt ||
+          req.date;
+        (req.shipments || []).forEach((shipment, index) => {
+          dispatchedFallbackItems.push({
+            ...convertShipmentToDisplay(req, shipment, "Shipped", index),
+            date: dispatchDate,
+            status: "Shipped" as const,
+            isRequest: false,
+          });
         });
       });
 
@@ -600,7 +631,13 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     });
 
     // Combine and sort by ship Date column (most recent first)
-    const allItems = [...pendingItems, ...rejectedItems, ...cancelledItems, ...shippedItems];
+    const allItems = [
+      ...pendingItems,
+      ...rejectedItems,
+      ...cancelledItems,
+      ...dispatchedFallbackItems,
+      ...shippedItems,
+    ];
 
     const sortedItems = allItems.sort((a, b) => {
       const diff = rowSortTimeMs(b) - rowSortTimeMs(a);

@@ -1225,8 +1225,6 @@ export async function applyClientInventoryOnDispatch(input: {
       !alreadyReserved &&
       (defersClientInventoryDeduction(data) || data.clientInventoryDeductionTiming == null);
 
-    if (!alreadyReserved && !shouldDeductInventory) return;
-
     const shipments = Array.isArray(data.shipments)
       ? (data.shipments as Array<Record<string, unknown>>)
       : [];

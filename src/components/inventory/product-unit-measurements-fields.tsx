@@ -99,65 +99,67 @@ export function ProductUnitMeasurementsFields({
           suggestions and Buy Labels. Leave blank if unknown.
         </p>
       </div>
-      <div
-        className={cn(
-          "grid gap-2",
-          compact ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-4"
-        )}
-      >
-        <div className="space-y-1">
-          <Label htmlFor={`${idPrefix}-l`} className="text-xs text-muted-foreground">
-            Length (in)
-          </Label>
-          <Input
-            id={`${idPrefix}-l`}
-            type="number"
-            min={0}
-            step="0.01"
-            inputMode="decimal"
-            placeholder="L"
-            value={value.unitLengthIn}
-            onChange={(e) => set("unitLengthIn", e.target.value)}
-            className={compact ? "h-9" : "h-11 rounded-lg"}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor={`${idPrefix}-w`} className="text-xs text-muted-foreground">
-            Width (in)
-          </Label>
-          <Input
-            id={`${idPrefix}-w`}
-            type="number"
-            min={0}
-            step="0.01"
-            inputMode="decimal"
-            placeholder="W"
-            value={value.unitWidthIn}
-            onChange={(e) => set("unitWidthIn", e.target.value)}
-            className={compact ? "h-9" : "h-11 rounded-lg"}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor={`${idPrefix}-h`} className="text-xs text-muted-foreground">
-            Height (in)
-          </Label>
-          <Input
-            id={`${idPrefix}-h`}
-            type="number"
-            min={0}
-            step="0.01"
-            inputMode="decimal"
-            placeholder="H"
-            value={value.unitHeightIn}
-            onChange={(e) => set("unitHeightIn", e.target.value)}
-            className={compact ? "h-9" : "h-11 rounded-lg"}
-          />
+      <div className="space-y-3">
+        <div
+          className={cn(
+            "grid gap-2",
+            compact ? "grid-cols-3" : "grid-cols-3"
+          )}
+        >
+          <div className="space-y-1">
+            <Label htmlFor={`${idPrefix}-l`} className="text-xs text-muted-foreground">
+              Length (in)
+            </Label>
+            <Input
+              id={`${idPrefix}-l`}
+              type="number"
+              min={0}
+              step="0.01"
+              inputMode="decimal"
+              placeholder="L"
+              value={value.unitLengthIn}
+              onChange={(e) => set("unitLengthIn", e.target.value)}
+              className={compact ? "h-9" : "h-11 rounded-lg"}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor={`${idPrefix}-w`} className="text-xs text-muted-foreground">
+              Width (in)
+            </Label>
+            <Input
+              id={`${idPrefix}-w`}
+              type="number"
+              min={0}
+              step="0.01"
+              inputMode="decimal"
+              placeholder="W"
+              value={value.unitWidthIn}
+              onChange={(e) => set("unitWidthIn", e.target.value)}
+              className={compact ? "h-9" : "h-11 rounded-lg"}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor={`${idPrefix}-h`} className="text-xs text-muted-foreground">
+              Height (in)
+            </Label>
+            <Input
+              id={`${idPrefix}-h`}
+              type="number"
+              min={0}
+              step="0.01"
+              inputMode="decimal"
+              placeholder="H"
+              value={value.unitHeightIn}
+              onChange={(e) => set("unitHeightIn", e.target.value)}
+              className={compact ? "h-9" : "h-11 rounded-lg"}
+            />
+          </div>
         </div>
         <div className="space-y-1">
           <Label htmlFor={`${idPrefix}-wt`} className="text-xs text-muted-foreground">
             Weight
           </Label>
-          <div className="flex gap-1">
+          <div className="flex gap-2">
             <Input
               id={`${idPrefix}-wt`}
               type="number"
@@ -165,13 +167,13 @@ export function ProductUnitMeasurementsFields({
               step={weightUnit === "oz" ? "0.001" : "0.01"}
               inputMode="decimal"
               placeholder={weightUnit === "oz" ? "oz" : "lb"}
-              value={value.unitWeightLb}
+              value={String(value.unitWeightLb ?? "")}
               onChange={(e) => set("unitWeightLb", e.target.value)}
-              className={cn("min-w-0 flex-1", compact ? "h-9" : "h-11 rounded-lg")}
+              className={cn("min-w-[8rem] flex-1", compact ? "h-9" : "h-11 rounded-lg")}
             />
             <Select value={weightUnit} onValueChange={(v) => setWeightUnit(v as UnitWeightUnit)}>
               <SelectTrigger
-                className={cn("w-[4.5rem] shrink-0", compact ? "h-9" : "h-11 rounded-lg")}
+                className={cn("w-[5rem] shrink-0", compact ? "h-9" : "h-11 rounded-lg")}
                 aria-label="Weight unit"
               >
                 <SelectValue />
