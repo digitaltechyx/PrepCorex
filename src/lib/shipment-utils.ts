@@ -91,6 +91,52 @@ export function normalizeShipmentItems(shipment: ShippedItem): NormalizedShipmen
   ];
 }
 
+/** One table row per SKU — expands multi-item `shipped` docs for list views. */
+export type ShippedDisplayRow = ShippedItem & {
+  displayRowId: string;
+  /** Firestore parent doc when this row is a line from a multi-SKU shipment. */
+  parentShippedItem?: ShippedItem;
+};
+
+export function expandShippedItemsForDisplay(items: ShippedItem[]): ShippedDisplayRow[] {
+  const rows: ShippedDisplayRow[] = [];
+  for (const item of items) {
+    const lines = normalizeShipmentItems(item);
+    if (lines.length <= 1) {
+      const line = lines[0];
+      rows.push({
+        ...item,
+        displayRowId: item.id,
+        ...(line
+          ? {
+              productName: line.productName,
+              shippedQty: line.shippedQty,
+              boxesShipped: line.boxesShipped,
+              packOf: line.packOf,
+              unitPrice: line.unitPrice ?? item.unitPrice,
+              remainingQty: line.remainingQty ?? item.remainingQty,
+            }
+          : {}),
+      });
+      continue;
+    }
+    lines.forEach((line, index) => {
+      rows.push({
+        ...item,
+        displayRowId: `${item.id}-${line.productId || index}`,
+        productName: line.productName,
+        shippedQty: line.shippedQty,
+        boxesShipped: line.boxesShipped,
+        packOf: line.packOf,
+        unitPrice: line.unitPrice ?? item.unitPrice,
+        remainingQty: line.remainingQty ?? item.remainingQty,
+        parentShippedItem: item,
+      });
+    });
+  }
+  return rows;
+}
+
 export function getShipmentSummary(shipment: ShippedItem) {
   const items = normalizeShipmentItems(shipment);
   const totalBoxes = items.reduce((sum, item) => sum + (item.boxesShipped || 0), 0);

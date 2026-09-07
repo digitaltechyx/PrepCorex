@@ -59,6 +59,9 @@ import { ShippedOrderDetailsDialog } from "@/components/dashboard/shipped-order-
 import {
   buildShippedOrderDetails,
   enrichShippedOrderDetailsFromInventory,
+  expandShippedItemsForDisplay,
+  normalizeShipmentItems,
+  type ShippedDisplayRow,
   type ShippedOrderDetails,
 } from "@/lib/shipment-utils";
 
@@ -1607,28 +1610,25 @@ export function AdminInventoryManagement({
     }> = [];
 
     for (const shipped of shipments) {
-      const qty = Number(
-        (shipped as any).unitsForPricing ??
-          (shipped as any).boxesShipped ??
-          shipped.shippedQty ??
-          0
-      );
-      const unitPrice = Number(shipped.unitPrice || 0);
       const shipDate =
         typeof shipped.date === "string"
           ? format(new Date(shipped.date), "dd/MM/yyyy")
           : format(new Date(shipped.date.seconds * 1000), "dd/MM/yyyy");
       const shipTo = String(shipped.shipTo || "");
 
-      items.push({
-        quantity: qty,
-        productName: shipped.productName || "Unknown Product",
-        shipDate,
-        packaging: `${shipped.packOf ?? 1} Nos.`,
-        shipTo,
-        unitPrice,
-        amount: qty * unitPrice,
-      });
+      for (const line of normalizeShipmentItems(shipped)) {
+        const qty = Number(line.shippedQty ?? line.boxesShipped ?? 0);
+        const unitPrice = Number(line.unitPrice ?? shipped.unitPrice ?? 0);
+        items.push({
+          quantity: qty,
+          productName: line.productName || shipped.productName || "Unknown Product",
+          shipDate,
+          packaging: `${line.packOf ?? shipped.packOf ?? 1} Nos.`,
+          shipTo,
+          unitPrice,
+          amount: qty * unitPrice,
+        });
+      }
 
       const labelPrice = Number((shipped as any).labelPrice || 0);
       if (labelPrice > 0.0001) {
@@ -1668,7 +1668,7 @@ export function AdminInventoryManagement({
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    const todayShipments = filteredShipped.filter(shippedItem => {
+    const todayShipments = filteredShippedDocs.filter(shippedItem => {
       const shipmentDate = typeof shippedItem.date === 'string' 
         ? new Date(shippedItem.date) 
         : new Date(shippedItem.date.seconds * 1000);
@@ -1788,7 +1788,7 @@ export function AdminInventoryManagement({
     end.setHours(23,59,59,999);
 
     // Filter shipments by date range
-    const rangeShipments = filteredShipped.filter(shippedItem => {
+    const rangeShipments = filteredShippedDocs.filter(shippedItem => {
       const shipmentDate = typeof shippedItem.date === 'string' 
         ? new Date(shippedItem.date) 
         : new Date(shippedItem.date.seconds * 1000);
@@ -1905,8 +1905,8 @@ export function AdminInventoryManagement({
   const paginatedInventory = filteredInventory.slice(inventoryStartIndex, inventoryEndIndex);
   const resetInventoryPagination = () => setInventoryPage(1);
 
-  // Filtered shipped data — newest ship date first (same as client Shipped Orders page)
-  const filteredShipped = useMemo(() => {
+  // Filtered shipped docs — newest ship date first (same as client Shipped Orders page)
+  const filteredShippedDocs = useMemo(() => {
     const toSortTimeMs = (value: unknown): number => {
       if (!value) return 0;
       if (typeof value === "string" || typeof value === "number") {
@@ -1936,7 +1936,12 @@ export function AdminInventoryManagement({
     };
 
     const filtered = shipped.filter((item) => {
-      const matchesSearch = (item.productName || "").toLowerCase().includes(shippedSearch.toLowerCase());
+      const q = shippedSearch.trim().toLowerCase();
+      const matchesSearch =
+        q.length === 0 ||
+        (item.productName || "").toLowerCase().includes(q) ||
+        (Array.isArray(item.items) &&
+          item.items.some((line) => String(line.productName ?? "").toLowerCase().includes(q)));
       const matchesDate = matchesDateFilter(item.date, shippedDateFilter);
       return matchesSearch && matchesDate;
     });
@@ -1947,6 +1952,12 @@ export function AdminInventoryManagement({
       return String(b.id || "").localeCompare(String(a.id || ""));
     });
   }, [shipped, shippedSearch, shippedDateFilter]);
+
+  /** One row per SKU in the admin table (multi-item shipments expand like client Shipped Orders). */
+  const filteredShipped = useMemo(
+    () => expandShippedItemsForDisplay(filteredShippedDocs),
+    [filteredShippedDocs]
+  );
 
   // Pagination for shipped (12 items per page for card view)
   const shippedTotalPages = Math.ceil(filteredShipped.length / shippedItemsPerPage);
@@ -2820,23 +2831,23 @@ export function AdminInventoryManagement({
                   </TableHeader>
                   <TableBody>
                     {paginatedShipped.map((item) => {
-                      const svc = (item as any).service as string | undefined;
-                      const shipmentType = (item as any).shipmentType as string | undefined;
-                      const productType = (item as any).productType as string | undefined;
-                      const palletSubType = (item as any).palletSubType as string | undefined;
-                      const itemsCount = Array.isArray((item as any).items) ? (item as any).items.length : 0;
-                      const add = (item as any).additionalServices as any | undefined;
+                      const row = item as ShippedDisplayRow;
+                      const sourceItem = row.parentShippedItem ?? row;
+                      const svc = (sourceItem as any).service as string | undefined;
+                      const shipmentType = (sourceItem as any).shipmentType as string | undefined;
+                      const productType = (sourceItem as any).productType as string | undefined;
+                      const palletSubType = (sourceItem as any).palletSubType as string | undefined;
+                      const add = (sourceItem as any).additionalServices as any | undefined;
                       const hasAdd = !!add && ((add.bubbleWrapFeet || 0) > 0 || (add.stickerRemovalItems || 0) > 0 || (add.warningLabels || 0) > 0 || (add.total || 0) > 0);
                       const typeLabel = shipmentType === "pallet" && palletSubType ? `Pallet (${palletSubType})` : shipmentType ?? undefined;
                       const typeProductText = [typeLabel, productType].filter(Boolean).join(" • ") || "—";
                       return (
-                        <TableRow key={item.id}>
+                        <TableRow key={row.displayRowId}>
                           <TableCell className="font-medium">
                             <div className="flex flex-col gap-1">
-                              <span className="truncate block max-w-[180px]" title={item.productName}>{item.productName}</span>
+                              <span className="truncate block max-w-[180px]" title={row.productName}>{row.productName}</span>
                               <div className="flex flex-wrap items-center gap-1">
-                                {itemsCount > 1 && <span className="text-xs text-muted-foreground">({itemsCount} items)</span>}
-                                {(item.source === "shopify" || item.quickFulfill || item.service === "Shopify") && (
+                                {(sourceItem.source === "shopify" || sourceItem.quickFulfill || sourceItem.service === "Shopify") && (
                                   <Badge
                                     variant="outline"
                                     className="w-fit border-emerald-300 bg-emerald-50 text-[10px] text-emerald-900"
@@ -2853,14 +2864,14 @@ export function AdminInventoryManagement({
                           <TableCell className="text-muted-foreground text-sm">
                             <span className="truncate block max-w-[140px]">{typeProductText}</span>
                           </TableCell>
-                          <TableCell className="text-right font-medium">{(item as any).boxesShipped ?? item.shippedQty}</TableCell>
-                          <TableCell className="text-right">{item.remainingQty}</TableCell>
-                          <TableCell className="text-right">{item.packOf}</TableCell>
-                          <TableCell className="text-muted-foreground text-sm whitespace-nowrap">{formatDate(item.date)}</TableCell>
+                          <TableCell className="text-right font-medium">{(row as any).boxesShipped ?? row.shippedQty}</TableCell>
+                          <TableCell className="text-right">{row.remainingQty}</TableCell>
+                          <TableCell className="text-right">{row.packOf}</TableCell>
+                          <TableCell className="text-muted-foreground text-sm whitespace-nowrap">{formatDate(row.date)}</TableCell>
                           <TableCell className="min-w-[120px]">
-                            {item.remarks ? (
-                              <Button variant="ghost" size="sm" className="h-auto p-1 text-xs text-left justify-start max-w-full truncate" onClick={() => handleRemarksClick(item.remarks || "")}>
-                                <span className="truncate block">{item.remarks}</span>
+                            {sourceItem.remarks ? (
+                              <Button variant="ghost" size="sm" className="h-auto p-1 text-xs text-left justify-start max-w-full truncate" onClick={() => handleRemarksClick(sourceItem.remarks || "")}>
+                                <span className="truncate block">{sourceItem.remarks}</span>
                                 <Eye className="h-3 w-3 ml-1 shrink-0" />
                               </Button>
                             ) : (
@@ -2895,7 +2906,7 @@ export function AdminInventoryManagement({
                               variant="outline"
                               size="sm"
                               className="h-8 gap-1 text-xs"
-                              onClick={() => handleShipmentDetailsClick(item)}
+                              onClick={() => handleShipmentDetailsClick(sourceItem)}
                             >
                               <FileText className="h-3.5 w-3.5" />
                               Details
@@ -2912,12 +2923,12 @@ export function AdminInventoryManagement({
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>Delete Shipped Order</AlertDialogTitle>
                                   <AlertDialogDescription>
-                                    Are you sure you want to delete this shipped order for "{item.productName}"? This action cannot be undone.
+                                    Are you sure you want to delete this shipped order for "{row.productName}"? This action cannot be undone.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleDeleteShippedOrder(item)} className="bg-red-600 hover:bg-red-700">
+                                  <AlertDialogAction onClick={() => handleDeleteShippedOrder(sourceItem)} className="bg-red-600 hover:bg-red-700">
                                     Delete
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
