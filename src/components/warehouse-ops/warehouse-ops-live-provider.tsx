@@ -185,6 +185,7 @@ function useClientInventoryLive(clientUserIds: string[]) {
 type WarehouseOpsLiveContextValue = {
   stats: WarehouseOpsDashboardStats;
   pickQueue: OutboundPickOrder[];
+  skippedPickQueue: OutboundPickOrder[];
   packQueue: OutboundPackOrder[];
   dispatchQueue: OutboundPackOrder[];
   pendingOutboundQueue: PendingOutboundRequest[];
@@ -410,7 +411,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
   const syncError =
     cartonsSyncError ?? shipmentsSyncError ?? inventorySyncError ?? returnsSyncError ?? null;
 
-  const { stats, pickQueue, packQueue, dispatchQueue, pendingOutboundQueue, crossdockDispatchQueue, crossdockHoldQueue, crossdockPackQueue, returnPackQueue, inboundDockQueue, returnDockQueue, quarantineReturnCartons } =
+  const { stats, pickQueue, skippedPickQueue, packQueue, dispatchQueue, pendingOutboundQueue, crossdockDispatchQueue, crossdockHoldQueue, crossdockPackQueue, returnPackQueue, inboundDockQueue, returnDockQueue, quarantineReturnCartons } =
     useMemo(() => {
     if (!selectedWarehouse) {
       const empty: WarehouseOpsDashboardStats = {
@@ -427,6 +428,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       return {
         stats: empty,
         pickQueue: [] as OutboundPickOrder[],
+        skippedPickQueue: [] as OutboundPickOrder[],
         packQueue: [] as OutboundPackOrder[],
         dispatchQueue: [] as OutboundPackOrder[],
         pendingOutboundQueue: [] as PendingOutboundRequest[],
@@ -487,6 +489,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     return {
       stats: nextStats,
       pickQueue: queues.pickQueue,
+      skippedPickQueue: queues.skippedPickQueue,
       packQueue: queues.packQueue,
       dispatchQueue: queues.dispatchQueue,
       pendingOutboundQueue: pendingOutbound,
@@ -574,6 +577,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     () => ({
       stats: displayStats,
       pickQueue,
+      skippedPickQueue,
       packQueue,
       dispatchQueue,
       pendingOutboundQueue,
@@ -594,6 +598,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     [
       displayStats,
       pickQueue,
+      skippedPickQueue,
       packQueue,
       dispatchQueue,
       pendingOutboundQueue,

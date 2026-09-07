@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Download, Loader2, PackageCheck, Truck, Warehouse } from "lucide-react";
+import { Download, Loader2, PackageCheck, RotateCcw, Truck, Warehouse } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,7 @@ import {
   type PutawayLineSlot,
 } from "@/components/warehouse-ops/putaway-destination-fields";
 import { completeDispatchHandoff } from "@/lib/warehouse-pack";
+import { restorePickOrderToQueue } from "@/lib/warehouse-pick";
 import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
 import { pushShopifyInventoryHints } from "@/lib/shopify-inventory-sync";
 import { pushEbayInventoryHints } from "@/lib/ebay-inventory-sync";
@@ -620,24 +621,29 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   const readyToDispatch = packStatus === "ready_to_dispatch" && dispatchStatus !== "dispatched";
   const isDispatched = dispatchStatus === "dispatched";
   const isPicked = pickStatus === "picked";
+  const pickWasSkipped = pickStatus === "skipped";
   const needsPick =
     status === "confirmed" &&
     !isDispatched &&
     !readyToDispatch &&
     !isPicked &&
-    pickStatus !== "skipped";
+    !pickWasSkipped;
   const needsPack = status === "confirmed" && isPicked && !readyToDispatch && !isDispatched;
   const focusQuery = `userId=${encodeURIComponent(clientUserId)}&requestId=${encodeURIComponent(request.id)}`;
   const primaryHref = readyToDispatch
     ? `/warehouse-ops/dispatch?${focusQuery}`
     : needsPack
       ? `/warehouse-ops/pack?${focusQuery}`
-      : `/warehouse-ops/pick?tab=ready&${focusQuery}`;
+      : pickWasSkipped
+        ? `/warehouse-ops/pick?tab=skipped&${focusQuery}`
+        : `/warehouse-ops/pick?tab=ready&${focusQuery}`;
   const primaryLabel = readyToDispatch
     ? "Open focused dispatch"
     : needsPack
       ? "Open focused pack"
-      : "Open focused pick";
+      : pickWasSkipped
+        ? "Review skipped pick"
+        : "Open focused pick";
   const preferredWarehouseId = requestWarehouseId || warehouseId || activeWarehouses[0]?.id || "";
 
   return (
@@ -660,6 +666,46 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         {!isDispatched ? (
           <Button type="button" size="sm" asChild>
             <Link href={primaryHref}>{primaryLabel}</Link>
+          </Button>
+        ) : null}
+        {pickWasSkipped && !isDispatched ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={busy || !preferredWarehouseId}
+            onClick={async () => {
+              const wh = preferredWarehouseId;
+              if (!wh) {
+                toast({ variant: "destructive", title: "No warehouse configured" });
+                return;
+              }
+              setBusy(true);
+              try {
+                await restorePickOrderToQueue({
+                  clientUserId,
+                  shipmentRequestId: request.id,
+                  warehouseId: wh,
+                  operatorId: userProfile?.uid ?? null,
+                });
+                toast({
+                  title: "Returned to pick queue",
+                  description: "Continue in Warehouse Ops → Pick → Ready to pick.",
+                });
+                onComplete?.();
+              } catch (error: unknown) {
+                toast({
+                  variant: "destructive",
+                  title: "Restore failed",
+                  description: error instanceof Error ? error.message : "Could not restore.",
+                });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+            Return to pick queue
           </Button>
         ) : null}
         {needsPick || needsPack || readyToDispatch ? (

@@ -1,12 +1,13 @@
 import type { UserProfile } from "@/types";
 
-type InboundShippingUser = Pick<UserProfile, "companyName" | "name" | "inboundShippingName"> | null | undefined;
+type InboundShippingUser = Pick<UserProfile, "inboundShippingName"> | null | undefined;
 
-/** Company or account name used when the client has not set a custom inbound shipping name. */
-export function getDefaultInboundShippingName(user: InboundShippingUser): string {
-  const company = user?.companyName?.trim();
-  if (company) return company;
-  return user?.name?.trim() || "";
+/** Default name on inbound shipment labels for all clients unless they set a custom override. */
+export const DEFAULT_INBOUND_SHIPPING_NAME = "Prep Services FBA";
+
+/** Default shipping name when the client has not set a custom inbound shipping name. */
+export function getDefaultInboundShippingName(_user?: InboundShippingUser): string {
+  return DEFAULT_INBOUND_SHIPPING_NAME;
 }
 
 /** Name clients should put on inbound shipments (custom override or default). */

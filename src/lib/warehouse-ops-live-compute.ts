@@ -261,6 +261,7 @@ export function buildOutboundQueuesLive(input: {
   productMaps: Map<string, ClientProductMap>;
 }): {
   pickQueue: OutboundPickOrder[];
+  skippedPickQueue: OutboundPickOrder[];
   packQueue: OutboundPackOrder[];
   dispatchQueue: OutboundPackOrder[];
 } {
@@ -272,6 +273,7 @@ export function buildOutboundQueuesLive(input: {
   );
 
   const pickQueue: OutboundPickOrder[] = [];
+  const skippedPickQueue: OutboundPickOrder[] = [];
   const packQueue: OutboundPackOrder[] = [];
   const dispatchQueue: OutboundPackOrder[] = [];
 
@@ -307,6 +309,24 @@ export function buildOutboundQueuesLive(input: {
     }
 
     if (
+      pickStatus === "skipped" &&
+      dispatchStatus !== "dispatched" &&
+      packStatus !== "ready_to_dispatch"
+    ) {
+      skippedPickQueue.push({
+        id: doc.id,
+        clientUserId,
+        clientDisplayName: displayClient(clientById.get(clientUserId), clientUserId),
+        shipTo: data.shipTo != null ? String(data.shipTo) : undefined,
+        confirmedAt: dateFromFirestore(data.confirmedAt),
+        warehousePickStatus: pickStatus,
+        lines,
+        remarks: String(data.remarks ?? "").trim() || null,
+      });
+      continue;
+    }
+
+    if (
       pickStatus === "picked" &&
       packStatus !== "ready_to_dispatch" &&
       fbaPackPhaseFromRequest(data) !== "awaiting_label"
@@ -325,6 +345,7 @@ export function buildOutboundQueuesLive(input: {
   }
 
   pickQueue.sort((a, b) => (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0));
+  skippedPickQueue.sort((a, b) => (b.confirmedAt?.getTime() ?? 0) - (a.confirmedAt?.getTime() ?? 0));
   packQueue.sort((a, b) => {
     const aFailed = a.qcFailedAt ? 1 : 0;
     const bFailed = b.qcFailedAt ? 1 : 0;
@@ -337,7 +358,7 @@ export function buildOutboundQueuesLive(input: {
     return tb - ta;
   });
 
-  return { pickQueue, packQueue, dispatchQueue };
+  return { pickQueue, skippedPickQueue, packQueue, dispatchQueue };
 }
 
 export function computeWarehouseOpsLiveStats(input: {

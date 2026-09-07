@@ -57,6 +57,8 @@ const savingsChartConfig = {
 } satisfies ChartConfig;
 
 const EST_SAVE_COLOR = "hsl(142 71% 35%)";
+/** Lighter green for prep savings bar in “Where your savings come from”. */
+const PREP_SAVE_MIX_COLOR = "hsl(142 45% 78%)";
 
 const shippingValueChartConfig = {
   paid: { label: "You paid", color: "hsl(215 16% 47%)" },
@@ -388,10 +390,10 @@ export function ClientReportsDashboard() {
     const marketTotal = Math.round((totalPaid + totalSaved) * 100) / 100;
     const savingsPercent =
       marketTotal > 0 ? Math.round((totalSaved / marketTotal) * 100) : 0;
-    const valueMix = withRankedBarFills([
-      { name: "Label save", amount: shippingSaved },
-      { name: "Prep save", amount: prepSaved },
-    ]);
+    const valueMix: RankedBarRow[] = [
+      { name: "Label save", amount: shippingSaved, fill: EST_SAVE_COLOR },
+      { name: "Prep save", amount: prepSaved, fill: PREP_SAVE_MIX_COLOR },
+    ];
     return {
       shippingSaved,
       prepSaved,

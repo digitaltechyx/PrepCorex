@@ -1,6 +1,7 @@
 import {
   collection,
   collectionGroup,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -991,6 +992,40 @@ export async function skipPickOrder(input: {
     warehousePickSkippedAt: serverTimestamp(),
     warehousePickSkippedBy: input.operatorId ?? null,
     warehouseId: input.warehouseId,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Put a skipped confirmed order back on the pick queue. */
+export async function restorePickOrderToQueue(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+  warehouseId: string;
+  operatorId?: string | null;
+}): Promise<void> {
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Order not found.");
+
+  const data = snap.data() as Record<string, unknown>;
+  if (String(data.status ?? "").toLowerCase() !== "confirmed") {
+    throw new Error("Only confirmed orders can return to the pick queue.");
+  }
+  if (pickStatusFromRequest(data) !== "skipped") {
+    throw new Error("This order is not marked as skipped from pick.");
+  }
+  if (String(data.warehouseDispatchStatus ?? "").toLowerCase() === "dispatched") {
+    throw new Error("This order was already dispatched.");
+  }
+
+  await updateDoc(ref, {
+    warehousePickStatus: "ready",
+    warehousePickRestoredAt: serverTimestamp(),
+    warehousePickRestoredBy: input.operatorId ?? null,
+    warehouseId: input.warehouseId,
+    warehousePickSkipReason: deleteField(),
+    warehousePickSkippedAt: deleteField(),
+    warehousePickSkippedBy: deleteField(),
     updatedAt: serverTimestamp(),
   });
 }

@@ -39,6 +39,7 @@ import {
   applyPickStep,
   buildPickPlan,
   markPickOrderStatus,
+  restorePickOrderToQueue,
   skipPickOrder,
   type OutboundPickOrder,
   type PickBatchOption,
@@ -63,6 +64,7 @@ import {
   Loader2,
   MessageSquareText,
   Package,
+  RotateCcw,
   Search,
   X,
 } from "lucide-react";
@@ -78,7 +80,7 @@ type Props = {
   warehouse: WarehouseDoc;
 };
 
-type QueueTab = "pending" | "ready" | "log";
+type QueueTab = "pending" | "ready" | "skipped" | "log";
 type PendingFilter = "all" | "approvable";
 type ReadyFilter = "all" | "ready" | "picking";
 
@@ -172,6 +174,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
 
   const {
     pickQueue: orders,
+    skippedPickQueue,
     pendingOutboundQueue,
     outboundLoading: queueLoading,
   } = useWarehouseOpsLive();
@@ -199,6 +202,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
   const [resolvingBin, setResolvingBin] = useState(false);
   const [resolvingCarton, setResolvingCarton] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  const [restoringKey, setRestoringKey] = useState<string | null>(null);
   const [cancellingKey, setCancellingKey] = useState<string | null>(null);
 
   const binInputRef = useRef<HTMLInputElement | null>(null);
@@ -276,7 +280,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     const tabParam = String(searchParams.get("tab") || "").trim().toLowerCase();
     if (!requestId && !tabParam) return;
 
-    if (tabParam === "pending" || tabParam === "ready") {
+    if (tabParam === "pending" || tabParam === "ready" || tabParam === "skipped") {
       setQueueTab(tabParam as QueueTab);
     }
     if (!requestId) {
@@ -362,6 +366,7 @@ export function WarehouseOpsPick({ warehouse }: Props) {
 
   const pendingCount = pendingOutboundQueue.length;
   const readyCount = orders.length;
+  const skippedCount = skippedPickQueue.length;
 
   const filteredPending = useMemo(() => {
     const q = pendingSearch.trim().toLowerCase();
@@ -438,7 +443,6 @@ export function WarehouseOpsPick({ warehouse }: Props) {
       });
       if (selectedOrder?.id === order.id) {
         resetToQueue();
-      } else {
       }
     } catch (e) {
       toast({
@@ -449,6 +453,58 @@ export function WarehouseOpsPick({ warehouse }: Props) {
     } finally {
       setDismissing(false);
     }
+  }
+
+  async function handleRestoreOrder(order: OutboundPickOrder) {
+    if (!canDismissFromQueue) return;
+    const key = `${order.clientUserId}:${order.id}`;
+    setRestoringKey(key);
+    try {
+      await restorePickOrderToQueue({
+        clientUserId: order.clientUserId,
+        shipmentRequestId: order.id,
+        warehouseId: warehouse.id,
+        operatorId,
+      });
+      toast({
+        title: "Returned to pick queue",
+        description: `${order.clientDisplayName} — open Ready to pick to fulfill.`,
+      });
+    } catch (e) {
+      toast({
+        title: "Could not restore",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setRestoringKey(null);
+    }
+  }
+
+  async function handleRestoreAllSkipped() {
+    if (!canDismissFromQueue || skippedPickQueue.length === 0) return;
+    setDismissing(true);
+    let restored = 0;
+    let failed = 0;
+    for (const order of skippedPickQueue) {
+      try {
+        await restorePickOrderToQueue({
+          clientUserId: order.clientUserId,
+          shipmentRequestId: order.id,
+          warehouseId: warehouse.id,
+          operatorId,
+        });
+        restored += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    toast({
+      title: "Restore complete",
+      description: `Returned ${restored} order(s) to pick queue${failed ? ` · ${failed} failed` : ""}.`,
+      variant: failed && restored === 0 ? "destructive" : undefined,
+    });
+    setDismissing(false);
   }
 
   async function reloadSelectedOrderAfterLineEdit() {
@@ -727,6 +783,9 @@ export function WarehouseOpsPick({ warehouse }: Props) {
           <TabsList>
             <TabsTrigger value="pending">Pending ({pendingCount})</TabsTrigger>
             <TabsTrigger value="ready">Ready to pick ({readyCount})</TabsTrigger>
+            {canDismissFromQueue ? (
+              <TabsTrigger value="skipped">Skipped ({skippedCount})</TabsTrigger>
+            ) : null}
             <TabsTrigger value="log">Log</TabsTrigger>
           </TabsList>
 
@@ -1065,6 +1124,83 @@ export function WarehouseOpsPick({ warehouse }: Props) {
           </CardContent>
         </Card>
           </TabsContent>
+
+          {canDismissFromQueue ? (
+            <TabsContent value="skipped" className="mt-3">
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <CardTitle className="text-sm">Skipped from pick</CardTitle>
+                      <CardDescription className="text-xs">
+                        Orders removed from pick still show as confirmed / awaiting ship on the client
+                        until you pick, pack, and dispatch. Restore them here to continue fulfillment.
+                      </CardDescription>
+                    </div>
+                    {skippedCount > 0 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        disabled={dismissing}
+                        onClick={() => void handleRestoreAllSkipped()}
+                      >
+                        Restore all ({skippedCount})
+                      </Button>
+                    ) : null}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {queueLoading ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : skippedCount === 0 ? (
+                    <p className="text-sm text-muted-foreground">No skipped orders for this warehouse.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {skippedPickQueue.map((order) => {
+                        const restoreKey = `${order.clientUserId}:${order.id}`;
+                        return (
+                          <div
+                            key={restoreKey}
+                            className="flex flex-col gap-2 rounded-lg border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-medium">{order.clientDisplayName}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {order.lines.map((l) => formatOutboundLineLabel(l)).join(" · ")}
+                              </p>
+                              {formatQueueDate(order.confirmedAt) ? (
+                                <p className="text-[11px] text-muted-foreground">
+                                  Confirmed {formatQueueDate(order.confirmedAt)}
+                                </p>
+                              ) : null}
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={restoringKey === restoreKey || dismissing}
+                              onClick={() => void handleRestoreOrder(order)}
+                            >
+                              {restoringKey === restoreKey ? (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                              )}
+                              Restore to pick
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          ) : null}
 
           <TabsContent value="log" className="mt-3">
             <WarehouseOpsActivityLog warehouse={warehouse} module="pick" />

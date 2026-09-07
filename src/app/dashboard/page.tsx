@@ -323,10 +323,10 @@ export default function DashboardPage() {
       }
       setIsEditingShippingName(false);
       toast({
-        title: trimmed === normalizedDefault ? "Using company name" : "Shipping name saved",
+        title: trimmed === normalizedDefault ? "Using default name" : "Shipping name saved",
         description:
           trimmed === normalizedDefault
-            ? "Your shipment address will show your default company name."
+            ? `Your shipment address will show ${normalizedDefault}.`
             : "Suppliers will see this name on your inbound shipment address.",
       });
     } catch {
@@ -863,7 +863,7 @@ export default function DashboardPage() {
                             value={shippingNameDraft}
                             onChange={(e) => setShippingNameDraft(e.target.value)}
                             className="h-8 text-sm"
-                            placeholder={defaultShippingName || "Company name"}
+                            placeholder={defaultShippingName}
                             disabled={savingShippingName}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") void saveShippingName();
@@ -935,8 +935,8 @@ export default function DashboardPage() {
                     <span>{selectedWarehouseStateDisplay}</span>
                   </div>
                   <p className="mt-4 text-sm text-muted-foreground">
-                    To ensure accurate processing and avoid any misplacement, all shipments to our warehouse must be
-                    addressed with your company name. You can edit the shipping name above if your supplier uses a
+                    To ensure accurate processing and avoid any misplacement, all shipments to our warehouse should use
+                    the shipping name above (default: Prep Services FBA). You can edit it if your supplier must use a
                     different label.
                   </p>
                   {!isSelectedWarehouseAssigned && (
