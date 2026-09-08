@@ -123,10 +123,12 @@ export default function DashboardLayout({
       } else if (userProfile.status === "pending") {
         // Redirect pending users to a waiting page
         router.replace("/pending-approval");
-      } else if (hasUserRole && !hasAgentRole && !isAccountActivated(userProfile)) {
-        // Client (user only) must accept MSA before accessing dashboard
-        const isOnActivatePage = pathname === "/dashboard/activate-account" || pathname?.startsWith("/dashboard/activate-account");
-        if (!isOnActivatePage) {
+      } else if (hasUserRole && !isAccountActivated(userProfile)) {
+        // Clients must accept MSA before client dashboard routes (agent routes stay available).
+        const isOnActivatePage =
+          pathname === "/dashboard/activate-account" ||
+          pathname?.startsWith("/dashboard/activate-account");
+        if (!isOnActivatePage && !isOnAgentDashboard) {
           router.replace("/dashboard/activate-account");
         }
       } else if (userProfile.status === "deleted") {

@@ -20,7 +20,7 @@ import type { UserProfile } from "@/types";
 import { EditUserForm } from "./edit-user-form";
 import { RoleFeatureManagement } from "./role-feature-management";
 import { UserAuditTrailPanel } from "./user-audit-trail-panel";
-import { getUserRoles } from "@/lib/permissions";
+import { getUserRoles, hasRole, isAccountActivated } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import {
   asDateValue,
@@ -647,6 +647,47 @@ export function MemberManagement({
                           )}
                         </div>
                       </div>
+
+                      {hasRole(user, "user") && (
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-sm border-b pb-1">Account activation</h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="font-medium">Client setup (MSA):</span>
+                              <div className="mt-1">
+                                {isAccountActivated(user) ? (
+                                  <Badge className="bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-50">
+                                    Active — MSA accepted
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-200">
+                                    Pending — wizard not completed
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                            {user.msaEffectiveDate && (
+                              <div>
+                                <span className="font-medium">MSA effective:</span>
+                                <p className="text-muted-foreground">{user.msaEffectiveDate}</p>
+                              </div>
+                            )}
+                            {user.accountActivatedAt && (
+                              <div>
+                                <span className="font-medium">Activated:</span>
+                                <p className="text-muted-foreground">{formatDate(user.accountActivatedAt)}</p>
+                              </div>
+                            )}
+                          </div>
+                          {!isAccountActivated(user) && (
+                            <p className="text-xs text-muted-foreground">
+                              This client can sign in but has not finished the setup wizard or accepted the MSA. They
+                              should complete activation at{" "}
+                              <span className="font-mono">/dashboard/activate-account</span>.
+                            </p>
+                          )}
+                        </div>
+                      )}
 
                       {/* Company Information */}
                       {(user.companyName || user.ein) && (

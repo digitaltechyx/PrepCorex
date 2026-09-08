@@ -255,6 +255,13 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
             return Array.from(set);
           });
         }
+        if (role === "commission_agent") {
+          const defaults = getDefaultFeaturesForRole("commission_agent");
+          setSelectedFeatures((f) => {
+            const set = new Set([...f, ...defaults]);
+            return Array.from(set);
+          });
+        }
         return [...prev, role];
       }
     });
@@ -323,6 +330,14 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
           enabledPlatformIds,
         });
         featuresToSave = [...base, ...integrationSlice];
+      }
+
+      if (selectedRoles.includes("commission_agent")) {
+        for (const feature of getDefaultFeaturesForRole("commission_agent")) {
+          if (!featuresToSave.includes(feature)) {
+            featuresToSave = [...featuresToSave, feature];
+          }
+        }
       }
 
       const updateData: any = {

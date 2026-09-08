@@ -123,10 +123,24 @@ export function isAccountActivated(userProfile: UserProfile | null | undefined):
  * Check if user has a specific feature.
  * For clients (role "user"): must be activated (MSA accepted) or have explicit features; then grant from features array or default list.
  */
+/** Commission-agent capabilities (e.g. affiliate dashboard) — not gated by client MSA. */
+function hasCommissionAgentFeature(
+  userProfile: UserProfile,
+  feature: UserFeature
+): boolean {
+  if (!hasRole(userProfile, "commission_agent")) return false;
+  const features = userProfile.features;
+  const hasExplicitFeatures = Array.isArray(features) && features.length > 0;
+  if (hasExplicitFeatures && features.includes(feature)) return true;
+  return getDefaultFeaturesForRole("commission_agent").includes(feature);
+}
+
 export function hasFeature(userProfile: UserProfile | null | undefined, feature: UserFeature): boolean {
   if (!userProfile) return false;
 
   if (hasRole(userProfile, "admin")) return true;
+
+  if (hasCommissionAgentFeature(userProfile, feature)) return true;
 
   const features = userProfile.features;
   const hasExplicitFeatures = Array.isArray(features) && features.length > 0;
@@ -167,6 +181,8 @@ export function hasAnyFeature(userProfile: UserProfile | null | undefined, ...re
   if (!userProfile) return false;
 
   if (hasRole(userProfile, "admin")) return true;
+
+  if (requestedFeatures.some((f) => hasCommissionAgentFeature(userProfile, f))) return true;
 
   const userFeatures = userProfile.features;
   const hasExplicitFeatures = Array.isArray(userFeatures) && userFeatures.length > 0;
