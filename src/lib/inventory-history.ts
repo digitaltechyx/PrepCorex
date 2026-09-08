@@ -290,8 +290,28 @@ function appendHistoryLineNumber(details: string, line: number): string {
   return `${label} · ${text}`;
 }
 
+function outboundEventSortKey(e: RawEvent): number {
+  if (e.outboundLinkKind === "reserve") return 10;
+  if (e.outboundLinkKind === "dispatch") return 20;
+  if (e.outboundLinkKind === "restore") return 30;
+  if (e.event === "Shipped") return 40;
+  return 0;
+}
+
+function isInformationalOutboundDispatch(e: RawEvent): boolean {
+  return (
+    e.outboundLinkKind === "dispatch" &&
+    (e.qtyChange == null || e.qtyChange === 0) &&
+    String(e.details ?? "").toLowerCase().includes("reserved at request create")
+  );
+}
+
 function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
-  const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
+  const sorted = [...events].sort((a, b) => {
+    const diff = a.timestamp - b.timestamp;
+    if (diff !== 0) return diff;
+    return outboundEventSortKey(a) - outboundEventSortKey(b);
+  });
   let running: number | null = null;
   const rows: Array<InventoryHistoryRow & { outboundLinkKind?: RawEvent["outboundLinkKind"] }> =
     [];
@@ -301,29 +321,60 @@ function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
     let qtyAfter = e.qtyAfter ?? null;
     let qtyChange = e.qtyChange ?? null;
 
-    if (qtyBefore != null && qtyAfter != null && qtyChange == null) {
-      qtyChange = qtyAfter - qtyBefore;
-    } else if (qtyBefore != null && qtyChange != null && qtyAfter == null) {
+    const packLayoutOnly =
+      qtyChange === 0 &&
+      qtyBefore != null &&
+      qtyAfter != null &&
+      qtyBefore === qtyAfter;
+
+    if (packLayoutOnly || isInformationalOutboundDispatch(e)) {
+      if (running != null) {
+        qtyBefore = running;
+        qtyAfter = running;
+      }
+      qtyChange = 0;
+    } else if (qtyChange != null && qtyChange !== 0) {
+      // Use the recorded delta but recompute before/after from the running balance so
+      // rows stay continuous when Firestore snapshots were taken out of UI order.
+      qtyBefore = running != null ? running : qtyBefore ?? 0;
       qtyAfter = qtyBefore + qtyChange;
+      running = qtyAfter;
+    } else if (qtyBefore != null && qtyAfter != null && qtyChange == null) {
+      qtyChange = qtyAfter - qtyBefore;
+      if (qtyChange !== 0) {
+        qtyBefore = running != null ? running : qtyBefore;
+        qtyAfter = qtyBefore + qtyChange;
+      }
+      running = qtyAfter;
     } else if (qtyAfter != null && qtyChange != null && qtyBefore == null) {
-      // Prefer continuous running stock when the event only has a delta-shaped after
-      // (legacy inbound set qtyAfter = received units, not on-hand total).
       if (running != null && qtyChange !== 0 && qtyAfter === qtyChange) {
         qtyBefore = running;
         qtyAfter = running + qtyChange;
       } else {
         qtyBefore = qtyAfter - qtyChange;
       }
+      running = qtyAfter;
     } else if (qtyChange != null && qtyBefore == null && qtyAfter == null) {
       qtyBefore = running != null ? running : 0;
       qtyAfter = qtyBefore + qtyChange;
+      running = qtyAfter;
     } else if (qtyAfter != null && qtyBefore == null && qtyChange == null) {
       qtyChange = running != null ? qtyAfter - running : qtyAfter;
       qtyBefore = running != null ? running : 0;
+      running = qtyAfter;
+    } else if (qtyBefore != null && qtyChange != null && qtyAfter == null) {
+      qtyAfter = qtyBefore + qtyChange;
+      if (running != null && qtyChange !== 0) {
+        qtyBefore = running;
+        qtyAfter = qtyBefore + qtyChange;
+      }
+      running = qtyAfter;
     }
 
-    if (qtyAfter != null) running = qtyAfter;
-    else if (qtyBefore != null && qtyChange != null) running = qtyBefore + qtyChange;
+    if (running == null && qtyAfter != null) running = qtyAfter;
+    else if (running == null && qtyBefore != null && qtyChange != null) {
+      running = qtyBefore + qtyChange;
+    }
 
     const { dateLabel, timeLabel } = formatLabels(e.timestamp);
     rows.push({
@@ -562,13 +613,22 @@ export function buildInventoryHistory(
         ? ("restock" as const)
         : ("shipped" as const);
 
+    const isReservedAtCreateDispatch =
+      log.eventType === "outbound_dispatch" &&
+      String(log.details ?? "").toLowerCase().includes("reserved at request create") &&
+      (log.qtyChange == null || Number(log.qtyChange) === 0);
+
     raw.push({
       timestamp: toTimestamp(log.at),
       event: eventLabel,
       eventType: historyEventType,
-      qtyBefore: isPackLayoutOnly ? null : log.qtyBefore,
-      qtyAfter: isPackLayoutOnly ? null : log.qtyAfter,
-      qtyChange: isPackLayoutOnly ? null : log.qtyChange,
+      qtyBefore: isPackLayoutOnly || isReservedAtCreateDispatch ? null : log.qtyBefore,
+      qtyAfter: isPackLayoutOnly || isReservedAtCreateDispatch ? null : log.qtyAfter,
+      qtyChange: isPackLayoutOnly
+        ? null
+        : isReservedAtCreateDispatch
+          ? 0
+          : log.qtyChange,
       details,
       user: "Fulfillment",
       shipmentRequestId: log.shipmentRequestId ?? null,
