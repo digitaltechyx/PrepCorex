@@ -15,6 +15,7 @@ function readCronConfig() {
   const secret =
     process.env.CRON_SECRET ||
     process.env.INBOUND_TRACKING_CRON_SECRET ||
+    process.env.INBOUND_TRACKER_CRON_SECRET ||
     process.env.OUTBOUND_TRACKING_CRON_SECRET ||
     configCronSecret;
   return { baseUrl, secret };
@@ -56,3 +57,8 @@ exports.outboundTrackingDigestCron = functions.pubsub
   .schedule("0 7 * * *")
   .timeZone("America/New_York")
   .onRun(async () => postCronPath("/api/outbound-tracking/digest", "outboundTrackingDigestCron"));
+
+/** Poll Shippo for open inbound tracker entries every 6 hours. */
+exports.inboundTrackerRefreshCron = functions.pubsub
+  .schedule("every 6 hours")
+  .onRun(async () => postCronPath("/api/inbound-tracker/cron", "inboundTrackerRefreshCron"));
