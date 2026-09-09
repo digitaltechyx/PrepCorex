@@ -16,16 +16,19 @@ import {
   formatOutboundTrackerDate,
   filterOutboundTrackerEntries,
   normalizeTrackingNumber,
-  OUTBOUND_TRACKER_DEFAULT_FILTERS,
+  getOutboundTrackerDefaultFilters,
   outboundTrackerAddedDate,
   outboundTrackerAddedViaLabel,
   outboundTrackerFilterOptions,
+  outboundTrackerHasActiveFilters,
+  buildOutboundTrackerReport,
   statusBadgeVariant,
   type OutboundTrackerFilters,
   type OutboundTrackerStatusFilter,
 } from "@/lib/outbound-tracking";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { detectCarrier } from "@/lib/carrier-detect";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +64,9 @@ import {
   Trash2,
   Search,
   X,
+  BarChart3,
+  AlertCircle,
+  Keyboard,
 } from "lucide-react";
 
 const STATUS_FILTER_LABELS: Record<OutboundTrackerStatusFilter, string> = {
@@ -91,6 +97,25 @@ async function readApiError(res: Response, fallback: string): Promise<string> {
   return fallback;
 }
 
+function ReportBar({ label, count, pct }: { label: string; count: number; pct: number }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="truncate font-medium">{label}</span>
+        <span className="shrink-0 text-muted-foreground">
+          {count} ({pct}%)
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-primary/70 transition-all"
+          style={{ width: `${Math.max(pct, count > 0 ? 4 : 0)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function OutboundTrackerPortal() {
   const { user, userProfile, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -102,8 +127,8 @@ export function OutboundTrackerPortal() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OutboundTrackerEntry | null>(null);
   const [manualTracking, setManualTracking] = useState("");
-  const [filters, setFilters] = useState<OutboundTrackerFilters>(
-    OUTBOUND_TRACKER_DEFAULT_FILTERS
+  const [filters, setFilters] = useState<OutboundTrackerFilters>(() =>
+    getOutboundTrackerDefaultFilters()
   );
 
   const isAdmin = hasRole(userProfile, "admin");
@@ -116,18 +141,10 @@ export function OutboundTrackerPortal() {
   );
 
   const clearFilters = useCallback(() => {
-    setFilters(OUTBOUND_TRACKER_DEFAULT_FILTERS);
+    setFilters(getOutboundTrackerDefaultFilters());
   }, []);
 
-  const hasActiveFilters = useMemo(
-    () =>
-      filters.search.trim() !== "" ||
-      filters.carrier !== "all" ||
-      filters.status !== "all" ||
-      filters.addedVia !== "all" ||
-      filters.addedBy !== "all",
-    [filters]
-  );
+  const hasActiveFilters = useMemo(() => outboundTrackerHasActiveFilters(filters), [filters]);
 
   const authHeaders = useCallback(async (): Promise<HeadersInit> => {
     if (!user) throw new Error("Not signed in.");
@@ -167,20 +184,16 @@ export function OutboundTrackerPortal() {
     void loadEntries();
   }, [authLoading, user, isAdmin, router, loadEntries]);
 
-  const stats = useMemo(() => {
-    const active = entries.filter((e) => !e.isClosed).length;
-    const delivered = entries.filter((e) => e.isDelivered || e.isClosed).length;
-    const inTransit = entries.filter(
-      (e) => !e.isClosed && statusBadgeVariant(e) === "transit"
-    ).length;
-    return { total: entries.length, active, delivered, inTransit };
-  }, [entries]);
-
   const filterOptions = useMemo(() => outboundTrackerFilterOptions(entries), [entries]);
 
   const filteredEntries = useMemo(
     () => filterOutboundTrackerEntries(entries, filters),
     [entries, filters]
+  );
+
+  const report = useMemo(
+    () => buildOutboundTrackerReport(filteredEntries),
+    [filteredEntries]
   );
 
   const addTracking = useCallback(
@@ -288,75 +301,259 @@ export function OutboundTrackerPortal() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Outbound Tracker</h1>
         <p className="text-sm text-muted-foreground">
-          Scan or enter dispatched outbound tracking numbers. Status is checked automatically until
-          delivered. Daily email digest at 7:00 AM EDT.
+          Scan or enter dispatched outbound tracking numbers. Status updates automatically every 6
+          hours until delivered. Use filters and date range to view reports on the dashboard below.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card
-          className={cn(
-            "cursor-pointer transition-colors hover:border-primary/40",
-            !hasActiveFilters && "border-primary/30"
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Filters</CardTitle>
+          <CardDescription>
+            Defaults to today&apos;s date. All dashboard stats and the table below reflect your
+            current filters.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="relative max-w-xl">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={filters.search}
+              onChange={(e) => setFilter("search", e.target.value)}
+              placeholder="Search tracking, carrier, status, added by…"
+              className="pl-9"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <DateRangePicker
+              fromDate={filters.addedFrom}
+              toDate={filters.addedTo}
+              setFromDate={(d) => setFilter("addedFrom", d)}
+              setToDate={(d) => setFilter("addedTo", d)}
+              className="w-full sm:w-[260px]"
+            />
+
+            <Select
+              value={filters.status}
+              onValueChange={(v) => setFilter("status", v as OutboundTrackerStatusFilter)}
+            >
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(STATUS_FILTER_LABELS) as OutboundTrackerStatusFilter[]).map(
+                  (key) => (
+                    <SelectItem key={key} value={key}>
+                      {STATUS_FILTER_LABELS[key]}
+                    </SelectItem>
+                  )
+                )}
+              </SelectContent>
+            </Select>
+
+            <Select value={filters.carrier} onValueChange={(v) => setFilter("carrier", v)}>
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="Carrier" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All carriers</SelectItem>
+                {filterOptions.carriers.map((carrier) => (
+                  <SelectItem key={carrier} value={carrier}>
+                    {carrier}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={filters.addedVia}
+              onValueChange={(v) =>
+                setFilter("addedVia", v as OutboundTrackerFilters["addedVia"])
+              }
+            >
+              <SelectTrigger className="w-full sm:w-[140px]">
+                <SelectValue placeholder="Added via" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Scan + manual</SelectItem>
+                <SelectItem value="scan">Scanned only</SelectItem>
+                <SelectItem value="manual">Manual only</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={filters.addedBy} onValueChange={(v) => setFilter("addedBy", v)}>
+              <SelectTrigger className="w-full sm:w-[160px]">
+                <SelectValue placeholder="Added by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All users</SelectItem>
+                {filterOptions.addedByNames.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {hasActiveFilters ? (
+              <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="mr-1 h-4 w-4" />
+                Clear filters
+              </Button>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <BarChart3 className="h-5 w-5" />
+            Reports dashboard
+          </CardTitle>
+          <CardDescription>
+            {hasActiveFilters
+              ? `${report.total} trackings match filters (${entries.length} total in system)`
+              : `${report.total} trackings tracked`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+            <Card
+              className={cn(
+                "cursor-pointer shadow-none transition-colors hover:border-primary/40",
+                !hasActiveFilters && filters.status === "all" && "border-primary/30"
+              )}
+              onClick={() => setFilter("status", "all")}
+            >
+              <CardHeader className="p-4 pb-2">
+                <CardDescription>Total</CardDescription>
+                <CardTitle className="text-2xl">{report.total}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card
+              className={cn(
+                "cursor-pointer shadow-none transition-colors hover:border-primary/40",
+                filters.status === "active" && "border-primary ring-1 ring-primary/20"
+              )}
+              onClick={() => setFilter("status", "active")}
+            >
+              <CardHeader className="p-4 pb-2">
+                <CardDescription className="flex items-center gap-1">
+                  <Truck className="h-3.5 w-3.5" /> Active
+                </CardDescription>
+                <CardTitle className="text-2xl">{report.active}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card
+              className={cn(
+                "cursor-pointer shadow-none transition-colors hover:border-primary/40",
+                filters.status === "in_transit" && "border-primary ring-1 ring-primary/20"
+              )}
+              onClick={() => setFilter("status", "in_transit")}
+            >
+              <CardHeader className="p-4 pb-2">
+                <CardDescription className="flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" /> In transit
+                </CardDescription>
+                <CardTitle className="text-2xl">{report.inTransit}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card
+              className={cn(
+                "cursor-pointer shadow-none transition-colors hover:border-primary/40",
+                filters.status === "delivered" && "border-primary ring-1 ring-primary/20"
+              )}
+              onClick={() => setFilter("status", "delivered")}
+            >
+              <CardHeader className="p-4 pb-2">
+                <CardDescription className="flex items-center gap-1">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Delivered
+                </CardDescription>
+                <CardTitle className="text-2xl">{report.delivered}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card
+              className={cn(
+                "cursor-pointer shadow-none transition-colors hover:border-primary/40",
+                filters.status === "pending" && "border-primary ring-1 ring-primary/20"
+              )}
+              onClick={() => setFilter("status", "pending")}
+            >
+              <CardHeader className="p-4 pb-2">
+                <CardDescription>Pre-transit</CardDescription>
+                <CardTitle className="text-2xl">{report.pending}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card
+              className={cn(
+                "cursor-pointer shadow-none transition-colors hover:border-primary/40",
+                filters.status === "error" && "border-primary ring-1 ring-primary/20"
+              )}
+              onClick={() => setFilter("status", "error")}
+            >
+              <CardHeader className="p-4 pb-2">
+                <CardDescription className="flex items-center gap-1">
+                  <AlertCircle className="h-3.5 w-3.5" /> Errors
+                </CardDescription>
+                <CardTitle className="text-2xl">{report.error}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card className="shadow-none">
+              <CardHeader className="p-4 pb-2">
+                <CardDescription>Scan / manual</CardDescription>
+                <CardTitle className="text-lg">
+                  {report.scanned} / {report.manual}
+                </CardTitle>
+              </CardHeader>
+            </Card>
+          </div>
+
+          {report.total === 0 ? (
+            <p className="text-center text-sm text-muted-foreground py-4">
+              No trackings match the current filters.
+            </p>
+          ) : (
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium">By carrier</h3>
+                <div className="space-y-3">
+                  {report.byCarrier.slice(0, 8).map((row) => (
+                    <ReportBar
+                      key={row.carrier}
+                      label={row.carrier}
+                      count={row.count}
+                      pct={row.pct}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium">By status</h3>
+                <div className="space-y-3">
+                  {report.byStatus.slice(0, 8).map((row) => (
+                    <ReportBar
+                      key={row.status}
+                      label={row.status}
+                      count={row.count}
+                      pct={row.pct}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium">Added by</h3>
+                <div className="space-y-3">
+                  {report.byAddedBy.slice(0, 8).map((row) => (
+                    <ReportBar key={row.name} label={row.name} count={row.count} pct={row.pct} />
+                  ))}
+                </div>
+              </div>
+            </div>
           )}
-          onClick={() => {
-            clearFilters();
-          }}
-        >
-          <CardHeader className="pb-2">
-            <CardDescription>Total tracked</CardDescription>
-            <CardTitle className="text-3xl">{stats.total}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card
-          className={cn(
-            "cursor-pointer transition-colors hover:border-primary/40",
-            filters.status === "active" && "border-primary ring-1 ring-primary/20"
-          )}
-          onClick={() => {
-            setFilters({ ...OUTBOUND_TRACKER_DEFAULT_FILTERS, status: "active" });
-          }}
-        >
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1">
-              <Truck className="h-3.5 w-3.5" /> Active
-            </CardDescription>
-            <CardTitle className="text-3xl">{stats.active}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card
-          className={cn(
-            "cursor-pointer transition-colors hover:border-primary/40",
-            filters.status === "in_transit" && "border-primary ring-1 ring-primary/20"
-          )}
-          onClick={() => {
-            setFilters({ ...OUTBOUND_TRACKER_DEFAULT_FILTERS, status: "in_transit" });
-          }}
-        >
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5" /> In transit
-            </CardDescription>
-            <CardTitle className="text-3xl">{stats.inTransit}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card
-          className={cn(
-            "cursor-pointer transition-colors hover:border-primary/40",
-            filters.status === "delivered" && "border-primary ring-1 ring-primary/20"
-          )}
-          onClick={() => {
-            setFilters({ ...OUTBOUND_TRACKER_DEFAULT_FILTERS, status: "delivered" });
-          }}
-        >
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1">
-              <CheckCircle2 className="h-3.5 w-3.5" /> Delivered
-            </CardDescription>
-            <CardTitle className="text-3xl">{stats.delivered}</CardTitle>
-          </CardHeader>
-        </Card>
-      </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -384,6 +581,7 @@ export function OutboundTrackerPortal() {
             <div className="flex flex-wrap items-center gap-2">
               <Button type="submit" disabled={adding} className="shrink-0">
                 {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                <Keyboard className="mr-2 h-4 w-4" />
                 Add
               </Button>
               <ScanCameraButton
@@ -394,7 +592,13 @@ export function OutboundTrackerPortal() {
                 scannerTitle="Scan outbound label"
                 scannerDescription="Point at the courier barcode or QR on the shipping label."
               />
-              <Button type="button" variant="outline" className="shrink-0" onClick={() => void loadEntries()} disabled={loading}>
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => void loadEntries()}
+                disabled={loading}
+              >
                 <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
                 Reload
               </Button>
@@ -404,7 +608,7 @@ export function OutboundTrackerPortal() {
       </Card>
 
       <Card>
-        <CardHeader className="space-y-4">
+        <CardHeader className="space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex items-center gap-2 text-lg">
               <PackageSearch className="h-5 w-5" />
@@ -413,89 +617,6 @@ export function OutboundTrackerPortal() {
             <p className="text-xs text-muted-foreground">
               Showing {filteredEntries.length} of {entries.length}
             </p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="relative max-w-xl">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={filters.search}
-                onChange={(e) => setFilter("search", e.target.value)}
-                placeholder="Search tracking, carrier, status, added by…"
-                className="pl-9"
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={filters.status}
-                onValueChange={(v) => setFilter("status", v as OutboundTrackerStatusFilter)}
-              >
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(STATUS_FILTER_LABELS) as OutboundTrackerStatusFilter[]).map(
-                    (key) => (
-                      <SelectItem key={key} value={key}>
-                        {STATUS_FILTER_LABELS[key]}
-                      </SelectItem>
-                    )
-                  )}
-                </SelectContent>
-              </Select>
-
-              <Select value={filters.carrier} onValueChange={(v) => setFilter("carrier", v)}>
-                <SelectTrigger className="w-full sm:w-[140px]">
-                  <SelectValue placeholder="Carrier" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All carriers</SelectItem>
-                  {filterOptions.carriers.map((carrier) => (
-                    <SelectItem key={carrier} value={carrier}>
-                      {carrier}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select
-                value={filters.addedVia}
-                onValueChange={(v) =>
-                  setFilter("addedVia", v as OutboundTrackerFilters["addedVia"])
-                }
-              >
-                <SelectTrigger className="w-full sm:w-[140px]">
-                  <SelectValue placeholder="Added via" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Scan + manual</SelectItem>
-                  <SelectItem value="scan">Scanned only</SelectItem>
-                  <SelectItem value="manual">Manual only</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={filters.addedBy} onValueChange={(v) => setFilter("addedBy", v)}>
-                <SelectTrigger className="w-full sm:w-[160px]">
-                  <SelectValue placeholder="Added by" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All users</SelectItem>
-                  {filterOptions.addedByNames.map((name) => (
-                    <SelectItem key={name} value={name}>
-                      {name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {hasActiveFilters ? (
-                <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
-                  <X className="mr-1 h-4 w-4" />
-                  Clear filters
-                </Button>
-              ) : null}
-            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -572,7 +693,9 @@ export function OutboundTrackerPortal() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            disabled={entry.isClosed || refreshingId === entry.id || deletingId === entry.id}
+                            disabled={
+                              entry.isClosed || refreshingId === entry.id || deletingId === entry.id
+                            }
                             onClick={() => void refreshOne(entry.id)}
                             title="Refresh status"
                           >
@@ -616,7 +739,7 @@ export function OutboundTrackerPortal() {
             <AlertDialogDescription>
               Remove{" "}
               <span className="font-mono font-medium">{deleteTarget?.trackingNumber}</span> from
-              Outbound Tracker? This stops polling and removes it from the daily digest.
+              Outbound Tracker? This stops automatic status polling.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

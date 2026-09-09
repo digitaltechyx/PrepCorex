@@ -53,15 +53,168 @@ export type OutboundTrackerFilters = {
   status: OutboundTrackerStatusFilter;
   addedVia: "all" | "scan" | "manual";
   addedBy: string;
+  addedFrom?: Date;
+  addedTo?: Date;
 };
 
-export const OUTBOUND_TRACKER_DEFAULT_FILTERS: OutboundTrackerFilters = {
-  search: "",
-  carrier: "all",
-  status: "all",
-  addedVia: "all",
-  addedBy: "all",
+function sameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+/** Start/end of today for default date-range filter. */
+export function getOutboundTodayDateRange(): { addedFrom: Date; addedTo: Date } {
+  const today = new Date();
+  const addedFrom = new Date(today);
+  addedFrom.setHours(0, 0, 0, 0);
+  const addedTo = new Date(today);
+  addedTo.setHours(23, 59, 59, 999);
+  return { addedFrom, addedTo };
+}
+
+export function isDefaultOutboundTrackerDateRange(from?: Date, to?: Date): boolean {
+  if (!from || !to) return false;
+  const today = new Date();
+  return sameCalendarDay(from, today) && sameCalendarDay(to, today);
+}
+
+/** Default filters: today's date range; admin can change or clear dates. */
+export function getOutboundTrackerDefaultFilters(): OutboundTrackerFilters {
+  const { addedFrom, addedTo } = getOutboundTodayDateRange();
+  return {
+    search: "",
+    carrier: "all",
+    status: "all",
+    addedVia: "all",
+    addedBy: "all",
+    addedFrom,
+    addedTo,
+  };
+}
+
+export type OutboundTrackerReport = {
+  total: number;
+  active: number;
+  delivered: number;
+  inTransit: number;
+  pending: number;
+  error: number;
+  notFound: number;
+  scanned: number;
+  manual: number;
+  byCarrier: Array<{ carrier: string; count: number; pct: number }>;
+  byStatus: Array<{ status: string; count: number; pct: number }>;
+  byAddedBy: Array<{ name: string; count: number; pct: number }>;
 };
+
+function pct(count: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.round((count / total) * 100);
+}
+
+export function matchesAddedDateRange(
+  addedAt: OutboundTrackerEntry["addedAt"],
+  from?: Date,
+  to?: Date
+): boolean {
+  if (!from && !to) return true;
+  const ms = toMillis(addedAt);
+  if (ms == null) return false;
+  if (from) {
+    const start = new Date(from);
+    start.setHours(0, 0, 0, 0);
+    if (ms < start.getTime()) return false;
+  }
+  if (to) {
+    const end = new Date(to);
+    end.setHours(23, 59, 59, 999);
+    if (ms > end.getTime()) return false;
+  }
+  return true;
+}
+
+export function buildOutboundTrackerReport(entries: OutboundTrackerEntry[]): OutboundTrackerReport {
+  const total = entries.length;
+  let active = 0;
+  let delivered = 0;
+  let inTransit = 0;
+  let pending = 0;
+  let error = 0;
+  let notFound = 0;
+  let scanned = 0;
+  let manual = 0;
+
+  const carrierCounts = new Map<string, number>();
+  const statusCounts = new Map<string, number>();
+  const addedByCounts = new Map<string, number>();
+
+  for (const entry of entries) {
+    const variant = statusBadgeVariant(entry);
+    if (!entry.isClosed) active += 1;
+    if (entry.isDelivered || entry.isClosed) delivered += 1;
+    if (!entry.isClosed && variant === "transit") inTransit += 1;
+    if (variant === "pending") pending += 1;
+    if (variant === "error" || entry.lastError) error += 1;
+    if (variant === "unknown" || entry.lastStatusLabel === "Not found") notFound += 1;
+    if (entry.addedVia === "scan") scanned += 1;
+    else manual += 1;
+
+    const carrier = (entry.carrier || "Unknown").trim();
+    carrierCounts.set(carrier, (carrierCounts.get(carrier) || 0) + 1);
+
+    const status = entry.lastStatusLabel || entry.lastStatus || "Unknown";
+    statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
+
+    const name = (entry.addedByName || "Unknown").trim();
+    addedByCounts.set(name, (addedByCounts.get(name) || 0) + 1);
+  }
+
+  const byCarrier = [...carrierCounts.entries()]
+    .map(([carrier, count]) => ({ carrier, count, pct: pct(count, total) }))
+    .sort((a, b) => b.count - a.count);
+
+  const byStatus = [...statusCounts.entries()]
+    .map(([status, count]) => ({ status, count, pct: pct(count, total) }))
+    .sort((a, b) => b.count - a.count);
+
+  const byAddedBy = [...addedByCounts.entries()]
+    .map(([name, count]) => ({ name, count, pct: pct(count, total) }))
+    .sort((a, b) => b.count - a.count);
+
+  return {
+    total,
+    active,
+    delivered,
+    inTransit,
+    pending,
+    error,
+    notFound,
+    scanned,
+    manual,
+    byCarrier,
+    byStatus,
+    byAddedBy,
+  };
+}
+
+export function outboundTrackerHasActiveFilters(filters: OutboundTrackerFilters): boolean {
+  const dateChanged =
+    !filters.addedFrom ||
+    !filters.addedTo ||
+    !isDefaultOutboundTrackerDateRange(filters.addedFrom, filters.addedTo);
+
+  return (
+    filters.search.trim() !== "" ||
+    filters.carrier !== "all" ||
+    filters.status !== "all" ||
+    filters.addedVia !== "all" ||
+    filters.addedBy !== "all" ||
+    dateChanged
+  );
+}
 
 function entryStatusFilterKey(
   entry: OutboundTrackerEntry
@@ -104,6 +257,10 @@ export function filterOutboundTrackerEntries(
         const key = entryStatusFilterKey(entry);
         if (key !== filters.status) return false;
       }
+    }
+
+    if (!matchesAddedDateRange(entry.addedAt, filters.addedFrom, filters.addedTo)) {
+      return false;
     }
 
     if (!q) return true;
