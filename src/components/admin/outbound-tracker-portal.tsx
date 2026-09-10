@@ -26,7 +26,7 @@ import {
   type OutboundTrackerFilters,
   type OutboundTrackerStatusFilter,
 } from "@/lib/outbound-tracking";
-import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
+import { TrackerScanField } from "@/components/admin/tracker-scan-field";
 import { detectCarrier } from "@/lib/carrier-detect";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,7 +66,6 @@ import {
   X,
   BarChart3,
   AlertCircle,
-  Keyboard,
 } from "lucide-react";
 
 const STATUS_FILTER_LABELS: Record<OutboundTrackerStatusFilter, string> = {
@@ -301,8 +300,8 @@ export function OutboundTrackerPortal() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Outbound Tracker</h1>
         <p className="text-sm text-muted-foreground">
-          Scan or enter dispatched outbound tracking numbers. Status updates automatically every 6
-          hours until delivered. Use filters and date range to view reports on the dashboard below.
+          Scan with a Bluetooth label scanner or phone camera, or type outbound tracking numbers
+          manually. Status updates automatically every 6 hours until delivered.
         </p>
       </div>
 
@@ -561,49 +560,21 @@ export function OutboundTrackerPortal() {
             <ScanLine className="h-5 w-5" />
             Add tracking
           </CardTitle>
-          <CardDescription>Scan a label or type a tracking number manually.</CardDescription>
+          <CardDescription>
+            Bluetooth scanner, camera, or manual entry — all add to the tracker list below.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <form
-            className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void addTracking(manualTracking, "manual");
-            }}
-          >
-            <Input
-              value={manualTracking}
-              onChange={(e) => setManualTracking(e.target.value)}
-              placeholder="Tracking number"
-              className="w-full sm:min-w-[220px] sm:max-w-md sm:flex-1"
-              disabled={adding}
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" disabled={adding} className="shrink-0">
-                {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                <Keyboard className="mr-2 h-4 w-4" />
-                Add
-              </Button>
-              <ScanCameraButton
-                onScan={(text) => void addTracking(text, "scan")}
-                showLabel
-                label="Scan"
-                disabled={adding}
-                scannerTitle="Scan outbound label"
-                scannerDescription="Point at the courier barcode or QR on the shipping label."
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="shrink-0"
-                onClick={() => void loadEntries()}
-                disabled={loading}
-              >
-                <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
-                Reload
-              </Button>
-            </div>
-          </form>
+          <TrackerScanField
+            value={manualTracking}
+            onChange={setManualTracking}
+            onAdd={addTracking}
+            adding={adding}
+            loading={loading}
+            onReload={() => void loadEntries()}
+            scannerTitle="Scan outbound label"
+            scannerDescription="Point at the courier barcode or QR on the shipping label."
+          />
         </CardContent>
       </Card>
 
