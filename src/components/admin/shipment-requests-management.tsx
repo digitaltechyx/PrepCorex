@@ -186,6 +186,8 @@ export function ShipmentRequestsManagement({
       "warehouseDispatchStatus",
       "warehouseAdminInventoryOnlyFulfillment",
       "warehouseCourierTracking",
+      "fbaPackPhase",
+      "fbaLabelWorkflow",
     ];
     if (syncFields.some((key) => fresh[key] !== selectedRequest[key])) {
       setSelectedRequest(fresh);

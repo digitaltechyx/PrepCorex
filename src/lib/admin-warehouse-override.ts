@@ -30,6 +30,7 @@ import {
 import { formatExpiryForInput } from "@/lib/warehouse-inbound-requests";
 import { disposeQuarantineLine, listQuarantineHolds, releaseQuarantineLineToStorage } from "@/lib/warehouse-quarantine";
 import { isFbaLabelWorkflowRequest } from "@/lib/fba-shipment-workflow";
+import { normalizeCourierScan } from "@/lib/warehouse-courier-label";
 import { orderLinesForRequests } from "@/lib/warehouse-outbound-lines";
 import {
   dispatchStatusFromRequest,
@@ -711,9 +712,6 @@ function assertAdminOutboundEligible(data: Record<string, unknown>): void {
   if (data.crossdockFulfillment === true || String(data.crossdockLinkedUnitId ?? "").trim()) {
     throw new Error("Cross-dock orders must be fulfilled in Warehouse Ops.");
   }
-  if (isFbaLabelWorkflowRequest(data)) {
-    throw new Error("FBA label workflow orders must be fulfilled in Warehouse Ops.");
-  }
 }
 
 /** Check whether warehouse bins can cover this order (vs client inventory only). */
@@ -814,6 +812,7 @@ export async function adminAutoPickAndPackOutbound(input: {
     shipmentRequestId: input.shipmentRequestId,
     operatorId: input.operatorId,
     deferCourierTracking: true,
+    adminSkipFbaRequirements: isFbaLabelWorkflowRequest(data),
   });
 }
 
@@ -848,12 +847,39 @@ export async function adminShipOutboundFromInventoryOnly(input: {
   });
 }
 
-/** Dispatch with tracking scan (courier label can be first bound here for admin fast-path). */
+/** Save courier tracking before dispatch (optional admin step). */
+export async function adminSaveOutboundTracking(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+  trackingNumber: string;
+  operatorId?: string | null;
+}): Promise<void> {
+  const tracking = input.trackingNumber.trim();
+  if (!tracking) throw new Error("Enter a tracking number.");
+
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Shipment request not found.");
+  const data = snap.data() as Record<string, unknown>;
+  if (dispatchStatusFromRequest(data) === "dispatched") {
+    throw new Error("Order was already dispatched.");
+  }
+  if (packStatusFromRequest(data) !== "ready_to_dispatch") {
+    throw new Error("Complete pick & pack (or ship from inventory) before saving tracking.");
+  }
+
+  await updateDoc(ref, {
+    warehouseCourierTracking: normalizeCourierScan(tracking),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Dispatch — tracking optional for admin fast-path. */
 export async function adminDispatchOutboundWithTracking(input: {
   warehouseId: string;
   clientUserId: string;
   shipmentRequestId: string;
-  trackingNumber: string;
+  trackingNumber?: string;
   operatorId?: string | null;
 }) {
   const snap = await getDoc(
@@ -866,19 +892,18 @@ export async function adminDispatchOutboundWithTracking(input: {
     throw new Error("Complete pick & pack (or ship from inventory) before dispatch.");
   }
 
-  const hadTracking = Boolean(
-    String(data.warehouseCourierTracking ?? "").trim() ||
-      String(data.trackingNumber ?? "").trim()
-  );
+  const tracking = String(input.trackingNumber ?? "").trim();
+  const hadTracking = Boolean(String(data.warehouseCourierTracking ?? "").trim());
 
   return completeDispatchHandoff({
     warehouseId: input.warehouseId,
     clientUserId: input.clientUserId,
     shipmentRequestId: input.shipmentRequestId,
-    scannedValue: input.trackingNumber.trim(),
+    scannedValue: tracking,
     qcUnitType: "package",
     operatorId: input.operatorId,
-    setTrackingAtDispatch: !hadTracking,
+    allowDispatchWithoutTracking: true,
+    setTrackingAtDispatch: !hadTracking && Boolean(tracking),
   });
 }
 

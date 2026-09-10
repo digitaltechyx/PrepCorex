@@ -1017,6 +1017,8 @@ export async function completePackReadyToDispatch(input: {
   operatorId?: string | null;
   /** Admin fast-path: mark ready without courier label (tracking added at dispatch). */
   deferCourierTracking?: boolean;
+  /** Admin fast-path: skip FBA master-case / client-label gates (no dimensions required). */
+  adminSkipFbaRequirements?: boolean;
 }): Promise<void> {
   const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
   const snap = await getDoc(ref);
@@ -1029,7 +1031,7 @@ export async function completePackReadyToDispatch(input: {
   if (packStatusFromRequest(data) === "ready_to_dispatch") {
     throw new Error("Order is already ready to dispatch.");
   }
-  if (isFbaLabelWorkflowRequest(data)) {
+  if (isFbaLabelWorkflowRequest(data) && !input.adminSkipFbaRequirements) {
     const phase = fbaPackPhaseFromRequest(data);
     const hasMasterCases = hasFbaPackDimsOnFile({
       fbaMasterCases: fbaMasterCasesFromRequest(data),
@@ -1186,6 +1188,8 @@ export async function completeDispatchHandoff(input: {
   operatorId?: string | null;
   /** Admin fast-path: bind tracking at dispatch when pack skipped courier scan. */
   setTrackingAtDispatch?: boolean;
+  /** Admin fast-path: allow dispatch with no tracking on file. */
+  allowDispatchWithoutTracking?: boolean;
 }): Promise<ShopifyInventorySyncHint[]> {
   const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
   const snap = await getDoc(ref);
@@ -1201,14 +1205,20 @@ export async function completeDispatchHandoff(input: {
 
   let stored = courierTrackingFromRequest(data);
   const scanned = String(input.scannedValue ?? "").trim();
-  if (!scanned) throw new Error("Enter or scan courier tracking to dispatch.");
 
-  if (!stored && input.setTrackingAtDispatch) {
-    stored = normalizeCourierScan(scanned);
-  } else if (!stored) {
-    throw new Error("No courier label on file — re-pack this order.");
-  } else if (!courierScansMatch(scanned, stored)) {
-    throw new Error("Wrong parcel — label does not match this order.");
+  if (scanned) {
+    const normalized = normalizeCourierScan(scanned);
+    if (stored && !courierScansMatch(normalized, stored)) {
+      throw new Error("Wrong parcel — label does not match this order.");
+    }
+    if (
+      !stored &&
+      (input.setTrackingAtDispatch || input.allowDispatchWithoutTracking)
+    ) {
+      stored = normalized;
+    }
+  } else if (!stored && !input.allowDispatchWithoutTracking) {
+    throw new Error("Enter or scan courier tracking to dispatch.");
   }
 
   const shopifyHints = await applyClientInventoryOnDispatch({
@@ -1227,7 +1237,8 @@ export async function completeDispatchHandoff(input: {
     warehouseQcPassedAt: serverTimestamp(),
     warehouseQcPassedBy: input.operatorId ?? null,
     warehousePackStockSnapshot: deleteField(),
-    ...(input.setTrackingAtDispatch && stored
+    ...(stored &&
+    (input.setTrackingAtDispatch || input.allowDispatchWithoutTracking)
       ? {
           warehouseCourierTracking: stored,
           warehousePackCourierVerifiedAt: serverTimestamp(),

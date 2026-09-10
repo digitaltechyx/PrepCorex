@@ -22,6 +22,7 @@ import {
   adminAutoPickAndPackOutbound,
   adminCompleteInboundReceiveAndPutaway,
   adminDispatchOutboundWithTracking,
+  adminSaveOutboundTracking,
   adminShipOutboundFromInventoryOnly,
   assessAdminOutboundBinStock,
   type AdminInboundCompleteResult,
@@ -46,6 +47,7 @@ import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
 import { pushShopifyInventoryHints } from "@/lib/shopify-inventory-sync";
 import { pushEbayInventoryHints } from "@/lib/ebay-inventory-sync";
 import { isDefaultNj2Warehouse } from "@/lib/warehouse-display";
+import { isFbaLabelWorkflowRequest } from "@/lib/fba-shipment-workflow";
 import type {
   InventoryRequest,
   ShipmentRequest,
@@ -623,6 +625,8 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   const isPicked = pickStatus === "picked";
   const pickWasSkipped = pickStatus === "skipped";
   const inventoryOnly = Boolean(reqData.warehouseAdminInventoryOnlyFulfillment);
+  const isFbaOrder = isFbaLabelWorkflowRequest(reqData);
+  const savedTracking = String(reqData.warehouseCourierTracking ?? "").trim();
   const needsPickPack =
     status === "confirmed" && !isDispatched && !readyToDispatch && !pickWasSkipped;
   const preferredWarehouseId = requestWarehouseId || warehouseId || activeWarehouses[0]?.id || "";
@@ -657,6 +661,12 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     };
   }, [clientUserId, isDispatched, preferredWarehouseId, request.id, selectedWarehouse, status]);
 
+  useEffect(() => {
+    if (readyToDispatch && savedTracking) {
+      setTrackingScan((prev) => prev || savedTracking);
+    }
+  }, [readyToDispatch, savedTracking]);
+
   const focusQuery = `userId=${encodeURIComponent(clientUserId)}&requestId=${encodeURIComponent(request.id)}`;
 
   return (
@@ -666,8 +676,9 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         Admin outbound fulfillment
       </div>
       <p className="text-xs text-muted-foreground">
-        Fast-path: auto pick &amp; pack in one step (no pack tracking), then scan courier tracking at
-        dispatch. Or ship from client inventory when bins are empty but inventory table shows stock.
+        Fast-path: auto pick &amp; pack in one step, optionally save courier tracking, then dispatch
+        {isFbaOrder ? " (FBA — no master-case dimensions required)" : ""}. Or ship from client
+        inventory when bins are empty but inventory table shows stock.
       </p>
       <div className="flex flex-wrap gap-2 text-xs">
         <span className="rounded-md border bg-background px-2 py-1">Status: {status || "—"}</span>
@@ -677,6 +688,11 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         {inventoryOnly ? (
           <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900">
             Inventory-only ship
+          </span>
+        ) : null}
+        {isFbaOrder ? (
+          <span className="rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-violet-900">
+            FBA
           </span>
         ) : null}
       </div>
@@ -738,7 +754,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
                   });
                   toast({
                     title: "Pick & pack complete",
-                    description: "Scan courier tracking below to dispatch.",
+                    description: "Add tracking if you have it, then dispatch.",
                   });
                   onProgress?.();
                 } catch (error: unknown) {
@@ -772,7 +788,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
                   });
                   toast({
                     title: "Ready from inventory",
-                    description: "No bin pick — scan tracking below to dispatch.",
+                    description: "Add tracking if you have it, then dispatch.",
                   });
                   onProgress?.();
                 } catch (error: unknown) {
@@ -828,7 +844,11 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
 
       {readyToDispatch ? (
         <div className="space-y-2 border-t pt-3">
-          <Label>Scan / enter courier tracking to dispatch</Label>
+          <Label>Courier tracking (optional)</Label>
+          <p className="text-xs text-muted-foreground">
+            Save tracking before dispatch, or leave blank and dispatch without it.
+            {savedTracking ? ` On file: ${savedTracking}` : ""}
+          </p>
           <div className="flex flex-wrap gap-2">
             <Input
               className="max-w-xs font-mono text-sm"
@@ -839,7 +859,37 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
             <Button
               type="button"
               size="sm"
-              disabled={busy || !trackingScan.trim() || !preferredWarehouseId}
+              variant="secondary"
+              disabled={busy || !trackingScan.trim()}
+              onClick={async () => {
+                if (!user) return;
+                setBusy(true);
+                try {
+                  await adminSaveOutboundTracking({
+                    clientUserId,
+                    shipmentRequestId: request.id,
+                    trackingNumber: trackingScan.trim(),
+                    operatorId: user.uid,
+                  });
+                  toast({ title: "Tracking saved" });
+                  onProgress?.();
+                } catch (error: unknown) {
+                  toast({
+                    variant: "destructive",
+                    title: "Could not save tracking",
+                    description: error instanceof Error ? error.message : "Failed.",
+                  });
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Save tracking
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy || !preferredWarehouseId}
               onClick={async () => {
                 if (!preferredWarehouseId || !user) return;
                 setBusy(true);
@@ -848,7 +898,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
                     warehouseId: preferredWarehouseId,
                     clientUserId,
                     shipmentRequestId: request.id,
-                    trackingNumber: trackingScan.trim(),
+                    trackingNumber: trackingScan.trim() || undefined,
                     operatorId: user.uid,
                   });
                   if (hints.length > 0) {
@@ -859,7 +909,12 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
                       // non-blocking
                     }
                   }
-                  toast({ title: "Order dispatched", description: "Client inventory updated." });
+                  toast({
+                    title: "Order dispatched",
+                    description: trackingScan.trim()
+                      ? "Client inventory updated with tracking."
+                      : "Dispatched without tracking.",
+                  });
                   setTrackingScan("");
                   onComplete?.();
                 } catch (error: unknown) {
@@ -874,7 +929,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               }}
             >
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Confirm dispatch
+              {trackingScan.trim() || savedTracking ? "Confirm dispatch" : "Dispatch without tracking"}
             </Button>
           </div>
         </div>
