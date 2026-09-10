@@ -95,6 +95,7 @@ export function AdminPendingReceiveBatchPanel({
       sku: "BATCH",
       productName: "Batch receive",
       quantity: totalSelectedQty || 1,
+      condition: "good",
     }),
     [totalSelectedQty]
   );

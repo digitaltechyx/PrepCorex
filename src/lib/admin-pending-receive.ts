@@ -40,7 +40,10 @@ export function pendingReceiveItemFromRequest(
   if (!isPendingReceiveInventoryRequest(data)) return null;
   const remainingQty = pendingReceiveRemainingQty(data);
   if (remainingQty <= 0) return null;
-  const productName = data.productName || data.newProductName || "Inventory Request";
+  const productName =
+    data.productName ||
+    (data as InventoryRequest & { newProductName?: string }).newProductName ||
+    "Inventory Request";
   return {
     userId,
     requestId,
