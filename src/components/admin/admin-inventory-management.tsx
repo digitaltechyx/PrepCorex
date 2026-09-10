@@ -1959,6 +1959,17 @@ export function AdminInventoryManagement({
     [filteredShippedDocs]
   );
 
+  const inventoryQtyLookup = useMemo(() => {
+    const byId = new Map<string, number>();
+    const byName = new Map<string, number>();
+    for (const row of inventory) {
+      byId.set(row.id, row.quantity ?? 0);
+      const name = String(row.productName ?? "").trim().toLowerCase();
+      if (name) byName.set(name, row.quantity ?? 0);
+    }
+    return { byId, byName };
+  }, [inventory]);
+
   // Pagination for shipped (12 items per page for card view)
   const shippedTotalPages = Math.ceil(filteredShipped.length / shippedItemsPerPage);
   const shippedStartIndex = (shippedPage - 1) * shippedItemsPerPage;
@@ -2819,8 +2830,14 @@ export function AdminInventoryManagement({
                       <TableHead className="min-w-[140px]">Product</TableHead>
                       <TableHead className="min-w-[140px]">Service</TableHead>
                       <TableHead className="min-w-[120px]">Type</TableHead>
+                      <TableHead className="w-[88px]">Status</TableHead>
                       <TableHead className="text-right w-20">Shipped</TableHead>
-                      <TableHead className="text-right w-20">Remaining</TableHead>
+                      <TableHead className="text-right w-24" title="Quantity left immediately after this shipment">
+                        Left at ship
+                      </TableHead>
+                      <TableHead className="text-right w-24" title="Current sellable quantity in inventory">
+                        In stock
+                      </TableHead>
                       <TableHead className="text-right w-16">Pack</TableHead>
                       <TableHead className="whitespace-nowrap">Date</TableHead>
                       <TableHead className="min-w-[120px]">Remarks</TableHead>
@@ -2841,6 +2858,17 @@ export function AdminInventoryManagement({
                       const hasAdd = !!add && ((add.bubbleWrapFeet || 0) > 0 || (add.stickerRemovalItems || 0) > 0 || (add.warningLabels || 0) > 0 || (add.total || 0) > 0);
                       const typeLabel = shipmentType === "pallet" && palletSubType ? `Pallet (${palletSubType})` : shipmentType ?? undefined;
                       const typeProductText = [typeLabel, productType].filter(Boolean).join(" • ") || "—";
+                      const shippedLines = sourceItem.items as
+                        | Array<{ productId?: string; productName?: string }>
+                        | undefined;
+                      const lineProductId = String(
+                        shippedLines?.find((line) => line.productName === row.productName)?.productId ??
+                          shippedLines?.[0]?.productId ??
+                          ""
+                      ).trim();
+                      const currentStock =
+                        (lineProductId && inventoryQtyLookup.byId.get(lineProductId)) ??
+                        inventoryQtyLookup.byName.get(String(row.productName ?? "").trim().toLowerCase());
                       return (
                         <TableRow key={row.displayRowId}>
                           <TableCell className="font-medium">
@@ -2864,8 +2892,16 @@ export function AdminInventoryManagement({
                           <TableCell className="text-muted-foreground text-sm">
                             <span className="truncate block max-w-[140px]">{typeProductText}</span>
                           </TableCell>
+                          <TableCell>
+                            <Badge variant="default" className="text-[10px] font-medium">
+                              Shipped
+                            </Badge>
+                          </TableCell>
                           <TableCell className="text-right font-medium">{(row as any).boxesShipped ?? row.shippedQty}</TableCell>
-                          <TableCell className="text-right">{row.remainingQty}</TableCell>
+                          <TableCell className="text-right text-muted-foreground">{row.remainingQty ?? "—"}</TableCell>
+                          <TableCell className="text-right font-medium">
+                            {currentStock != null ? currentStock : "—"}
+                          </TableCell>
                           <TableCell className="text-right">{row.packOf}</TableCell>
                           <TableCell className="text-muted-foreground text-sm whitespace-nowrap">{formatDate(row.date)}</TableCell>
                           <TableCell className="min-w-[120px]">

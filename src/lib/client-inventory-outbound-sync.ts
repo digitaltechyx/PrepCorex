@@ -20,6 +20,15 @@ export function hasClientInventoryDeducted(data: Record<string, unknown>): boole
   return Boolean(data.clientInventoryDeductedAt);
 }
 
+/** Stable id for per-line outbound inventory change logs (reserve → dispatch). */
+export function outboundInventoryChangeLogId(
+  shipmentRequestId: string,
+  productId: string,
+  lineIndex: number
+): string {
+  return `${shipmentRequestId}_${productId}_line${lineIndex}`;
+}
+
 function shipmentLineIsPrepOnly(shipment: Record<string, unknown>): boolean {
   const productId = String(shipment.productId ?? "").trim();
   const inboundId = String(shipment.sourceInventoryRequestId ?? "").trim();
@@ -325,7 +334,7 @@ function reserveDeductibleRowsGroupedByProduct(input: {
         "users",
         input.clientUserId,
         "inventoryChangeLogs",
-        `${input.requestId}_${row.productId}_line${row.index}`
+        outboundInventoryChangeLogId(input.requestId, row.productId, row.index)
       );
       input.transaction.set(changeLogRef, {
         inventoryId: row.productId,
@@ -1297,12 +1306,14 @@ export async function applyClientInventoryOnDispatch(input: {
           locationQuantities: applied.locationQuantities,
         });
 
+        const packOf = effectivePackOfForShipment(data, row.shipment, row.index);
+        const boxesShipped = shipmentBoxes(row.shipment);
         const changeLogRef = doc(
           db,
           "users",
           input.clientUserId,
           "inventoryChangeLogs",
-          `${input.shipmentRequestId}_${productId}`
+          outboundInventoryChangeLogId(input.shipmentRequestId, productId, row.index)
         );
         transaction.set(changeLogRef, {
           inventoryId: productId,
@@ -1316,8 +1327,11 @@ export async function applyClientInventoryOnDispatch(input: {
           shippedId: shippedRef.id,
           service,
           shipTo,
+          packOf,
+          boxesShipped,
           details: [
-            `Outbound dispatch`,
+            outboundPackDetailsLine(boxesShipped, packOf),
+            "Outbound dispatched",
             service ? `Service: ${service}` : "",
             shipTo ? `Ship to: ${shipTo}` : "",
             applied.newStatus === "Out of Stock" ? "Now out of stock" : "",
@@ -1385,26 +1399,33 @@ export async function applyClientInventoryOnDispatch(input: {
           });
         }
       } else {
-        // Already reserved at create — finalize history as dispatched without another qty change.
+        // Already reserved at create — upgrade the reserve log to dispatched (same doc id).
+        const packOf = effectivePackOfForShipment(data, row.shipment, row.index);
+        const boxesShipped = shipmentBoxes(row.shipment);
         const changeLogRef = doc(
           db,
           "users",
           input.clientUserId,
           "inventoryChangeLogs",
-          `${input.shipmentRequestId}_${productId}`
+          outboundInventoryChangeLogId(input.shipmentRequestId, productId, row.index)
         );
         transaction.set(
           changeLogRef,
           {
+            inventoryId: productId,
+            productName: currentInventory.productName,
+            sku: currentInventory.sku ?? null,
             eventType: "outbound_dispatch",
             shippedId: shippedRef.id,
             service,
             shipTo,
+            packOf,
+            boxesShipped,
             details: [
+              outboundPackDetailsLine(boxesShipped, packOf),
               "Outbound dispatched",
               service ? `Service: ${service}` : "",
               shipTo ? `Ship to: ${shipTo}` : "",
-              "(reserved at request create)",
             ]
               .filter(Boolean)
               .join(" · "),

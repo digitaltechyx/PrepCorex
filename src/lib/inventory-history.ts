@@ -51,6 +51,7 @@ export type InventoryHistorySources = {
   /** Used to resolve pack/boxes for awaiting-ship logs that predate pack fields. */
   shipmentRequests?: Array<{
     id: string;
+    warehouseDispatchStatus?: string;
     shipments?: Array<{
       productId?: string;
       productName?: string;
@@ -424,6 +425,16 @@ export function buildInventoryHistory(
   const includeInternal = options?.includeInternalEvents === true;
   const raw: RawEvent[] = [];
   const sourceRequestId = (item as InventoryItem & { sourceRequestId?: string }).sourceRequestId;
+  const dispatchedOutboundRequestIds = new Set(
+    (sources.shipmentRequests ?? [])
+      .filter(
+        (r) =>
+          String(r.warehouseDispatchStatus ?? "")
+            .trim()
+            .toLowerCase() === "dispatched"
+      )
+      .map((r) => r.id)
+  );
 
   for (const req of sources.inventoryRequests) {
     const linked = sourceRequestId && req.id === sourceRequestId;
@@ -528,11 +539,18 @@ export function buildInventoryHistory(
     }
     const packDetailsChange = isPackDetailsChangeLog(log);
 
+    const awaitingButDispatched =
+      log.eventType === "outbound_awaiting_ship" &&
+      log.shipmentRequestId &&
+      dispatchedOutboundRequestIds.has(String(log.shipmentRequestId));
+
     const eventLabel = packDetailsChange
       ? "Pack details change"
-      : log.eventType === "outbound_awaiting_ship"
-        ? "Outbound awaiting ship"
-        : log.eventType === "outbound_restored"
+      : awaitingButDispatched
+        ? "Outbound dispatched"
+        : log.eventType === "outbound_awaiting_ship"
+          ? "Outbound awaiting ship"
+          : log.eventType === "outbound_restored"
           ? "Outbound cancelled — restored"
           : log.eventType === "outbound_line_restored"
             ? "Outbound line edited — restored"
@@ -633,12 +651,14 @@ export function buildInventoryHistory(
       user: "Fulfillment",
       shipmentRequestId: log.shipmentRequestId ?? null,
       outboundLinkKind:
-        log.eventType === "outbound_awaiting_ship" || log.eventType === "outbound_line_reserved"
-          ? "reserve"
-          : log.eventType === "outbound_restored" || log.eventType === "outbound_line_restored"
-            ? "restore"
-            : log.eventType === "outbound_dispatch" || log.eventType === "outbound_shipped"
-              ? "dispatch"
+        awaitingButDispatched ||
+        log.eventType === "outbound_dispatch" ||
+        log.eventType === "outbound_shipped"
+          ? "dispatch"
+          : log.eventType === "outbound_awaiting_ship" || log.eventType === "outbound_line_reserved"
+            ? "reserve"
+            : log.eventType === "outbound_restored" || log.eventType === "outbound_line_restored"
+              ? "restore"
               : null,
     });
   }
