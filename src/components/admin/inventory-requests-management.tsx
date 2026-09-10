@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import React from "react";
 import type { InventoryRequest, UserProfile, InboundTrackingEntry } from "@/types";
 
@@ -69,7 +69,7 @@ import { db, storage } from "@/lib/firebase";
 import { doc, updateDoc, addDoc, collection, Timestamp, runTransaction, query, where, getDocs, getDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { format } from "date-fns";
-import { Archive, Boxes, Check, Clock, Eye, Filter, Loader2, Package, Search, Truck, Upload, X, ImageOff } from "lucide-react";
+import { Archive, Boxes, Check, Clock, Eye, Filter, Loader2, Package, PackageCheck, Search, Truck, Upload, X, ImageOff } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import imageCompression from "browser-image-compression";
 import { formatInboundQuantityDisplay, getRequestedQuantity } from "@/lib/inventory-qty-display";
@@ -779,19 +779,40 @@ export function InventoryRequestsManagement({
         await refreshBatchCounts(batchId);
       }
       if (!opts?.quiet) {
-      toast({
-        title: "Success",
-        description: isRestock 
-          ? request.inventoryType === "product"
-            ? "Restock request approved. Stock will update after warehouse putaway."
-            : "Restock request approved. Quantity added to existing product."
-          : request.inventoryType === "container"
-          ? "Container handling request approved and invoice generated."
-          : request.inventoryType === "product"
-          ? "Product request approved. Awaiting warehouse receive."
-          : "Inventory request approved and added to inventory.",
-      });
-      setSelectedRequest(null);
+        const warehouseInboundV2 = request.inventoryType === "product";
+        toast({
+          title: "Success",
+          description: isRestock
+            ? warehouseInboundV2
+              ? "Restock approved — complete receiving below or close to finish later from Pending receive."
+              : "Restock request approved. Quantity added to existing product."
+            : request.inventoryType === "container"
+              ? "Container handling request approved and invoice generated."
+              : warehouseInboundV2
+                ? "Approved — complete receiving below or close for Pending receive."
+                : "Inventory request approved and added to inventory.",
+        });
+        if (warehouseInboundV2) {
+          setSelectedRequest({
+            ...request,
+            status: "approved",
+            fulfillmentStatus: "open",
+            warehouseGoodReceivedQty: 0,
+            warehouseDamagedReceivedQty: 0,
+            inboundWorkflowVersion: 2,
+            receivedQuantity: finalQuantity,
+            requestedQuantity: requestedQty,
+            productName: finalProductName,
+            ...(request.inventoryType === "product" && finalSku ? { sku: finalSku } : {}),
+            approvedBy: adminProfile.uid,
+            approvedAt: Timestamp.now() as InventoryRequest["approvedAt"],
+            receivingDate: Timestamp.fromDate(receivingDate) as InventoryRequest["receivingDate"],
+            remarks: remarksToSave,
+            imageUrls: finalImageUrls,
+          });
+        } else {
+          setSelectedRequest(null);
+        }
       }
     } catch (error: unknown) {
       if (!opts?.quiet) {
@@ -1303,15 +1324,28 @@ export function InventoryRequestsManagement({
                                   }`
                                 : `Rejected ${request.rejectedAt ? formatDate(request.rejectedAt) : ""}`}
                             </span>
+                            <div className="flex flex-wrap gap-1">
+                              {adminInboundRequestDisplayStatus(request) === "pending_receive" ? (
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  className="h-7 w-fit px-2 text-xs"
+                                  onClick={() => setSelectedRequest(request)}
+                                >
+                                  <PackageCheck className="h-3.5 w-3.5 mr-1" />
+                                  Receive
+                                </Button>
+                              ) : null}
                               <Button
-                              variant="ghost"
+                                variant="ghost"
                                 size="sm"
-                              className="h-7 w-fit px-2 text-xs"
-                              onClick={() => setSelectedRequest(request)}
+                                className="h-7 w-fit px-2 text-xs"
+                                onClick={() => setSelectedRequest(request)}
                               >
-                              <Eye className="h-3.5 w-3.5 mr-1" />
-                              View
+                                <Eye className="h-3.5 w-3.5 mr-1" />
+                                View
                               </Button>
+                            </div>
                           </div>
                         )}
                       </TableCell>
@@ -1439,6 +1473,12 @@ function ReviewRequestDialog({
   );
   const [isUploadingRejectionEvidence, setIsUploadingRejectionEvidence] = useState(false);
   const readOnly = request.status !== "pending";
+  const displayStatus = adminInboundRequestDisplayStatus(request);
+  const isPendingReceive = displayStatus === "pending_receive";
+
+  useEffect(() => {
+    setAction(null);
+  }, [request.id, request.status, request.fulfillmentStatus]);
 
   const compressImage = async (file: File): Promise<File> => {
     const options = {
@@ -1702,11 +1742,19 @@ function ReviewRequestDialog({
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{readOnly ? "Request Details" : "Review Inventory Request"}</DialogTitle>
+          <DialogTitle>
+            {readOnly
+              ? isPendingReceive
+                ? "Receive inventory"
+                : "Request Details"
+              : "Review & receive inventory request"}
+          </DialogTitle>
           <DialogDescription>
             {readOnly
-              ? "Read-only view of this inventory request and how it was processed."
-              : "Review the inventory request and approve or reject it."}
+              ? isPendingReceive
+                ? "This request is approved. Complete warehouse receiving and putaway below, or close and finish later from Pending receive."
+                : "Read-only view of this inventory request and how it was processed."
+              : "Approve or reject this request. After approval you can receive stock in this same dialog."}
           </DialogDescription>
         </DialogHeader>
 

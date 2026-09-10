@@ -56,8 +56,18 @@ import {
 import { hasRole } from "@/lib/permissions";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, Truck, Package, RotateCcw, Trash2, Eraser, ShieldAlert, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye, Tag, Wallet } from "lucide-react";
+import { Bell, Truck, Package, RotateCcw, Trash2, Eraser, ShieldAlert, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye, Tag, Wallet, PackageCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  adminInboundRequestDisplayStatus,
+  adminInboundRequestStatusLabel,
+  type AdminInboundRequestDisplayStatus,
+} from "@/lib/inventory-inbound-display";
+import {
+  pendingReceiveItemFromRequest,
+  type PendingReceiveItem,
+} from "@/lib/admin-pending-receive";
+import { AdminPendingReceiveBatchPanel } from "@/components/admin/admin-pending-receive-batch-panel";
 
 type NotificationType =
   | "shipment_request"
@@ -69,7 +79,17 @@ type NotificationType =
   | "label_refund_request"
   | "label_wallet_topup"
   | "label_api_fee";
-type StatusFilter = "all" | "pending" | "paid" | "approved" | "confirmed" | "rejected" | "in_progress" | "closed" | "cancelled";
+type StatusFilter =
+  | "all"
+  | "pending"
+  | "pending_receive"
+  | "paid"
+  | "approved"
+  | "confirmed"
+  | "rejected"
+  | "in_progress"
+  | "closed"
+  | "cancelled";
 
 type NotificationRow = {
   type: NotificationType;
@@ -81,7 +101,48 @@ type NotificationRow = {
   subtitle?: string;
   /** Inventory requests only — inbound carrier tracking from client inventory. */
   inboundTrackings?: InboundTrackingEntry[];
+  /** Product inbound v2 lifecycle (inventory requests only). */
+  inboundDisplayStatus?: AdminInboundRequestDisplayStatus;
+  /** Approved-but-not-received row for batch receive panel. */
+  pendingReceive?: PendingReceiveItem;
 };
+
+const STATUS_TAB_VALUES = [
+  "all",
+  "pending",
+  "pending_receive",
+  "paid",
+  "approved",
+  "confirmed",
+  "rejected",
+  "in_progress",
+  "closed",
+  "cancelled",
+] as const;
+
+function enrichInventoryNotificationRow(
+  row: NotificationRow,
+  userId: string,
+  requestId: string,
+  data: InventoryRequest,
+  createdAtMs: number
+): NotificationRow {
+  const inboundDisplayStatus = adminInboundRequestDisplayStatus(data);
+  const pendingReceive = pendingReceiveItemFromRequest(userId, requestId, data, createdAtMs);
+  return {
+    ...row,
+    inboundDisplayStatus,
+    pendingReceive: pendingReceive ?? undefined,
+  };
+}
+
+/** Tab bucket for a notification row (pending receive is separate from raw approved). */
+function notificationTabStatus(row: NotificationRow): string {
+  if (row.type === "inventory_request" && row.inboundDisplayStatus === "pending_receive") {
+    return "pending_receive";
+  }
+  return normStatus(row.status);
+}
 
 function cancelReasonSubtitle(reason: unknown, fallback: string): string {
   const text = typeof reason === "string" ? reason.trim() : "";
@@ -170,6 +231,7 @@ function statusBadgeClass(status: string): string {
   const s = normStatus(status);
   switch (s) {
     case "pending": return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700";
+    case "pending_receive": return "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700";
     case "approved": case "confirmed": case "closed": return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700";
     case "rejected": case "cancelled": return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700";
     case "in_progress": return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700";
@@ -232,13 +294,28 @@ function typeIcon(type: NotificationType) {
   }
 }
 
+function notificationStatusLabel(row: NotificationRow): string {
+  if (row.type === "inventory_request" && row.inboundDisplayStatus) {
+    return adminInboundRequestStatusLabel(row.inboundDisplayStatus);
+  }
+  return row.status;
+}
+
+function notificationStatusBadgeClass(row: NotificationRow): string {
+  if (row.type === "inventory_request" && row.inboundDisplayStatus === "pending_receive") {
+    return statusBadgeClass("pending_receive");
+  }
+  return statusBadgeClass(row.status);
+}
+
 /** True when this request type is in a terminal/completed state (hide Process button). */
-function isProcessComplete(type: NotificationType, status: string): boolean {
-  const s = normStatus(status);
-  switch (type) {
+function isProcessComplete(row: NotificationRow): boolean {
+  const s = normStatus(row.status);
+  switch (row.type) {
     case "shipment_request":
       return ["confirmed", "closed", "rejected", "cancelled", "paid"].includes(s);
     case "inventory_request":
+      if (row.inboundDisplayStatus === "pending_receive") return false;
       return ["approved", "rejected", "cancelled"].includes(s);
     case "product_return":
       return ["confirmed", "closed", "rejected", "cancelled"].includes(s);
@@ -283,13 +360,17 @@ export default function AdminNotificationsPage() {
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState<"all" | Exclude<StatusFilter, "all">>(
-    (tabFromUrl as "all" | Exclude<StatusFilter, "all">) && ["all", "pending", "paid", "approved", "confirmed", "rejected", "in_progress", "closed", "cancelled"].includes(tabFromUrl)
+    (tabFromUrl as "all" | Exclude<StatusFilter, "all">) &&
+      STATUS_TAB_VALUES.includes(tabFromUrl as (typeof STATUS_TAB_VALUES)[number])
       ? (tabFromUrl as "all" | Exclude<StatusFilter, "all">)
       : "pending"
   );
 
   useEffect(() => {
-    if (tabFromUrl && ["all", "pending", "paid", "approved", "confirmed", "rejected", "in_progress", "closed", "cancelled"].includes(tabFromUrl)) {
+    if (
+      tabFromUrl &&
+      STATUS_TAB_VALUES.includes(tabFromUrl as (typeof STATUS_TAB_VALUES)[number])
+    ) {
       setActiveTab(tabFromUrl as "all" | Exclude<StatusFilter, "all">);
     }
   }, [tabFromUrl]);
@@ -462,45 +543,51 @@ export default function AdminNotificationsPage() {
               if (batchId && multiLineBatchIds.has(batchId)) return null;
               const dateMs = toMs((data as any).requestedAt) || toMs((data as any).addDate) || 0;
               const productName = (data as any).productName || (data as any).newProductName || "Inventory Request";
-              return {
-                type: "inventory_request" as const,
-                id: d.id,
+              return enrichInventoryNotificationRow(
+                {
+                  type: "inventory_request" as const,
+                  id: d.id,
+                  userId,
+                  status: String((data as any).status || ""),
+                  createdAtMs: dateMs,
+                  title: `Inventory Request • ${String(productName).substring(0, 50)}`,
+                  subtitle:
+                    String((data as any).status || "").toLowerCase() === "cancelled"
+                      ? cancelReasonSubtitle(
+                          (data as any).cancellationReason,
+                          `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`
+                        )
+                      : `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
+                  inboundTrackings: resolveInboundTrackings(
+                    data as InventoryRequest & { trackingNumber?: string; carrier?: string }
+                  ),
+                },
                 userId,
-                status: String((data as any).status || ""),
-                createdAtMs: dateMs,
-                title: `Inventory Request • ${String(productName).substring(0, 50)}`,
-                subtitle:
-                  String((data as any).status || "").toLowerCase() === "cancelled"
-                    ? cancelReasonSubtitle(
-                        (data as any).cancellationReason,
-                        `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`
-                      )
-                    : `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
-                inboundTrackings: resolveInboundTrackings(
-                  data as InventoryRequest & { trackingNumber?: string; carrier?: string }
-                ),
-              };
+                d.id,
+                data,
+                dateMs
+              );
             })
               .filter((r): r is NotificationRow => r != null);
-            const batchRows: NotificationRow[] = batchSnap.docs
-              .map((d) => {
+            const batchRows: NotificationRow[] = batchSnap.docs.flatMap((d) => {
               const userId = d.ref.path.split("/")[1];
               const data = d.data() as any as InboundBatch;
               const totalLines = Number((data as any).totalLines || 0);
               // 1-line batches are shown via mirrored inventory request.
-              if (totalLines <= 1) return null;
+              if (totalLines <= 1) return [];
               const dateMs = toMs((data as any).requestedAt) || toMs((data as any).addDate) || 0;
-              return {
-                type: "inventory_request" as const,
-                id: d.id,
-                userId,
-                status: String((data as any).status || ""),
-                createdAtMs: dateMs,
-                title: `Inbound Batch • ${totalLines.toLocaleString()} items`,
-                subtitle: `${Number((data as any).pendingLines || 0).toLocaleString()} pending · ${Number((data as any).approvedLines || 0).toLocaleString()} approved · ${Number((data as any).rejectedLines || 0).toLocaleString()} rejected`,
-              };
-            })
-              .filter((r): r is NotificationRow => r != null);
+              return [
+                {
+                  type: "inventory_request" as const,
+                  id: d.id,
+                  userId,
+                  status: String((data as any).status || ""),
+                  createdAtMs: dateMs,
+                  title: `Inbound Batch • ${totalLines.toLocaleString()} items`,
+                  subtitle: `${Number((data as any).pendingLines || 0).toLocaleString()} pending · ${Number((data as any).approvedLines || 0).toLocaleString()} approved · ${Number((data as any).rejectedLines || 0).toLocaleString()} rejected`,
+                },
+              ];
+            });
             setInventoryRequests([...rows, ...batchRows]);
           } catch (e) {
             anyFailed = true;
@@ -541,7 +628,7 @@ export default function AdminNotificationsPage() {
                     data as InventoryRequest & { trackingNumber?: string; carrier?: string }
                   ),
                 };
-                return row;
+                return enrichInventoryNotificationRow(row, uid, d.id, data, dateMs);
               })
                 .filter((r): r is NotificationRow => r != null);
             }));
@@ -959,15 +1046,26 @@ export default function AdminNotificationsPage() {
       return true;
     });
     const counts: Record<string, number> = { all: scoped.length };
-    const statuses: Exclude<StatusFilter, "all">[] = ["pending", "paid", "approved", "confirmed", "rejected", "in_progress", "closed", "cancelled"];
+    const statuses: Exclude<StatusFilter, "all">[] = [
+      "pending",
+      "pending_receive",
+      "paid",
+      "approved",
+      "confirmed",
+      "rejected",
+      "in_progress",
+      "closed",
+      "cancelled",
+    ];
     statuses.forEach((s) => {
-      counts[s] = scoped.filter((r) => normStatus(r.status) === s).length;
+      counts[s] = scoped.filter((r) => notificationTabStatus(r) === s).length;
     });
     return counts;
   }, [allRows, fromDate, toDate, typeFilter, userIdFilter]);
 
   const filteredRows = useMemo(() => {
-    const byTab = (r: NotificationRow) => activeTab === "all" ? true : normStatus(r.status) === activeTab;
+    const byTab = (r: NotificationRow) =>
+      activeTab === "all" ? true : notificationTabStatus(r) === activeTab;
     const byType = (r: NotificationRow) => typeFilter === "all" ? true : r.type === typeFilter;
     const byUser = (r: NotificationRow) => {
       if (!userIdFilter || userIdFilter === "all") return true;
@@ -977,6 +1075,20 @@ export default function AdminNotificationsPage() {
 
     return allRows.filter((r) => byTab(r) && byType(r) && byUser(r) && byDate(r));
   }, [activeTab, allRows, fromDate, toDate, typeFilter, userIdFilter]);
+
+  const pendingReceiveItems = useMemo(() => {
+    const byType = (r: NotificationRow) => typeFilter === "all" ? true : r.type === typeFilter;
+    const byUser = (r: NotificationRow) => {
+      if (!userIdFilter || userIdFilter === "all") return true;
+      return r.userId === userIdFilter;
+    };
+    const byDate = (r: NotificationRow) => inRange(r.createdAtMs, fromDate, toDate);
+
+    return allRows
+      .filter((r) => r.pendingReceive && byType(r) && byUser(r) && byDate(r))
+      .map((r) => r.pendingReceive!)
+      .sort((a, b) => b.createdAtMs - a.createdAtMs);
+  }, [allRows, fromDate, toDate, typeFilter, userIdFilter]);
 
   // Reset to page 1 when filters or tab change
   useEffect(() => {
@@ -1055,8 +1167,8 @@ export default function AdminNotificationsPage() {
               <div className="flex flex-wrap items-center gap-2 gap-y-1">
                 <span className="text-muted-foreground">{typeIcon(r.type)}</span>
                 <span className="font-semibold text-foreground truncate text-sm sm:text-base">{r.title}</span>
-                <Badge variant="outline" className={cn("shrink-0 text-xs font-medium border", statusBadgeClass(r.status))}>
-                  {r.status}
+                <Badge variant="outline" className={cn("shrink-0 text-xs font-medium border", notificationStatusBadgeClass(r))}>
+                  {notificationStatusLabel(r)}
                 </Badge>
                 <Badge variant="outline" className="shrink-0 text-xs bg-muted/50">
                   {r.type === "shipment_request"
@@ -1094,15 +1206,24 @@ export default function AdminNotificationsPage() {
               ) : null}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:shrink-0">
-              {!isProcessComplete(r.type, r.status) ? (
+              {!isProcessComplete(r) ? (
                 <Button
                   size="sm"
                   variant="default"
                   className="w-full sm:w-auto min-h-[44px] sm:min-h-9 shrink-0 gap-1"
                   onClick={() => openRequest(r, false)}
                 >
-                  Process
-                  <ChevronRight className="h-4 w-4" />
+                  {r.inboundDisplayStatus === "pending_receive" ? (
+                    <>
+                      <PackageCheck className="h-4 w-4" />
+                      Receive
+                    </>
+                  ) : (
+                    <>
+                      Process
+                      <ChevronRight className="h-4 w-4" />
+                    </>
+                  )}
                 </Button>
               ) : (
                 <Button
@@ -1276,6 +1397,9 @@ export default function AdminNotificationsPage() {
                 <TabsTrigger value="pending" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-amber-300 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-amber-700 dark:data-[state=active]:bg-amber-900/30 dark:data-[state=active]:text-amber-200">
                   Pending <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.pending ?? 0}</Badge>
                 </TabsTrigger>
+                <TabsTrigger value="pending_receive" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-orange-300 data-[state=active]:bg-orange-100 data-[state=active]:text-orange-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-orange-700 dark:data-[state=active]:bg-orange-900/30 dark:data-[state=active]:text-orange-200">
+                  Pending receive <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.pending_receive ?? 0}</Badge>
+                </TabsTrigger>
                 <TabsTrigger value="approved" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-emerald-300 data-[state=active]:bg-emerald-100 data-[state=active]:text-emerald-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-emerald-700 dark:data-[state=active]:bg-emerald-900/30 dark:data-[state=active]:text-emerald-200">
                   Approved <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.approved ?? 0}</Badge>
                 </TabsTrigger>
@@ -1308,6 +1432,31 @@ export default function AdminNotificationsPage() {
             <TabsContent value="pending" className="mt-4 focus-visible:outline-none">
               {renderList(paginatedResult.paginatedRows)}
               {paginationUI}
+            </TabsContent>
+            <TabsContent value="pending_receive" className="mt-4 focus-visible:outline-none">
+              <AdminPendingReceiveBatchPanel
+                items={pendingReceiveItems}
+                usersById={usersById}
+                onComplete={() => setNotificationsRefreshKey((k) => k + 1)}
+                onReceiveOne={(item) => {
+                  const params = new URLSearchParams({
+                    userId: item.userId,
+                    section: "user-requests",
+                    tab: "inventory_request",
+                    requestId: item.requestId,
+                  });
+                  router.push(`/admin/dashboard/inventory?${params.toString()}`);
+                }}
+              />
+              {pendingReceiveItems.length > 0 ? (
+                <div className="mt-6 space-y-2">
+                  <h3 className="text-sm font-medium text-muted-foreground">All pending receive requests</h3>
+                  {renderList(paginatedResult.paginatedRows)}
+                  {paginationUI}
+                </div>
+              ) : (
+                renderList(paginatedResult.paginatedRows)
+              )}
             </TabsContent>
             <TabsContent value="approved" className="mt-4 focus-visible:outline-none">
               {renderList(paginatedResult.paginatedRows)}

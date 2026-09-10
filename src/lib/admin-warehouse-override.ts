@@ -479,6 +479,66 @@ export async function adminListQuarantine(warehouseId: string) {
   return listQuarantineHolds(warehouseId);
 }
 
+export type AdminBatchReceiveItem = {
+  clientUserId: string;
+  requestId: string;
+  clientDisplayName?: string | null;
+};
+
+export type AdminBatchReceiveSharedInput = Omit<
+  AdminInboundCompleteInput,
+  "clientUserId" | "requestId" | "quantity" | "damagedQuantity" | "clientDisplayName"
+>;
+
+/** Receive multiple open inbound requests with shared warehouse/putaway settings (full remaining qty each). */
+export async function adminBatchReceiveInboundRequests(input: {
+  items: AdminBatchReceiveItem[];
+  shared: AdminBatchReceiveSharedInput;
+}): Promise<{
+  results: AdminInboundCompleteResult[];
+  errors: Array<{ requestId: string; error: string }>;
+}> {
+  const results: AdminInboundCompleteResult[] = [];
+  const errors: Array<{ requestId: string; error: string }> = [];
+
+  for (const item of input.items) {
+    try {
+      const requestRef = doc(
+        db,
+        `users/${item.clientUserId}/inventoryRequests`,
+        item.requestId
+      );
+      const snap = await getDoc(requestRef);
+      if (!snap.exists()) {
+        errors.push({ requestId: item.requestId, error: "Request not found." });
+        continue;
+      }
+      const request = { id: snap.id, ...snap.data() } as InventoryRequest;
+      const remaining = remainingInboundQty(request);
+      if (remaining <= 0) {
+        errors.push({ requestId: item.requestId, error: "Nothing left to receive." });
+        continue;
+      }
+      const result = await adminCompleteInboundReceiveAndPutaway({
+        ...input.shared,
+        clientUserId: item.clientUserId,
+        requestId: item.requestId,
+        clientDisplayName: item.clientDisplayName ?? null,
+        quantity: remaining,
+        damagedQuantity: 0,
+      });
+      results.push(result);
+    } catch (e) {
+      errors.push({
+        requestId: item.requestId,
+        error: e instanceof Error ? e.message : "Receive failed.",
+      });
+    }
+  }
+
+  return { results, errors };
+}
+
 /** Admin: release quarantine stock back to good (damaged → good). */
 export async function adminReleaseQuarantine(input: {
   warehouseId: string;
