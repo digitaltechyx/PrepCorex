@@ -16,11 +16,13 @@ import type {
   EbayInventoryPushHint,
 } from "@/lib/client-inventory-inbound-sync";
 import {
+  binsEligibleForPutawayLine,
   findBinByPath,
   inspectBinContents,
   validateLineToArea,
   validateLineToBin,
 } from "@/lib/warehouse-putaway";
+import { listActiveWarehouseBins } from "@/lib/warehouse-cycle-count";
 import {
   fallbackAreas,
   listWarehouseAreas,
@@ -490,6 +492,95 @@ export type AdminBatchReceiveSharedInput = Omit<
   "clientUserId" | "requestId" | "quantity" | "damagedQuantity" | "clientDisplayName"
 >;
 
+type BatchPutawayContext = {
+  areas: Awaited<ReturnType<typeof listWarehouseAreas>>;
+  bins: Awaited<ReturnType<typeof listActiveWarehouseBins>>;
+  binBySku: Map<string, string>;
+};
+
+async function resolveBatchItemPutawayDestination(input: {
+  warehouseId: string;
+  sku: string;
+  productTitle: string | null;
+  preferredBinPath?: string | null;
+  preferredStagingArea?: string | null;
+  ctx: BatchPutawayContext;
+}): Promise<{ binPath: string | null; stagingArea: string | null }> {
+  const { areas, bins, binBySku } = input.ctx;
+  const sku = input.sku.trim();
+  const validationLine = {
+    lineId: "BATCH",
+    sku,
+    productTitle: input.productTitle,
+    quantity: 1,
+    lot: null,
+    expiry: null,
+    condition: "good" as const,
+    binId: null,
+    allocationStatus: "allocated" as const,
+    clientId: null,
+    inventoryRequestId: null,
+  };
+
+  const cachedBinPath = binBySku.get(sku);
+  if (cachedBinPath) {
+    return {
+      binPath: cachedBinPath,
+      stagingArea:
+        bins.find((b) => b.path === cachedBinPath)?.area?.trim() ||
+        input.preferredStagingArea?.trim() ||
+        null,
+    };
+  }
+
+  const tryBinPath = async (binPath: string): Promise<boolean> => {
+    const bin = await findBinByPath(input.warehouseId, binPath);
+    if (!bin) return false;
+    const contents = await inspectBinContents(input.warehouseId, bin.id);
+    const validation = validateLineToBin(validationLine, bin, contents, areas);
+    if (!validation.ok) return false;
+    binBySku.set(sku, bin.path);
+    return true;
+  };
+
+  const preferredBinPath = input.preferredBinPath?.trim() || "";
+  if (preferredBinPath && (await tryBinPath(preferredBinPath))) {
+    const bin = bins.find((b) => b.path === preferredBinPath);
+    return {
+      binPath: preferredBinPath,
+      stagingArea: bin?.area?.trim() || input.preferredStagingArea?.trim() || null,
+    };
+  }
+
+  for (const bin of binsEligibleForPutawayLine(areas, bins, validationLine)) {
+    if (await tryBinPath(bin.path)) {
+      return {
+        binPath: bin.path,
+        stagingArea: bin.area?.trim() || input.preferredStagingArea?.trim() || null,
+      };
+    }
+  }
+
+  const stagingArea =
+    input.preferredStagingArea?.trim() ||
+    fallbackAreas(areas).find((a) => a.code.trim())?.code.trim() ||
+    "";
+  if (!stagingArea) {
+    throw new Error(`No compatible bin or storage area found for SKU ${sku}.`);
+  }
+  const destinationArea = areas.find(
+    (area) => area.code.trim().toUpperCase() === stagingArea.toUpperCase()
+  );
+  if (!destinationArea) {
+    throw new Error(`Storage area ${stagingArea} was not found for SKU ${sku}.`);
+  }
+  const areaValidation = validateLineToArea(validationLine, destinationArea);
+  if (!areaValidation.ok) {
+    throw new Error(areaValidation.reason);
+  }
+  return { binPath: null, stagingArea };
+}
+
 /** Receive multiple open inbound requests with shared warehouse/putaway settings (full remaining qty each). */
 export async function adminBatchReceiveInboundRequests(input: {
   items: AdminBatchReceiveItem[];
@@ -500,6 +591,9 @@ export async function adminBatchReceiveInboundRequests(input: {
 }> {
   const results: AdminInboundCompleteResult[] = [];
   const errors: Array<{ requestId: string; error: string }> = [];
+  const areas = await listWarehouseAreas(input.shared.warehouseId);
+  const bins = await listActiveWarehouseBins(input.shared.warehouseId);
+  const ctx: BatchPutawayContext = { areas, bins, binBySku: new Map() };
 
   for (const item of input.items) {
     try {
@@ -519,8 +613,25 @@ export async function adminBatchReceiveInboundRequests(input: {
         errors.push({ requestId: item.requestId, error: "Nothing left to receive." });
         continue;
       }
+      const sku = String((request as InventoryRequest & { sku?: string }).sku ?? "").trim();
+      if (!sku) {
+        errors.push({ requestId: item.requestId, error: "Request is missing SKU." });
+        continue;
+      }
+
+      const destination = await resolveBatchItemPutawayDestination({
+        warehouseId: input.shared.warehouseId,
+        sku,
+        productTitle: request.productName?.trim() || null,
+        preferredBinPath: input.shared.binPath,
+        preferredStagingArea: input.shared.stagingArea,
+        ctx,
+      });
+
       const result = await adminCompleteInboundReceiveAndPutaway({
         ...input.shared,
+        stagingArea: destination.stagingArea,
+        binPath: destination.binPath,
         clientUserId: item.clientUserId,
         requestId: item.requestId,
         clientDisplayName: item.clientDisplayName ?? null,

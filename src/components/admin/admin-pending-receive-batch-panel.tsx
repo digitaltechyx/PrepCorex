@@ -250,7 +250,10 @@ export function AdminPendingReceiveBatchPanel({
           title: `Received ${results.length} request${results.length === 1 ? "" : "s"}`,
           description:
             errors.length > 0
-              ? `${errors.length} could not be completed.`
+              ? `${errors.length} could not be completed: ${errors
+                  .slice(0, 2)
+                  .map((e) => e.error)
+                  .join("; ")}${errors.length > 2 ? "…" : ""}`
               : "Stock added to client inventory.",
         });
       }
@@ -258,7 +261,7 @@ export function AdminPendingReceiveBatchPanel({
         toast({
           variant: "destructive",
           title: "Batch receive failed",
-          description: errors[0]?.error ?? "Could not receive selected requests.",
+          description: errors.map((e) => e.error).slice(0, 3).join(" · "),
         });
       }
 
@@ -286,8 +289,9 @@ export function AdminPendingReceiveBatchPanel({
             Batch receive
           </CardTitle>
           <CardDescription>
-            Select approved requests below, set warehouse and putaway once, then receive all selected
-            at full remaining quantity (same as Warehouse Ops multi-select).
+            Select approved requests below, set warehouse and starting putaway area/bin once, then
+            receive all selected at full remaining quantity. Each SKU gets its own compatible bin
+            automatically when products differ (one SKU per bin).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

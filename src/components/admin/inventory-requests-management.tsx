@@ -182,9 +182,16 @@ function formatTrackingNumbersDisplay(trackings: InboundTrackingEntry[]): string
 export function InventoryRequestsManagement({ 
   selectedUser,
   initialRequestId,
+  standaloneMode = false,
+  onStandaloneClose,
+  onStandaloneResolved,
 }: { 
   selectedUser: UserProfile | null;
   initialRequestId?: string;
+  /** When true, only the review/receive dialog is shown (e.g. from Admin Notifications). */
+  standaloneMode?: boolean;
+  onStandaloneClose?: () => void;
+  onStandaloneResolved?: () => void;
 }) {
   const { toast } = useToast();
   const { userProfile: adminProfile, user: authUser } = useAuth();
@@ -812,6 +819,7 @@ export function InventoryRequestsManagement({
           });
         } else {
           setSelectedRequest(null);
+          if (standaloneMode) onStandaloneResolved?.();
         }
       }
     } catch (error: unknown) {
@@ -887,6 +895,7 @@ export function InventoryRequestsManagement({
         description: "Inventory request rejected.",
       });
       setSelectedRequest(null);
+      if (standaloneMode) onStandaloneResolved?.();
       }
     } catch (error: unknown) {
       if (!opts?.quiet) {
@@ -899,6 +908,14 @@ export function InventoryRequestsManagement({
       throw error;
     } finally {
       if (!opts?.quiet) setIsProcessing(false);
+    }
+  };
+
+  const closeSelectedRequest = () => {
+    setSelectedRequest(null);
+    if (standaloneMode) {
+      onStandaloneResolved?.();
+      onStandaloneClose?.();
     }
   };
 
@@ -997,6 +1014,7 @@ export function InventoryRequestsManagement({
   };
 
   if (!selectedUser) {
+    if (standaloneMode) return null;
     return (
       <Card>
         <CardContent className="p-6">
@@ -1004,6 +1022,77 @@ export function InventoryRequestsManagement({
         </CardContent>
       </Card>
     );
+  }
+
+  const reviewDialogs = (
+    <>
+      {liveSelectedBatch && userId && (
+        <InboundBatchAdminDialog
+          batch={liveSelectedBatch}
+          userId={userId}
+          isProcessing={isProcessing}
+          onClose={() => {
+            setSelectedBatch(null);
+            if (standaloneMode) {
+              onStandaloneResolved?.();
+              onStandaloneClose?.();
+            }
+          }}
+          onReviewLine={(request) => void handleReviewBatchLine(request)}
+          onBulkApprove={(lines, receivingDate) => runBulkBatchAction(lines, "approve", { receivingDate })}
+          onBulkReject={(lines, reason, evidenceUrls) =>
+            runBulkBatchAction(lines, "reject", { reason, evidenceUrls })
+          }
+        />
+      )}
+
+      {selectedRequest && userId && (
+        <ReviewRequestDialog
+          request={selectedRequest}
+          clientUserId={userId}
+          clientDisplayName={selectedUser?.name ?? selectedUser?.email ?? null}
+          onApprove={handleApprove}
+          onReject={(req, reason, evidenceUrls) => handleReject(req, reason, evidenceUrls)}
+          onClose={closeSelectedRequest}
+          onReceiveComplete={
+            standaloneMode
+              ? () => {
+                  onStandaloneResolved?.();
+                  onStandaloneClose?.();
+                }
+              : undefined
+          }
+          isProcessing={isProcessing}
+        />
+      )}
+
+      <InboundTrackingDetailDialog
+        open={Boolean(trackingDetail)}
+        onOpenChange={(open) => {
+          if (!open) setTrackingDetail(null);
+        }}
+        productName={trackingDetail?.productName || ""}
+        trackings={trackingDetail?.trackings}
+      />
+    </>
+  );
+
+  if (standaloneMode) {
+    if (loading || batchesLoading) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+    if (didAutoOpen && !selectedRequest && !liveSelectedBatch) {
+      return (
+        <div className="py-8 text-center text-sm text-muted-foreground">
+          Request not found or no longer available.
+        </div>
+      );
+    }
+    return reviewDialogs;
   }
 
   return (
@@ -1389,41 +1478,7 @@ export function InventoryRequestsManagement({
         </CardContent>
       </Card>
 
-      {liveSelectedBatch && userId && (
-        <InboundBatchAdminDialog
-          batch={liveSelectedBatch}
-          userId={userId}
-          isProcessing={isProcessing}
-          onClose={() => setSelectedBatch(null)}
-          onReviewLine={(request) => void handleReviewBatchLine(request)}
-          onBulkApprove={(lines, receivingDate) => runBulkBatchAction(lines, "approve", { receivingDate })}
-          onBulkReject={(lines, reason, evidenceUrls) =>
-            runBulkBatchAction(lines, "reject", { reason, evidenceUrls })
-          }
-        />
-      )}
-
-      {/* Review Dialog */}
-      {selectedRequest && userId && (
-        <ReviewRequestDialog
-          request={selectedRequest}
-          clientUserId={userId}
-          clientDisplayName={selectedUser?.name ?? selectedUser?.email ?? null}
-          onApprove={handleApprove}
-          onReject={(req, reason, evidenceUrls) => handleReject(req, reason, evidenceUrls)}
-          onClose={() => setSelectedRequest(null)}
-          isProcessing={isProcessing}
-        />
-      )}
-
-      <InboundTrackingDetailDialog
-        open={Boolean(trackingDetail)}
-        onOpenChange={(open) => {
-          if (!open) setTrackingDetail(null);
-        }}
-        productName={trackingDetail?.productName || ""}
-        trackings={trackingDetail?.trackings}
-      />
+      {reviewDialogs}
     </div>
   );
 }
@@ -1435,6 +1490,7 @@ function ReviewRequestDialog({
   onApprove,
   onReject,
   onClose,
+  onReceiveComplete,
   isProcessing,
 }: {
   request: InventoryRequest;
@@ -1443,6 +1499,7 @@ function ReviewRequestDialog({
   onApprove: (request: InventoryRequest, receivingDate: Date, status: "In Stock" | "Out of Stock", remarks?: string, editedQuantity?: number, editedProductName?: string, editedSku?: string, imageUrls?: string[]) => void;
   onReject: (request: InventoryRequest, reason: string, evidenceUrls: string[]) => void | Promise<void>;
   onClose: () => void;
+  onReceiveComplete?: () => void;
   isProcessing: boolean;
 }) {
   const { toast } = useToast();
@@ -2233,7 +2290,7 @@ function ReviewRequestDialog({
                 clientUserId={clientUserId}
                 clientDisplayName={clientDisplayName}
                 request={request}
-                onComplete={onClose}
+                onComplete={onReceiveComplete ?? onClose}
               />
               <div className="flex justify-end">
                 <Button type="button" variant="outline" onClick={onClose}>

@@ -68,6 +68,7 @@ import {
   type PendingReceiveItem,
 } from "@/lib/admin-pending-receive";
 import { AdminPendingReceiveBatchPanel } from "@/components/admin/admin-pending-receive-batch-panel";
+import { InventoryRequestsManagement } from "@/components/admin/inventory-requests-management";
 
 type NotificationType =
   | "shipment_request"
@@ -441,6 +442,10 @@ export default function AdminNotificationsPage() {
     userId: string;
     paymentRequestId: string;
     viewOnly: boolean;
+  } | null>(null);
+  const [inventoryReview, setInventoryReview] = useState<{
+    userId: string;
+    requestId: string;
   } | null>(null);
 
   const router = useRouter();
@@ -1115,7 +1120,15 @@ export default function AdminNotificationsPage() {
     return { paginatedRows, totalPages, startIndex, endIndex };
   }, [filteredRows, notificationPage]);
 
+  const openInventoryRequest = (userId: string, requestId: string) => {
+    setInventoryReview({ userId, requestId });
+  };
+
   const openRequest = (row: NotificationRow, viewOnly: boolean) => {
+    if (row.type === "inventory_request") {
+      openInventoryRequest(row.userId, row.id);
+      return;
+    }
     if (row.type === "label_refund_request") {
       setRefundReview({
         userId: row.userId,
@@ -1438,15 +1451,7 @@ export default function AdminNotificationsPage() {
                 items={pendingReceiveItems}
                 usersById={usersById}
                 onComplete={() => setNotificationsRefreshKey((k) => k + 1)}
-                onReceiveOne={(item) => {
-                  const params = new URLSearchParams({
-                    userId: item.userId,
-                    section: "user-requests",
-                    tab: "inventory_request",
-                    requestId: item.requestId,
-                  });
-                  router.push(`/admin/dashboard/inventory?${params.toString()}`);
-                }}
+                onReceiveOne={(item) => openInventoryRequest(item.userId, item.requestId)}
               />
               {pendingReceiveItems.length > 0 ? (
                 <div className="mt-6 space-y-2">
@@ -1489,6 +1494,17 @@ export default function AdminNotificationsPage() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {inventoryReview ? (
+        <InventoryRequestsManagement
+          key={`${inventoryReview.userId}:${inventoryReview.requestId}`}
+          selectedUser={usersById.get(inventoryReview.userId) ?? null}
+          initialRequestId={inventoryReview.requestId}
+          standaloneMode
+          onStandaloneClose={() => setInventoryReview(null)}
+          onStandaloneResolved={() => setNotificationsRefreshKey((k) => k + 1)}
+        />
+      ) : null}
 
       <LabelRefundReviewDialog
         open={Boolean(refundReview)}
