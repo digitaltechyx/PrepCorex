@@ -68,8 +68,6 @@ const OPERATION_CHILD_PATHS = [
   "/admin/dashboard/internal-move",
   "/admin/dashboard/cycle-count-reports",
   "/admin/dashboard/warehouse-allocate",
-  "/admin/dashboard/inbound-tracker",
-  "/admin/dashboard/outbound-tracker",
   "/warehouse-ops",
 ];
 
@@ -683,6 +681,8 @@ export function AdminSidebar() {
     pushRoot(inventoryRootItem);
     pushRoot(marketplaceOrdersRootItem);
     pushRoot(operationsRootItem);
+    pushFlat("/admin/dashboard/inbound-tracker");
+    pushFlat("/admin/dashboard/outbound-tracker");
     pushFlat("/admin/dashboard/invoices");
     pushFlat("/admin/dashboard/pricing");
     pushRoot(usersAccessRootItem);
