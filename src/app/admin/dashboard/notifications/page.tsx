@@ -69,6 +69,7 @@ import {
 } from "@/lib/admin-pending-receive";
 import { AdminPendingReceiveBatchPanel } from "@/components/admin/admin-pending-receive-batch-panel";
 import { InventoryRequestsManagement } from "@/components/admin/inventory-requests-management";
+import { ShipmentRequestsManagement } from "@/components/admin/shipment-requests-management";
 
 type NotificationType =
   | "shipment_request"
@@ -106,6 +107,8 @@ type NotificationRow = {
   inboundDisplayStatus?: AdminInboundRequestDisplayStatus;
   /** Approved-but-not-received row for batch receive panel. */
   pendingReceive?: PendingReceiveItem;
+  /** Outbound only — dispatched orders are terminal for admin Process button. */
+  warehouseDispatchStatus?: string;
 };
 
 const STATUS_TAB_VALUES = [
@@ -120,6 +123,16 @@ const STATUS_TAB_VALUES = [
   "closed",
   "cancelled",
 ] as const;
+
+function enrichShipmentNotificationRow(
+  row: NotificationRow,
+  data: ShipmentRequest
+): NotificationRow {
+  return {
+    ...row,
+    warehouseDispatchStatus: String((data as ShipmentRequest).warehouseDispatchStatus ?? ""),
+  };
+}
 
 function enrichInventoryNotificationRow(
   row: NotificationRow,
@@ -309,12 +322,19 @@ function notificationStatusBadgeClass(row: NotificationRow): string {
   return statusBadgeClass(row.status);
 }
 
+function shipmentNeedsFulfillment(row: NotificationRow): boolean {
+  if (row.type !== "shipment_request") return false;
+  if (normStatus(row.status) !== "confirmed") return false;
+  return normStatus(row.warehouseDispatchStatus) !== "dispatched";
+}
+
 /** True when this request type is in a terminal/completed state (hide Process button). */
 function isProcessComplete(row: NotificationRow): boolean {
   const s = normStatus(row.status);
   switch (row.type) {
     case "shipment_request":
-      return ["confirmed", "closed", "rejected", "cancelled", "paid"].includes(s);
+      if (shipmentNeedsFulfillment(row)) return false;
+      return ["closed", "rejected", "cancelled", "paid"].includes(s) || s === "confirmed";
     case "inventory_request":
       if (row.inboundDisplayStatus === "pending_receive") return false;
       return ["approved", "rejected", "cancelled"].includes(s);
@@ -447,6 +467,10 @@ export default function AdminNotificationsPage() {
     userId: string;
     requestId: string;
   } | null>(null);
+  const [shipmentReview, setShipmentReview] = useState<{
+    userId: string;
+    requestId: string;
+  } | null>(null);
 
   const router = useRouter();
 
@@ -476,21 +500,24 @@ export default function AdminNotificationsPage() {
               const data = d.data() as any as ShipmentRequest;
               const dateMs = toMs((data as any).requestedAt) || toMs((data as any).date) || 0;
               const shipTo = (data as any).shipTo || "";
-              return {
-                type: "shipment_request",
-                id: d.id,
-                userId,
-                status: String((data as any).status || ""),
-                createdAtMs: dateMs,
-                title: `Shipment Request • ${shipTo ? shipTo.substring(0, 40) : "N/A"}`,
-                subtitle:
-                  String((data as any).status || "").toLowerCase() === "cancelled"
-                    ? cancelReasonSubtitle(
-                        (data as any).cancellationReason,
-                        `Items: ${(data as any).shipments?.length ?? 0}`
-                      )
-                    : `Items: ${(data as any).shipments?.length ?? 0}`,
-              };
+              return enrichShipmentNotificationRow(
+                {
+                  type: "shipment_request",
+                  id: d.id,
+                  userId,
+                  status: String((data as any).status || ""),
+                  createdAtMs: dateMs,
+                  title: `Shipment Request • ${shipTo ? shipTo.substring(0, 40) : "N/A"}`,
+                  subtitle:
+                    String((data as any).status || "").toLowerCase() === "cancelled"
+                      ? cancelReasonSubtitle(
+                          (data as any).cancellationReason,
+                          `Items: ${(data as any).shipments?.length ?? 0}`
+                        )
+                      : `Items: ${(data as any).shipments?.length ?? 0}`,
+                },
+                data
+              );
             });
             setShipmentRequests(rows);
           } catch (e) {
@@ -519,7 +546,7 @@ export default function AdminNotificationsPage() {
                         )
                       : `Items: ${(data as any).shipments?.length ?? 0}`,
                 };
-                return row;
+                return enrichShipmentNotificationRow(row, data);
               });
             }));
             setShipmentRequests(results.flat());
@@ -1124,9 +1151,17 @@ export default function AdminNotificationsPage() {
     setInventoryReview({ userId, requestId });
   };
 
+  const openShipmentRequest = (userId: string, requestId: string) => {
+    setShipmentReview({ userId, requestId });
+  };
+
   const openRequest = (row: NotificationRow, viewOnly: boolean) => {
     if (row.type === "inventory_request") {
       openInventoryRequest(row.userId, row.id);
+      return;
+    }
+    if (row.type === "shipment_request") {
+      openShipmentRequest(row.userId, row.id);
       return;
     }
     if (row.type === "label_refund_request") {
@@ -1230,6 +1265,11 @@ export default function AdminNotificationsPage() {
                     <>
                       <PackageCheck className="h-4 w-4" />
                       Receive
+                    </>
+                  ) : shipmentNeedsFulfillment(r) ? (
+                    <>
+                      <Truck className="h-4 w-4" />
+                      Fulfill
                     </>
                   ) : (
                     <>
@@ -1502,6 +1542,17 @@ export default function AdminNotificationsPage() {
           initialRequestId={inventoryReview.requestId}
           standaloneMode
           onStandaloneClose={() => setInventoryReview(null)}
+          onStandaloneResolved={() => setNotificationsRefreshKey((k) => k + 1)}
+        />
+      ) : null}
+
+      {shipmentReview ? (
+        <ShipmentRequestsManagement
+          key={`${shipmentReview.userId}:${shipmentReview.requestId}`}
+          selectedUser={usersById.get(shipmentReview.userId) ?? null}
+          initialRequestId={shipmentReview.requestId}
+          standaloneMode
+          onStandaloneClose={() => setShipmentReview(null)}
           onStandaloneResolved={() => setNotificationsRefreshKey((k) => k + 1)}
         />
       ) : null}

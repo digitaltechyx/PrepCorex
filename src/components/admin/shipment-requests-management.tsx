@@ -105,12 +105,18 @@ function subtotalAdditionalForLine(
 
 export function ShipmentRequestsManagement({ 
   selectedUser,
-  inventory,
+  inventory: inventoryProp,
   initialRequestId,
+  standaloneMode = false,
+  onStandaloneClose,
+  onStandaloneResolved,
 }: { 
   selectedUser: UserProfile | null;
-  inventory: InventoryItem[];
+  inventory?: InventoryItem[];
   initialRequestId?: string;
+  standaloneMode?: boolean;
+  onStandaloneClose?: () => void;
+  onStandaloneResolved?: () => void;
 }) {
   const { toast } = useToast();
   const { user: authUser, userProfile: adminProfile } = useAuth();
@@ -127,6 +133,10 @@ export function ShipmentRequestsManagement({
   const { data: requests, loading } = useCollection<ShipmentRequest>(
     isValidUserId ? `users/${userId}/shipmentRequests` : ""
   );
+  const { data: loadedInventory } = useCollection<InventoryItem>(
+    isValidUserId ? `users/${userId}/inventory` : ""
+  );
+  const inventory = inventoryProp ?? loadedInventory;
   const { data: locationDocs = [] } = useCollection<LocationDoc>("locations");
   const { data: inventoryTransfers = [] } = useCollection<InventoryTransfer>(
     isValidUserId ? `users/${userId}/inventoryTransfers` : ""
@@ -163,6 +173,24 @@ export function ShipmentRequestsManagement({
       setDidAutoOpen(true);
     }
   }, [didAutoOpen, initialRequestId, requests]);
+
+  // Keep dialog in sync after pick/pack/dispatch updates Firestore.
+  useEffect(() => {
+    if (!selectedRequest?.id || !requests?.length) return;
+    const fresh = requests.find((r) => r.id === selectedRequest.id);
+    if (!fresh) return;
+    const syncFields: (keyof ShipmentRequest)[] = [
+      "status",
+      "warehousePickStatus",
+      "warehousePackStatus",
+      "warehouseDispatchStatus",
+      "warehouseAdminInventoryOnlyFulfillment",
+      "warehouseCourierTracking",
+    ];
+    if (syncFields.some((key) => fresh[key] !== selectedRequest[key])) {
+      setSelectedRequest(fresh);
+    }
+  }, [requests, selectedRequest]);
 
   const pricingUser = isValidUserId ? selectedUser : null;
   const {
@@ -291,9 +319,9 @@ export function ShipmentRequestsManagement({
       }
       }
 
+      const confirmedAt = Timestamp.now();
       await runTransaction(db, async (transaction) => {
         const requestRef = doc(db, `users/${targetUserId}/shipmentRequests`, request.id);
-        const confirmedAt = Timestamp.now();
 
         // Validate stock when not already reserved at create.
         const isCustomProduct =
@@ -382,6 +410,8 @@ export function ShipmentRequestsManagement({
           status: "confirmed",
           confirmedBy: adminProfile.uid,
           confirmedAt,
+          warehousePickStatus: "ready",
+          warehousePackStatus: "pending",
           shipments: resolvedShipments,
           ...(crossdockHoldFulfillment
             ? { crossdockFulfillment: true }
@@ -428,10 +458,18 @@ export function ShipmentRequestsManagement({
       toast({
         title: "Success",
         description: alreadyReservedAtCreate
-          ? "Shipment request confirmed — inventory was already reserved at create; warehouse stock deducts at dispatch."
-          : "Shipment request confirmed — inventory will deduct when dispatched.",
+          ? "Confirmed — complete pick & pack below or ship from inventory, then scan tracking to dispatch."
+          : "Confirmed — complete fulfillment below, then scan tracking to dispatch.",
       });
-      setSelectedRequest(null);
+      setSelectedRequest({
+        ...request,
+        status: "confirmed",
+        confirmedBy: adminProfile.uid,
+        confirmedAt: confirmedAt as ShipmentRequest["confirmedAt"],
+        warehousePickStatus: "ready",
+        warehousePackStatus: "pending",
+        shipments: resolvedShipments as ShipmentRequest["shipments"],
+      });
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -440,6 +478,14 @@ export function ShipmentRequestsManagement({
       });
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const closeSelectedRequest = () => {
+    setSelectedRequest(null);
+    if (standaloneMode) {
+      onStandaloneResolved?.();
+      onStandaloneClose?.();
     }
   };
 
@@ -596,7 +642,7 @@ export function ShipmentRequestsManagement({
         title: "Success",
         description: "Shipment request rejected and quantities restored if needed.",
       });
-      setSelectedRequest(null);
+      closeSelectedRequest();
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -666,6 +712,7 @@ export function ShipmentRequestsManagement({
   };
 
   if (!selectedUser) {
+    if (standaloneMode) return null;
     return (
       <Card>
         <CardContent className="p-6">
@@ -673,6 +720,50 @@ export function ShipmentRequestsManagement({
         </CardContent>
       </Card>
     );
+  }
+
+  const reviewDialog =
+    selectedRequest && userId ? (
+      <ReviewShipmentDialog
+        request={selectedRequest}
+        clientUserId={userId}
+        inventory={inventory}
+        warehouseNameById={warehouseNameById}
+        onConfirm={handleConfirm}
+        onReject={handleReject}
+        onApproveForLabelUpload={handleApproveForLabelUpload}
+        onClose={closeSelectedRequest}
+        onFulfillmentComplete={
+          standaloneMode
+            ? () => {
+                onStandaloneResolved?.();
+              }
+            : undefined
+        }
+        isProcessing={isProcessing}
+        additionalServicesPricing={effectiveAdditionalServicesPricing || []}
+        pricingRules={effectivePricingRules || []}
+        boxForwardingPricing={effectiveBoxForwardingPricing}
+        palletForwardingPricing={effectivePalletForwardingPricing}
+      />
+    ) : null;
+
+  if (standaloneMode) {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+    if (didAutoOpen && !selectedRequest) {
+      return (
+        <div className="py-8 text-center text-sm text-muted-foreground">
+          Request not found or no longer available.
+        </div>
+      );
+    }
+    return reviewDialog;
   }
 
   return (
@@ -890,24 +981,7 @@ export function ShipmentRequestsManagement({
         </CardContent>
       </Card>
 
-      {/* Review Dialog */}
-      {selectedRequest && userId && (
-        <ReviewShipmentDialog
-          request={selectedRequest}
-          clientUserId={userId}
-          inventory={inventory}
-          warehouseNameById={warehouseNameById}
-          onConfirm={handleConfirm}
-          onReject={handleReject}
-          onApproveForLabelUpload={handleApproveForLabelUpload}
-          onClose={() => setSelectedRequest(null)}
-          isProcessing={isProcessing}
-          additionalServicesPricing={effectiveAdditionalServicesPricing || []}
-          pricingRules={effectivePricingRules || []}
-          boxForwardingPricing={effectiveBoxForwardingPricing}
-          palletForwardingPricing={effectivePalletForwardingPricing}
-        />
-      )}
+      {reviewDialog}
 
       {/* Remarks Dialog */}
       <Dialog open={selectedRemarks !== null} onOpenChange={(open) => !open && setSelectedRemarks(null)}>
@@ -936,6 +1010,7 @@ function ReviewShipmentDialog({
   onReject,
   onApproveForLabelUpload,
   onClose,
+  onFulfillmentComplete,
   isProcessing,
   additionalServicesPricing,
   pricingRules,
@@ -946,6 +1021,7 @@ function ReviewShipmentDialog({
   clientUserId: string;
   inventory: InventoryItem[];
   warehouseNameById: Record<string, string>;
+  onFulfillmentComplete?: () => void;
   onConfirm: (
     request: ShipmentRequest,
     adminRemarks?: string,
@@ -1070,6 +1146,11 @@ function ReviewShipmentDialog({
 
   const readOnly =
     request.status !== "pending" && request.status !== "awaiting_label_upload";
+  const confirmedUndispatched =
+    request.status === "confirmed" &&
+    String((request as ShipmentRequest).warehouseDispatchStatus ?? "")
+      .trim()
+      .toLowerCase() !== "dispatched";
   /** Client sellable qty was already reserved when this outbound was created. */
   const alreadyReservedAtCreate =
     Boolean((request as ShipmentRequest).clientInventoryDeductedAt) ||
@@ -1388,11 +1469,19 @@ function ReviewShipmentDialog({
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{readOnly ? "Shipment Request Details" : "Review Shipment Request"}</DialogTitle>
+          <DialogTitle>
+            {readOnly
+              ? confirmedUndispatched
+                ? "Confirm & fulfill shipment"
+                : "Shipment Request Details"
+              : "Review Shipment Request"}
+          </DialogTitle>
           <DialogDescription>
             {readOnly
-              ? "Read-only view of this shipment request and how it was processed."
-              : "Review the shipment request and confirm or reject it."}
+              ? confirmedUndispatched
+                ? "Complete pick & pack (or ship from inventory), then scan courier tracking to dispatch — all on this screen."
+                : "Read-only view of this shipment request and how it was processed."
+              : "Review the shipment request, confirm it, then complete fulfillment below without leaving this screen."}
           </DialogDescription>
         </DialogHeader>
 
@@ -2397,7 +2486,7 @@ function ReviewShipmentDialog({
                   className="flex-1"
                 >
                   {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {isCustomProduct ? "Complete Shipment" : "Confirm Shipment"}
+                  {isCustomProduct ? "Complete Shipment" : "Confirm & continue to fulfill"}
                 </Button>
                 <Button variant="outline" onClick={() => setAction(null)}>
                   Cancel
@@ -2487,13 +2576,17 @@ function ReviewShipmentDialog({
           </>
           )}
 
-          {readOnly && (
+          {readOnly && request.status === "confirmed" && (
             <div className="space-y-4 border-t pt-4">
               <AdminWarehouseActionsPanel
                 mode="outbound"
                 clientUserId={clientUserId}
                 request={{ ...request, id: (request as ShipmentRequest & { id?: string }).id ?? "" }}
-                onComplete={onClose}
+                onProgress={onFulfillmentComplete}
+                onComplete={() => {
+                  onFulfillmentComplete?.();
+                  onClose();
+                }}
               />
               <div className="flex justify-end">
                 <Button type="button" variant="outline" onClick={onClose}>

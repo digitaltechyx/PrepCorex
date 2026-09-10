@@ -1015,6 +1015,8 @@ export async function completePackReadyToDispatch(input: {
   clientUserId: string;
   shipmentRequestId: string;
   operatorId?: string | null;
+  /** Admin fast-path: mark ready without courier label (tracking added at dispatch). */
+  deferCourierTracking?: boolean;
 }): Promise<void> {
   const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
   const snap = await getDoc(ref);
@@ -1061,7 +1063,7 @@ export async function completePackReadyToDispatch(input: {
   }
 
   const courierTracking = courierTrackingFromRequest(data);
-  if (!courierTracking) {
+  if (!courierTracking && !input.deferCourierTracking) {
     throw new Error("Scan the courier label before marking ready to dispatch.");
   }
 
@@ -1182,6 +1184,8 @@ export async function completeDispatchHandoff(input: {
   scannedValue: string;
   qcUnitType: WarehouseQcUnitType;
   operatorId?: string | null;
+  /** Admin fast-path: bind tracking at dispatch when pack skipped courier scan. */
+  setTrackingAtDispatch?: boolean;
 }): Promise<ShopifyInventorySyncHint[]> {
   const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
   const snap = await getDoc(ref);
@@ -1195,11 +1199,15 @@ export async function completeDispatchHandoff(input: {
     throw new Error("Order was already dispatched.");
   }
 
-  const stored = courierTrackingFromRequest(data);
-  if (!stored) {
+  let stored = courierTrackingFromRequest(data);
+  const scanned = String(input.scannedValue ?? "").trim();
+  if (!scanned) throw new Error("Enter or scan courier tracking to dispatch.");
+
+  if (!stored && input.setTrackingAtDispatch) {
+    stored = normalizeCourierScan(scanned);
+  } else if (!stored) {
     throw new Error("No courier label on file — re-pack this order.");
-  }
-  if (!courierScansMatch(input.scannedValue, stored)) {
+  } else if (!courierScansMatch(scanned, stored)) {
     throw new Error("Wrong parcel — label does not match this order.");
   }
 
@@ -1219,6 +1227,12 @@ export async function completeDispatchHandoff(input: {
     warehouseQcPassedAt: serverTimestamp(),
     warehouseQcPassedBy: input.operatorId ?? null,
     warehousePackStockSnapshot: deleteField(),
+    ...(input.setTrackingAtDispatch && stored
+      ? {
+          warehouseCourierTracking: stored,
+          warehousePackCourierVerifiedAt: serverTimestamp(),
+        }
+      : {}),
     updatedAt: serverTimestamp(),
   });
 

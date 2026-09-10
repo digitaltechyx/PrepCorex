@@ -29,10 +29,32 @@ import {
 } from "@/lib/warehouse-putaway-disposition";
 import { formatExpiryForInput } from "@/lib/warehouse-inbound-requests";
 import { disposeQuarantineLine, listQuarantineHolds, releaseQuarantineLineToStorage } from "@/lib/warehouse-quarantine";
+import { isFbaLabelWorkflowRequest } from "@/lib/fba-shipment-workflow";
+import { orderLinesForRequests } from "@/lib/warehouse-outbound-lines";
+import {
+  dispatchStatusFromRequest,
+  packStatusFromRequest,
+  pickStatusFromRequest,
+} from "@/lib/warehouse-outbound-request-status";
+import {
+  applyPickStep,
+  buildPickPlan,
+  markPickOrderStatus,
+  type OutboundPickOrder,
+} from "@/lib/warehouse-pick";
+import {
+  buildPackPlan,
+  completeDispatchHandoff,
+  completePackReadyToDispatch,
+  markPackItemVerified,
+  type OutboundPackOrder,
+} from "@/lib/warehouse-pack";
 import type {
   InventoryRequest,
+  ShipmentRequest,
   UserProfile,
   WarehouseCartonDoc,
+  WarehouseDoc,
   WarehousePalletDoc,
 } from "@/types";
 
@@ -648,6 +670,216 @@ export async function adminBatchReceiveInboundRequests(input: {
   }
 
   return { results, errors };
+}
+
+export type AdminOutboundBinAssessment = {
+  hasFullBinStock: boolean;
+  pickStepCount: number;
+  shortfalls: Array<{ sku: string; productName: string; needed: number; planned: number }>;
+};
+
+async function loadOutboundPickOrder(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+}): Promise<{ order: OutboundPickOrder; data: Record<string, unknown> }> {
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Shipment request not found.");
+  const data = snap.data() as Record<string, unknown>;
+  const [lines] = await orderLinesForRequests([{ clientUserId: input.clientUserId, data }]);
+  if (!lines?.length) throw new Error("Order has no pick lines.");
+  return {
+    data,
+    order: {
+      id: input.shipmentRequestId,
+      clientUserId: input.clientUserId,
+      clientDisplayName: "",
+      warehousePickStatus: pickStatusFromRequest(data),
+      lines,
+      confirmedAt: null,
+    },
+  };
+}
+
+function assertAdminOutboundEligible(data: Record<string, unknown>): void {
+  if (String(data.status ?? "").trim().toLowerCase() !== "confirmed") {
+    throw new Error("Only confirmed orders can be fulfilled.");
+  }
+  if (dispatchStatusFromRequest(data) === "dispatched") {
+    throw new Error("Order was already dispatched.");
+  }
+  if (data.crossdockFulfillment === true || String(data.crossdockLinkedUnitId ?? "").trim()) {
+    throw new Error("Cross-dock orders must be fulfilled in Warehouse Ops.");
+  }
+  if (isFbaLabelWorkflowRequest(data)) {
+    throw new Error("FBA label workflow orders must be fulfilled in Warehouse Ops.");
+  }
+}
+
+/** Check whether warehouse bins can cover this order (vs client inventory only). */
+export async function assessAdminOutboundBinStock(input: {
+  warehouse: WarehouseDoc;
+  clientUserId: string;
+  shipmentRequestId: string;
+}): Promise<AdminOutboundBinAssessment> {
+  const { order, data } = await loadOutboundPickOrder(input);
+  assertAdminOutboundEligible(data);
+  const plan = await buildPickPlan(input.warehouse, order);
+  const shortfalls = plan.shortfalls.map((s) => ({
+    sku: s.sku,
+    productName: s.productName,
+    needed: s.needed,
+    planned: s.planned,
+  }));
+  return {
+    hasFullBinStock: shortfalls.length === 0 && plan.steps.length > 0,
+    pickStepCount: plan.steps.length,
+    shortfalls,
+  };
+}
+
+/** Auto-run all pick steps and pack verify (no tracking) — admin one-click pick & pack. */
+export async function adminAutoPickAndPackOutbound(input: {
+  warehouse: WarehouseDoc;
+  clientUserId: string;
+  shipmentRequestId: string;
+  operatorId?: string | null;
+}): Promise<void> {
+  const { order, data } = await loadOutboundPickOrder(input);
+  assertAdminOutboundEligible(data);
+
+  const pickStatus = pickStatusFromRequest(data);
+  const packStatus = packStatusFromRequest(data);
+  if (packStatus === "ready_to_dispatch") return;
+
+  if (pickStatus !== "picked" && pickStatus !== "skipped") {
+    const pickPlan = await buildPickPlan(input.warehouse, order);
+    if (pickPlan.shortfalls.length > 0) {
+      throw new Error(
+        "Not enough bin stock — use Ship from client inventory or receive stock into bins first."
+      );
+    }
+    if (pickPlan.steps.length === 0) {
+      throw new Error("No pick steps found — use Ship from client inventory.");
+    }
+
+    for (const step of pickPlan.steps) {
+      await applyPickStep({
+        warehouseId: input.warehouse.id,
+        clientUserId: input.clientUserId,
+        shipmentRequestId: input.shipmentRequestId,
+        step,
+        scannedBinId: step.binId,
+        scannedCartonId: step.cartonId,
+        pickQty: step.quantity,
+        operatorId: input.operatorId,
+      });
+    }
+
+    await markPickOrderStatus({
+      clientUserId: input.clientUserId,
+      shipmentRequestId: input.shipmentRequestId,
+      warehouseId: input.warehouse.id,
+      status: "picked",
+      operatorId: input.operatorId,
+    });
+  }
+
+  const packOrder: OutboundPackOrder = {
+    id: input.shipmentRequestId,
+    clientUserId: input.clientUserId,
+    clientDisplayName: "",
+    warehousePickStatus: "picked",
+    warehousePackStatus: packStatusFromRequest(data),
+    lines: order.lines,
+    confirmedAt: null,
+  };
+  const packPlan = await buildPackPlan(input.warehouse, packOrder);
+  if (packPlan.items.length === 0) {
+    throw new Error("No picked stock to pack — use Ship from client inventory.");
+  }
+  for (const item of packPlan.items) {
+    await markPackItemVerified({
+      clientUserId: input.clientUserId,
+      shipmentRequestId: input.shipmentRequestId,
+      itemKey: item.itemKey,
+      warehouseId: input.warehouse.id,
+      operatorId: input.operatorId,
+    });
+  }
+
+  await completePackReadyToDispatch({
+    warehouseId: input.warehouse.id,
+    clientUserId: input.clientUserId,
+    shipmentRequestId: input.shipmentRequestId,
+    operatorId: input.operatorId,
+    deferCourierTracking: true,
+  });
+}
+
+/**
+ * Mark order ready to dispatch using client inventory only (no warehouse bin pick/pack).
+ * Use when sellable inventory exists but bins have no stock.
+ */
+export async function adminShipOutboundFromInventoryOnly(input: {
+  warehouseId: string;
+  clientUserId: string;
+  shipmentRequestId: string;
+  operatorId?: string | null;
+}): Promise<void> {
+  const ref = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("Shipment request not found.");
+  const data = snap.data() as Record<string, unknown>;
+  assertAdminOutboundEligible(data);
+  if (packStatusFromRequest(data) === "ready_to_dispatch") return;
+
+  await updateDoc(ref, {
+    warehousePickStatus: "picked",
+    warehouseAdminInventoryOnlyFulfillment: true,
+    warehousePickedAt: serverTimestamp(),
+    warehousePickedBy: input.operatorId ?? null,
+    warehousePackStatus: "ready_to_dispatch",
+    warehouseDispatchStatus: "ready",
+    warehouseReadyToDispatchAt: serverTimestamp(),
+    warehousePackedBy: input.operatorId ?? null,
+    warehouseId: input.warehouseId,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Dispatch with tracking scan (courier label can be first bound here for admin fast-path). */
+export async function adminDispatchOutboundWithTracking(input: {
+  warehouseId: string;
+  clientUserId: string;
+  shipmentRequestId: string;
+  trackingNumber: string;
+  operatorId?: string | null;
+}) {
+  const snap = await getDoc(
+    doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId)
+  );
+  if (!snap.exists()) throw new Error("Shipment request not found.");
+  const data = snap.data() as Record<string, unknown>;
+  assertAdminOutboundEligible(data);
+  if (packStatusFromRequest(data) !== "ready_to_dispatch") {
+    throw new Error("Complete pick & pack (or ship from inventory) before dispatch.");
+  }
+
+  const hadTracking = Boolean(
+    String(data.warehouseCourierTracking ?? "").trim() ||
+      String(data.trackingNumber ?? "").trim()
+  );
+
+  return completeDispatchHandoff({
+    warehouseId: input.warehouseId,
+    clientUserId: input.clientUserId,
+    shipmentRequestId: input.shipmentRequestId,
+    scannedValue: input.trackingNumber.trim(),
+    qcUnitType: "package",
+    operatorId: input.operatorId,
+    setTrackingAtDispatch: !hadTracking,
+  });
 }
 
 /** Admin: release quarantine stock back to good (damaged → good). */

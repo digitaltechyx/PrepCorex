@@ -19,8 +19,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import {
+  adminAutoPickAndPackOutbound,
   adminCompleteInboundReceiveAndPutaway,
+  adminDispatchOutboundWithTracking,
+  adminShipOutboundFromInventoryOnly,
+  assessAdminOutboundBinStock,
   type AdminInboundCompleteResult,
+  type AdminOutboundBinAssessment,
   hasAdminWarehouseOverride,
 } from "@/lib/admin-warehouse-override";
 import { listWarehouseAreas } from "@/lib/warehouse-putaway-disposition";
@@ -36,7 +41,6 @@ import {
   isPutawayLineSlotReady,
   type PutawayLineSlot,
 } from "@/components/warehouse-ops/putaway-destination-fields";
-import { completeDispatchHandoff } from "@/lib/warehouse-pack";
 import { restorePickOrderToQueue } from "@/lib/warehouse-pick";
 import { downloadReceiveLabels } from "@/lib/warehouse-receive-label-download";
 import { pushShopifyInventoryHints } from "@/lib/shopify-inventory-sync";
@@ -64,6 +68,9 @@ type OutboundProps = {
   mode: "outbound";
   clientUserId: string;
   request: ShipmentRequest & { id: string };
+  /** Pick/pack stage finished — refresh UI but keep dialog open. */
+  onProgress?: () => void;
+  /** Fully dispatched (or admin closed) — close dialog. */
   onComplete?: () => void;
 };
 
@@ -604,47 +611,53 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     );
   }
 
-  const { request, clientUserId, onComplete } = props;
-  const packStatus = String((request as unknown as Record<string, unknown>).warehousePackStatus ?? "")
-    .trim()
-    .toLowerCase();
-  const dispatchStatus = String((request as unknown as Record<string, unknown>).warehouseDispatchStatus ?? "")
-    .trim()
-    .toLowerCase();
-  const pickStatus = String((request as unknown as Record<string, unknown>).warehousePickStatus ?? "")
-    .trim()
-    .toLowerCase();
-  const requestWarehouseId = String(
-    (request as unknown as Record<string, unknown>).warehouseId ?? ""
-  ).trim();
+  const { request, clientUserId, onProgress, onComplete } = props;
+  const reqData = request as unknown as Record<string, unknown>;
+  const packStatus = String(reqData.warehousePackStatus ?? "").trim().toLowerCase();
+  const dispatchStatus = String(reqData.warehouseDispatchStatus ?? "").trim().toLowerCase();
+  const pickStatus = String(reqData.warehousePickStatus ?? "").trim().toLowerCase();
+  const requestWarehouseId = String(reqData.warehouseId ?? "").trim();
   const status = String(request.status ?? "").trim().toLowerCase();
   const readyToDispatch = packStatus === "ready_to_dispatch" && dispatchStatus !== "dispatched";
   const isDispatched = dispatchStatus === "dispatched";
   const isPicked = pickStatus === "picked";
   const pickWasSkipped = pickStatus === "skipped";
-  const needsPick =
-    status === "confirmed" &&
-    !isDispatched &&
-    !readyToDispatch &&
-    !isPicked &&
-    !pickWasSkipped;
-  const needsPack = status === "confirmed" && isPicked && !readyToDispatch && !isDispatched;
-  const focusQuery = `userId=${encodeURIComponent(clientUserId)}&requestId=${encodeURIComponent(request.id)}`;
-  const primaryHref = readyToDispatch
-    ? `/warehouse-ops/dispatch?${focusQuery}`
-    : needsPack
-      ? `/warehouse-ops/pack?${focusQuery}`
-      : pickWasSkipped
-        ? `/warehouse-ops/pick?tab=skipped&${focusQuery}`
-        : `/warehouse-ops/pick?tab=ready&${focusQuery}`;
-  const primaryLabel = readyToDispatch
-    ? "Open focused dispatch"
-    : needsPack
-      ? "Open focused pack"
-      : pickWasSkipped
-        ? "Review skipped pick"
-        : "Open focused pick";
+  const inventoryOnly = Boolean(reqData.warehouseAdminInventoryOnlyFulfillment);
+  const needsPickPack =
+    status === "confirmed" && !isDispatched && !readyToDispatch && !pickWasSkipped;
   const preferredWarehouseId = requestWarehouseId || warehouseId || activeWarehouses[0]?.id || "";
+  const selectedWarehouse = activeWarehouses.find((w) => w.id === preferredWarehouseId) ?? null;
+
+  const [binAssessment, setBinAssessment] = useState<AdminOutboundBinAssessment | null>(null);
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+
+  useEffect(() => {
+    if (status !== "confirmed" || isDispatched || !preferredWarehouseId || !selectedWarehouse) {
+      setBinAssessment(null);
+      return;
+    }
+    let cancelled = false;
+    setAssessmentLoading(true);
+    assessAdminOutboundBinStock({
+      warehouse: selectedWarehouse,
+      clientUserId,
+      shipmentRequestId: request.id,
+    })
+      .then((result) => {
+        if (!cancelled) setBinAssessment(result);
+      })
+      .catch(() => {
+        if (!cancelled) setBinAssessment(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAssessmentLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientUserId, isDispatched, preferredWarehouseId, request.id, selectedWarehouse, status]);
+
+  const focusQuery = `userId=${encodeURIComponent(clientUserId)}&requestId=${encodeURIComponent(request.id)}`;
 
   return (
     <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
@@ -653,81 +666,172 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         Admin outbound fulfillment
       </div>
       <p className="text-xs text-muted-foreground">
-        Continue this order in Warehouse Ops using the shared pick, pack, and dispatch engine. Prefer
-        the focused link for this request.
+        Fast-path: auto pick &amp; pack in one step (no pack tracking), then scan courier tracking at
+        dispatch. Or ship from client inventory when bins are empty but inventory table shows stock.
       </p>
       <div className="flex flex-wrap gap-2 text-xs">
         <span className="rounded-md border bg-background px-2 py-1">Status: {status || "—"}</span>
         <span className="rounded-md border bg-background px-2 py-1">Pick: {pickStatus || "—"}</span>
         <span className="rounded-md border bg-background px-2 py-1">Pack: {packStatus || "—"}</span>
         <span className="rounded-md border bg-background px-2 py-1">Dispatch: {dispatchStatus || "—"}</span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {!isDispatched ? (
-          <Button type="button" size="sm" asChild>
-            <Link href={primaryHref}>{primaryLabel}</Link>
-          </Button>
+        {inventoryOnly ? (
+          <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900">
+            Inventory-only ship
+          </span>
         ) : null}
-        {pickWasSkipped && !isDispatched ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={busy || !preferredWarehouseId}
-            onClick={async () => {
-              const wh = preferredWarehouseId;
-              if (!wh) {
-                toast({ variant: "destructive", title: "No warehouse configured" });
-                return;
-              }
-              setBusy(true);
-              try {
-                await restorePickOrderToQueue({
-                  clientUserId,
-                  shipmentRequestId: request.id,
-                  warehouseId: wh,
-                  operatorId: userProfile?.uid ?? null,
-                });
-                toast({
-                  title: "Returned to pick queue",
-                  description: "Continue in Warehouse Ops → Pick → Ready to pick.",
-                });
-                onComplete?.();
-              } catch (error: unknown) {
-                toast({
-                  variant: "destructive",
-                  title: "Restore failed",
-                  description: error instanceof Error ? error.message : "Could not restore.",
-                });
-              } finally {
-                setBusy(false);
-              }
-            }}
+      </div>
+
+      {activeWarehouses.length > 0 && !isDispatched ? (
+        <div className="space-y-1.5">
+          <Label className="text-xs">Warehouse</Label>
+          <Select
+            value={preferredWarehouseId}
+            onValueChange={setWarehouseId}
+            disabled={Boolean(requestWarehouseId)}
           >
-            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
-            Return to pick queue
-          </Button>
-        ) : null}
-        {needsPick || needsPack || readyToDispatch ? (
-          <>
-            <Button type="button" variant="outline" size="sm" asChild>
-              <Link href={`/warehouse-ops/pick?tab=ready&${focusQuery}`}>Pick queue</Link>
+            <SelectTrigger className="h-8 max-w-xs">
+              <SelectValue placeholder="Select warehouse" />
+            </SelectTrigger>
+            <SelectContent>
+              {activeWarehouses.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.name || w.code || w.id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+
+      {needsPickPack && !readyToDispatch ? (
+        <div className="space-y-2 border-t pt-3">
+          {assessmentLoading ? (
+            <p className="text-xs text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Checking bin stock…
+            </p>
+          ) : binAssessment ? (
+            <p className="text-xs text-muted-foreground">
+              {binAssessment.hasFullBinStock
+                ? `${binAssessment.pickStepCount} pick step${binAssessment.pickStepCount === 1 ? "" : "s"} ready in bins.`
+                : binAssessment.shortfalls.length > 0
+                  ? `Bin shortfall: ${binAssessment.shortfalls
+                      .map((s) => `${s.sku} (${s.planned}/${s.needed})`)
+                      .join(", ")}`
+                  : "No bin stock — ship from client inventory if available."}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy || !selectedWarehouse || assessmentLoading || binAssessment?.hasFullBinStock === false}
+              onClick={async () => {
+                if (!selectedWarehouse || !user) return;
+                setBusy(true);
+                try {
+                  await adminAutoPickAndPackOutbound({
+                    warehouse: selectedWarehouse,
+                    clientUserId,
+                    shipmentRequestId: request.id,
+                    operatorId: user.uid,
+                  });
+                  toast({
+                    title: "Pick & pack complete",
+                    description: "Scan courier tracking below to dispatch.",
+                  });
+                  onProgress?.();
+                } catch (error: unknown) {
+                  toast({
+                    variant: "destructive",
+                    title: "Pick & pack failed",
+                    description: error instanceof Error ? error.message : "Could not complete.",
+                  });
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}
+              Complete pick &amp; pack
             </Button>
-            <Button type="button" variant="outline" size="sm" asChild>
-              <Link href={`/warehouse-ops/pack?${focusQuery}`}>Pack queue</Link>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={busy || !preferredWarehouseId}
+              onClick={async () => {
+                if (!preferredWarehouseId || !user) return;
+                setBusy(true);
+                try {
+                  await adminShipOutboundFromInventoryOnly({
+                    warehouseId: preferredWarehouseId,
+                    clientUserId,
+                    shipmentRequestId: request.id,
+                    operatorId: user.uid,
+                  });
+                  toast({
+                    title: "Ready from inventory",
+                    description: "No bin pick — scan tracking below to dispatch.",
+                  });
+                  onProgress?.();
+                } catch (error: unknown) {
+                  toast({
+                    variant: "destructive",
+                    title: "Could not ship from inventory",
+                    description: error instanceof Error ? error.message : "Failed.",
+                  });
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Ship from client inventory
             </Button>
-            <Button type="button" variant="outline" size="sm" asChild>
-              <Link href={`/warehouse-ops/dispatch?${focusQuery}`}>Dispatch queue</Link>
-            </Button>
-          </>
-        ) : null}
-      </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pickWasSkipped && !isDispatched ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy || !preferredWarehouseId}
+          onClick={async () => {
+            if (!preferredWarehouseId) return;
+            setBusy(true);
+            try {
+              await restorePickOrderToQueue({
+                clientUserId,
+                shipmentRequestId: request.id,
+                warehouseId: preferredWarehouseId,
+                operatorId: userProfile?.uid ?? null,
+              });
+              toast({ title: "Returned to pick queue" });
+              onProgress?.();
+            } catch (error: unknown) {
+              toast({
+                variant: "destructive",
+                title: "Restore failed",
+                description: error instanceof Error ? error.message : "Could not restore.",
+              });
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <RotateCcw className="mr-2 h-4 w-4" />
+          Return to pick queue
+        </Button>
+      ) : null}
+
       {readyToDispatch ? (
         <div className="space-y-2 border-t pt-3">
           <Label>Scan / enter courier tracking to dispatch</Label>
           <div className="flex flex-wrap gap-2">
             <Input
-              className="max-w-xs"
+              className="max-w-xs font-mono text-sm"
               value={trackingScan}
               onChange={(e) => setTrackingScan(e.target.value)}
               placeholder="Tracking barcode or number"
@@ -737,21 +841,24 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               size="sm"
               disabled={busy || !trackingScan.trim() || !preferredWarehouseId}
               onClick={async () => {
-                const wh = preferredWarehouseId;
-                if (!wh) {
-                  toast({ variant: "destructive", title: "No warehouse configured" });
-                  return;
-                }
+                if (!preferredWarehouseId || !user) return;
                 setBusy(true);
                 try {
-                  await completeDispatchHandoff({
-                    warehouseId: wh,
+                  const hints = await adminDispatchOutboundWithTracking({
+                    warehouseId: preferredWarehouseId,
                     clientUserId,
                     shipmentRequestId: request.id,
-                    scannedValue: trackingScan.trim(),
-                    qcUnitType: "package",
-                    operatorId: userProfile?.uid ?? null,
+                    trackingNumber: trackingScan.trim(),
+                    operatorId: user.uid,
                   });
+                  if (hints.length > 0) {
+                    try {
+                      const token = await user.getIdToken();
+                      await pushShopifyInventoryHints(token, hints);
+                    } catch {
+                      // non-blocking
+                    }
+                  }
                   toast({ title: "Order dispatched", description: "Client inventory updated." });
                   setTrackingScan("");
                   onComplete?.();
@@ -770,23 +877,20 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               Confirm dispatch
             </Button>
           </div>
-          {activeWarehouses.length > 1 && !requestWarehouseId ? (
-            <div className="space-y-1.5">
-              <Label className="text-xs">Warehouse (for activity log)</Label>
-              <Select value={warehouseId} onValueChange={setWarehouseId}>
-                <SelectTrigger className="h-8 max-w-xs">
-                  <SelectValue placeholder="Warehouse" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeWarehouses.map((w) => (
-                    <SelectItem key={w.id} value={w.id}>
-                      {w.name || w.code || w.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
+        </div>
+      ) : null}
+
+      {!isDispatched ? (
+        <div className="flex flex-wrap gap-2 border-t pt-3">
+          <Button type="button" variant="ghost" size="sm" asChild>
+            <Link href={`/warehouse-ops/pick?tab=ready&${focusQuery}`}>Warehouse Ops pick</Link>
+          </Button>
+          <Button type="button" variant="ghost" size="sm" asChild>
+            <Link href={`/warehouse-ops/pack?${focusQuery}`}>Warehouse Ops pack</Link>
+          </Button>
+          <Button type="button" variant="ghost" size="sm" asChild>
+            <Link href={`/warehouse-ops/dispatch?${focusQuery}`}>Warehouse Ops dispatch</Link>
+          </Button>
         </div>
       ) : null}
     </div>
