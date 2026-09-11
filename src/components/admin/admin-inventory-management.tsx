@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { Suspense, useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -55,14 +55,10 @@ import {
   type ProductUnitMeasurementDraft,
 } from "@/components/inventory/product-unit-measurements-fields";
 import { measurementFieldsForWrite } from "@/lib/box-suggestion";
-import { ShippedOrderDetailsDialog } from "@/components/dashboard/shipped-order-details-dialog";
+import { ShippedTable } from "@/components/dashboard/shipped-table";
 import {
-  buildShippedOrderDetails,
-  enrichShippedOrderDetailsFromInventory,
   expandShippedItemsForDisplay,
   normalizeShipmentItems,
-  type ShippedDisplayRow,
-  type ShippedOrderDetails,
 } from "@/lib/shipment-utils";
 
 interface AdminInventoryManagementProps {
@@ -72,7 +68,7 @@ interface AdminInventoryManagementProps {
   loading: boolean;
   /** When set to "user-requests", opens the User Requests card and section (e.g. from Notifications "Process"). */
   initialSection?: string;
-  /** Notification type: shipment_request | inventory_request | product_return | dispose_request | delete_request — selects the corresponding tab. */
+  /** Notification type: shipment_request | inventory_request | product_return | dispose_request | delete_request â€” selects the corresponding tab. */
   initialRequestTab?: string;
   /** Request/return ID to auto-open in the request management component. */
   initialRequestId?: string;
@@ -302,7 +298,7 @@ export function AdminInventoryManagement({
           variant: "destructive",
           title: "PrepCorex updated; TikTok Shop did not update",
           description:
-            [data.error, data.detail].filter(Boolean).join(" — ") ||
+            [data.error, data.detail].filter(Boolean).join(" â€” ") ||
             "Enable product write / inventory scopes and re-connect TikTok.",
         });
       }
@@ -456,9 +452,6 @@ export function AdminInventoryManagement({
   const [isRestockViewerOpen, setIsRestockViewerOpen] = useState(false);
   const [detailsTitle, setDetailsTitle] = useState<string>("");
   const [detailsLines, setDetailsLines] = useState<string[]>([]);
-  const [shipmentDetails, setShipmentDetails] = useState<ShippedOrderDetails | null>(null);
-  const [isShipmentDetailsOpen, setIsShipmentDetailsOpen] = useState(false);
-  const [shipmentDetailsItem, setShipmentDetailsItem] = useState<ShippedItem | null>(null);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [deleteLogsSearch, setDeleteLogsSearch] = useState("");
   const [editLogsSearch, setEditLogsSearch] = useState("");
@@ -470,14 +463,12 @@ export function AdminInventoryManagement({
   
   // Pagination states
   const [inventoryPage, setInventoryPage] = useState(1);
-  const [shippedPage, setShippedPage] = useState(1);
   const [restockHistoryPage, setRestockHistoryPage] = useState(1);
   const [deleteLogsPage, setDeleteLogsPage] = useState(1);
   const [editLogsPage, setEditLogsPage] = useState(1);
   const [recyclePage, setRecyclePage] = useState(1);
   const itemsPerPage = 10;
   const inventoryItemsPerPage = 20; // compact list view: show more rows per page
-  const shippedItemsPerPage = 20; // compact list view Ãƒâ€” 4 rows = 12 items per page for shipped inventory card view
 
   // Invoice range selection for generating invoice over specific dates
   const [invoiceFromDate, setInvoiceFromDate] = useState<Date | undefined>();
@@ -556,8 +547,6 @@ export function AdminInventoryManagement({
   const [inventorySortBy, setInventorySortBy] = useState<string>("name-asc");
   const [inventoryFromDate, setInventoryFromDate] = useState<Date | undefined>();
   const [inventoryToDate, setInventoryToDate] = useState<Date | undefined>();
-  const [shippedSearch, setShippedSearch] = useState("");
-  const [shippedDateFilter, setShippedDateFilter] = useState<string>("all");
   const [restockDateFilter, setRestockDateFilter] = useState<string>("all");
   const [restockSearch, setRestockSearch] = useState("");
   const [restockFromDate, setRestockFromDate] = useState<Date | undefined>(undefined);
@@ -789,20 +778,6 @@ export function AdminInventoryManagement({
     setDetailsTitle(title);
     setDetailsLines(lines);
     setIsDetailsDialogOpen(true);
-  };
-
-  const handleShipmentDetailsClick = (item: ShippedItem) => {
-    setShipmentDetailsItem(item);
-    setShipmentDetails(
-      enrichShippedOrderDetailsFromInventory(
-        buildShippedOrderDetails(item, {
-          status: "Shipped",
-          dateLabel: formatDate(item.date),
-        }),
-        inventory
-      )
-    );
-    setIsShipmentDetailsOpen(true);
   };
 
   const handleMoveInventory = async () => {
@@ -1638,7 +1613,7 @@ export function AdminInventoryManagement({
           "Shopify";
         items.push({
           quantity: 1,
-          productName: `Shipping label · ${orderLabel}`,
+          productName: `Shipping label Â· ${orderLabel}`,
           shipDate,
           packaging: "Label",
           shipTo,
@@ -1668,7 +1643,7 @@ export function AdminInventoryManagement({
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    const todayShipments = filteredShippedDocs.filter(shippedItem => {
+    const todayShipments = sortedShippedDocs.filter(shippedItem => {
       const shipmentDate = typeof shippedItem.date === 'string' 
         ? new Date(shippedItem.date) 
         : new Date(shippedItem.date.seconds * 1000);
@@ -1741,7 +1716,8 @@ export function AdminInventoryManagement({
   };
 
   const handleDownloadShipped = () => {
-    if (!selectedUser || filteredShipped.length === 0) {
+    const exportRows = expandShippedItemsForDisplay(shipped);
+    if (!selectedUser || exportRows.length === 0) {
       toast({
         variant: "destructive",
         title: "No Data",
@@ -1750,7 +1726,7 @@ export function AdminInventoryManagement({
       return;
     }
 
-    const csvData: ShippedCSVRow[] = filteredShipped.map(item => ({
+    const csvData: ShippedCSVRow[] = exportRows.map(item => ({
       'Product Name': item.productName || "Unknown Product",
       'Shipped Quantity': item.shippedQty ?? 0,
       'Pack Of': item.packOf ?? 0,
@@ -1788,7 +1764,7 @@ export function AdminInventoryManagement({
     end.setHours(23,59,59,999);
 
     // Filter shipments by date range
-    const rangeShipments = filteredShippedDocs.filter(shippedItem => {
+    const rangeShipments = sortedShippedDocs.filter(shippedItem => {
       const shipmentDate = typeof shippedItem.date === 'string' 
         ? new Date(shippedItem.date) 
         : new Date(shippedItem.date.seconds * 1000);
@@ -1905,8 +1881,8 @@ export function AdminInventoryManagement({
   const paginatedInventory = filteredInventory.slice(inventoryStartIndex, inventoryEndIndex);
   const resetInventoryPagination = () => setInventoryPage(1);
 
-  // Filtered shipped docs — newest ship date first (same as client Shipped Orders page)
-  const filteredShippedDocs = useMemo(() => {
+  /** Shipped docs sorted newest first â€” used for invoice generation. */
+  const sortedShippedDocs = useMemo(() => {
     const toSortTimeMs = (value: unknown): number => {
       if (!value) return 0;
       if (typeof value === "string" || typeof value === "number") {
@@ -1935,47 +1911,12 @@ export function AdminInventoryManagement({
       return toSortTimeMs((item as ShippedItem & { createdAt?: unknown }).createdAt);
     };
 
-    const filtered = shipped.filter((item) => {
-      const q = shippedSearch.trim().toLowerCase();
-      const matchesSearch =
-        q.length === 0 ||
-        (item.productName || "").toLowerCase().includes(q) ||
-        (Array.isArray(item.items) &&
-          item.items.some((line) => String(line.productName ?? "").toLowerCase().includes(q)));
-      const matchesDate = matchesDateFilter(item.date, shippedDateFilter);
-      return matchesSearch && matchesDate;
-    });
-
-    return filtered.sort((a, b) => {
+    return [...shipped].sort((a, b) => {
       const diff = shipSortTimeMs(b) - shipSortTimeMs(a);
       if (diff !== 0) return diff;
       return String(b.id || "").localeCompare(String(a.id || ""));
     });
-  }, [shipped, shippedSearch, shippedDateFilter]);
-
-  /** One row per SKU in the admin table (multi-item shipments expand like client Shipped Orders). */
-  const filteredShipped = useMemo(
-    () => expandShippedItemsForDisplay(filteredShippedDocs),
-    [filteredShippedDocs]
-  );
-
-  const inventoryQtyLookup = useMemo(() => {
-    const byId = new Map<string, number>();
-    const byName = new Map<string, number>();
-    for (const row of inventory) {
-      byId.set(row.id, row.quantity ?? 0);
-      const name = String(row.productName ?? "").trim().toLowerCase();
-      if (name) byName.set(name, row.quantity ?? 0);
-    }
-    return { byId, byName };
-  }, [inventory]);
-
-  // Pagination for shipped (12 items per page for card view)
-  const shippedTotalPages = Math.ceil(filteredShipped.length / shippedItemsPerPage);
-  const shippedStartIndex = (shippedPage - 1) * shippedItemsPerPage;
-  const shippedEndIndex = shippedStartIndex + shippedItemsPerPage;
-  const paginatedShipped = filteredShipped.slice(shippedStartIndex, shippedEndIndex);
-  const resetShippedPagination = () => setShippedPage(1);
+  }, [shipped]);
 
   // Filtered restock history data
   const filteredRestockHistory = useMemo(() => {
@@ -2340,7 +2281,7 @@ export function AdminInventoryManagement({
                       User Requests
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      Shipment · Inventory · Return · Dispose · Delete · Quarantine
+                      Shipment Â· Inventory Â· Return Â· Dispose Â· Delete Â· Quarantine
                     </p>
                   </div>
                 </div>
@@ -2363,7 +2304,7 @@ export function AdminInventoryManagement({
       {activeSection === "user-requests" && (
         <Card>
           <CardHeader>
-            <CardTitle>User Requests — {selectedUser.name}</CardTitle>
+            <CardTitle>User Requests â€” {selectedUser.name}</CardTitle>
             <CardDescription>
               Process this user&apos;s outbound, inbound, return, dispose, delete, and quarantine
               requests. Each tab shows only this user&apos;s requests.
@@ -2476,7 +2417,7 @@ export function AdminInventoryManagement({
               Relocate quantity (no putaway)
             </CardTitle>
             <CardDescription className="text-emerald-700">
-              Adjusts this user&apos;s location quantities only — does not move warehouse labels or
+              Adjusts this user&apos;s location quantities only â€” does not move warehouse labels or
               create putaway work. For site-to-site moves with putaway, use{" "}
               <a href="/admin/dashboard/internal-move" className="underline font-medium text-emerald-900">
                 Internal Move
@@ -2618,7 +2559,7 @@ export function AdminInventoryManagement({
                         {log.productName} {(log as any).sku ? `(${(log as any).sku})` : ""} - {log.quantity} units
                       </p>
                       <p className="text-muted-foreground">
-                        {(log as any).fromLocationName || log.fromLocationId} → {(log as any).toLocationName || log.toLocationId}
+                        {(log as any).fromLocationName || log.fromLocationId} â†’ {(log as any).toLocationName || log.toLocationId}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
                         By {(log as any).movedBy || "Admin"} on {formatDate((log as any).movedAt)}
@@ -2689,7 +2630,7 @@ export function AdminInventoryManagement({
               Ship Inventory
             </CardTitle>
             <CardDescription className="text-cyan-700">
-              Quick ship removes stock immediately, or create a pending shipment request (labels, services, product types) under {selectedUser.name}&apos;s account—same as the client flow.
+              Quick ship removes stock immediately, or create a pending shipment request (labels, services, product types) under {selectedUser.name}&apos;s accountâ€”same as the client flow.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
@@ -2727,13 +2668,15 @@ export function AdminInventoryManagement({
         </Card>
       )}
 
-      {activeSection === "shipped-orders" && (
+      {activeSection === "shipped-orders" && selectedUser && (
         <Card>
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
-                <CardTitle>Shipped Orders ({filteredShipped.length})</CardTitle>
-                <CardDescription>View shipped orders for {selectedUser.name}</CardDescription>
+                <CardTitle>Shipped Orders ({shipped.length})</CardTitle>
+                <CardDescription>
+                  Same view as client Shipped Orders for {selectedUser.name}
+                </CardDescription>
               </div>
               <div className="grid grid-cols-1 sm:flex sm:flex-row gap-2 items-stretch sm:items-center w-full sm:w-auto">
                 <DateRangePicker
@@ -2766,7 +2709,7 @@ export function AdminInventoryManagement({
                   variant="outline"
                   size="sm"
                   onClick={handleDownloadShipped}
-                  disabled={filteredShipped.length === 0}
+                  disabled={shipped.length === 0}
                   className="flex items-center gap-2 w-full sm:w-auto"
                 >
                   <Download className="h-4 w-4" />
@@ -2775,245 +2718,23 @@ export function AdminInventoryManagement({
               </div>
             </div>
           </CardHeader>
-          <CardContent>
-            {/* Search and Filter Controls for Shipped Orders */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-6">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search shipped orders..."
-                    value={shippedSearch}
-                    onChange={(e) => {
-                      setShippedSearch(e.target.value);
-                      resetShippedPagination();
-                    }}
-                    className="pl-10"
-                  />
-                  {shippedSearch && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                      onClick={() => setShippedSearch("")}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <div className="sm:w-48">
-                <Select value={shippedDateFilter} onValueChange={(value) => {
-                  setShippedDateFilter(value);
-                  resetShippedPagination();
-                }}>
-                  <SelectTrigger>
-                    <Filter className="h-4 w-4 mr-2" />
-                    <SelectValue placeholder="Filter by date" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Time</SelectItem>
-                    <SelectItem value="today">Today</SelectItem>
-                    <SelectItem value="week">This Week</SelectItem>
-                    <SelectItem value="month">This Month</SelectItem>
-                    <SelectItem value="year">This Year</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            {filteredShipped.length > 0 ? (
-              <div className="rounded-md border">
-                <Table className="min-w-[900px]" containerClassName="overflow-x-auto overflow-y-hidden mouse-h-scroll">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="min-w-[140px]">Product</TableHead>
-                      <TableHead className="min-w-[140px]">Service</TableHead>
-                      <TableHead className="min-w-[120px]">Type</TableHead>
-                      <TableHead className="w-[88px]">Status</TableHead>
-                      <TableHead className="text-right w-20">Shipped</TableHead>
-                      <TableHead className="text-right w-24" title="Quantity left immediately after this shipment">
-                        Left at ship
-                      </TableHead>
-                      <TableHead className="text-right w-24" title="Current sellable quantity in inventory">
-                        In stock
-                      </TableHead>
-                      <TableHead className="text-right w-16">Pack</TableHead>
-                      <TableHead className="whitespace-nowrap">Date</TableHead>
-                      <TableHead className="min-w-[120px]">Remarks</TableHead>
-                      <TableHead className="w-10">Add’l</TableHead>
-                      <TableHead className="w-[100px] text-right">Details</TableHead>
-                      <TableHead className="w-12 text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedShipped.map((item) => {
-                      const row = item as ShippedDisplayRow;
-                      const sourceItem = row.parentShippedItem ?? row;
-                      const svc = (sourceItem as any).service as string | undefined;
-                      const shipmentType = (sourceItem as any).shipmentType as string | undefined;
-                      const productType = (sourceItem as any).productType as string | undefined;
-                      const palletSubType = (sourceItem as any).palletSubType as string | undefined;
-                      const add = (sourceItem as any).additionalServices as any | undefined;
-                      const hasAdd = !!add && ((add.bubbleWrapFeet || 0) > 0 || (add.stickerRemovalItems || 0) > 0 || (add.warningLabels || 0) > 0 || (add.total || 0) > 0);
-                      const typeLabel = shipmentType === "pallet" && palletSubType ? `Pallet (${palletSubType})` : shipmentType ?? undefined;
-                      const typeProductText = [typeLabel, productType].filter(Boolean).join(" • ") || "—";
-                      const shippedLines = sourceItem.items as
-                        | Array<{ productId?: string; productName?: string }>
-                        | undefined;
-                      const lineProductId = String(
-                        shippedLines?.find((line) => line.productName === row.productName)?.productId ??
-                          shippedLines?.[0]?.productId ??
-                          ""
-                      ).trim();
-                      const currentStock =
-                        (lineProductId && inventoryQtyLookup.byId.get(lineProductId)) ??
-                        inventoryQtyLookup.byName.get(String(row.productName ?? "").trim().toLowerCase());
-                      return (
-                        <TableRow key={row.displayRowId}>
-                          <TableCell className="font-medium">
-                            <div className="flex flex-col gap-1">
-                              <span className="truncate block max-w-[180px]" title={row.productName}>{row.productName}</span>
-                              <div className="flex flex-wrap items-center gap-1">
-                                {(sourceItem.source === "shopify" || sourceItem.quickFulfill || sourceItem.service === "Shopify") && (
-                                  <Badge
-                                    variant="outline"
-                                    className="w-fit border-emerald-300 bg-emerald-50 text-[10px] text-emerald-900"
-                                  >
-                                    Shopify
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">
-                            <span className="truncate block max-w-[160px]" title={svc}>{svc || "—"}</span>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">
-                            <span className="truncate block max-w-[140px]">{typeProductText}</span>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="default" className="text-[10px] font-medium">
-                              Shipped
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">{(row as any).boxesShipped ?? row.shippedQty}</TableCell>
-                          <TableCell className="text-right text-muted-foreground">{row.remainingQty ?? "—"}</TableCell>
-                          <TableCell className="text-right font-medium">
-                            {currentStock != null ? currentStock : "—"}
-                          </TableCell>
-                          <TableCell className="text-right">{row.packOf}</TableCell>
-                          <TableCell className="text-muted-foreground text-sm whitespace-nowrap">{formatDate(row.date)}</TableCell>
-                          <TableCell className="min-w-[120px]">
-                            {sourceItem.remarks ? (
-                              <Button variant="ghost" size="sm" className="h-auto p-1 text-xs text-left justify-start max-w-full truncate" onClick={() => handleRemarksClick(sourceItem.remarks || "")}>
-                                <span className="truncate block">{sourceItem.remarks}</span>
-                                <Eye className="h-3 w-3 ml-1 shrink-0" />
-                              </Button>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {hasAdd ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-8 p-0"
-                                onClick={() => {
-                                  const lines: string[] = [];
-                                  if ((add?.bubbleWrapFeet || 0) > 0) lines.push(`Bubble Wrap: ${add.bubbleWrapFeet} feet` + (add?.pricePerFoot ? ` (x $${Number(add.pricePerFoot).toFixed(2)})` : ""));
-                                  if ((add?.stickerRemovalItems || 0) > 0) lines.push(`Sticker Removal: ${add.stickerRemovalItems} items` + (add?.pricePerItem ? ` (x $${Number(add.pricePerItem).toFixed(2)})` : ""));
-                                  if ((add?.warningLabels || 0) > 0) lines.push(`Warning Labels: ${add.warningLabels}` + (add?.pricePerLabel ? ` (x $${Number(add.pricePerLabel).toFixed(2)})` : ""));
-                                  if ((add?.total || 0) > 0) lines.push(`Total Additional: $${Number(add.total || 0).toFixed(2)}`);
-                                  if (lines.length === 0) lines.push("No additional services.");
-                                  handleDetailsClick("Additional Services", lines);
-                                }}
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 gap-1 text-xs"
-                              onClick={() => handleShipmentDetailsClick(sourceItem)}
-                            >
-                              <FileText className="h-3.5 w-3.5" />
-                              Details
-                            </Button>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm" className="h-8 w-8 p-0">
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete Shipped Order</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Are you sure you want to delete this shipped order for "{row.productName}"? This action cannot be undone.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleDeleteShippedOrder(sourceItem)} className="bg-red-600 hover:bg-red-700">
-                                    Delete
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No shipped orders</h3>
-                <p className="text-muted-foreground">No orders have been shipped yet.</p>
-              </div>
-            )}
-
-            {/* Pagination Controls for Shipped Orders */}
-            {filteredShipped.length > shippedItemsPerPage && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                <div className="text-sm text-muted-foreground">
-                  Showing {shippedStartIndex + 1} to {Math.min(shippedEndIndex, filteredShipped.length)} of {filteredShipped.length} items
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShippedPage(p => Math.max(1, p - 1))}
-                    disabled={shippedPage === 1}
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-sm">
-                    Page {shippedPage} of {shippedTotalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShippedPage(p => Math.min(shippedTotalPages, p + 1))}
-                    disabled={shippedPage === shippedTotalPages}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
+          <CardContent className="p-0">
+            <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading shipped orders...</div>}>
+              <ShippedTable
+                data={shipped}
+                inventory={inventory}
+                embedded
+                admin={
+                  authUser
+                    ? {
+                        clientUserId: selectedUser.uid,
+                        getAuthToken: () => authUser.getIdToken(),
+                        onDeleteShippedOrder: handleDeleteShippedOrder,
+                      }
+                    : undefined
+                }
+              />
+            </Suspense>
           </CardContent>
         </Card>
       )}
@@ -3338,7 +3059,7 @@ export function AdminInventoryManagement({
                                 {item.status}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-amber-900">{item.remarks || "—"}</TableCell>
+                            <TableCell className="text-amber-900">{item.remarks || "â€”"}</TableCell>
                             <TableCell className="text-gray-700">{item.recycledBy}</TableCell>
                             <TableCell className="text-gray-600">{formatDate(item.dateAdded)}</TableCell>
                             <TableCell className="text-orange-700 font-medium">{formatDate(item.recycledAt)}</TableCell>
@@ -3402,7 +3123,7 @@ export function AdminInventoryManagement({
                 <CardTitle className="text-red-600">Deleted Logs ({filteredDeleteLogs.length})</CardTitle>
                 <CardDescription>
                   View permanently deleted products for {selectedUser.name}. Submit a delete request
-                  on their behalf from here or under User Requests → Delete.
+                  on their behalf from here or under User Requests â†’ Delete.
                 </CardDescription>
               </div>
               <Button
@@ -4111,7 +3832,7 @@ export function AdminInventoryManagement({
             <form onSubmit={deleteForm.handleSubmit(onDeleteSubmit)} className="space-y-4">
               <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
                 <p className="text-sm text-red-800">
-                  <strong>⚠️ Warning:</strong> This action will permanently delete the product from inventory.
+                  <strong>âš ï¸ Warning:</strong> This action will permanently delete the product from inventory.
                 </p>
                 <div className="mt-2 text-sm">
                   <p><strong>Product:</strong> {deletingProduct?.productName}</p>
@@ -4292,43 +4013,6 @@ export function AdminInventoryManagement({
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Shipment details (products + total) */}
-      <ShippedOrderDetailsDialog
-        open={isShipmentDetailsOpen}
-        onOpenChange={(open) => {
-          setIsShipmentDetailsOpen(open);
-          if (!open) {
-            setShipmentDetails(null);
-            setShipmentDetailsItem(null);
-          }
-        }}
-        details={shipmentDetails}
-        allowCorrectWarehouseProduct={Boolean(
-          shipmentDetailsItem &&
-            (shipmentDetailsItem.quickFulfill === true ||
-              String(shipmentDetailsItem.source || "").toLowerCase() === "shopify")
-        )}
-        correction={
-          selectedUser && shipmentDetailsItem?.id && authUser
-            ? {
-                userId: selectedUser.uid,
-                shippedId: shipmentDetailsItem.id,
-                inventory,
-                getAuthToken: () => authUser.getIdToken(),
-                onCorrected: () => {
-                  // Parent listeners refresh inventory/shipped; force local details close.
-                  setShipmentDetails(null);
-                  setShipmentDetailsItem(null);
-                  toast({
-                    title: "Shipped entry updated",
-                    description: "Refresh if the list does not update immediately.",
-                  });
-                },
-              }
-            : null
-        }
-      />
 
       {/* Remarks Dialog */}
       <Dialog open={isRemarksDialogOpen} onOpenChange={setIsRemarksDialogOpen}>

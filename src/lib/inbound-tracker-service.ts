@@ -8,7 +8,11 @@ import {
   inboundTrackerDocId,
 } from "@/lib/inbound-tracker";
 import { fetchShippoTracking, parseShippoTrackingStatus } from "@/lib/shippo-tracking-server";
-import type { InboundTrackerEntry } from "@/types";
+import {
+  parseTrackerLabelPhotos,
+  TRACKER_LABEL_PHOTOS_MAX,
+} from "@/lib/tracker-label-photos";
+import type { InboundTrackerEntry, TrackerLabelPhoto } from "@/types";
 
 function trackingNow(): Timestamp {
   return Timestamp.now();
@@ -42,6 +46,7 @@ function entryFromFirestore(id: string, raw: FirebaseFirestore.DocumentData): In
       raw.pendingFirstChangeFromLabel != null ? String(raw.pendingFirstChangeFromLabel) : null,
     pendingFirstChangeToLabel:
       raw.pendingFirstChangeToLabel != null ? String(raw.pendingFirstChangeToLabel) : null,
+    labelPhotos: parseTrackerLabelPhotos(raw.labelPhotos),
   };
 }
 
@@ -151,6 +156,42 @@ export async function refreshInboundTrackerEntry(id: string): Promise<InboundTra
   const updated = await refreshOneEntry(entry);
   await persistEntry(updated);
   return updated;
+}
+
+export async function appendInboundTrackerLabelPhoto(input: {
+  id: string;
+  photo: TrackerLabelPhoto;
+}): Promise<InboundTrackerEntry | null> {
+  const db = getAdminDb();
+  const FieldValue = getAdminFieldValue();
+  const ref = db.collection(INBOUND_TRACKER_COLLECTION).doc(input.id);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+
+  const entry = entryFromFirestore(snap.id, snap.data()!);
+  const existing = entry.labelPhotos || [];
+  if (existing.length >= TRACKER_LABEL_PHOTOS_MAX) {
+    throw new Error(`Maximum ${TRACKER_LABEL_PHOTOS_MAX} photos per tracking.`);
+  }
+
+  const url = String(input.photo.url || "").trim();
+  if (!url.startsWith("https://")) {
+    throw new Error("Invalid photo URL.");
+  }
+
+  const photo: TrackerLabelPhoto = {
+    url,
+    uploadedAt: input.photo.uploadedAt ?? trackingNow(),
+    uploadedBy: input.photo.uploadedBy ?? null,
+    uploadedByName: input.photo.uploadedByName ?? null,
+  };
+
+  const labelPhotos = [...existing, photo];
+  await ref.set(
+    { labelPhotos, updatedAt: FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+  return { ...entry, labelPhotos };
 }
 
 export async function deleteInboundTrackerEntry(id: string): Promise<boolean> {

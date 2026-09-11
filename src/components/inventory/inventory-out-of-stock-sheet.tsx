@@ -37,6 +37,7 @@ import { useCollection } from "@/hooks/use-collection";
 import type {
   DeleteLog,
   EditLog,
+  InboundReceiveLog,
   InventoryChangeLog,
   InventoryItem,
   InventoryRequest,
@@ -135,6 +136,9 @@ export function InventoryOutOfStockSheet({
   const { data: inventoryChangeLogs } = useCollection<InventoryChangeLog>(
     path ? `${path}/inventoryChangeLogs` : ""
   );
+  const { data: inboundReceiveLogs } = useCollection<InboundReceiveLog>(
+    path ? `${path}/inboundReceiveLogs` : ""
+  );
   const { data: shipmentRequests } = useCollection<ShipmentRequest>(
     path ? `${path}/shipmentRequests` : ""
   );
@@ -154,6 +158,7 @@ export function InventoryOutOfStockSheet({
       inventoryTransfers: [],
       recycledInventory,
       inventoryChangeLogs,
+      inboundReceiveLogs,
       shipmentRequests,
     }),
     [
@@ -164,6 +169,7 @@ export function InventoryOutOfStockSheet({
       inventoryRequests,
       recycledInventory,
       inventoryChangeLogs,
+      inboundReceiveLogs,
       shipmentRequests,
     ]
   );

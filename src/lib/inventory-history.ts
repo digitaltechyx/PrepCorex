@@ -48,6 +48,8 @@ export type InventoryHistorySources = {
   inventoryTransfers: InventoryTransfer[];
   recycledInventory: RecycledInventoryItem[];
   inventoryChangeLogs?: InventoryChangeLog[];
+  /** Warehouse putaway — authoritative inbound qty for v2 receive (Overview was missing these). */
+  inboundReceiveLogs?: InboundReceiveLog[];
   /** Used to resolve pack/boxes for awaiting-ship logs that predate pack fields. */
   shipmentRequests?: Array<{
     id: string;
@@ -100,6 +102,41 @@ function namesMatch(item: InventoryItem, name: string | undefined | null): boole
 function skusMatch(item: InventoryItem, sku: string | undefined | null): boolean {
   if (!sku?.trim() || !item.sku?.trim()) return false;
   return norm(sku) === norm(item.sku);
+}
+
+function productIdsMatch(item: InventoryItem, productId: string | undefined | null): boolean {
+  const id = String(productId ?? "").trim();
+  return Boolean(id && id === item.id);
+}
+
+function inventoryChangeLogMatchesItem(log: InventoryChangeLog, item: InventoryItem): boolean {
+  return (
+    log.inventoryId === item.id ||
+    skusMatch(item, log.sku) ||
+    namesMatch(item, log.productName)
+  );
+}
+
+function isOutboundInventoryChangeLog(log: InventoryChangeLog): boolean {
+  const type = String(log.eventType ?? "");
+  return (
+    type.startsWith("outbound_") ||
+    type === "shopify_quick_fulfill" ||
+    type === "shopify_qf_product_correct_debit" ||
+    type === "ebay_quick_fulfill" ||
+    type === "dispose"
+  );
+}
+
+function productIdsOnShippedRecord(record: ShippedItem): string[] {
+  const ids = new Set<string>();
+  if (record.items?.length) {
+    for (const line of record.items) {
+      const id = String(line.productId ?? "").trim();
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
 }
 
 export function toTimestamp(value: unknown): number {
@@ -436,6 +473,33 @@ export function buildInventoryHistory(
       .map((r) => r.id)
   );
 
+  const itemInboundLogs = inboundReceiveLogsForItem(item, sources.inboundReceiveLogs ?? []);
+  const mergedInboundPutaway = mergeInboundReceiveLogs(itemInboundLogs);
+  const putawayRequestIds = new Set<string>();
+  for (const log of itemInboundLogs) {
+    const reqId = String(log.inventoryRequestId ?? "").trim();
+    if (reqId) putawayRequestIds.add(reqId);
+  }
+
+  for (const row of mergedInboundPutaway) {
+    if (row.goodQty <= 0) continue;
+    raw.push({
+      timestamp: row.putawayAtMs,
+      event: row.eventType === "restock" ? "Inbound restock (putaway)" : "Inbound received (putaway)",
+      eventType: row.eventType === "restock" ? "restock" : "received",
+      qtyChange: row.goodQty,
+      details: [
+        `+${row.goodQty} sellable units`,
+        row.goodBinPath ? `Bin: ${row.goodBinPath}` : "",
+        row.damagedQty > 0 ? `${row.damagedQty} damaged (not sellable)` : "",
+        row.remarks?.trim() || "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      user: "PSF Operations",
+    });
+  }
+
   for (const req of sources.inventoryRequests) {
     const linked = sourceRequestId && req.id === sourceRequestId;
     const byProductId = Boolean(req.productId && req.productId === item.id);
@@ -446,6 +510,8 @@ export function buildInventoryHistory(
     const qty = req.receivedQuantity ?? req.quantity ?? 0;
 
     if (req.status === "approved") {
+      // V2 putaway already recorded sellable qty — skip request approval to avoid double-count.
+      if (putawayRequestIds.has(req.id)) continue;
       const isRestock = req.productSubType === "restock";
       raw.push({
         timestamp: ts,
@@ -483,14 +549,18 @@ export function buildInventoryHistory(
   }
 
   const addedTs = toTimestamp(item.dateAdded);
-  const hasReceived = raw.some((e) => e.eventType === "received");
-  if (!hasReceived && addedTs > 0) {
+  const hasInboundQtyEvent = raw.some(
+    (e) =>
+      e.eventType === "received" ||
+      e.eventType === "restock" ||
+      (e.qtyChange != null && e.qtyChange > 0)
+  );
+  if (!hasInboundQtyEvent && addedTs > 0) {
+    // Informational anchor only — never use current on-hand as a historical delta.
     raw.push({
       timestamp: addedTs,
       event: "Added to inventory",
       eventType: "created",
-      qtyAfter: item.quantity,
-      qtyChange: item.quantity,
       details: item.source ? `Source: ${item.source}` : "Initial stock record",
       user: "System",
     });
@@ -534,7 +604,7 @@ export function buildInventoryHistory(
   }
 
   for (const log of sources.inventoryChangeLogs ?? []) {
-    if (log.inventoryId !== item.id && !skusMatch(item, log.sku) && !namesMatch(item, log.productName)) {
+    if (!inventoryChangeLogMatchesItem(log, item)) {
       continue;
     }
     const packDetailsChange = isPackDetailsChangeLog(log);
@@ -668,15 +738,37 @@ export function buildInventoryHistory(
       .map((log) => (log.shippedId != null ? String(log.shippedId).trim() : ""))
       .filter(Boolean)
   );
+  const outboundQtyByRequestProduct = new Set<string>();
+  for (const log of sources.inventoryChangeLogs ?? []) {
+    if (!inventoryChangeLogMatchesItem(log, item)) continue;
+    if (!isOutboundInventoryChangeLog(log)) continue;
+    if (log.qtyChange == null || log.qtyChange === 0) continue;
+    const reqId = String(log.shipmentRequestId ?? "").trim();
+    const productId = String(log.inventoryId ?? item.id).trim();
+    if (reqId && productId) {
+      outboundQtyByRequestProduct.add(`${reqId}:${productId}`);
+    }
+  }
 
   for (const s of sources.shipped) {
     // Avoid double-counting when inventoryChangeLogs already recorded this shipment.
     if (s.id && shippedIdsFromChangeLogs.has(s.id)) continue;
+    const shipmentRequestId = String(
+      (s as ShippedItem & { shipmentRequestId?: string }).shipmentRequestId ?? ""
+    ).trim();
+    if (shipmentRequestId) {
+      const coveredByChangeLog = productIdsOnShippedRecord(s).some((productId) =>
+        outboundQtyByRequestProduct.has(`${shipmentRequestId}:${productId}`)
+      );
+      if (coveredByChangeLog) continue;
+    }
     if ((s as ShippedItem & { quickFulfill?: boolean }).quickFulfill === true) continue;
     const lines: Array<{ name: string; qty: number; packOf?: number; boxesShipped?: number }> = [];
     if (s.items?.length) {
       for (const line of s.items) {
-        if (!namesMatch(item, line.productName)) continue;
+        const matchesLine =
+          productIdsMatch(item, line.productId) || namesMatch(item, line.productName);
+        if (!matchesLine) continue;
         const qty = line.shippedQty ?? line.boxesShipped ?? 0;
         if (qty > 0) {
           lines.push({
@@ -779,7 +871,34 @@ export function buildInventoryHistory(
     });
   }
 
-  return applyRunningBalances(raw);
+  const rows = applyRunningBalances(raw);
+  const currentOnHand = item.quantity;
+  if (currentOnHand == null || !Number.isFinite(currentOnHand)) return rows;
+
+  const lastQtyRow = [...rows].reverse().find((r) => r.qtyAfter != null);
+  if (!lastQtyRow || lastQtyRow.qtyAfter == null || lastQtyRow.qtyAfter === currentOnHand) {
+    return rows;
+  }
+
+  const delta = currentOnHand - lastQtyRow.qtyAfter;
+  const { dateLabel, timeLabel } = formatLabels(Date.now());
+  return [
+    ...rows,
+    {
+      seq: rows.length + 1,
+      timestamp: Date.now(),
+      dateLabel,
+      timeLabel,
+      event: "History reconciliation",
+      eventType: "edited",
+      qtyBefore: lastQtyRow.qtyAfter,
+      qtyChange: delta,
+      qtyAfter: currentOnHand,
+      details:
+        "Adjusts older incomplete history records so the running balance matches current on-hand stock.",
+      user: "System",
+    },
+  ];
 }
 
 export function formatQtyCell(n: number | null): string {

@@ -217,11 +217,17 @@ export function InventoryHistoryDialog({
         inventoryTransfers: [],
         recycledInventory,
         inventoryChangeLogs,
+        inboundReceiveLogs,
         shipmentRequests,
       },
       { includeInternalEvents: false }
     );
-  }, [item, editLogs, deleteLogs, restockHistory, shipped, inventoryRequests, recycledInventory, inventoryChangeLogs, shipmentRequests]);
+  }, [item, editLogs, deleteLogs, restockHistory, shipped, inventoryRequests, recycledInventory, inventoryChangeLogs, inboundReceiveLogs, shipmentRequests]);
+
+  const historyReconciled = useMemo(
+    () => rows.some((r) => r.event === "History reconciliation"),
+    [rows]
+  );
 
   const filteredRows = useMemo(
     () => filterHistoryRows(rows, { search, eventType, fromDate, toDate, changeFilter }),
@@ -298,6 +304,16 @@ export function InventoryHistoryDialog({
             {item ? (
               <Badge variant="secondary" className="text-xs">
                 In stock: {item.quantity}
+              </Badge>
+            ) : null}
+            {historyReconciled ? (
+              <Badge
+                variant="outline"
+                className="text-xs border-amber-400 bg-amber-50 text-amber-900 gap-1"
+                title="Older records were incomplete; a reconciliation row aligns the ledger with current on-hand stock."
+              >
+                <AlertTriangle className="h-3 w-3" />
+                History adjusted to match on-hand
               </Badge>
             ) : null}
             {item && damagedOnHand > 0 ? (

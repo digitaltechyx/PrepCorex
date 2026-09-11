@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { hasRole } from "@/lib/permissions";
 import { useRouter } from "next/navigation";
-import type { InboundTrackerEntry } from "@/types";
+import type { InboundTrackerEntry, TrackerLabelPhoto } from "@/types";
 import {
   Select,
   SelectContent,
@@ -27,6 +27,7 @@ import {
   type InboundTrackerStatusFilter,
 } from "@/lib/inbound-tracker";
 import { TrackerScanField } from "@/components/admin/tracker-scan-field";
+import { TrackerLabelPhotosCell } from "@/components/admin/tracker-label-photos-cell";
 import { detectCarrier } from "@/lib/carrier-detect";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -257,6 +258,12 @@ export function InboundTrackerPortal() {
     },
     [authHeaders, toast]
   );
+
+  const updateEntryPhotos = useCallback((entryId: string, labelPhotos: TrackerLabelPhoto[]) => {
+    setEntries((prev) =>
+      prev.map((e) => (e.id === entryId ? { ...e, labelPhotos } : e))
+    );
+  }, []);
 
   const deleteOne = useCallback(
     async (entry: InboundTrackerEntry) => {
@@ -620,7 +627,7 @@ export function InboundTrackerPortal() {
                   <TableHead>Added</TableHead>
                   <TableHead>Last checked</TableHead>
                   <TableHead>Added by</TableHead>
-                  <TableHead className="w-[96px] text-right">Actions</TableHead>
+                  <TableHead className="w-[128px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -659,6 +666,17 @@ export function InboundTrackerPortal() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1">
+                          <TrackerLabelPhotosCell
+                            kind="inbound"
+                            entryId={entry.id}
+                            trackingNumber={entry.trackingNumber}
+                            photos={entry.labelPhotos || []}
+                            disabled={deletingId === entry.id}
+                            getAuthHeaders={authHeaders}
+                            onPhotosUpdated={(labelPhotos) =>
+                              updateEntryPhotos(entry.id, labelPhotos)
+                            }
+                          />
                           <Button
                             type="button"
                             variant="ghost"

@@ -1129,6 +1129,14 @@ export interface InboundTrackingEntry {
   lastError?: string | null;
 }
 
+/** Optional label photo attached to an inbound/outbound tracker entry. */
+export interface TrackerLabelPhoto {
+  url: string;
+  uploadedAt?: { seconds: number; nanoseconds: number } | string | Date;
+  uploadedBy?: string | null;
+  uploadedByName?: string | null;
+}
+
 /** Admin inbound parcel tracker (standalone scan list). Collection: inboundTracker. */
 export interface InboundTrackerEntry {
   id: string;
@@ -1158,6 +1166,8 @@ export interface InboundTrackerEntry {
   pendingFirstChangeDigest?: boolean;
   pendingFirstChangeFromLabel?: string | null;
   pendingFirstChangeToLabel?: string | null;
+  /** Optional label photos uploaded by admin after scanning. */
+  labelPhotos?: TrackerLabelPhoto[];
 }
 
 /** Admin outbound parcel tracker (standalone scan list). Collection: outboundTracker. */
@@ -1189,6 +1199,8 @@ export interface OutboundTrackerEntry {
   pendingFirstChangeDigest?: boolean;
   pendingFirstChangeFromLabel?: string | null;
   pendingFirstChangeToLabel?: string | null;
+  /** Optional label photos uploaded by admin after scanning. */
+  labelPhotos?: TrackerLabelPhoto[];
 }
 
 /** User outbound shipment request (stored under users/{uid}/shipmentRequests). */

@@ -38,6 +38,17 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Search, Filter, ListFilter, X, Eye, Clock, XCircle, Trash2, FileText } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -47,7 +58,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { ShippedOrderDetailsDialog } from "@/components/dashboard/shipped-order-details-dialog";
+import {
+  ShippedOrderDetailsDialog,
+  type ShippedOrderCorrectionContext,
+} from "@/components/dashboard/shipped-order-details-dialog";
 import { OutboundShipmentVideoDialog } from "@/components/dashboard/outbound-shipment-video-dialog";
 import { formatOutboundPackLine } from "@/lib/warehouse-outbound-lines";
 import { isWarehouseDispatchedRequest } from "@/lib/warehouse-outbound-request-status";
@@ -219,11 +233,31 @@ function rowMatchesStatusFilter(
   return true;
 }
 
-export function ShippedTable({ data, inventory }: { data: ShippedItem[], inventory: InventoryItem[] }) {
+export type ShippedTableAdminOptions = {
+  clientUserId: string;
+  getAuthToken: () => Promise<string>;
+  onDeleteShippedOrder?: (item: ShippedItem) => Promise<void> | void;
+  onCorrected?: () => void;
+};
+
+export function ShippedTable({
+  data,
+  inventory,
+  admin,
+  embedded = false,
+}: {
+  data: ShippedItem[];
+  inventory: InventoryItem[];
+  admin?: ShippedTableAdminOptions;
+  /** When true, omit outer Card/title — parent provides page chrome (admin inventory). */
+  embedded?: boolean;
+}) {
   const searchParams = useSearchParams();
   const { user, userProfile } = useAuth();
   const { toast } = useToast();
-  const { recordedShipmentIds } = useWarehouseCameraSessions(userProfile?.uid);
+  const clientUserId = admin?.clientUserId ?? userProfile?.uid;
+  const isAdminView = Boolean(admin);
+  const { recordedShipmentIds } = useWarehouseCameraSessions(clientUserId);
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
@@ -256,14 +290,17 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
   const [isAdditionalServicesDialogOpen, setIsAdditionalServicesDialogOpen] = useState(false);
   const [shipmentDetails, setShipmentDetails] = useState<ShippedOrderDetails | null>(null);
   const [isShipmentDetailsOpen, setIsShipmentDetailsOpen] = useState(false);
+  const [shipmentDetailsItem, setShipmentDetailsItem] = useState<ShippedItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ShippedItem | null>(null);
+  const [isDeletingShipped, setIsDeletingShipped] = useState(false);
 
   // Fetch pending shipment requests
   const { data: pendingShipmentRequests } = useCollection<ShipmentRequest>(
-    userProfile ? `users/${userProfile.uid}/shipmentRequests` : ""
+    clientUserId ? `users/${clientUserId}/shipmentRequests` : ""
   );
 
   const { data: restockHistory } = useCollection<RestockHistory>(
-    userProfile ? `users/${userProfile.uid}/restockHistory` : ""
+    clientUserId ? `users/${clientUserId}/restockHistory` : ""
   );
 
   // Latest restock per product (by productName) for "Last restocked" column
@@ -385,12 +422,25 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     setIsAdditionalServicesDialogOpen(true);
   };
 
+  const resolveShippedDoc = (item: { shippedDocId?: string; id?: string }): ShippedItem | null => {
+    const docId = String(item.shippedDocId || item.id || "").trim();
+    if (!docId) return null;
+    return data.find((row) => row.id === docId) ?? null;
+  };
+
   const handleShipmentDetailsClick = (item: any) => {
     const rawRequest = item.rawRequest as ShipmentRequest | undefined;
-    const payload: ShippedItem =
-      item.isRequest && rawRequest
-        ? shippedItemFromShipmentRequest(rawRequest)
-        : (item as ShippedItem);
+    let payload: ShippedItem;
+    let detailsItem: ShippedItem | null = null;
+
+    if (item.isRequest && rawRequest) {
+      payload = shippedItemFromShipmentRequest(rawRequest);
+    } else {
+      detailsItem = resolveShippedDoc(item);
+      payload = (detailsItem || item) as ShippedItem;
+    }
+
+    setShipmentDetailsItem(detailsItem);
     setShipmentDetails(
       enrichShippedOrderDetailsFromInventory(
         buildShippedOrderDetails(payload, {
@@ -402,6 +452,28 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     );
     setIsShipmentDetailsOpen(true);
   };
+
+  const handleDeleteShipped = async () => {
+    if (!deleteTarget || !admin?.onDeleteShippedOrder) return;
+    setIsDeletingShipped(true);
+    try {
+      await admin.onDeleteShippedOrder(deleteTarget);
+      setDeleteTarget(null);
+    } finally {
+      setIsDeletingShipped(false);
+    }
+  };
+
+  const adminCorrection: ShippedOrderCorrectionContext | null =
+    isAdminView && admin && shipmentDetailsItem?.id
+      ? {
+          userId: admin.clientUserId,
+          shippedId: shipmentDetailsItem.id,
+          inventory,
+          getAuthToken: admin.getAuthToken,
+          onCorrected: admin.onCorrected,
+        }
+      : null;
 
   const uploadOneLabelForRequest = async (file: File): Promise<string> => {
     if (!userProfile?.uid) throw new Error("User profile is missing.");
@@ -608,6 +680,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         item.items.forEach((it: any) => {
           shippedItems.push({
             ...item,
+            shippedDocId: item.id,
             id: `${item.id}-${it.productId || Math.random()}`,
             productName: it.productName || item.productName,
             shippedQty: it.shippedQty || 0,
@@ -623,6 +696,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         // Single product
         shippedItems.push({
           ...item,
+          shippedDocId: item.id,
           status: "Shipped" as "Pending" | "Shipped" | "Rejected",
           isRequest: false,
           additionalServices: item.additionalServices || (item as any).selectedAdditionalServices,
@@ -706,9 +780,52 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
     setCurrentPage(1);
   }, [searchTerm, dateFilter, statusFilter]);
 
-  return (
-    <TooltipProvider>
-    <Card className="w-full">
+  const deleteShippedButton = (item: any) => {
+    if (!admin?.onDeleteShippedOrder || item.isRequest || item.status !== "Shipped") return null;
+    const shippedDoc = resolveShippedDoc(item);
+    if (!shippedDoc) return null;
+    return (
+      <AlertDialog
+        open={deleteTarget?.id === shippedDoc.id}
+        onOpenChange={(open) => !open && !isDeletingShipped && setDeleteTarget(null)}
+      >
+        <AlertDialogTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-destructive hover:text-destructive"
+            onClick={() => setDeleteTarget(shippedDoc)}
+            title="Delete shipped order"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete shipped order?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove this shipped order record for &quot;{item.productName}&quot;? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingShipped}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeletingShipped}
+              onClick={() => void handleDeleteShipped()}
+            >
+              {isDeletingShipped ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  };
+
+  const content = (
+    <>
+      {!embedded ? (
       <CardHeader className="pb-2 sm:pb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -744,7 +861,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
           </div>
         </div>
       </CardHeader>
-      <CardContent className="p-0 sm:p-6">
+      ) : null}
+      <CardContent className={embedded ? "p-0 sm:p-6" : "p-0 sm:p-6"}>
         {/* Search and Filter Controls */}
         <div className="flex flex-col gap-4 mb-6 px-6 lg:flex-row lg:flex-wrap lg:items-end">
           <div className="min-w-0 flex-1">
@@ -910,7 +1028,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                   ) : (
                     <Badge variant="default" className="w-fit mt-1">Shipped</Badge>
                   )}
-                  {(item as any).canCancelRequest && (
+                  {!isAdminView && (item as any).canCancelRequest && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -924,7 +1042,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                       Cancel request
                     </Button>
                   )}
-                  {(item as any).isRequest &&
+                  {!isAdminView &&
+                    (item as any).isRequest &&
                     ((item as any).requestStatus === "awaiting_label_upload" ||
                       ((((item as any).rawRequest?.fbaMasterCases?.length > 0 ||
                         (item as any).rawRequest?.fbaPallets?.length > 0) &&
@@ -960,7 +1079,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                       <div className="mt-2">
                         <OutboundShipmentVideoDialog
                           shipmentRequestId={shipmentId}
-                          clientUserId={userProfile?.uid}
+                          clientUserId={clientUserId}
                           triggerLabel="Watch outbound video"
                         />
                       </div>
@@ -993,6 +1112,9 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                   <TableHead className="text-xs sm:text-sm hidden md:table-cell">Last restocked</TableHead>
                   <TableHead className="text-xs sm:text-sm">Status</TableHead>
                   <TableHead className="text-xs sm:text-sm text-right">Details</TableHead>
+                  {admin?.onDeleteShippedOrder ? (
+                    <TableHead className="text-xs sm:text-sm text-right w-12">Actions</TableHead>
+                  ) : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1183,7 +1305,8 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                         {isAwaitingFulfillmentRowStatus((item as any).status) ? (
                           <div className="space-y-2">
                             <OpenOutboundStatusBadge status={String((item as any).status)} />
-                            {(item as any).isRequest &&
+                            {!isAdminView &&
+                              (item as any).isRequest &&
                               ((item as any).requestStatus === "awaiting_label_upload" ||
                                 ((((item as any).rawRequest?.fbaMasterCases?.length > 0 ||
                                   (item as any).rawRequest?.fbaPallets?.length > 0) &&
@@ -1213,7 +1336,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                         ) : (
                           <Badge variant="default" className="w-fit">Shipped</Badge>
                         )}
-                        {(item as any).canCancelRequest && (
+                        {!isAdminView && (item as any).canCancelRequest && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1236,7 +1359,7 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                             return (
                               <OutboundShipmentVideoDialog
                                 shipmentRequestId={shipmentId}
-                                clientUserId={userProfile?.uid}
+                                clientUserId={clientUserId}
                                 compact
                                 triggerLabel="Watch outbound video"
                               />
@@ -1254,11 +1377,14 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
                           </Button>
                         </div>
                       </TableCell>
+                      {admin?.onDeleteShippedOrder ? (
+                        <TableCell className="text-right">{deleteShippedButton(item)}</TableCell>
+                      ) : null}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                    <TableCell colSpan={12} className="text-center py-8">
+                    <TableCell colSpan={admin?.onDeleteShippedOrder ? 13 : 12} className="text-center py-8">
                       <div className="text-xs sm:text-sm text-gray-500">
                         {combinedData.length === 0 ? "No shipped orders or pending requests found." : "No orders match your search criteria."}
                       </div>
@@ -1305,9 +1431,18 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
         open={isShipmentDetailsOpen}
         onOpenChange={(open) => {
           setIsShipmentDetailsOpen(open);
-          if (!open) setShipmentDetails(null);
+          if (!open) {
+            setShipmentDetails(null);
+            setShipmentDetailsItem(null);
+          }
         }}
         details={shipmentDetails}
+        allowCorrectWarehouseProduct={Boolean(
+          shipmentDetailsItem &&
+            (shipmentDetailsItem.quickFulfill === true ||
+              String(shipmentDetailsItem.source || "").toLowerCase() === "shopify")
+        )}
+        correction={adminCorrection}
       />
 
       {/* Remarks Dialog */}
@@ -1572,7 +1707,12 @@ export function ShippedTable({ data, inventory }: { data: ShippedItem[], invento
           </div>
         </DialogContent>
       </Dialog>
-    </Card>
+    </>
+  );
+
+  return (
+    <TooltipProvider>
+      {embedded ? content : <Card className="w-full">{content}</Card>}
     </TooltipProvider>
   );
 }
