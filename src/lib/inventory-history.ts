@@ -88,6 +88,8 @@ type RawEvent = {
    * restore / dispatch share that Line # when request ids match.
    */
   outboundLinkKind?: "reserve" | "restore" | "dispatch" | null;
+  /** Stable tie-break when timestamps collide (e.g. shipped doc id). */
+  sourceId?: string;
 };
 
 function norm(value: string | undefined | null): string {
@@ -137,6 +139,30 @@ function productIdsOnShippedRecord(record: ShippedItem): string[] {
     }
   }
   return [...ids];
+}
+
+/** Sellable units removed by a shipped line (never count boxes alone when packOf > 1). */
+function unitsShippedFromLine(line: {
+  shippedQty?: number;
+  boxesShipped?: number;
+  packOf?: number;
+}): number {
+  const shippedQty = Number(line.shippedQty);
+  if (Number.isFinite(shippedQty) && shippedQty > 0) return Math.floor(shippedQty);
+  const boxes = Math.max(0, Math.floor(Number(line.boxesShipped) || 0));
+  const packOf = Math.max(1, Math.floor(Number(line.packOf) || 1));
+  return boxes > 0 ? boxes * packOf : 0;
+}
+
+function stockSnapshotFromRemaining(remainingQty: unknown, unitsShipped: number): {
+  qtyBefore: number;
+  qtyAfter: number;
+} | null {
+  if (remainingQty == null || !Number.isFinite(Number(remainingQty)) || unitsShipped <= 0) {
+    return null;
+  }
+  const qtyAfter = Math.max(0, Math.floor(Number(remainingQty)));
+  return { qtyBefore: qtyAfter + unitsShipped, qtyAfter };
 }
 
 export function toTimestamp(value: unknown): number {
@@ -336,6 +362,167 @@ function outboundEventSortKey(e: RawEvent): number {
   return 0;
 }
 
+/** Shipped rows often store date-only midnight; createdAt reflects actual ship order. */
+function shippedEventTimestamp(s: ShippedItem): number {
+  return toTimestamp(s.createdAt) || toTimestamp(s.date) || 0;
+}
+
+function isChainSortable(e: RawEvent): boolean {
+  const qtyBefore = e.qtyBefore;
+  const qtyAfter = e.qtyAfter;
+  const qtyChange = e.qtyChange;
+  if (qtyBefore == null || qtyAfter == null || qtyChange == null || qtyChange === 0) {
+    return false;
+  }
+  return qtyAfter - qtyBefore === qtyChange;
+}
+
+/** Pick next event when several are valid — stock chain beats unreliable ship timestamps. */
+function compareHistoryEventsTiebreak(a: RawEvent, b: RawEvent): number {
+  if (a.qtyAfter != null && b.qtyBefore != null && a.qtyAfter === b.qtyBefore) return -1;
+  if (b.qtyAfter != null && a.qtyBefore != null && b.qtyAfter === a.qtyBefore) return 1;
+
+  const outboundOrder = outboundEventSortKey(a) - outboundEventSortKey(b);
+  if (outboundOrder !== 0) return outboundOrder;
+
+  const aDecrease = (a.qtyChange ?? 0) < 0;
+  const bDecrease = (b.qtyChange ?? 0) < 0;
+  if (aDecrease && bDecrease) {
+    const aBefore = a.qtyBefore;
+    const bBefore = b.qtyBefore;
+    if (aBefore != null && bBefore != null && aBefore !== bBefore) {
+      return bBefore - aBefore;
+    }
+    const aAfter = a.qtyAfter;
+    const bAfter = b.qtyAfter;
+    if (aAfter != null && bAfter != null && aAfter !== bAfter) {
+      return bAfter - aAfter;
+    }
+  }
+
+  const aIncrease = (a.qtyChange ?? 0) > 0;
+  const bIncrease = (b.qtyChange ?? 0) > 0;
+  if (aIncrease && bIncrease) {
+    const aBefore = a.qtyBefore;
+    const bBefore = b.qtyBefore;
+    if (aBefore != null && bBefore != null && aBefore !== bBefore) {
+      return aBefore - bBefore;
+    }
+    const aAfter = a.qtyAfter;
+    const bAfter = b.qtyAfter;
+    if (aAfter != null && bAfter != null && aAfter !== bAfter) {
+      return aAfter - bAfter;
+    }
+  }
+
+  const aInc = (a.qtyChange ?? 0) > 0;
+  const bDec = (b.qtyChange ?? 0) < 0;
+  if (aInc && bDec && a.qtyBefore != null && b.qtyAfter != null && a.qtyBefore === b.qtyAfter) {
+    return 1;
+  }
+  if (bIncrease && aDecrease && b.qtyBefore != null && a.qtyAfter != null && b.qtyBefore === a.qtyAfter) {
+    return -1;
+  }
+
+  const diff = a.timestamp - b.timestamp;
+  if (diff !== 0) return diff;
+
+  const aId = String(a.sourceId ?? "");
+  const bId = String(b.sourceId ?? "");
+  if (aId && bId && aId !== bId) return aId.localeCompare(bId);
+
+  return 0;
+}
+
+function mergeEventsByTimestamp(chainSorted: RawEvent[], others: RawEvent[]): RawEvent[] {
+  if (others.length === 0) return chainSorted;
+  if (chainSorted.length === 0) return [...others].sort(compareHistoryEventsTiebreak);
+
+  const result: RawEvent[] = [];
+  const othersSorted = [...others].sort(compareHistoryEventsTiebreak);
+  let chainIdx = 0;
+  let otherIdx = 0;
+
+  while (chainIdx < chainSorted.length || otherIdx < othersSorted.length) {
+    const chainEvt = chainSorted[chainIdx];
+    const otherEvt = othersSorted[otherIdx];
+    if (otherEvt == null || (chainEvt != null && chainEvt.timestamp <= otherEvt.timestamp)) {
+      result.push(chainEvt!);
+      chainIdx++;
+    } else {
+      result.push(otherEvt);
+      otherIdx++;
+    }
+  }
+  return result;
+}
+
+/** Order events by Before/After links; timestamps alone are often wrong on shipped rows. */
+function sortHistoryEventsByChain(events: RawEvent[]): RawEvent[] {
+  if (events.length <= 1) return events;
+
+  const chainSortable: RawEvent[] = [];
+  const other: RawEvent[] = [];
+  for (const e of events) {
+    if (isChainSortable(e)) chainSortable.push(e);
+    else other.push(e);
+  }
+
+  if (chainSortable.length <= 1) {
+    return [...events].sort(compareHistoryEventsTiebreak);
+  }
+
+  const n = chainSortable.length;
+  const successors: Set<number>[] = Array.from({ length: n }, () => new Set());
+  const inDegree = new Array(n).fill(0);
+
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const a = chainSortable[i];
+      const b = chainSortable[j];
+      if (a.qtyAfter === b.qtyBefore) {
+        if (!successors[i].has(j)) {
+          successors[i].add(j);
+          inDegree[j]++;
+        }
+      } else if (b.qtyAfter === a.qtyBefore) {
+        if (!successors[j].has(i)) {
+          successors[j].add(i);
+          inDegree[i]++;
+        }
+      }
+    }
+  }
+
+  let ready: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (inDegree[i] === 0) ready.push(i);
+  }
+
+  const sorted: RawEvent[] = [];
+  const processed = new Set<number>();
+
+  while (ready.length > 0) {
+    ready.sort((i, j) => compareHistoryEventsTiebreak(chainSortable[i], chainSortable[j]));
+    const idx = ready.shift()!;
+    sorted.push(chainSortable[idx]);
+    processed.add(idx);
+    for (const j of successors[idx]) {
+      inDegree[j]--;
+      if (inDegree[j] === 0) ready.push(j);
+    }
+  }
+
+  const stranded = chainSortable.filter((_, i) => !processed.has(i));
+  if (stranded.length > 0) {
+    stranded.sort(compareHistoryEventsTiebreak);
+    sorted.push(...stranded);
+  }
+
+  return mergeEventsByTimestamp(sorted, other);
+}
+
 function isInformationalOutboundDispatch(e: RawEvent): boolean {
   return (
     e.outboundLinkKind === "dispatch" &&
@@ -345,11 +532,7 @@ function isInformationalOutboundDispatch(e: RawEvent): boolean {
 }
 
 function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
-  const sorted = [...events].sort((a, b) => {
-    const diff = a.timestamp - b.timestamp;
-    if (diff !== 0) return diff;
-    return outboundEventSortKey(a) - outboundEventSortKey(b);
-  });
+  const sorted = sortHistoryEventsByChain(events);
   let running: number | null = null;
   const rows: Array<InventoryHistoryRow & { outboundLinkKind?: RawEvent["outboundLinkKind"] }> =
     [];
@@ -365,15 +548,26 @@ function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
       qtyAfter != null &&
       qtyBefore === qtyAfter;
 
+    const hasTrustedSnapshot =
+      qtyBefore != null &&
+      qtyAfter != null &&
+      qtyChange != null &&
+      qtyChange !== 0 &&
+      qtyAfter - qtyBefore === qtyChange;
+
     if (packLayoutOnly || isInformationalOutboundDispatch(e)) {
       if (running != null) {
         qtyBefore = running;
         qtyAfter = running;
       }
       qtyChange = 0;
+    } else if (hasTrustedSnapshot) {
+      // Trust Firestore snapshots from ship/dispatch/restock transactions — not a rebuilt ledger.
+      qtyBefore = e.qtyBefore ?? qtyBefore;
+      qtyAfter = e.qtyAfter ?? qtyAfter;
+      running = qtyAfter;
     } else if (qtyChange != null && qtyChange !== 0) {
-      // Use the recorded delta but recompute before/after from the running balance so
-      // rows stay continuous when Firestore snapshots were taken out of UI order.
+      // Inbound-only deltas without snapshots — chain from prior running balance.
       qtyBefore = running != null ? running : qtyBefore ?? 0;
       qtyAfter = qtyBefore + qtyChange;
       running = qtyAfter;
@@ -577,6 +771,7 @@ export function buildInventoryHistory(
       qtyChange: r.restockedQuantity,
       details: r.remarks?.trim() || `+${r.restockedQuantity} units`,
       user: r.restockedBy,
+      sourceId: r.id ? String(r.id) : undefined,
     });
   }
 
@@ -720,6 +915,7 @@ export function buildInventoryHistory(
       details,
       user: "Fulfillment",
       shipmentRequestId: log.shipmentRequestId ?? null,
+      sourceId: log.id ? String(log.id) : undefined,
       outboundLinkKind:
         awaitingButDispatched ||
         log.eventType === "outbound_dispatch" ||
@@ -763,47 +959,65 @@ export function buildInventoryHistory(
       if (coveredByChangeLog) continue;
     }
     if ((s as ShippedItem & { quickFulfill?: boolean }).quickFulfill === true) continue;
-    const lines: Array<{ name: string; qty: number; packOf?: number; boxesShipped?: number }> = [];
+    const lines: Array<{
+      name: string;
+      units: number;
+      packOf?: number;
+      boxesShipped?: number;
+      qtyBefore?: number | null;
+      qtyAfter?: number | null;
+    }> = [];
     if (s.items?.length) {
       for (const line of s.items) {
         const matchesLine =
           productIdsMatch(item, line.productId) || namesMatch(item, line.productName);
         if (!matchesLine) continue;
-        const qty = line.shippedQty ?? line.boxesShipped ?? 0;
-        if (qty > 0) {
-          lines.push({
-            name: line.productName,
-            qty,
-            packOf: line.packOf,
-            boxesShipped: line.boxesShipped,
-          });
-        }
+        const units = unitsShippedFromLine(line);
+        if (units <= 0) continue;
+        const snapshot = stockSnapshotFromRemaining(line.remainingQty, units);
+        lines.push({
+          name: line.productName,
+          units,
+          packOf: line.packOf,
+          boxesShipped: line.boxesShipped,
+          qtyBefore: snapshot?.qtyBefore ?? null,
+          qtyAfter: snapshot?.qtyAfter ?? null,
+        });
       }
     } else if (namesMatch(item, s.productName)) {
-      const qty = s.shippedQty ?? s.boxesShipped ?? s.totalUnits ?? 0;
-      if (qty > 0) {
+      const units = unitsShippedFromLine({
+        shippedQty: s.shippedQty ?? s.totalUnits,
+        boxesShipped: s.boxesShipped ?? s.totalBoxes,
+        packOf: s.packOf,
+      });
+      if (units > 0) {
+        const snapshot = stockSnapshotFromRemaining(s.remainingQty, units);
         lines.push({
           name: s.productName!,
-          qty,
+          units,
           packOf: s.packOf,
           boxesShipped: s.boxesShipped ?? s.totalBoxes,
+          qtyBefore: snapshot?.qtyBefore ?? null,
+          qtyAfter: snapshot?.qtyAfter ?? null,
         });
       }
     }
 
     for (const line of lines) {
-      const ts = toTimestamp(s.date ?? s.createdAt);
       raw.push({
-        timestamp: ts,
+        timestamp: shippedEventTimestamp(s),
         event: "Shipped",
         eventType: "shipped",
-        qtyChange: -line.qty,
+        qtyBefore: line.qtyBefore,
+        qtyAfter: line.qtyAfter,
+        qtyChange: -line.units,
         details: formatOutboundShipmentDetails({
-          units: line.qty,
+          units: line.units,
           packOf: line.packOf,
           boxesShipped: line.boxesShipped,
         }),
         user: "Fulfillment",
+        sourceId: s.id ? `${s.id}:${line.name}` : undefined,
       });
     }
   }
@@ -871,34 +1085,7 @@ export function buildInventoryHistory(
     });
   }
 
-  const rows = applyRunningBalances(raw);
-  const currentOnHand = item.quantity;
-  if (currentOnHand == null || !Number.isFinite(currentOnHand)) return rows;
-
-  const lastQtyRow = [...rows].reverse().find((r) => r.qtyAfter != null);
-  if (!lastQtyRow || lastQtyRow.qtyAfter == null || lastQtyRow.qtyAfter === currentOnHand) {
-    return rows;
-  }
-
-  const delta = currentOnHand - lastQtyRow.qtyAfter;
-  const { dateLabel, timeLabel } = formatLabels(Date.now());
-  return [
-    ...rows,
-    {
-      seq: rows.length + 1,
-      timestamp: Date.now(),
-      dateLabel,
-      timeLabel,
-      event: "History reconciliation",
-      eventType: "edited",
-      qtyBefore: lastQtyRow.qtyAfter,
-      qtyChange: delta,
-      qtyAfter: currentOnHand,
-      details:
-        "Adjusts older incomplete history records so the running balance matches current on-hand stock.",
-      user: "System",
-    },
-  ];
+  return applyRunningBalances(raw);
 }
 
 export function formatQtyCell(n: number | null): string {
