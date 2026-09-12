@@ -1,6 +1,6 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
-import { assertLexiCanManageClient } from "@/lib/lexi/access";
+import { resolveLexiClient } from "@/lib/lexi/access";
 import type {
   LexiInboundApprovePayload,
   LexiInboundCreatePayload,
@@ -11,8 +11,12 @@ export async function lexiCreateInboundRequest(
   adminProfile: UserProfile,
   adminUid: string,
   payload: LexiInboundCreatePayload
-): Promise<{ requestId: string }> {
-  await assertLexiCanManageClient(adminProfile, payload.clientUserId);
+): Promise<{ requestId: string; clientUserId: string; clientUserName: string }> {
+  const client = await resolveLexiClient(
+    adminProfile,
+    payload.clientUserId,
+    payload.clientUserName
+  );
 
   if (!payload.productName?.trim()) throw new Error("Product name is required.");
   if (!payload.sku?.trim()) throw new Error("SKU is required.");
@@ -22,8 +26,8 @@ export async function lexiCreateInboundRequest(
 
   const now = Timestamp.now();
   const doc: Record<string, unknown> = {
-    userId: payload.clientUserId,
-    userName: payload.clientUserName || "Unknown User",
+    userId: client.uid,
+    userName: client.name,
     inventoryType: "product",
     productName: payload.productName.trim(),
     quantity: Math.floor(payload.quantity),
@@ -31,7 +35,7 @@ export async function lexiCreateInboundRequest(
     status: "pending",
     addDate: now,
     requestedAt: now,
-    requestedBy: payload.clientUserId,
+    requestedBy: client.uid,
     productSubType: payload.productSubType,
     sku: payload.sku.trim(),
     approvalSource: null,
@@ -44,21 +48,25 @@ export async function lexiCreateInboundRequest(
   if (payload.remarks?.trim()) doc.remarks = payload.remarks.trim();
 
   const ref = await adminDb()
-    .collection(`users/${payload.clientUserId}/inventoryRequests`)
+    .collection(`users/${client.uid}/inventoryRequests`)
     .add(doc);
 
-  return { requestId: ref.id };
+  return { requestId: ref.id, clientUserId: client.uid, clientUserName: client.name };
 }
 
 export async function lexiApproveInboundRequest(
   adminProfile: UserProfile,
   adminUid: string,
   payload: LexiInboundApprovePayload
-): Promise<{ requestId: string }> {
-  await assertLexiCanManageClient(adminProfile, payload.clientUserId);
+): Promise<{ requestId: string; clientUserId: string }> {
+  const client = await resolveLexiClient(
+    adminProfile,
+    payload.clientUserId,
+    payload.clientUserName
+  );
 
   const ref = adminDb()
-    .collection(`users/${payload.clientUserId}/inventoryRequests`)
+    .collection(`users/${client.uid}/inventoryRequests`)
     .doc(payload.requestId);
   const snap = await ref.get();
   if (!snap.exists) throw new Error("Inbound request not found.");
@@ -95,5 +103,5 @@ export async function lexiApproveInboundRequest(
     lexiApprovedBy: adminUid,
   });
 
-  return { requestId: payload.requestId };
+  return { requestId: payload.requestId, clientUserId: client.uid };
 }

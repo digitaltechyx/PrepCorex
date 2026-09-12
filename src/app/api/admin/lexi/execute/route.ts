@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json({
         ok: true,
-        message: `Inbound request created (#${data.requestId}). Status: pending approval.`,
+        message: `Inbound request created for ${data.clientUserName} (#${data.requestId}). Status: pending approval.`,
         data,
       });
     }

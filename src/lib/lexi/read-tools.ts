@@ -26,6 +26,7 @@ export async function lexiFindClients(
     uid: u.uid!,
     name: displayName(u),
     email: u.email ?? undefined,
+    note: "Always pass uid (not name) as clientUserId in later tools.",
   }));
 }
 

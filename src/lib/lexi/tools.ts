@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import type OpenAI from "openai";
+import { resolveLexiClient } from "@/lib/lexi/access";
 import {
   lexiFindClients,
   lexiFindProducts,
@@ -67,7 +68,10 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {
-          clientUserId: { type: "string" },
+          clientUserId: {
+            type: "string",
+            description: "Exact Firebase uid from find_clients — never a display name",
+          },
           clientUserName: { type: "string" },
           productName: { type: "string" },
           sku: { type: "string" },
@@ -95,7 +99,10 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {
-          clientUserId: { type: "string" },
+          clientUserId: {
+            type: "string",
+            description: "Exact Firebase uid from find_clients — never a display name",
+          },
           clientUserName: { type: "string" },
           requestId: { type: "string" },
           productName: { type: "string" },
@@ -114,7 +121,10 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {
-          clientUserId: { type: "string" },
+          clientUserId: {
+            type: "string",
+            description: "Exact Firebase uid from find_clients — never a display name",
+          },
           clientUserName: { type: "string" },
           requestId: { type: "string" },
           productName: { type: "string" },
@@ -163,9 +173,14 @@ export async function runLexiTool(
       return { toolResult: JSON.stringify({ request: result }) };
     }
     case "propose_inbound_create": {
+      const client = await resolveLexiClient(
+        adminProfile,
+        String(args.clientUserId ?? ""),
+        String(args.clientUserName ?? "")
+      );
       const payload: LexiInboundCreatePayload = {
-        clientUserId: String(args.clientUserId),
-        clientUserName: String(args.clientUserName),
+        clientUserId: client.uid,
+        clientUserName: client.name,
         productName: String(args.productName),
         sku: String(args.sku),
         quantity: Number(args.quantity),
@@ -180,9 +195,14 @@ export async function runLexiTool(
       };
     }
     case "propose_inbound_approve": {
+      const client = await resolveLexiClient(
+        adminProfile,
+        String(args.clientUserId ?? ""),
+        String(args.clientUserName ?? "")
+      );
       const payload: LexiInboundApprovePayload = {
-        clientUserId: String(args.clientUserId),
-        clientUserName: String(args.clientUserName),
+        clientUserId: client.uid,
+        clientUserName: client.name,
         requestId: String(args.requestId),
         productName: String(args.productName),
         quantity: Number(args.quantity),
@@ -194,9 +214,14 @@ export async function runLexiTool(
       };
     }
     case "propose_inbound_complete": {
+      const client = await resolveLexiClient(
+        adminProfile,
+        String(args.clientUserId ?? ""),
+        String(args.clientUserName ?? "")
+      );
       const payload: LexiInboundCompletePayload = {
-        clientUserId: String(args.clientUserId),
-        clientUserName: String(args.clientUserName),
+        clientUserId: client.uid,
+        clientUserName: client.name,
         requestId: String(args.requestId),
         productName: String(args.productName),
         sku: String(args.sku),
