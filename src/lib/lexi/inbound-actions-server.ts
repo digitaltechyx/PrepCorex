@@ -1,0 +1,99 @@
+import { Timestamp } from "firebase-admin/firestore";
+import { adminDb } from "@/lib/firebase-admin";
+import { assertLexiCanManageClient } from "@/lib/lexi/access";
+import type {
+  LexiInboundApprovePayload,
+  LexiInboundCreatePayload,
+} from "@/lib/lexi/types";
+import type { UserProfile } from "@/types";
+
+export async function lexiCreateInboundRequest(
+  adminProfile: UserProfile,
+  adminUid: string,
+  payload: LexiInboundCreatePayload
+): Promise<{ requestId: string }> {
+  await assertLexiCanManageClient(adminProfile, payload.clientUserId);
+
+  if (!payload.productName?.trim()) throw new Error("Product name is required.");
+  if (!payload.sku?.trim()) throw new Error("SKU is required.");
+  if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
+    throw new Error("Quantity must be greater than zero.");
+  }
+
+  const now = Timestamp.now();
+  const doc: Record<string, unknown> = {
+    userId: payload.clientUserId,
+    userName: payload.clientUserName || "Unknown User",
+    inventoryType: "product",
+    productName: payload.productName.trim(),
+    quantity: Math.floor(payload.quantity),
+    requestedQuantity: Math.floor(payload.quantity),
+    status: "pending",
+    addDate: now,
+    requestedAt: now,
+    requestedBy: payload.clientUserId,
+    productSubType: payload.productSubType,
+    sku: payload.sku.trim(),
+    approvalSource: null,
+    lexiCreatedBy: adminUid,
+  };
+
+  if (payload.productSubType === "restock" && payload.productId) {
+    doc.productId = payload.productId;
+  }
+  if (payload.remarks?.trim()) doc.remarks = payload.remarks.trim();
+
+  const ref = await adminDb()
+    .collection(`users/${payload.clientUserId}/inventoryRequests`)
+    .add(doc);
+
+  return { requestId: ref.id };
+}
+
+export async function lexiApproveInboundRequest(
+  adminProfile: UserProfile,
+  adminUid: string,
+  payload: LexiInboundApprovePayload
+): Promise<{ requestId: string }> {
+  await assertLexiCanManageClient(adminProfile, payload.clientUserId);
+
+  const ref = adminDb()
+    .collection(`users/${payload.clientUserId}/inventoryRequests`)
+    .doc(payload.requestId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Inbound request not found.");
+
+  const request = snap.data()!;
+  if (String(request.status ?? "").toLowerCase() !== "pending") {
+    throw new Error("Only pending requests can be approved.");
+  }
+  if (String(request.inventoryType ?? "product") !== "product") {
+    throw new Error("LEXI v1 supports product inbound only.");
+  }
+
+  const requestedQty =
+    Number(request.requestedQuantity) ||
+    Number(request.quantity) ||
+    payload.quantity;
+  const finalQuantity = Math.max(1, Math.floor(payload.quantity || requestedQty));
+  const now = Timestamp.now();
+
+  await ref.update({
+    status: "approved",
+    approvedBy: adminUid,
+    approvedAt: now,
+    approvalSource: "lexi_assistant",
+    receivingDate: now,
+    remarks: String(request.remarks ?? "").trim(),
+    imageUrls: Array.isArray(request.imageUrls) ? request.imageUrls : [],
+    requestedQuantity: requestedQty,
+    receivedQuantity: finalQuantity,
+    fulfillmentStatus: "open",
+    warehouseGoodReceivedQty: 0,
+    warehouseDamagedReceivedQty: 0,
+    inboundWorkflowVersion: 2,
+    lexiApprovedBy: adminUid,
+  });
+
+  return { requestId: payload.requestId };
+}

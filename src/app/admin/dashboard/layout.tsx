@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/sidebar";
 import { hasRole } from "@/lib/permissions";
 import { UserAuditActivityTracker } from "@/components/audit/user-audit-activity-tracker";
+import { LexiFloatingChat } from "@/components/admin/lexi/lexi-floating-chat";
 
 export default function AdminDashboardLayout({
   children,
@@ -65,6 +66,7 @@ export default function AdminDashboardLayout({
           </main>
         </SidebarInset>
       </div>
+      <LexiFloatingChat />
     </SidebarProvider>
   );
 }
