@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, Fragment } from "react";
 import { format } from "date-fns";
-import { Eye, Filter, History, Search, X } from "lucide-react";
+import { Eye, Filter, History, PlusCircle, Search, X } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -99,6 +99,8 @@ type Props = {
   inventoryItems: InventoryItem[];
   userId?: string;
   ownerLabel?: string;
+  /** Admin: open the same restock dialog used on the main inventory table. */
+  onRestock?: (item: InventoryItem) => void;
 };
 
 export function InventoryOutOfStockSheet({
@@ -108,6 +110,7 @@ export function InventoryOutOfStockSheet({
   inventoryItems,
   userId,
   ownerLabel,
+  onRestock,
 }: Props) {
   const [searchTerm, setSearchTerm] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -368,6 +371,9 @@ export function InventoryOutOfStockSheet({
                       <TableHead className="hidden md:table-cell">SKU</TableHead>
                       <TableHead>Why out of stock</TableHead>
                       <TableHead className="w-[88px] text-right">History</TableHead>
+                      {onRestock ? (
+                        <TableHead className="w-[72px] text-right">Actions</TableHead>
+                      ) : null}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -427,10 +433,27 @@ export function InventoryOutOfStockSheet({
                                 <History className="h-4 w-4" />
                               </Button>
                             </TableCell>
+                            {onRestock ? (
+                              <TableCell className="text-right">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-emerald-700 hover:bg-emerald-50"
+                                  title="Restock"
+                                  onClick={() => {
+                                    const inventoryItem = inventoryById.get(item.id);
+                                    if (inventoryItem) onRestock(inventoryItem);
+                                  }}
+                                >
+                                  <PlusCircle className="h-4 w-4" />
+                                </Button>
+                              </TableCell>
+                            ) : null}
                           </TableRow>
                           {isExpanded && recentDecreases.length > 0 ? (
                             <TableRow key={`${item.id}-history`} className="bg-muted/30 hover:bg-muted/30">
-                              <TableCell colSpan={4} className="py-3">
+                              <TableCell colSpan={onRestock ? 5 : 4} className="py-3">
                                 <div className="space-y-2">
                                   <p className="text-xs font-medium text-muted-foreground">
                                     Recent stock decreases

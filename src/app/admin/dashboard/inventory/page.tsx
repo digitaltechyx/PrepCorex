@@ -38,11 +38,11 @@ function InventoryContent() {
     
     // If we get a permission error, show alert to clear cache
     if (usersError && usersError.message?.includes('permission')) {
-      console.error("âš ï¸ PERMISSION ERROR DETECTED!");
+      console.error("PERMISSION ERROR DETECTED!");
       console.error("The Firestore client may be corrupted.");
       console.error("Please clear browser storage:");
       console.error("1. Go to: http://localhost:3000/clear-firestore-cache.html");
-      console.error("2. Or manually clear IndexedDB in DevTools (F12 â†’ Application â†’ IndexedDB)");
+      console.error("2. Or manually clear IndexedDB in DevTools (F12 → Application → IndexedDB)");
     }
   }, [users, usersLoading, usersError]);
   
@@ -58,11 +58,11 @@ function InventoryContent() {
           window.location.reload();
         }, 2000);
       } else {
-        alert('âš ï¸ Could not clear cache automatically. Please clear manually in DevTools (F12 â†’ Application â†’ IndexedDB).');
+        alert('Could not clear cache automatically. Please clear manually in DevTools (F12 → Application → IndexedDB).');
       }
     } catch (error) {
       console.error('Error clearing cache:', error);
-      alert('Error clearing cache. Please clear manually in DevTools (F12 â†’ Application â†’ IndexedDB).');
+      alert('Error clearing cache. Please clear manually in DevTools (F12 → Application → IndexedDB).');
     }
   };
   

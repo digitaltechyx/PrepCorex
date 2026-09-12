@@ -68,7 +68,7 @@ interface AdminInventoryManagementProps {
   loading: boolean;
   /** When set to "user-requests", opens the User Requests card and section (e.g. from Notifications "Process"). */
   initialSection?: string;
-  /** Notification type: shipment_request | inventory_request | product_return | dispose_request | delete_request â€” selects the corresponding tab. */
+  /** Notification type: shipment_request | inventory_request | product_return | dispose_request | delete_request — selects the corresponding tab. */
   initialRequestTab?: string;
   /** Request/return ID to auto-open in the request management component. */
   initialRequestId?: string;
@@ -298,7 +298,7 @@ export function AdminInventoryManagement({
           variant: "destructive",
           title: "PrepCorex updated; TikTok Shop did not update",
           description:
-            [data.error, data.detail].filter(Boolean).join(" â€” ") ||
+            [data.error, data.detail].filter(Boolean).join(" — ") ||
             "Enable product write / inventory scopes and re-connect TikTok.",
         });
       }
@@ -1613,7 +1613,7 @@ export function AdminInventoryManagement({
           "Shopify";
         items.push({
           quantity: 1,
-          productName: `Shipping label Â· ${orderLabel}`,
+          productName: `Shipping label · ${orderLabel}`,
           shipDate,
           packaging: "Label",
           shipTo,
@@ -1881,7 +1881,7 @@ export function AdminInventoryManagement({
   const paginatedInventory = filteredInventory.slice(inventoryStartIndex, inventoryEndIndex);
   const resetInventoryPagination = () => setInventoryPage(1);
 
-  /** Shipped docs sorted newest first â€” used for invoice generation. */
+  /** Shipped docs sorted newest first — used for invoice generation. */
   const sortedShippedDocs = useMemo(() => {
     const toSortTimeMs = (value: unknown): number => {
       if (!value) return 0;
@@ -2281,7 +2281,7 @@ export function AdminInventoryManagement({
                       User Requests
                     </p>
                     <p className="text-xs text-gray-500 mt-0.5">
-                      Shipment Â· Inventory Â· Return Â· Dispose Â· Delete Â· Quarantine
+                      Shipment · Inventory · Return · Dispose · Delete · Quarantine
                     </p>
                   </div>
                 </div>
@@ -2304,7 +2304,7 @@ export function AdminInventoryManagement({
       {activeSection === "user-requests" && (
         <Card>
           <CardHeader>
-            <CardTitle>User Requests â€” {selectedUser.name}</CardTitle>
+            <CardTitle>User Requests — {selectedUser.name}</CardTitle>
             <CardDescription>
               Process this user&apos;s outbound, inbound, return, dispose, delete, and quarantine
               requests. Each tab shows only this user&apos;s requests.
@@ -2417,7 +2417,7 @@ export function AdminInventoryManagement({
               Relocate quantity (no putaway)
             </CardTitle>
             <CardDescription className="text-emerald-700">
-              Adjusts this user&apos;s location quantities only â€” does not move warehouse labels or
+              Adjusts this user&apos;s location quantities only — does not move warehouse labels or
               create putaway work. For site-to-site moves with putaway, use{" "}
               <a href="/admin/dashboard/internal-move" className="underline font-medium text-emerald-900">
                 Internal Move
@@ -2559,7 +2559,7 @@ export function AdminInventoryManagement({
                         {log.productName} {(log as any).sku ? `(${(log as any).sku})` : ""} - {log.quantity} units
                       </p>
                       <p className="text-muted-foreground">
-                        {(log as any).fromLocationName || log.fromLocationId} â†’ {(log as any).toLocationName || log.toLocationId}
+                        {(log as any).fromLocationName || log.fromLocationId} → {(log as any).toLocationName || log.toLocationId}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
                         By {(log as any).movedBy || "Admin"} on {formatDate((log as any).movedAt)}
@@ -2630,7 +2630,7 @@ export function AdminInventoryManagement({
               Ship Inventory
             </CardTitle>
             <CardDescription className="text-cyan-700">
-              Quick ship removes stock immediately, or create a pending shipment request (labels, services, product types) under {selectedUser.name}&apos;s accountâ€”same as the client flow.
+              Quick ship removes stock immediately, or create a pending shipment request (labels, services, product types) under {selectedUser.name}&apos;s account—same as the client flow.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
@@ -3059,7 +3059,7 @@ export function AdminInventoryManagement({
                                 {item.status}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-amber-900">{item.remarks || "â€”"}</TableCell>
+                            <TableCell className="text-amber-900">{item.remarks || "—"}</TableCell>
                             <TableCell className="text-gray-700">{item.recycledBy}</TableCell>
                             <TableCell className="text-gray-600">{formatDate(item.dateAdded)}</TableCell>
                             <TableCell className="text-orange-700 font-medium">{formatDate(item.recycledAt)}</TableCell>
@@ -3123,7 +3123,7 @@ export function AdminInventoryManagement({
                 <CardTitle className="text-red-600">Deleted Logs ({filteredDeleteLogs.length})</CardTitle>
                 <CardDescription>
                   View permanently deleted products for {selectedUser.name}. Submit a delete request
-                  on their behalf from here or under User Requests â†’ Delete.
+                  on their behalf from here or under User Requests → Delete.
                 </CardDescription>
               </div>
               <Button
@@ -3832,7 +3832,7 @@ export function AdminInventoryManagement({
             <form onSubmit={deleteForm.handleSubmit(onDeleteSubmit)} className="space-y-4">
               <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
                 <p className="text-sm text-red-800">
-                  <strong>âš ï¸ Warning:</strong> This action will permanently delete the product from inventory.
+                  <strong>Warning:</strong> This action will permanently delete the product from inventory.
                 </p>
                 <div className="mt-2 text-sm">
                   <p><strong>Product:</strong> {deletingProduct?.productName}</p>

@@ -638,7 +638,7 @@ export function CreateUserForm({ onSuccess, onCancel }: CreateUserFormProps) {
                     </div>
                     {selectedFeatures.length === 0 && (
                       <p className="text-sm text-amber-600 mt-2">
-                        âš ï¸ No features selected. Sub admin will not have access to any admin pages.
+                        ⚠️ No features selected. Sub admin will not have access to any admin pages.
                       </p>
                     )}
                   </FormItem>

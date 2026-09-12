@@ -64,7 +64,7 @@ export function useCollection<T>(path: string, firestoreQuery?: Query) {
         // Handle internal assertion failures - these indicate corrupted client state
         if (err?.message?.includes('INTERNAL ASSERTION FAILED') || 
             err?.message?.includes('Unexpected state')) {
-          console.error('âš ï¸ Firestore client is corrupted! Attempting to clear cache...');
+          console.error('Firestore client is corrupted! Attempting to clear cache...');
           
           // Only attempt to clear once per component mount
           if (!clearAttemptedRef.current) {

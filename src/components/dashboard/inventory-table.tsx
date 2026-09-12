@@ -3033,6 +3033,7 @@ export function InventoryTable({
         inventoryItems={combinedInventory.outOfStockItems as InventoryItem[]}
         userId={effectiveUserId}
         ownerLabel={effectiveUserName}
+        onRestock={adminActions?.onRestock}
       />
       <InventoryOtherResourcesSheet
         open={otherResourcesSheetOpen}
