@@ -1,18 +1,33 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Loader2, MessageCircle, Send, Sparkles, X } from "lucide-react";
+import { Download, Loader2, MessageCircle, Send, Sparkles, X } from "lucide-react";
 import { auth } from "@/lib/firebase";
-import { lexiCompleteInboundOnClient } from "@/lib/lexi/inbound-complete-client";
-import type { LexiChatMessage, LexiInboundCompletePayload, LexiPendingAction } from "@/lib/lexi/types";
+import { lexiRunClientAction } from "@/lib/lexi/run-client";
+import {
+  LEXI_CLIENT_ACTION_TYPES,
+  type LexiChatMessage,
+  type LexiPendingAction,
+  type LexiReportAttachment,
+} from "@/lib/lexi/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-type UiMessage = LexiChatMessage & { id: string };
+type UiMessage = LexiChatMessage & { id: string; report?: LexiReportAttachment };
 
 function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function downloadReportCsv(report: LexiReportAttachment) {
+  const blob = new Blob([report.csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = report.filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function LexiFloatingChat() {
@@ -23,7 +38,7 @@ export function LexiFloatingChat() {
       id: newId(),
       role: "assistant",
       content:
-        "Hi, I'm LEXI. I can run the full product inbound flow: create request → approve → complete receive. Tell me the client, product, and quantity to get started.",
+        "Hi, I'm LEXI. Ask me anything about PrepCorex, a client's data, or a report — I'll look it up and can download a CSV. I only change data for inbound, outbound, restock, returns, dispose, delete, quarantine, and label reviews, and only after you Confirm.",
     },
   ]);
   const [pendingAction, setPendingAction] = useState<LexiPendingAction | null>(null);
@@ -63,7 +78,12 @@ export function LexiFloatingChat() {
 
         setMessages((prev) => [
           ...prev,
-          { id: newId(), role: "assistant", content: String(data.reply ?? "") },
+          {
+            id: newId(),
+            role: "assistant",
+            content: String(data.reply ?? ""),
+            report: data.report ?? undefined,
+          },
         ]);
         setPendingAction(data.pendingAction ?? null);
         scrollToBottom();
@@ -98,14 +118,14 @@ export function LexiFloatingChat() {
     try {
       let resultMessage = "";
 
-      if (pendingAction.type === "inbound_complete") {
-        const uid = auth.currentUser?.uid;
-        if (!uid) throw new Error("Not signed in.");
-        const outcome = await lexiCompleteInboundOnClient(
-          pendingAction.payload as LexiInboundCompletePayload,
-          uid
+      if (LEXI_CLIENT_ACTION_TYPES.includes(pendingAction.type)) {
+        const user = auth.currentUser;
+        if (!user) throw new Error("Not signed in.");
+        resultMessage = await lexiRunClientAction(
+          pendingAction,
+          user.uid,
+          user.displayName || "Admin"
         );
-        resultMessage = outcome.message;
       } else {
         const token = await getToken();
         const res = await fetch("/api/admin/lexi/execute", {
@@ -188,6 +208,18 @@ export function LexiFloatingChat() {
                 )}
               >
                 {m.content}
+                {m.report ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 h-8 bg-background"
+                    onClick={() => downloadReportCsv(m.report!)}
+                  >
+                    <Download className="mr-1 h-3 w-3" />
+                    Download CSV — {m.report.title}
+                  </Button>
+                ) : null}
               </div>
             ))}
             {loading ? (
@@ -241,7 +273,7 @@ export function LexiFloatingChat() {
               <Textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask LEXI to create, approve, or complete inbound…"
+                placeholder="Ask PrepCorex, a client, or generate a report…"
                 rows={2}
                 className="min-h-[44px] resize-none"
                 onKeyDown={(e) => {

@@ -105,3 +105,49 @@ export async function lexiApproveInboundRequest(
 
   return { requestId: payload.requestId, clientUserId: client.uid };
 }
+
+export async function lexiRejectInboundRequest(
+  adminProfile: UserProfile,
+  adminUid: string,
+  payload: { clientUserId: string; clientUserName?: string; requestId: string; reason: string }
+): Promise<{ requestId: string; clientUserId: string }> {
+  const client = await resolveLexiClient(
+    adminProfile,
+    payload.clientUserId,
+    payload.clientUserName
+  );
+  const reason = payload.reason.trim();
+  if (reason.length < 3) throw new Error("Rejection reason is required.");
+
+  const ref = adminDb()
+    .collection(`users/${client.uid}/inventoryRequests`)
+    .doc(payload.requestId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error("Inbound request not found.");
+  if (String(snap.data()?.status ?? "").toLowerCase() !== "pending") {
+    throw new Error("Only pending inbound requests can be rejected.");
+  }
+
+  const now = Timestamp.now();
+  await ref.update({
+    status: "rejected",
+    rejectedBy: adminUid,
+    rejectedAt: now,
+    rejectionReason: reason,
+    remarks: reason,
+    lexiRejectedBy: adminUid,
+  });
+
+  await adminDb().collection(`users/${client.uid}/notifications`).add({
+    type: "inventory_request",
+    title: "Inventory request rejected",
+    message: `Your inventory request was rejected. Reason: ${reason}`,
+    isRead: false,
+    targetUrl: "/dashboard/inventory",
+    relatedRequestId: payload.requestId,
+    createdAt: now,
+    createdBy: adminUid,
+  });
+
+  return { requestId: payload.requestId, clientUserId: client.uid };
+}

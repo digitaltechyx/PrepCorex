@@ -5,11 +5,16 @@ import { writeLexiAuditLog } from "@/lib/lexi/audit";
 import {
   lexiApproveInboundRequest,
   lexiCreateInboundRequest,
+  lexiRejectInboundRequest,
 } from "@/lib/lexi/inbound-actions-server";
+import { lexiApproveOutboundRequest } from "@/lib/lexi/outbound-actions-server";
+import { LEXI_CLIENT_ACTION_TYPES } from "@/lib/lexi/types";
 import type {
   LexiInboundApprovePayload,
   LexiInboundCreatePayload,
+  LexiOutboundApprovePayload,
   LexiPendingAction,
+  LexiRejectPayload,
 } from "@/lib/lexi/types";
 
 export async function POST(request: NextRequest) {
@@ -30,11 +35,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "action is required." }, { status: 400 });
   }
 
-  if (action.type === "inbound_complete") {
+  if (LEXI_CLIENT_ACTION_TYPES.includes(action.type)) {
     return NextResponse.json({
       ok: false,
       delegateToClient: true,
-      message: "Complete receive runs in the browser with warehouse putaway.",
+      message: "This action runs in the admin browser against live warehouse/inventory functions.",
       action,
     });
   }
@@ -85,6 +90,50 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         ok: true,
         message: `Inbound #${data.requestId} approved. Status: pending receive.`,
+        data,
+      });
+    }
+
+    if (action.type === "inbound_reject") {
+      const data = await lexiRejectInboundRequest(
+        adminProfile,
+        auth.uid,
+        action.payload as LexiRejectPayload
+      );
+      await writeLexiAuditLog({
+        adminUid: auth.uid,
+        adminName: auth.name,
+        actionType: "inbound_reject",
+        summary: action.summary,
+        payload: action.payload as unknown as Record<string, unknown>,
+        result: data,
+        ok: true,
+      });
+      return NextResponse.json({
+        ok: true,
+        message: `Inbound #${data.requestId} rejected.`,
+        data,
+      });
+    }
+
+    if (action.type === "outbound_approve") {
+      const data = await lexiApproveOutboundRequest(
+        adminProfile,
+        auth.uid,
+        action.payload as LexiOutboundApprovePayload
+      );
+      await writeLexiAuditLog({
+        adminUid: auth.uid,
+        adminName: auth.name,
+        actionType: "outbound_approve",
+        summary: action.summary,
+        payload: action.payload as unknown as Record<string, unknown>,
+        result: data,
+        ok: true,
+      });
+      return NextResponse.json({
+        ok: true,
+        message: `Outbound #${data.requestId} approved and sent to warehouse pick.`,
         data,
       });
     }

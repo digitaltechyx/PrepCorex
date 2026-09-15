@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { LEXI_SYSTEM_PROMPT } from "@/lib/lexi/system-prompt";
 import { LEXI_OPENAI_TOOLS, runLexiTool } from "@/lib/lexi/tools";
-import type { LexiChatMessage, LexiPendingAction } from "@/lib/lexi/types";
+import type { LexiChatMessage, LexiPendingAction, LexiReportAttachment } from "@/lib/lexi/types";
 import type { UserProfile } from "@/types";
 
 function getOpenAIClient(): OpenAI {
@@ -15,7 +15,7 @@ function getOpenAIClient(): OpenAI {
 export async function runLexiChat(input: {
   adminProfile: UserProfile;
   messages: LexiChatMessage[];
-}): Promise<{ reply: string; pendingAction: LexiPendingAction | null }> {
+}): Promise<{ reply: string; pendingAction: LexiPendingAction | null; report: LexiReportAttachment | null }> {
   const openai = getOpenAIClient();
   const model = process.env.LEXI_OPENAI_MODEL?.trim() || "gpt-4o-mini";
 
@@ -28,6 +28,7 @@ export async function runLexiChat(input: {
   ];
 
   let pendingAction: LexiPendingAction | null = null;
+  let report: LexiReportAttachment | null = null;
 
   for (let step = 0; step < 8; step++) {
     const completion = await openai.chat.completions.create({
@@ -47,6 +48,7 @@ export async function runLexiChat(input: {
       return {
         reply: choice.content?.trim() || "Done.",
         pendingAction,
+        report,
       };
     }
 
@@ -62,6 +64,9 @@ export async function runLexiChat(input: {
       const result = await runLexiTool(input.adminProfile, call.function.name, args);
       if (result.pendingAction) {
         pendingAction = result.pendingAction;
+      }
+      if (result.report) {
+        report = result.report;
       }
 
       conversation.push({
@@ -82,6 +87,7 @@ export async function runLexiChat(input: {
           text ||
           `${pendingAction.summary}\n\nPlease review and confirm to proceed.`,
         pendingAction,
+        report,
       };
     }
   }
@@ -92,5 +98,6 @@ export async function runLexiChat(input: {
       ? `${fallbackPending.summary}\n\nPlease review and confirm to proceed.`
       : "I couldn't complete that request. Please try again with more detail.",
     pendingAction: fallbackPending,
+    report,
   };
 }

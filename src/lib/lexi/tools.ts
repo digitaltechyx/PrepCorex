@@ -1,16 +1,21 @@
 import { randomUUID } from "crypto";
 import type OpenAI from "openai";
+import { LEXI_EXTRA_TOOLS, runLexiExtraTool } from "@/lib/lexi/extra-tools";
 import { resolveLexiClient } from "@/lib/lexi/access";
 import {
   lexiFindClients,
   lexiFindProducts,
   lexiGetInboundRequest,
+  lexiGetOutboundRequest,
 } from "@/lib/lexi/read-tools";
 import type {
   LexiInboundApprovePayload,
   LexiInboundCompletePayload,
   LexiInboundCreatePayload,
+  LexiOutboundApprovePayload,
+  LexiOutboundCreatePayload,
   LexiPendingAction,
+  LexiReportAttachment,
 } from "@/lib/lexi/types";
 import type { UserProfile } from "@/types";
 
@@ -33,7 +38,7 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "find_products",
-      description: "Search a client's inventory products by name or SKU (for restock).",
+      description: "Search a client's inventory products by name or SKU (read-only).",
       parameters: {
         type: "object",
         properties: {
@@ -138,11 +143,81 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_outbound_request",
+      description: "Get outbound shipment request status by id or latest matching product name.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: { type: "string" },
+          requestId: { type: "string" },
+          productName: { type: "string" },
+        },
+        required: ["clientUserId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_outbound_create",
+      description:
+        "Propose creating a pending product outbound/shipment request (requires admin confirmation). Reserves sellable stock.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: {
+            type: "string",
+            description: "Exact Firebase uid from find_clients — never a display name",
+          },
+          clientUserName: { type: "string" },
+          productId: {
+            type: "string",
+            description: "Exact inventory product id from find_products",
+          },
+          productName: { type: "string" },
+          sku: { type: "string" },
+          quantity: { type: "number", description: "Number of packs / lines (units = quantity × packOf)" },
+          packOf: { type: "number" },
+          service: { type: "string" },
+          shipTo: { type: "string" },
+          remarks: { type: "string" },
+        },
+        required: ["clientUserId", "clientUserName", "productId", "productName", "quantity"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_outbound_approve",
+      description:
+        "Propose approving a pending outbound request so it goes to warehouse pick (requires admin confirmation).",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: {
+            type: "string",
+            description: "Exact Firebase uid from find_clients — never a display name",
+          },
+          clientUserName: { type: "string" },
+          requestId: { type: "string" },
+          productName: { type: "string" },
+          quantity: { type: "number" },
+        },
+        required: ["clientUserId", "clientUserName", "requestId", "productName", "quantity"],
+      },
+    },
+  },
+  ...LEXI_EXTRA_TOOLS,
 ];
 
 export type LexiToolRunResult = {
   toolResult: string;
   pendingAction?: LexiPendingAction;
+  report?: LexiReportAttachment;
 };
 
 export async function runLexiTool(
@@ -165,6 +240,15 @@ export async function runLexiTool(
     }
     case "get_inbound_request": {
       const result = await lexiGetInboundRequest(
+        adminProfile,
+        String(args.clientUserId ?? ""),
+        args.requestId ? String(args.requestId) : undefined,
+        args.productName ? String(args.productName) : undefined
+      );
+      return { toolResult: JSON.stringify({ request: result }) };
+    }
+    case "get_outbound_request": {
+      const result = await lexiGetOutboundRequest(
         adminProfile,
         String(args.clientUserId ?? ""),
         args.requestId ? String(args.requestId) : undefined,
@@ -238,7 +322,55 @@ export async function runLexiTool(
         pendingAction: { id: randomUUID(), type: "inbound_complete", summary, payload },
       };
     }
-    default:
+    case "propose_outbound_create": {
+      const client = await resolveLexiClient(
+        adminProfile,
+        String(args.clientUserId ?? ""),
+        String(args.clientUserName ?? "")
+      );
+      const payload: LexiOutboundCreatePayload = {
+        clientUserId: client.uid,
+        clientUserName: client.name,
+        productId: String(args.productId),
+        productName: String(args.productName),
+        sku: args.sku ? String(args.sku) : undefined,
+        quantity: Number(args.quantity),
+        packOf: args.packOf != null ? Number(args.packOf) : 1,
+        service: args.service ? String(args.service) : undefined,
+        shipTo: args.shipTo ? String(args.shipTo) : undefined,
+        remarks: args.remarks ? String(args.remarks) : undefined,
+      };
+      const packOf = payload.packOf ?? 1;
+      const totalUnits = payload.quantity * packOf;
+      const summary = `Create outbound for ${payload.clientUserName}: ${payload.quantity} × pack ${packOf} (${totalUnits} units) of ${payload.productName}`;
+      return {
+        toolResult: JSON.stringify({ proposed: true, summary, awaitingConfirmation: true }),
+        pendingAction: { id: randomUUID(), type: "outbound_create", summary, payload },
+      };
+    }
+    case "propose_outbound_approve": {
+      const client = await resolveLexiClient(
+        adminProfile,
+        String(args.clientUserId ?? ""),
+        String(args.clientUserName ?? "")
+      );
+      const payload: LexiOutboundApprovePayload = {
+        clientUserId: client.uid,
+        clientUserName: client.name,
+        requestId: String(args.requestId),
+        productName: String(args.productName),
+        quantity: Number(args.quantity),
+      };
+      const summary = `Approve outbound #${payload.requestId} for ${payload.clientUserName}: ${payload.productName} (${payload.quantity} units) — send to warehouse pick`;
+      return {
+        toolResult: JSON.stringify({ proposed: true, summary, awaitingConfirmation: true }),
+        pendingAction: { id: randomUUID(), type: "outbound_approve", summary, payload },
+      };
+    }
+    default: {
+      const extra = await runLexiExtraTool(adminProfile, name, args);
+      if (extra) return extra;
       return { toolResult: JSON.stringify({ error: `Unknown tool: ${name}` }) };
+    }
   }
 }
