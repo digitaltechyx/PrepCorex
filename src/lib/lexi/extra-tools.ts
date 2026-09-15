@@ -38,7 +38,7 @@ export const LEXI_EXTRA_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "list_pending_requests",
-      description: "List ALL pending inbound, outbound, returns, dispose, delete, quarantine, and label requests on a client's real account. Always call this when asked what is pending. Pass the uid from find_clients (or the client's name as a fallback). Returns counts, product names, and quantities.",
+      description: "List pending requests awaiting admin approval (matches Notifications → Pending tab). Returns totalPending, per-type counts, product names, quantities, and outbound line details. pendingReceive is separate (approved inbound awaiting receive). Always call when asked what is pending.",
       parameters: {
         type: "object",
         properties: {

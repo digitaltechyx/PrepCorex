@@ -1,6 +1,10 @@
 import { adminDb } from "@/lib/firebase-admin";
 import { assertLexiCanManageClient, loadManagedClientProfiles } from "@/lib/lexi/access";
-import type { UserProfile } from "@/types";
+import {
+  isPendingReceiveInventoryRequest,
+  pendingReceiveRemainingQty,
+} from "@/lib/admin-pending-receive";
+import type { InventoryRequest, UserProfile } from "@/types";
 
 function norm(value: string | undefined | null): string {
   return (value ?? "").trim().toLowerCase();
@@ -160,56 +164,41 @@ export async function lexiGetOutboundRequest(
 }
 
 function formatOutbound(id: string, data: FirebaseFirestore.DocumentData): Record<string, unknown> {
-  const first = Array.isArray(data.shipments) ? data.shipments[0] : null;
-  const quantity = Number(first?.quantity ?? 0);
-  const packOf = Number(first?.packOf ?? 1) || 1;
+  const summary = outboundShipmentSummary(data);
   return {
     requestId: id,
     status: data.status ?? "",
     shipmentType: data.shipmentType ?? "product",
     service: data.service ?? null,
-    productName: first?.productName ?? "",
-    sku: first?.sku ?? "",
-    productId: first?.productId ?? "",
-    quantity,
-    packOf,
-    totalUnits: quantity * packOf,
+    productName: summary.productName,
+    sku: summary.lines[0]?.sku ?? "",
+    productId: summary.lines[0]?.productId ?? "",
+    lineCount: summary.lineCount,
+    quantity: summary.totalLineQty,
+    totalUnits: summary.totalUnits,
+    lines: summary.lines,
     warehousePickStatus: data.warehousePickStatus ?? null,
     warehouseDispatchStatus: data.warehouseDispatchStatus ?? null,
   };
 }
 
-function isPendingStatus(status: unknown): boolean {
-  const s = String(status ?? "")
+/** Same normalization as admin Notifications tabs. */
+function normRequestStatus(status: unknown): string {
+  return String(status ?? "")
     .trim()
     .toLowerCase()
-    .replace(/[\s-]+/g, "_");
-  return (
-    s === "pending" ||
-    s === "pending_receive" ||
-    s === "pending_approval" ||
-    s === "awaiting_label_upload" ||
-    s === "open" ||
-    s === "partial"
-  );
+    .replace(/[\s-]+/g, "_")
+    .replace(/[^\w]/g, "")
+    .replace(/_+/g, "_");
 }
 
-function isInboundActionable(data: FirebaseFirestore.DocumentData): boolean {
-  const status = String(data.status ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
-  const fulfillment = String(data.fulfillmentStatus ?? "")
-    .trim()
-    .toLowerCase();
-  if (status === "pending" || status === "pending_approval") return true;
-  if (status === "approved" && (fulfillment === "open" || fulfillment === "" || fulfillment === "pending_receive")) {
-    return true;
-  }
-  return false;
+/** Notifications → Pending tab (awaiting admin approval). */
+function isNotificationsPendingStatus(status: unknown): boolean {
+  const s = normRequestStatus(status);
+  return s === "pending" || s === "pending_approval";
 }
 
-function requestQty(data: FirebaseFirestore.DocumentData): number {
+function inboundRequestQty(data: FirebaseFirestore.DocumentData): number {
   return (
     Number(data.quantity) ||
     Number(data.requestedQty) ||
@@ -219,6 +208,73 @@ function requestQty(data: FirebaseFirestore.DocumentData): number {
   );
 }
 
+function outboundShipmentSummary(data: FirebaseFirestore.DocumentData): {
+  productName: string;
+  lineCount: number;
+  totalLineQty: number;
+  totalUnits: number;
+  lines: Array<{
+    productName: string;
+    sku?: string;
+    productId?: string;
+    quantity: number;
+    packOf: number;
+    totalUnits: number;
+  }>;
+} {
+  const shipments = Array.isArray(data.shipments) ? data.shipments : [];
+  const lines = shipments.map((shipment) => {
+    const quantity = Math.max(0, Number(shipment.quantity) || 0);
+    const packOf = Math.max(1, Number(shipment.packOf) || 1);
+    return {
+      productName: String(shipment.productName ?? ""),
+      sku: shipment.sku ? String(shipment.sku) : undefined,
+      productId: shipment.productId ? String(shipment.productId) : undefined,
+      quantity,
+      packOf,
+      totalUnits: quantity * packOf,
+    };
+  });
+  const lineCount = lines.length;
+  const totalLineQty = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const totalUnits = lines.reduce((sum, line) => sum + line.totalUnits, 0);
+  const productName =
+    lineCount === 0
+      ? "Outbound request"
+      : lineCount === 1
+        ? lines[0].productName || "Outbound request"
+        : `${lines[0].productName || "Outbound"} + ${lineCount - 1} more`;
+  return { productName, lineCount, totalLineQty, totalUnits, lines };
+}
+
+async function loadMultiLineInboundBatchIds(
+  db: FirebaseFirestore.Firestore,
+  uid: string
+): Promise<Set<string>> {
+  const snap = await db.collection(`users/${uid}/inboundBatches`).get();
+  return new Set(
+    snap.docs
+      .filter((d) => Number(d.data().totalLines || 0) > 1)
+      .map((d) => d.id)
+  );
+}
+
+async function loadMultiLineDisposeBatchIds(
+  db: FirebaseFirestore.Firestore,
+  uid: string
+): Promise<Set<string>> {
+  try {
+    const snap = await db.collection(`users/${uid}/disposeBatches`).get();
+    return new Set(
+      snap.docs
+        .filter((d) => Number(d.data().totalLines || 0) > 1)
+        .map((d) => d.id)
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 export async function lexiListPending(
   adminProfile: UserProfile,
   clientUserId: string
@@ -226,20 +282,24 @@ export async function lexiListPending(
   await assertLexiCanManageClient(adminProfile, clientUserId);
   const db = adminDb();
   const uid = clientUserId;
+  const multiLineInboundBatchIds = await loadMultiLineInboundBatchIds(db, uid);
+  const multiLineDisposeBatchIds = await loadMultiLineDisposeBatchIds(db, uid);
 
   async function pendingOf(
     path: string,
     type: string,
     nameOf: (data: FirebaseFirestore.DocumentData) => string,
-    extra?: (data: FirebaseFirestore.DocumentData) => boolean
+    extra?: (data: FirebaseFirestore.DocumentData) => boolean,
+    qtyOf?: (data: FirebaseFirestore.DocumentData) => number,
+    mapExtra?: (id: string, data: FirebaseFirestore.DocumentData) => Record<string, unknown>
   ) {
     try {
       const snap = await db.collection(path).get();
       const rows = snap.docs
         .filter((d: FirebaseFirestore.QueryDocumentSnapshot) => {
           const data = d.data();
-          if (extra) return extra(data);
-          return isPendingStatus(data.status);
+          if (extra && !extra(data)) return false;
+          return isNotificationsPendingStatus(data.status);
         })
         .map((d: FirebaseFirestore.QueryDocumentSnapshot) => {
           const data = d.data();
@@ -247,9 +307,9 @@ export async function lexiListPending(
             type,
             requestId: d.id,
             status: data.status ?? "",
-            fulfillmentStatus: data.fulfillmentStatus ?? null,
             productName: nameOf(data),
-            quantity: requestQty(data),
+            quantity: qtyOf ? qtyOf(data) : inboundRequestQty(data),
+            ...(mapExtra ? mapExtra(d.id, data) : {}),
           };
         });
       return {
@@ -269,18 +329,36 @@ export async function lexiListPending(
     `users/${uid}/inventoryRequests`,
     "inbound",
     (d) => String(d.productName ?? d.newProductName ?? ""),
-    isInboundActionable
+    (d) => {
+      const batchId = String(d.batchId ?? "");
+      if (batchId && multiLineInboundBatchIds.has(batchId)) return false;
+      return true;
+    }
   );
+
   const inboundBatches = await pendingOf(
     `users/${uid}/inboundBatches`,
     "inbound_batch",
     (d) => `Inbound batch (${Number(d.totalLines || 0)} lines)`,
-    (d) => isPendingStatus(d.status)
+    (d) => Number(d.totalLines || 0) > 1
   );
-  const outbound = await pendingOf(`users/${uid}/shipmentRequests`, "outbound", (d) => {
-    const first = Array.isArray(d.shipments) ? d.shipments[0] : null;
-    return String(first?.productName ?? "");
-  });
+
+  const outbound = await pendingOf(
+    `users/${uid}/shipmentRequests`,
+    "outbound",
+    (d) => outboundShipmentSummary(d).productName,
+    undefined,
+    (d) => outboundShipmentSummary(d).totalLineQty,
+    (_id, d) => {
+      const summary = outboundShipmentSummary(d);
+      return {
+        lineCount: summary.lineCount,
+        totalUnits: summary.totalUnits,
+        lines: summary.lines,
+      };
+    }
+  );
+
   const returns = await pendingOf(
     `users/${uid}/productReturns`,
     "return",
@@ -289,7 +367,18 @@ export async function lexiListPending(
   const dispose = await pendingOf(
     `users/${uid}/disposeRequests`,
     "dispose",
-    (d) => String(d.productName ?? "")
+    (d) => String(d.productName ?? ""),
+    (d) => {
+      const batchId = String(d.batchId ?? "");
+      if (batchId && multiLineDisposeBatchIds.has(batchId)) return false;
+      return true;
+    }
+  );
+  const disposeBatches = await pendingOf(
+    `users/${uid}/disposeBatches`,
+    "dispose_batch",
+    (d) => `Dispose batch (${Number(d.totalLines || 0)} lines)`,
+    (d) => Number(d.totalLines || 0) > 1
   );
   const deletes = await pendingOf(
     `users/${uid}/deleteRequests`,
@@ -316,17 +405,46 @@ export async function lexiListPending(
   try {
     const qSnap = await db.collection("quarantineRequests").where("userId", "==", uid).get();
     const items = qSnap.docs
-      .filter((d: FirebaseFirestore.QueryDocumentSnapshot) => isPendingStatus(d.data().status))
+      .filter((d: FirebaseFirestore.QueryDocumentSnapshot) =>
+        isNotificationsPendingStatus(d.data().status)
+      )
       .map((d: FirebaseFirestore.QueryDocumentSnapshot) => ({
         type: "quarantine",
         requestId: d.id,
         status: d.data().status,
         productName: String(d.data().productName ?? ""),
-        quantity: requestQty(d.data()),
+        quantity: inboundRequestQty(d.data()),
       }));
     quarantine = { count: items.length, items: items.slice(0, 25) };
   } catch {
     quarantine = { count: 0, items: [] };
+  }
+
+  let pendingReceive: { count: number; items: Array<Record<string, unknown>> } = { count: 0, items: [] };
+  try {
+    const snap = await db.collection(`users/${uid}/inventoryRequests`).get();
+    const items = snap.docs
+      .filter((d: FirebaseFirestore.QueryDocumentSnapshot) => {
+        const data = d.data() as InventoryRequest;
+        const batchId = String((data as InventoryRequest & { batchId?: string }).batchId ?? "");
+        if (batchId && multiLineInboundBatchIds.has(batchId)) return false;
+        return isPendingReceiveInventoryRequest(data);
+      })
+      .map((d: FirebaseFirestore.QueryDocumentSnapshot) => {
+        const data = d.data() as InventoryRequest;
+        return {
+          type: "inbound_pending_receive",
+          requestId: d.id,
+          status: data.status ?? "",
+          fulfillmentStatus: data.fulfillmentStatus ?? null,
+          productName: String(data.productName ?? (data as InventoryRequest & { newProductName?: string }).newProductName ?? ""),
+          quantity: pendingReceiveRemainingQty(data),
+        };
+      })
+      .filter((row) => Number(row.quantity) > 0);
+    pendingReceive = { count: items.length, items: items.slice(0, 25) };
+  } catch {
+    pendingReceive = { count: 0, items: [] };
   }
 
   const totalPending =
@@ -335,6 +453,7 @@ export async function lexiListPending(
     Number(outbound.count) +
     Number(returns.count) +
     Number(dispose.count) +
+    Number(disposeBatches.count) +
     Number(deletes.count) +
     Number(quarantine.count) +
     Number(refunds.count) +
@@ -344,18 +463,20 @@ export async function lexiListPending(
   return {
     clientUserId: uid,
     totalPending,
+    pendingReceive,
     inbound,
     inboundBatches,
     outbound,
     returns,
     dispose,
+    disposeBatches,
     deletes,
     quarantine,
     labelRefunds: refunds,
     labelTopups: topups,
     labelApiFees: apiFees,
     note:
-      "These are requests on this client's real account (users/{uid}/...). Notifications rows labeled Unknown are orphaned under a wrong path and will not appear here.",
+      "totalPending matches Admin → Notifications → Pending tab (awaiting approval). pendingReceive is separate (approved inbound awaiting warehouse receive). Outbound quantity comes from shipment lines, not the parent doc. Notifications rows labeled Unknown are orphaned under a wrong user path.",
   };
 }
 
