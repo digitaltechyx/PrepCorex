@@ -42,7 +42,11 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {
-          clientUserId: { type: "string" },
+          clientUserId: {
+            type: "string",
+            description: "Exact Firebase uid from find_clients — never a display name",
+          },
+          clientUserName: { type: "string" },
           query: { type: "string" },
         },
         required: ["clientUserId", "query"],
@@ -57,7 +61,11 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {
-          clientUserId: { type: "string" },
+          clientUserId: {
+            type: "string",
+            description: "Exact Firebase uid from find_clients — never a display name",
+          },
+          clientUserName: { type: "string" },
           requestId: { type: "string" },
           productName: { type: "string" },
         },
@@ -151,7 +159,11 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {
-          clientUserId: { type: "string" },
+          clientUserId: {
+            type: "string",
+            description: "Exact Firebase uid from find_clients — never a display name",
+          },
+          clientUserName: { type: "string" },
           requestId: { type: "string" },
           productName: { type: "string" },
         },
@@ -231,30 +243,41 @@ export async function runLexiTool(
       return { toolResult: JSON.stringify({ clients: results }) };
     }
     case "find_products": {
-      const results = await lexiFindProducts(
+      const client = await resolveLexiClient(
         adminProfile,
         String(args.clientUserId ?? ""),
-        String(args.query ?? "")
+        String(args.clientUserName ?? "")
       );
-      return { toolResult: JSON.stringify({ products: results }) };
+      const results = await lexiFindProducts(adminProfile, client.uid, String(args.query ?? ""));
+      return { toolResult: JSON.stringify({ clientUserId: client.uid, products: results }) };
     }
     case "get_inbound_request": {
+      const client = await resolveLexiClient(
+        adminProfile,
+        String(args.clientUserId ?? ""),
+        String(args.clientUserName ?? "")
+      );
       const result = await lexiGetInboundRequest(
         adminProfile,
-        String(args.clientUserId ?? ""),
+        client.uid,
         args.requestId ? String(args.requestId) : undefined,
         args.productName ? String(args.productName) : undefined
       );
-      return { toolResult: JSON.stringify({ request: result }) };
+      return { toolResult: JSON.stringify({ clientUserId: client.uid, request: result }) };
     }
     case "get_outbound_request": {
-      const result = await lexiGetOutboundRequest(
+      const client = await resolveLexiClient(
         adminProfile,
         String(args.clientUserId ?? ""),
+        String(args.clientUserName ?? "")
+      );
+      const result = await lexiGetOutboundRequest(
+        adminProfile,
+        client.uid,
         args.requestId ? String(args.requestId) : undefined,
         args.productName ? String(args.productName) : undefined
       );
-      return { toolResult: JSON.stringify({ request: result }) };
+      return { toolResult: JSON.stringify({ clientUserId: client.uid, request: result }) };
     }
     case "propose_inbound_create": {
       const client = await resolveLexiClient(

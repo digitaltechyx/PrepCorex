@@ -180,8 +180,43 @@ function formatOutbound(id: string, data: FirebaseFirestore.DocumentData): Recor
 }
 
 function isPendingStatus(status: unknown): boolean {
-  const s = String(status ?? "").toLowerCase();
-  return s === "pending" || s === "pending_receive" || s === "open";
+  const s = String(status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  return (
+    s === "pending" ||
+    s === "pending_receive" ||
+    s === "pending_approval" ||
+    s === "awaiting_label_upload" ||
+    s === "open" ||
+    s === "partial"
+  );
+}
+
+function isInboundActionable(data: FirebaseFirestore.DocumentData): boolean {
+  const status = String(data.status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const fulfillment = String(data.fulfillmentStatus ?? "")
+    .trim()
+    .toLowerCase();
+  if (status === "pending" || status === "pending_approval") return true;
+  if (status === "approved" && (fulfillment === "open" || fulfillment === "" || fulfillment === "pending_receive")) {
+    return true;
+  }
+  return false;
+}
+
+function requestQty(data: FirebaseFirestore.DocumentData): number {
+  return (
+    Number(data.quantity) ||
+    Number(data.requestedQty) ||
+    Number(data.requestedQuantity) ||
+    Number(data.receivedQuantity) ||
+    0
+  );
 }
 
 export async function lexiListPending(
@@ -195,24 +230,52 @@ export async function lexiListPending(
   async function pendingOf(
     path: string,
     type: string,
-    nameOf: (data: FirebaseFirestore.DocumentData) => string
+    nameOf: (data: FirebaseFirestore.DocumentData) => string,
+    extra?: (data: FirebaseFirestore.DocumentData) => boolean
   ) {
-    const snap = await db.collection(path).limit(40).get();
-    return snap.docs
-      .filter((d: FirebaseFirestore.QueryDocumentSnapshot) => isPendingStatus(d.data().status))
-      .slice(0, 8)
-      .map((d: FirebaseFirestore.QueryDocumentSnapshot) => ({
-        type,
-        requestId: d.id,
-        status: d.data().status,
-        productName: nameOf(d.data()),
-      }));
+    try {
+      const snap = await db.collection(path).get();
+      const rows = snap.docs
+        .filter((d: FirebaseFirestore.QueryDocumentSnapshot) => {
+          const data = d.data();
+          if (extra) return extra(data);
+          return isPendingStatus(data.status);
+        })
+        .map((d: FirebaseFirestore.QueryDocumentSnapshot) => {
+          const data = d.data();
+          return {
+            type,
+            requestId: d.id,
+            status: data.status ?? "",
+            fulfillmentStatus: data.fulfillmentStatus ?? null,
+            productName: nameOf(data),
+            quantity: requestQty(data),
+          };
+        });
+      return {
+        count: rows.length,
+        items: rows.slice(0, 25),
+      };
+    } catch (error) {
+      return {
+        count: 0,
+        items: [],
+        error: error instanceof Error ? error.message : "lookup failed",
+      };
+    }
   }
 
   const inbound = await pendingOf(
     `users/${uid}/inventoryRequests`,
     "inbound",
-    (d) => String(d.productName ?? d.newProductName ?? "")
+    (d) => String(d.productName ?? d.newProductName ?? ""),
+    isInboundActionable
+  );
+  const inboundBatches = await pendingOf(
+    `users/${uid}/inboundBatches`,
+    "inbound_batch",
+    (d) => `Inbound batch (${Number(d.totalLines || 0)} lines)`,
+    (d) => isPendingStatus(d.status)
   );
   const outbound = await pendingOf(`users/${uid}/shipmentRequests`, "outbound", (d) => {
     const first = Array.isArray(d.shipments) ? d.shipments[0] : null;
@@ -249,24 +312,40 @@ export async function lexiListPending(
     () => "API fee"
   );
 
-  let quarantine: Array<{ type: string; requestId: string; status: unknown; productName: string }> = [];
+  let quarantine: { count: number; items: Array<Record<string, unknown>> } = { count: 0, items: [] };
   try {
-    const qSnap = await db.collection("quarantineRequests").where("userId", "==", uid).limit(20).get();
-    quarantine = qSnap.docs
+    const qSnap = await db.collection("quarantineRequests").where("userId", "==", uid).get();
+    const items = qSnap.docs
       .filter((d: FirebaseFirestore.QueryDocumentSnapshot) => isPendingStatus(d.data().status))
-      .slice(0, 8)
       .map((d: FirebaseFirestore.QueryDocumentSnapshot) => ({
         type: "quarantine",
         requestId: d.id,
         status: d.data().status,
         productName: String(d.data().productName ?? ""),
+        quantity: requestQty(d.data()),
       }));
+    quarantine = { count: items.length, items: items.slice(0, 25) };
   } catch {
-    quarantine = [];
+    quarantine = { count: 0, items: [] };
   }
 
+  const totalPending =
+    Number(inbound.count) +
+    Number(inboundBatches.count) +
+    Number(outbound.count) +
+    Number(returns.count) +
+    Number(dispose.count) +
+    Number(deletes.count) +
+    Number(quarantine.count) +
+    Number(refunds.count) +
+    Number(topups.count) +
+    Number(apiFees.count);
+
   return {
+    clientUserId: uid,
+    totalPending,
     inbound,
+    inboundBatches,
     outbound,
     returns,
     dispose,
@@ -275,6 +354,8 @@ export async function lexiListPending(
     labelRefunds: refunds,
     labelTopups: topups,
     labelApiFees: apiFees,
+    note:
+      "These are requests on this client's real account (users/{uid}/...). Notifications rows labeled Unknown are orphaned under a wrong path and will not appear here.",
   };
 }
 

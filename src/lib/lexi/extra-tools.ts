@@ -38,10 +38,13 @@ export const LEXI_EXTRA_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "list_pending_requests",
-      description: "List pending inbound, outbound, returns, dispose, delete, quarantine, and label requests for a client.",
+      description: "List ALL pending inbound, outbound, returns, dispose, delete, quarantine, and label requests on a client's real account. Always call this when asked what is pending. Pass the uid from find_clients (or the client's name as a fallback). Returns counts, product names, and quantities.",
       parameters: {
         type: "object",
-        properties: { clientUserId: uidProp },
+        properties: {
+          clientUserId: uidProp,
+          clientUserName: { type: "string", description: "Display name hint if uid is uncertain" },
+        },
         required: ["clientUserId"],
       },
     },
@@ -64,6 +67,7 @@ export const LEXI_EXTRA_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         type: "object",
         properties: {
           clientUserId: uidProp,
+          clientUserName: { type: "string", description: "Display name hint if uid is uncertain" },
           topic: {
             type: "string",
             enum: ["profile", "inventory", "invoices", "shipped", "restock_history", "returns"],
@@ -331,21 +335,38 @@ export async function runLexiExtraTool(
 
   switch (name) {
     case "list_pending_requests": {
-      const pendingLists = await lexiListPending(adminProfile, String(args.clientUserId ?? ""));
-      return { toolResult: JSON.stringify(pendingLists) };
+      try {
+        const client = await resolve();
+        const pendingLists = await lexiListPending(adminProfile, client.uid);
+        return {
+          toolResult: JSON.stringify({
+            ...pendingLists,
+            clientUserName: client.name,
+          }),
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not list pending requests.";
+        return { toolResult: JSON.stringify({ error: message, totalPending: 0 }) };
+      }
     }
     case "list_warehouses": {
       const warehouses = await lexiListWarehouses();
       return { toolResult: JSON.stringify({ warehouses }) };
     }
     case "lookup_client_records": {
-      const records = await lexiLookupClientRecords(
-        adminProfile,
-        String(args.clientUserId ?? ""),
-        String(args.topic ?? "profile"),
-        args.query ? String(args.query) : undefined
-      );
-      return { toolResult: JSON.stringify({ records }) };
+      try {
+        const client = await resolve();
+        const records = await lexiLookupClientRecords(
+          adminProfile,
+          client.uid,
+          String(args.topic ?? "profile"),
+          args.query ? String(args.query) : undefined
+        );
+        return { toolResult: JSON.stringify({ clientUserId: client.uid, clientUserName: client.name, records }) };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Lookup failed.";
+        return { toolResult: JSON.stringify({ error: message }) };
+      }
     }
     case "generate_report": {
       try {
