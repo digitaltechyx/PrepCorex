@@ -114,6 +114,7 @@ export function TrackerLabelPhotosCell({
           const res = await fetch(apiPath, {
             method: "POST",
             headers,
+            credentials: "include",
             body: JSON.stringify({ id: entryId, url }),
           });
           if (!res.ok) {

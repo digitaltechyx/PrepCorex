@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireFullAdmin } from "@/lib/api-admin-auth";
+import {
+  assertPublicTrackerAccess,
+  publicTrackerAccessDeniedResponse,
+} from "@/lib/public-tracker-access";
+import { resolveTrackerActor } from "@/lib/tracker-api-auth";
 import { appendInboundTrackerLabelPhoto } from "@/lib/inbound-tracker-service";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  const auth = await requireFullAdmin(request);
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
+  const access = await assertPublicTrackerAccess(request);
+  if (!access.ok) return publicTrackerAccessDeniedResponse(access);
+
+  const actor = await resolveTrackerActor(request);
 
   let body: { id?: string; url?: string };
   try {
@@ -31,8 +35,8 @@ export async function POST(request: NextRequest) {
       id,
       photo: {
         url,
-        uploadedBy: auth.uid,
-        uploadedByName: auth.name,
+        uploadedBy: actor.uid,
+        uploadedByName: actor.name,
       },
     });
     if (!entry) {

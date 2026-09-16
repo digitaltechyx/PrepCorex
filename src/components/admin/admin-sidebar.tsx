@@ -47,6 +47,7 @@ import {
   ArrowDownToLine,
   ChevronDown,
   MoreHorizontal,
+  LockKeyhole,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
@@ -303,6 +304,14 @@ export function AdminSidebar() {
       url: "/admin/dashboard/outbound-tracker",
       icon: PackageSearch,
       color: "text-orange-600",
+      requiredFeature: "admin_dashboard" as const,
+      adminOnly: true,
+    },
+    {
+      title: "Public trackers PIN",
+      url: "/admin/dashboard/tracker-settings",
+      icon: LockKeyhole,
+      color: "text-violet-600",
       requiredFeature: "admin_dashboard" as const,
       adminOnly: true,
     },
@@ -683,6 +692,7 @@ export function AdminSidebar() {
     pushRoot(operationsRootItem);
     pushFlat("/admin/dashboard/inbound-tracker");
     pushFlat("/admin/dashboard/outbound-tracker");
+    pushFlat("/admin/dashboard/tracker-settings");
     pushFlat("/admin/dashboard/invoices");
     pushFlat("/admin/dashboard/pricing");
     pushRoot(usersAccessRootItem);

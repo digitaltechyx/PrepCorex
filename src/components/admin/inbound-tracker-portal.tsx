@@ -29,6 +29,7 @@ import {
 import { TrackerScanField } from "@/components/admin/tracker-scan-field";
 import { TrackerLabelPhotosCell } from "@/components/admin/tracker-label-photos-cell";
 import { detectCarrier } from "@/lib/carrier-detect";
+import { buildTrackerRequestHeaders } from "@/lib/tracker-request-headers";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -116,7 +117,14 @@ function ReportBar({ label, count, pct }: { label: string; count: number; pct: n
   );
 }
 
-export function InboundTrackerPortal() {
+export type TrackerPortalMode = "admin" | "public";
+
+type InboundTrackerPortalProps = {
+  mode?: TrackerPortalMode;
+};
+
+export function InboundTrackerPortal({ mode = "admin" }: InboundTrackerPortalProps) {
+  const isPublic = mode === "public";
   const { user, userProfile, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
@@ -146,21 +154,17 @@ export function InboundTrackerPortal() {
 
   const hasActiveFilters = useMemo(() => inboundTrackerHasActiveFilters(filters), [filters]);
 
-  const authHeaders = useCallback(async (): Promise<HeadersInit> => {
-    if (!user) throw new Error("Not signed in.");
-    const token = await user.getIdToken();
-    return {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    };
-  }, [user]);
+  const requestHeaders = useCallback(async (): Promise<HeadersInit> => {
+    if (!isPublic && !user) throw new Error("Not signed in.");
+    return buildTrackerRequestHeaders(user);
+  }, [isPublic, user]);
 
   const loadEntries = useCallback(async () => {
-    if (!user) return;
+    if (!isPublic && !user) return;
     setLoading(true);
     try {
-      const headers = await authHeaders();
-      const res = await fetch("/api/inbound-tracker", { headers });
+      const headers = await requestHeaders();
+      const res = await fetch("/api/inbound-tracker", { headers, credentials: "include" });
       if (!res.ok) throw new Error(await readApiError(res, "Failed to load trackings."));
       const data = (await res.json()) as { entries: InboundTrackerEntry[] };
       setEntries(data.entries || []);
@@ -173,16 +177,18 @@ export function InboundTrackerPortal() {
     } finally {
       setLoading(false);
     }
-  }, [authHeaders, toast, user]);
+  }, [isPublic, requestHeaders, toast, user]);
 
   useEffect(() => {
-    if (authLoading) return;
-    if (!user || !isAdmin) {
-      router.replace("/admin/dashboard");
-      return;
+    if (!isPublic) {
+      if (authLoading) return;
+      if (!user || !isAdmin) {
+        router.replace("/admin/dashboard");
+        return;
+      }
     }
     void loadEntries();
-  }, [authLoading, user, isAdmin, router, loadEntries]);
+  }, [authLoading, isAdmin, isPublic, loadEntries, router, user]);
 
   const filterOptions = useMemo(() => inboundTrackerFilterOptions(entries), [entries]);
 
@@ -205,11 +211,12 @@ export function InboundTrackerPortal() {
       }
       setAdding(true);
       try {
-        const headers = await authHeaders();
+        const headers = await requestHeaders();
         const carrier = detectCarrier(trackingNumber) || null;
         const res = await fetch("/api/inbound-tracker", {
           method: "POST",
           headers,
+          credentials: "include",
           body: JSON.stringify({ trackingNumber, carrier, addedVia }),
         });
         if (!res.ok) throw new Error(await readApiError(res, "Failed to add tracking."));
@@ -230,17 +237,18 @@ export function InboundTrackerPortal() {
         setAdding(false);
       }
     },
-    [authHeaders, toast]
+    [requestHeaders, toast]
   );
 
   const refreshOne = useCallback(
     async (id: string) => {
       setRefreshingId(id);
       try {
-        const headers = await authHeaders();
+        const headers = await requestHeaders();
         const res = await fetch("/api/inbound-tracker", {
           method: "PATCH",
           headers,
+          credentials: "include",
           body: JSON.stringify({ id }),
         });
         if (!res.ok) throw new Error(await readApiError(res, "Refresh failed."));
@@ -256,7 +264,7 @@ export function InboundTrackerPortal() {
         setRefreshingId(null);
       }
     },
-    [authHeaders, toast]
+    [requestHeaders, toast]
   );
 
   const updateEntryPhotos = useCallback((entryId: string, labelPhotos: TrackerLabelPhoto[]) => {
@@ -269,10 +277,11 @@ export function InboundTrackerPortal() {
     async (entry: InboundTrackerEntry) => {
       setDeletingId(entry.id);
       try {
-        const headers = await authHeaders();
+        const headers = await requestHeaders();
         const res = await fetch(`/api/inbound-tracker?id=${encodeURIComponent(entry.id)}`, {
           method: "DELETE",
           headers,
+          credentials: "include",
         });
         if (!res.ok) throw new Error(await readApiError(res, "Delete failed."));
         setEntries((prev) => prev.filter((e) => e.id !== entry.id));
@@ -291,10 +300,10 @@ export function InboundTrackerPortal() {
         setDeleteTarget(null);
       }
     },
-    [authHeaders, toast]
+    [requestHeaders, toast]
   );
 
-  if (authLoading || !isAdmin) {
+  if (!isPublic && (authLoading || !isAdmin)) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -672,7 +681,7 @@ export function InboundTrackerPortal() {
                             trackingNumber={entry.trackingNumber}
                             photos={entry.labelPhotos || []}
                             disabled={deletingId === entry.id}
-                            getAuthHeaders={authHeaders}
+                            getAuthHeaders={requestHeaders}
                             onPhotosUpdated={(labelPhotos) =>
                               updateEntryPhotos(entry.id, labelPhotos)
                             }

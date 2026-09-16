@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireFullAdmin } from "@/lib/api-admin-auth";
+import {
+  assertPublicTrackerAccess,
+  publicTrackerAccessDeniedResponse,
+} from "@/lib/public-tracker-access";
+import { resolveTrackerActor } from "@/lib/tracker-api-auth";
 import {
   addOutboundTrackerEntry,
   deleteOutboundTrackerEntry,
@@ -10,10 +14,8 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const auth = await requireFullAdmin(request);
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
+  const access = await assertPublicTrackerAccess(request);
+  if (!access.ok) return publicTrackerAccessDeniedResponse(access);
 
   try {
     const entries = await listOutboundTrackerEntries();
@@ -27,10 +29,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireFullAdmin(request);
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
+  const access = await assertPublicTrackerAccess(request);
+  if (!access.ok) return publicTrackerAccessDeniedResponse(access);
+
+  const actor = await resolveTrackerActor(request);
 
   let body: { trackingNumber?: string; carrier?: string | null; addedVia?: "scan" | "manual" };
   try {
@@ -48,8 +50,8 @@ export async function POST(request: NextRequest) {
     const entry = await addOutboundTrackerEntry({
       trackingNumber,
       carrier: body.carrier ?? null,
-      addedBy: auth.uid,
-      addedByName: auth.name,
+      addedBy: actor.uid,
+      addedByName: actor.name,
       addedVia: body.addedVia === "scan" ? "scan" : "manual",
     });
     return NextResponse.json({ entry });
@@ -61,10 +63,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const auth = await requireFullAdmin(request);
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
+  const access = await assertPublicTrackerAccess(request);
+  if (!access.ok) return publicTrackerAccessDeniedResponse(access);
 
   let body: { id?: string };
   try {
@@ -93,10 +93,8 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = await requireFullAdmin(request);
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
+  const access = await assertPublicTrackerAccess(request);
+  if (!access.ok) return publicTrackerAccessDeniedResponse(access);
 
   const id = String(request.nextUrl.searchParams.get("id") || "").trim();
   if (!id) {
