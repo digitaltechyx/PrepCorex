@@ -79,6 +79,7 @@ const USERS_ACCESS_CHILD_PATHS = [
   "/admin/dashboard/users",
   "/admin/dashboard/affiliate-management",
   "/admin/dashboard/roles-permissions",
+  "/admin/dashboard/tracker-settings",
 ];
 
 /** Sentinel url — Inventory parent is a dropdown, not its own page. */
@@ -692,7 +693,6 @@ export function AdminSidebar() {
     pushRoot(operationsRootItem);
     pushFlat("/admin/dashboard/inbound-tracker");
     pushFlat("/admin/dashboard/outbound-tracker");
-    pushFlat("/admin/dashboard/tracker-settings");
     pushFlat("/admin/dashboard/invoices");
     pushFlat("/admin/dashboard/pricing");
     pushRoot(usersAccessRootItem);

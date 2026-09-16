@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
@@ -36,14 +36,32 @@ export function TrackerScanField({
   inputPlaceholder = "Aim Bluetooth scanner here or type tracking number…",
 }: TrackerScanFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const wasAddingRef = useRef(false);
 
-  const refocus = () => {
-    requestAnimationFrame(() => inputRef.current?.focus());
-  };
+  const refocus = useCallback(() => {
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    });
+  }, []);
+
+  useEffect(() => {
+    refocus();
+  }, [refocus]);
+
+  useEffect(() => {
+    if (wasAddingRef.current && !adding) {
+      refocus();
+    }
+    wasAddingRef.current = adding;
+  }, [adding, refocus]);
 
   const submit = async (raw: string, addedVia: "scan" | "manual") => {
-    await onAdd(raw, addedVia);
-    refocus();
+    try {
+      await onAdd(raw, addedVia);
+    } finally {
+      refocus();
+    }
   };
 
   return (
@@ -62,12 +80,12 @@ export function TrackerScanField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={inputPlaceholder}
           className="w-full font-mono text-sm sm:min-w-[220px] sm:max-w-md sm:flex-1"
-          disabled={adding}
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
           inputMode="text"
+          aria-busy={adding}
         />
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -103,8 +121,8 @@ export function TrackerScanField({
         </div>
       </form>
       <p className="text-xs text-muted-foreground">
-        Pair your Bluetooth scanner (it acts like a keyboard). Keep this field focused and scan each
-        label — Enter adds it automatically. Use Camera on mobile, or Add typed when entering by
+        Pair your Bluetooth scanner (it acts like a keyboard). This field stays active — scan each
+        label and Enter adds it automatically. Use Camera on mobile, or Add typed when entering by
         hand.
       </p>
     </div>
