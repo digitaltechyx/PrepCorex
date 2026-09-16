@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PublicTrackersLayoutClient } from "@/components/trackers/public-trackers-layout-client";
 
 export const metadata: Metadata = {
   title: "Trackers | PrepCorex",
@@ -6,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function TrackersLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <PublicTrackersLayoutClient>{children}</PublicTrackersLayoutClient>;
 }

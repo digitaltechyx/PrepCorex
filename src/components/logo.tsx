@@ -6,6 +6,7 @@ export const brandLogoSrc = "/PCX%20Testing-16.svg";
 
 type LogoProps = {
   className?: string;
+  href?: string;
   /**
    * `auth` — larger, centered (login / register / register-agent).
    * `default` — sidebars, compact headers.
@@ -13,11 +14,11 @@ type LogoProps = {
   variant?: "default" | "auth";
 };
 
-export function Logo({ className, variant = "default" }: LogoProps) {
+export function Logo({ className, variant = "default", href = "/" }: LogoProps) {
   const isAuth = variant === "auth";
   return (
     <Link
-      href="/"
+      href={href}
       className={cn(
         "flex items-center",
         isAuth && "w-full justify-center",
