@@ -19,10 +19,21 @@ type TrackerScanFieldProps = {
   inputPlaceholder?: string;
 };
 
+const WEDGE_GAP_MS = 150;
+const MIN_WEDGE_LEN = 3;
+
+function isOtherEditableField(target: EventTarget | null, trackerInput: HTMLInputElement | null): boolean {
+  if (!target || !(target instanceof HTMLElement)) return false;
+  if (trackerInput && target === trackerInput) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return target.isContentEditable;
+}
+
 /**
  * Tracking input for Inbound / Outbound Tracker.
- * Bluetooth wedge scanners type into the focused field and send Enter (counted as scan).
- * Mobile camera scanning stays available via ScanCameraButton.
+ * Bluetooth wedge scanners type like a keyboard. We listen page-wide so scans still
+ * work after clicking filters, the table, or elsewhere (except other text fields).
  */
 export function TrackerScanField({
   value,
@@ -37,6 +48,23 @@ export function TrackerScanField({
 }: TrackerScanFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const wasAddingRef = useRef(false);
+  const onAddRef = useRef(onAdd);
+  const onChangeRef = useRef(onChange);
+  const addingRef = useRef(adding);
+  const wedgeBufferRef = useRef("");
+  const wedgeLastKeyAtRef = useRef(0);
+
+  useEffect(() => {
+    onAddRef.current = onAdd;
+  }, [onAdd]);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    addingRef.current = adding;
+  }, [adding]);
 
   const refocus = useCallback(() => {
     requestAnimationFrame(() => {
@@ -44,6 +72,23 @@ export function TrackerScanField({
       window.setTimeout(() => inputRef.current?.focus(), 0);
     });
   }, []);
+
+  const submit = useCallback(
+    async (raw: string, addedVia: "scan" | "manual") => {
+      try {
+        await onAddRef.current(raw, addedVia);
+      } finally {
+        wedgeBufferRef.current = "";
+        refocus();
+      }
+    },
+    [refocus]
+  );
+
+  const submitRef = useRef(submit);
+  useEffect(() => {
+    submitRef.current = submit;
+  }, [submit]);
 
   useEffect(() => {
     refocus();
@@ -56,13 +101,57 @@ export function TrackerScanField({
     wasAddingRef.current = adding;
   }, [adding, refocus]);
 
-  const submit = async (raw: string, addedVia: "scan" | "manual") => {
-    try {
-      await onAdd(raw, addedVia);
-    } finally {
-      refocus();
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (addingRef.current) return;
+
+      const trackerInput = inputRef.current;
+      const onTrackerInput = e.target === trackerInput;
+
+      if (isOtherEditableField(e.target, trackerInput)) {
+        return;
+      }
+
+      if (onTrackerInput) {
+        return;
+      }
+
+      if (e.key === "Enter") {
+        const code = wedgeBufferRef.current.trim();
+        wedgeBufferRef.current = "";
+        if (code.length >= MIN_WEDGE_LEN) {
+          e.preventDefault();
+          e.stopPropagation();
+          onChangeRef.current("");
+          void submitRef.current(code, "scan");
+        }
+        return;
+      }
+
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const now = Date.now();
+        if (now - wedgeLastKeyAtRef.current > WEDGE_GAP_MS) {
+          wedgeBufferRef.current = "";
+        }
+        wedgeLastKeyAtRef.current = now;
+        wedgeBufferRef.current += e.key;
+        onChangeRef.current(wedgeBufferRef.current);
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      if (e.key === "Backspace" && wedgeBufferRef.current) {
+        wedgeBufferRef.current = wedgeBufferRef.current.slice(0, -1);
+        onChangeRef.current(wedgeBufferRef.current);
+        e.preventDefault();
+        e.stopPropagation();
+      }
     }
-  };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
 
   return (
     <div className="space-y-2">
@@ -70,6 +159,7 @@ export function TrackerScanField({
         className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center"
         onSubmit={(e) => {
           e.preventDefault();
+          wedgeBufferRef.current = "";
           void submit(value, "scan");
         }}
       >
@@ -77,7 +167,10 @@ export function TrackerScanField({
           ref={inputRef}
           autoFocus
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            wedgeBufferRef.current = "";
+            onChange(e.target.value);
+          }}
           placeholder={inputPlaceholder}
           className="w-full font-mono text-sm sm:min-w-[220px] sm:max-w-md sm:flex-1"
           autoComplete="off"
@@ -92,7 +185,10 @@ export function TrackerScanField({
             type="button"
             disabled={adding || !value.trim()}
             className="shrink-0"
-            onClick={() => void submit(value, "manual")}
+            onClick={() => {
+              wedgeBufferRef.current = "";
+              void submit(value, "manual");
+            }}
           >
             {adding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             <Keyboard className="mr-2 h-4 w-4" />
@@ -121,9 +217,9 @@ export function TrackerScanField({
         </div>
       </form>
       <p className="text-xs text-muted-foreground">
-        Pair your Bluetooth scanner (it acts like a keyboard). This field stays active — scan each
-        label and Enter adds it automatically. Use Camera on mobile, or Add typed when entering by
-        hand.
+        Bluetooth scanner works anywhere on this page — click filters or the table and keep scanning;
+        Enter adds each label. Typing in the search box above pauses wedge capture until you click
+        back here. Use Camera on mobile, or Add typed for manual entry.
       </p>
     </div>
   );
