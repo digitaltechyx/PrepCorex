@@ -11,9 +11,12 @@ import {
 import {
   formatLabelBillingPeriod,
   isLabelApiFeeBlocking,
+  isLabelTrialActive,
   labelBillingRemainingCents,
   labelBillingPeriodEndsAt,
   labelBillingSummaryLine,
+  labelTrialEndsAt,
+  labelWalletRemainingCents,
   normalizeLabelBillingSettings,
 } from "@/lib/label-billing";
 import type { LabelBillingPeriod } from "@/types";
@@ -39,12 +42,16 @@ export async function GET(request: NextRequest) {
       ? (await loadNormalizedLabelBilling(adminDb(), userId)).settings
       : await ensureLabelBillingPeriodRolled(adminDb(), userId);
     const ends = labelBillingPeriodEndsAt(settings.period);
+    const trialEnds = labelTrialEndsAt(settings);
     return NextResponse.json({
       settings,
       exempt,
       apiFeeBlocking: !exempt && isLabelApiFeeBlocking(settings),
       summary: labelBillingSummaryLine(settings),
       remainingCents: labelBillingRemainingCents(settings),
+      walletRemainingCents: labelWalletRemainingCents(settings),
+      trialActive: !exempt && isLabelTrialActive(settings),
+      trialEndsAtIso: trialEnds?.toISOString() ?? null,
       periodEndsAtIso: ends.toISOString(),
       periodLabel: formatLabelBillingPeriod(settings.period),
     });
@@ -70,8 +77,13 @@ export async function PATCH(request: NextRequest) {
       mode?: "limit" | "wallet";
       limitAmountCents?: number;
       limitAmountDollars?: number;
+      walletSpendLimitCents?: number;
+      walletSpendLimitDollars?: number;
       period?: LabelBillingPeriod;
       resetPeriodUsed?: boolean;
+      resetWalletPeriodUsed?: boolean;
+      resetTrial?: boolean;
+      trialDisabled?: boolean;
       walletBalanceCents?: number;
       walletBalanceDollars?: number;
       reissueCreditCents?: number;
@@ -111,6 +123,13 @@ export async function PATCH(request: NextRequest) {
         ? Math.round(Number(body.reissueCreditCents))
         : body.reissueCreditDollars != null
           ? Math.round(Number(body.reissueCreditDollars) * 100)
+          : undefined;
+
+    const walletSpendLimitCents =
+      body.walletSpendLimitCents != null
+        ? Math.round(Number(body.walletSpendLimitCents))
+        : body.walletSpendLimitDollars != null
+          ? Math.round(Number(body.walletSpendLimitDollars) * 100)
           : undefined;
 
     const markupCents =
@@ -155,8 +174,12 @@ export async function PATCH(request: NextRequest) {
       userId,
       mode: body.mode,
       limitAmountCents,
+      walletSpendLimitCents,
       period: body.period,
       resetPeriodUsed: Boolean(body.resetPeriodUsed),
+      resetWalletPeriodUsed: Boolean(body.resetWalletPeriodUsed),
+      resetTrial: Boolean(body.resetTrial),
+      trialDisabled: body.trialDisabled,
       walletBalanceCents,
       reissueCreditCents,
       markupCents,

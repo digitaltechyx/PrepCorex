@@ -19,11 +19,16 @@ import {
   formatLabelBillingPeriodNoun,
   formatSignedLabelBillingMoney,
   isLabelApiFeeBlocking,
+  isLabelTrialActive,
   labelApiFeeBlockMessage,
   labelBillingPeriodEndsAt,
   labelBillingRemainingCents,
   labelBillingSummaryLine,
+  labelTrialEndsAt,
+  labelTrialRemainingMs,
   labelWalletLedgerPath,
+  labelWalletRemainingCents,
+  labelWalletSpendLimitCents,
   labelWalletTopupPath,
   normalizeLabelApiFeeSettings,
   normalizeLabelBillingSettings,
@@ -192,7 +197,7 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
   }, [user, onBillingLoaded, toast]);
 
   const loadHistory = useCallback(async () => {
-    if (!user || !settings || settings.mode !== "wallet") return;
+    if (!user || !settings) return;
     setHistoryLoading(true);
     try {
       const [ledgerSnap, topupSnap] = await Promise.all([
@@ -405,40 +410,36 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
     );
   }
 
-  if (settings.mode === "limit") {
-    return (
-      <>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Trial Label Purchase Limit</CardTitle>
-            <CardDescription>
-              {labelBillingSummaryLine(settings)}
-              {ends ? ` · Resets ${format(ends, "PPp")}` : null}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {apiFeeBanner}
-            When your trial {formatLabelBillingPeriod(settings.period)} label purchase limit is used up,
-            purchases are blocked until the period resets or an administrator raises your limit.
-            Remaining:{" "}
-            <span className="font-medium text-foreground">
-              {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
-            </span>
-          </CardContent>
-        </Card>
-        <LabelApiFeePayDialog
-          open={apiFeeOpen}
-          onOpenChange={setApiFeeOpen}
-          settings={settings}
-          onPaid={() => void loadBilling()}
-        />
-      </>
-    );
-  }
+  const trialActive = isLabelTrialActive(settings);
+  const trialEnds = labelTrialEndsAt(settings);
+  const trialDaysLeft = trialActive
+    ? Math.max(1, Math.ceil(labelTrialRemainingMs(settings) / (24 * 60 * 60 * 1000)))
+    : 0;
 
   return (
     <>
-      <Card>
+      <div className="space-y-4">
+        {trialActive ? (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">Buy Label Trial</CardTitle>
+              <CardDescription>
+                {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"} left in your 30-day trial
+                {trialEnds ? ` · Ends ${format(trialEnds, "PP")}` : null}
+                {ends ? ` · Trial limit resets ${format(ends, "PPp")}` : null}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              Pay per label with card during your trial. After 30 days, only your wallet remains.
+              Remaining this {formatLabelBillingPeriod(settings.period)}:{" "}
+              <span className="font-medium text-foreground">
+                {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
+              </span>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <Card>
         <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2 text-lg">
@@ -473,7 +474,7 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
                 {formatLabelBillingPeriodAdjective(settings.period)} Spending Limit
               </p>
               <p className="text-xl font-semibold">
-                {formatLabelBillingMoney(settings.limitAmountCents)}
+                {formatLabelBillingMoney(labelWalletSpendLimitCents(settings))}
               </p>
             </div>
             <div className="rounded-md border px-3 py-2">
@@ -481,12 +482,22 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
                 Remaining Limit for this {formatLabelBillingPeriodNoun(settings.period)}
               </p>
               <p className="text-xl font-semibold">
-                {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
+                {formatLabelBillingMoney(labelWalletRemainingCents(settings))}
               </p>
             </div>
           </div>
+          {!trialActive ? (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Your 30-day Buy Label trial has ended. Top up your wallet to purchase labels.
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">
+              You can top up anytime and pay from your wallet instead of using trial card checkout.
+            </p>
+          )}
         </CardContent>
       </Card>
+      </div>
 
       <Dialog open={historyKind != null} onOpenChange={(open) => !open && setHistoryKind(null)}>
         <DialogContent className="max-h-[min(92vh,860px)] overflow-y-auto sm:max-w-2xl">

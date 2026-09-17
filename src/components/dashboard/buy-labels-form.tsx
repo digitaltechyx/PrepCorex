@@ -28,7 +28,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2, Upload, ChevronsUpDown, Check, X, Search, ShoppingBag } from "lucide-react";
+import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2, Upload, ChevronsUpDown, Check, X, Search, ShoppingBag, Wallet } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Badge } from "@/components/ui/badge";
 import type { BuyLabelShopifyPrefillLine } from "@/lib/shopify-order-buy-label-prefill";
 import {
@@ -45,7 +46,13 @@ import { Elements } from "@stripe/react-stripe-js";
 import { getStripePublishableKey } from "@/lib/stripe";
 import { PaymentDialog } from "./payment-dialog";
 import type { InventoryItem, ShippingAddress, ParcelDetails, ShippingRate, LabelBillingSettings } from "@/types";
-import { normalizeLabelBillingSettings } from "@/lib/label-billing";
+import {
+  formatLabelBillingMoney,
+  isLabelTrialActive,
+  labelBillingRemainingCents,
+  normalizeLabelBillingSettings,
+  type LabelPaymentSource,
+} from "@/lib/label-billing";
 import { hasRole } from "@/lib/permissions";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { findDefaultWarehouseLocationIdInList } from "@/lib/default-warehouse";
@@ -343,6 +350,7 @@ export function BuyLabelsForm({
   const [cartItems, setCartItems] = useState<LabelCartItem[]>([]);
   const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
   const [labelBilling, setLabelBilling] = useState<LabelBillingSettings | null>(null);
+  const [paymentSource, setPaymentSource] = useState<LabelPaymentSource>("wallet");
   const [selectedFromLocationId, setSelectedFromLocationId] = useState("");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [selectedInventoryProductId, setSelectedInventoryProductId] = useState<string>("");
@@ -402,10 +410,59 @@ export function BuyLabelsForm({
     };
   }, [user]);
 
-  const payWithWallet =
-    !hasRole(userProfile, "admin") &&
-    !hasRole(userProfile, "sub_admin") &&
-    labelBilling?.mode === "wallet";
+  const isBillingExempt =
+    hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
+  const trialActive = labelBilling ? isLabelTrialActive(labelBilling) : false;
+  const showPaymentPicker = !isBillingExempt && Boolean(labelBilling) && trialActive;
+
+  useEffect(() => {
+    if (!labelBilling || isBillingExempt) return;
+    if (trialActive && labelBillingRemainingCents(labelBilling) > 0) {
+      setPaymentSource("trial");
+    } else {
+      setPaymentSource("wallet");
+    }
+  }, [labelBilling, trialActive, isBillingExempt]);
+
+  const payWithWallet = !isBillingExempt && paymentSource === "wallet";
+
+  const paymentMethodPicker =
+    showPaymentPicker && labelBilling ? (
+      <div className="rounded-md border p-3 space-y-2">
+        <p className="text-sm font-medium">Payment method</p>
+        <RadioGroup
+          value={paymentSource}
+          onValueChange={(value) => setPaymentSource(value as LabelPaymentSource)}
+          className="gap-3"
+        >
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
+            <RadioGroupItem value="trial" className="mt-0.5" />
+            <div>
+              <p className="text-sm font-medium">Buy Label Trial (card)</p>
+              <p className="text-xs text-muted-foreground">
+                {formatLabelBillingMoney(labelBillingRemainingCents(labelBilling))} remaining this{" "}
+                {labelBilling.period === "daily"
+                  ? "day"
+                  : labelBilling.period === "weekly"
+                    ? "week"
+                    : labelBilling.period === "yearly"
+                      ? "year"
+                      : "month"}
+              </p>
+            </div>
+          </label>
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
+            <RadioGroupItem value="wallet" className="mt-0.5" />
+            <div>
+              <p className="text-sm font-medium">Wallet</p>
+              <p className="text-xs text-muted-foreground">
+                Balance {formatLabelBillingMoney(labelBilling.walletBalanceCents || 0)}
+              </p>
+            </div>
+          </label>
+        </RadioGroup>
+      </div>
+    ) : null;
 
   const purchaseItemWithWallet = async (item: LabelCartItem) => {
     if (!user) throw new Error("You must be logged in to purchase labels.");
@@ -2254,32 +2311,40 @@ export function BuyLabelsForm({
               </div>
 
               {selectedRate && (
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 mt-4">
-                  <Button
-                    onClick={handleAddToCart}
-                    variant="outline"
-                    size="lg"
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add To Cart
-                  </Button>
-                  <Button
-                    onClick={handlePurchaseLabel}
-                    disabled={loading}
-                    size="lg"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <CreditCard className="mr-2 h-4 w-4" />
-                        Buy Now - ${parseFloat(selectedRate.amount).toFixed(2)}
-                      </>
-                    )}
-                  </Button>
+                <div className="mt-4 space-y-3">
+                  {paymentMethodPicker}
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <Button
+                      onClick={handleAddToCart}
+                      variant="outline"
+                      size="lg"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add To Cart
+                    </Button>
+                    <Button
+                      onClick={handlePurchaseLabel}
+                      disabled={loading}
+                      size="lg"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Processing...
+                        </>
+                      ) : payWithWallet ? (
+                        <>
+                          <Wallet className="mr-2 h-4 w-4" />
+                          Pay from wallet - ${parseFloat(selectedRate.amount).toFixed(2)}
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard className="mr-2 h-4 w-4" />
+                          Buy with trial - ${parseFloat(selectedRate.amount).toFixed(2)}
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -2317,6 +2382,7 @@ export function BuyLabelsForm({
                   </div>
                 ))}
               </div>
+              {paymentMethodPicker}
               <Button
                 onClick={handleStartBulkCheckout}
                 disabled={loading}
@@ -2328,15 +2394,22 @@ export function BuyLabelsForm({
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Starting Bulk Checkout...
                   </>
+                ) : payWithWallet ? (
+                  <>
+                    <Wallet className="mr-2 h-4 w-4" />
+                    Pay cart from wallet ({cartItems.length} labels)
+                  </>
                 ) : (
                   <>
                     <CreditCard className="mr-2 h-4 w-4" />
-                    Checkout Cart ({cartItems.length} labels)
+                    Checkout cart with trial ({cartItems.length} labels)
                   </>
                 )}
               </Button>
               <p className="text-xs text-muted-foreground text-center">
-                One payment for all cart labels. Labels are purchased automatically after payment.
+                {payWithWallet
+                  ? "Each label is paid from your wallet balance."
+                  : "One card payment for all cart labels. Labels are purchased automatically after payment."}
               </p>
             </div>
           )}

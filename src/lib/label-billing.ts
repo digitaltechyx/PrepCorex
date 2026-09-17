@@ -11,6 +11,10 @@ export const LABEL_BILLING_DEFAULT_PERIOD: LabelBillingPeriod = "monthly";
 export const LABEL_BILLING_DEFAULT_MARKUP_CENTS = 15;
 /** Monthly API fee access window (30 days). */
 export const LABEL_API_FEE_MONTHLY_MS = 30 * 24 * 60 * 60 * 1000;
+/** Buy Label trial window (30 days from `trialStartedAtIso`). */
+export const LABEL_TRIAL_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+
+export type LabelPaymentSource = "trial" | "wallet";
 
 export const LABEL_WALLET_TOPUP_COLLECTION = "labelWalletTopupRequests";
 export const LABEL_WALLET_LEDGER_COLLECTION = "labelWalletLedger";
@@ -253,7 +257,7 @@ export function normalizeLabelBillingSettings(
   raw: Partial<LabelBillingSettings> | null | undefined,
   now = new Date()
 ): LabelBillingSettings {
-  const mode = raw?.mode === "wallet" ? "wallet" : "limit";
+  const legacyMode = raw?.mode === "wallet" ? "wallet" : "limit";
   const period: LabelBillingPeriod =
     raw?.period === "daily" ||
     raw?.period === "weekly" ||
@@ -269,12 +273,30 @@ export function normalizeLabelBillingSettings(
         : LABEL_BILLING_DEFAULT_LIMIT_CENTS
     )
   );
+  const walletSpendLimitRaw = Math.floor(Number(raw?.walletSpendLimitCents));
+  const walletSpendLimitCents =
+    Number.isFinite(walletSpendLimitRaw) && walletSpendLimitRaw > 0
+      ? walletSpendLimitRaw
+      : undefined;
   const currentKey = labelBillingPeriodKey(period, now);
   const storedKey = String(raw?.periodKey || "").trim();
   const rolled = !storedKey || storedKey !== currentKey;
-  const periodUsedCents = rolled
+  let periodUsedCents = rolled
     ? 0
     : Math.max(0, Math.floor(Number(raw?.periodUsedCents) || 0));
+  let walletPeriodUsedCents = rolled
+    ? 0
+    : Math.max(0, Math.floor(Number(raw?.walletPeriodUsedCents) || 0));
+  // Legacy wallet-only accounts tracked wallet spend in periodUsedCents.
+  if (
+    raw?.walletPeriodUsedCents == null &&
+    legacyMode === "wallet" &&
+    !rolled &&
+    periodUsedCents > 0
+  ) {
+    walletPeriodUsedCents = periodUsedCents;
+    periodUsedCents = 0;
+  }
   const walletBalanceCents = Math.max(0, Math.floor(Number(raw?.walletBalanceCents) || 0));
   const markupCents = Math.max(
     0,
@@ -291,12 +313,26 @@ export function normalizeLabelBillingSettings(
     allowShipbest = true;
   }
 
-  return {
-    mode,
+  let trialStartedAtIso = raw?.trialStartedAtIso ? String(raw.trialStartedAtIso) : null;
+  let trialDisabled = raw?.trialDisabled === true;
+  if (!trialStartedAtIso && legacyMode === "wallet") {
+    // Legacy wallet-only: no trial window.
+    trialDisabled = true;
+  } else if (!trialStartedAtIso) {
+    // New or legacy limit-only: start the 30-day trial now.
+    trialStartedAtIso = now.toISOString();
+  }
+
+  const draft: LabelBillingSettings = {
+    mode: legacyMode,
+    trialStartedAtIso,
+    trialDisabled,
     limitAmountCents:
       limitAmountCents > 0 ? limitAmountCents : LABEL_BILLING_DEFAULT_LIMIT_CENTS,
     period,
     periodUsedCents,
+    walletPeriodUsedCents,
+    walletSpendLimitCents,
     periodKey: currentKey,
     walletBalanceCents,
     markupCents,
@@ -304,10 +340,66 @@ export function normalizeLabelBillingSettings(
     allowShipbest,
     apiFee: normalizeLabelApiFeeSettings(raw?.apiFee, now),
   };
+  draft.mode = isLabelTrialActive(draft, now) ? "limit" : "wallet";
+  return draft;
 }
 
 export function labelBillingRemainingCents(settings: LabelBillingSettings): number {
   return Math.max(0, settings.limitAmountCents - settings.periodUsedCents);
+}
+
+export function labelTrialEndsAt(
+  settings: Pick<LabelBillingSettings, "trialStartedAtIso">,
+  now = new Date()
+): Date | null {
+  const iso = settings.trialStartedAtIso;
+  if (!iso) return null;
+  const started = Date.parse(iso);
+  if (!Number.isFinite(started)) return null;
+  return new Date(started + LABEL_TRIAL_DURATION_MS);
+}
+
+/** True when the 30-day Buy Label trial window is still open. */
+export function isLabelTrialActive(
+  settings: Pick<LabelBillingSettings, "trialStartedAtIso" | "trialDisabled">,
+  now = new Date()
+): boolean {
+  if (settings.trialDisabled === true) return false;
+  const ends = labelTrialEndsAt(settings, now);
+  if (!ends) return false;
+  return now.getTime() < ends.getTime();
+}
+
+export function labelTrialRemainingMs(
+  settings: Pick<LabelBillingSettings, "trialStartedAtIso" | "trialDisabled">,
+  now = new Date()
+): number {
+  if (!isLabelTrialActive(settings, now)) return 0;
+  const ends = labelTrialEndsAt(settings, now);
+  if (!ends) return 0;
+  return Math.max(0, ends.getTime() - now.getTime());
+}
+
+export function labelWalletSpendLimitCents(settings: LabelBillingSettings): number {
+  const cap = Math.floor(Number(settings.walletSpendLimitCents));
+  if (Number.isFinite(cap) && cap > 0) return cap;
+  return settings.limitAmountCents;
+}
+
+export function labelWalletRemainingCents(settings: LabelBillingSettings): number {
+  const cap = labelWalletSpendLimitCents(settings);
+  const used = Math.max(0, Math.floor(Number(settings.walletPeriodUsedCents) || 0));
+  return Math.max(0, cap - used);
+}
+
+export function resolveLabelPaymentSource(
+  settings: LabelBillingSettings,
+  preferWallet: boolean,
+  now = new Date()
+): LabelPaymentSource {
+  if (preferWallet) return "wallet";
+  if (isLabelTrialActive(settings, now)) return "trial";
+  return "wallet";
 }
 
 export type LabelPurchaseGateResult =
@@ -320,6 +412,7 @@ export type LabelPurchaseGateResult =
         | "WALLET_INSUFFICIENT"
         | "WALLET_PERIOD_LIMIT"
         | "WRONG_MODE"
+        | "TRIAL_EXPIRED"
         | "API_FEE_REQUIRED";
     };
 
@@ -327,7 +420,8 @@ export type LabelPurchaseGateResult =
 export function canSpendLabelBilling(
   settings: LabelBillingSettings,
   amountCents: number,
-  opts?: { preferWallet?: boolean }
+  opts?: { preferWallet?: boolean; paymentSource?: LabelPaymentSource },
+  now = new Date()
 ): LabelPurchaseGateResult {
   const amount = Math.max(0, Math.floor(amountCents || 0));
   if (amount < 1) {
@@ -343,26 +437,30 @@ export function canSpendLabelBilling(
     };
   }
 
-  if (settings.mode === "limit") {
-    if (opts?.preferWallet) {
+  const source =
+    opts?.paymentSource ??
+    resolveLabelPaymentSource(settings, opts?.preferWallet === true, now);
+
+  if (source === "trial") {
+    if (!isLabelTrialActive(settings, now)) {
       return {
         ok: false,
-        error: "This account uses a purchase limit, not wallet balance.",
-        code: "WRONG_MODE",
+        error:
+          "Your 30-day Buy Label trial has ended. Top up your wallet to purchase labels.",
+        code: "TRIAL_EXPIRED",
       };
     }
     if (settings.periodUsedCents + amount > settings.limitAmountCents) {
       const left = labelBillingRemainingCents(settings);
       return {
         ok: false,
-        error: `Trial label purchase limit reached. Remaining this ${formatLabelBillingPeriod(settings.period)}: ${formatLabelBillingMoney(left)}. Contact an administrator to raise your limit.`,
+        error: `Trial label purchase limit reached. Remaining this ${formatLabelBillingPeriod(settings.period)}: ${formatLabelBillingMoney(left)}. Use your wallet or contact an administrator.`,
         code: "LIMIT_EXCEEDED",
       };
     }
     return { ok: true, settings };
   }
 
-  // wallet
   if ((settings.walletBalanceCents || 0) < amount) {
     return {
       ok: false,
@@ -370,8 +468,10 @@ export function canSpendLabelBilling(
       code: "WALLET_INSUFFICIENT",
     };
   }
-  if (settings.periodUsedCents + amount > settings.limitAmountCents) {
-    const left = labelBillingRemainingCents(settings);
+  const walletCap = labelWalletSpendLimitCents(settings);
+  const walletUsed = Math.max(0, Math.floor(Number(settings.walletPeriodUsedCents) || 0));
+  if (walletUsed + amount > walletCap) {
+    const left = labelWalletRemainingCents(settings);
     return {
       ok: false,
       error: `Wallet ${formatLabelBillingPeriod(settings.period)} spend limit reached. Remaining: ${formatLabelBillingMoney(left)}.`,
@@ -381,13 +481,23 @@ export function canSpendLabelBilling(
   return { ok: true, settings };
 }
 
-export function labelBillingSummaryLine(settings: LabelBillingSettings): string {
+export function labelBillingSummaryLine(
+  settings: LabelBillingSettings,
+  now = new Date()
+): string {
   const period = formatLabelBillingPeriod(settings.period);
-  const limit = formatLabelBillingMoney(settings.limitAmountCents);
-  const used = formatLabelBillingMoney(settings.periodUsedCents);
-  const left = formatLabelBillingMoney(labelBillingRemainingCents(settings));
-  if (settings.mode === "wallet") {
-    return `Your wallet ${period} limit is ${limit} · Used ${used} · Left ${left} · Balance ${formatLabelBillingMoney(settings.walletBalanceCents || 0)}`;
+  const walletBal = formatLabelBillingMoney(settings.walletBalanceCents || 0);
+  const walletLeft = formatLabelBillingMoney(labelWalletRemainingCents(settings));
+  const trialActive = isLabelTrialActive(settings, now);
+  if (trialActive) {
+    const limit = formatLabelBillingMoney(settings.limitAmountCents);
+    const used = formatLabelBillingMoney(settings.periodUsedCents);
+    const left = formatLabelBillingMoney(labelBillingRemainingCents(settings));
+    const ends = labelTrialEndsAt(settings, now);
+    const daysLeft = ends
+      ? Math.max(1, Math.ceil((ends.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
+      : 0;
+    return `Buy Label trial · ${daysLeft} day(s) left · Trial ${limit}/${period} · Used ${used} · Left ${left} · Wallet ${walletBal} · Wallet limit left ${walletLeft}`;
   }
-  return `Trial limit ${limit} / ${period} · Used ${used} · Left ${left}`;
+  return `Label wallet · Balance ${walletBal} · ${formatLabelBillingPeriodAdjective(settings.period)} spend left ${walletLeft}`;
 }

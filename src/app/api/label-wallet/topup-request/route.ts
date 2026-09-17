@@ -21,13 +21,7 @@ export async function POST(request: NextRequest) {
     };
 
     const userId = decoded.uid;
-    const settings = await ensureLabelBillingPeriodRolled(adminDb(), userId);
-    if (settings.mode !== "wallet") {
-      return NextResponse.json(
-        { error: "Wallet top-up is only available when admin enables wallet billing for your account." },
-        { status: 400 }
-      );
-    }
+    await ensureLabelBillingPeriodRolled(adminDb(), userId);
 
     const receiptUrls = clampLabelWalletProofUrls(body.receiptUrls);
     if (receiptUrls.length < 1) {

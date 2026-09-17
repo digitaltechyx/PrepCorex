@@ -4,12 +4,14 @@ import {
   applyLabelApiFeePaid,
   canSpendLabelBilling,
   isLabelApiFeeBlocking,
+  isLabelTrialActive,
   LABEL_BILLING_DEFAULT_MARKUP_CENTS,
   labelApiFeeBlockMessage,
   labelBillingPeriodKey,
   labelWalletLedgerPath,
   normalizeLabelApiFeeSettings,
   normalizeLabelBillingSettings,
+  resolveLabelPaymentSource,
 } from "@/lib/label-billing";
 import { markupCentsToDollars } from "@/lib/buy-labels-markup";
 import type {
@@ -89,7 +91,8 @@ export async function ensureLabelBillingPeriodRolled(
   const needsWrite =
     stored.periodKey !== settings.periodKey ||
     Number(stored.periodUsedCents || 0) !== settings.periodUsedCents ||
-    !stored.mode ||
+    Number(stored.walletPeriodUsedCents || 0) !== (settings.walletPeriodUsedCents ?? 0) ||
+    !stored.trialStartedAtIso ||
     stored.limitAmountCents == null;
 
   if (needsWrite) {
@@ -98,6 +101,7 @@ export async function ensureLabelBillingPeriodRolled(
         labelBilling: {
           ...settings,
           walletBalanceCents: settings.walletBalanceCents ?? 0,
+          walletPeriodUsedCents: settings.walletPeriodUsedCents ?? 0,
           updatedAt: FieldValue.serverTimestamp(),
         },
       },
@@ -159,21 +163,13 @@ export async function assertCanSpendLabelBilling(
       code: "API_FEE_REQUIRED",
     });
   }
+  const paymentSource = resolveLabelPaymentSource(settings, opts.preferWallet);
   const gate = canSpendLabelBilling(settings, opts.amountCents, {
     preferWallet: opts.preferWallet,
+    paymentSource,
   });
   if (!gate.ok) {
     throw Object.assign(new Error(gate.error), { code: gate.code });
-  }
-  if (settings.mode === "wallet" && !opts.preferWallet) {
-    throw Object.assign(new Error("This account pays with wallet balance. Use wallet checkout."), {
-      code: "WRONG_MODE",
-    });
-  }
-  if (settings.mode === "limit" && opts.preferWallet) {
-    throw Object.assign(new Error("This account uses a purchase limit, not wallet."), {
-      code: "WRONG_MODE",
-    });
   }
   return settings;
 }
@@ -208,24 +204,25 @@ export async function applyLabelBillingSpend(
     const settings = normalizeLabelBillingSettings(
       (data.labelBilling as Partial<LabelBillingSettings> | undefined) || null
     );
-    const gate = canSpendLabelBilling(settings, amount, { preferWallet: opts.preferWallet });
+    const paymentSource = resolveLabelPaymentSource(settings, opts.preferWallet);
+    const gate = canSpendLabelBilling(settings, amount, {
+      preferWallet: opts.preferWallet,
+      paymentSource,
+    });
     if (!gate.ok) {
       throw Object.assign(new Error(gate.error), { code: gate.code });
     }
 
-    if (settings.mode === "wallet") {
-      if (!opts.preferWallet) {
-        throw Object.assign(new Error("This account pays with wallet balance. Use wallet checkout."), {
-          code: "WRONG_MODE",
-        });
-      }
+    if (paymentSource === "wallet") {
       const nextBalance = (settings.walletBalanceCents || 0) - amount;
-      const nextUsed = settings.periodUsedCents + amount;
+      const nextWalletUsed =
+        Math.max(0, Math.floor(Number(settings.walletPeriodUsedCents) || 0)) + amount;
       const next: LabelBillingSettings = {
         ...settings,
         walletBalanceCents: nextBalance,
-        periodUsedCents: nextUsed,
+        walletPeriodUsedCents: nextWalletUsed,
         periodKey: labelBillingPeriodKey(settings.period),
+        mode: isLabelTrialActive(settings) ? "limit" : "wallet",
       };
       tx.set(
         userRef,
@@ -235,17 +232,12 @@ export async function applyLabelBillingSpend(
       return next;
     }
 
-    // limit mode — Stripe path; only track period usage
-    if (opts.preferWallet) {
-      throw Object.assign(new Error("This account uses a purchase limit, not wallet."), {
-        code: "WRONG_MODE",
-      });
-    }
     const nextUsed = settings.periodUsedCents + amount;
     const next: LabelBillingSettings = {
       ...settings,
       periodUsedCents: nextUsed,
       periodKey: labelBillingPeriodKey(settings.period),
+      mode: "limit",
     };
     tx.set(
       userRef,
@@ -255,13 +247,13 @@ export async function applyLabelBillingSpend(
     return next;
   });
 
-  if (opts.preferWallet && result.mode === "wallet") {
+  if (opts.preferWallet) {
     await appendLabelWalletLedger(db, {
       userId: opts.userId,
       type: "purchase",
       amountCents: -amount,
       balanceAfterCents: result.walletBalanceCents ?? 0,
-      periodUsedAfterCents: result.periodUsedCents,
+      periodUsedAfterCents: result.walletPeriodUsedCents ?? result.periodUsedCents,
       labelPurchaseId: opts.labelPurchaseId || null,
       createdBy: opts.actorUid,
       createdByName: opts.actorName || null,
@@ -278,8 +270,12 @@ export async function adminUpdateLabelBilling(
     userId: string;
     mode?: "limit" | "wallet";
     limitAmountCents?: number;
+    walletSpendLimitCents?: number;
     period?: LabelBillingPeriod;
     resetPeriodUsed?: boolean;
+    resetWalletPeriodUsed?: boolean;
+    resetTrial?: boolean;
+    trialDisabled?: boolean;
     walletBalanceCents?: number;
     reissueCreditCents?: number;
     markupCents?: number;
@@ -312,7 +308,22 @@ export async function adminUpdateLabelBilling(
     let ledgerDraft: LedgerDraft | null = null;
 
     if (opts.mode === "limit" || opts.mode === "wallet") {
-      settings = { ...settings, mode: opts.mode };
+      settings = {
+        ...settings,
+        mode: opts.mode,
+        trialDisabled: opts.mode === "wallet" ? true : settings.trialDisabled,
+      };
+    }
+    if (opts.resetTrial) {
+      settings = {
+        ...settings,
+        trialStartedAtIso: new Date().toISOString(),
+        trialDisabled: false,
+        periodUsedCents: 0,
+      };
+    }
+    if (typeof opts.trialDisabled === "boolean") {
+      settings = { ...settings, trialDisabled: opts.trialDisabled };
     }
     if (opts.period) {
       const period = opts.period;
@@ -329,6 +340,13 @@ export async function adminUpdateLabelBilling(
       settings = {
         ...settings,
         limitAmountCents: Math.max(0, Math.floor(opts.limitAmountCents)),
+      };
+    }
+    if (opts.walletSpendLimitCents != null && Number.isFinite(opts.walletSpendLimitCents)) {
+      const cap = Math.max(0, Math.floor(opts.walletSpendLimitCents));
+      settings = {
+        ...settings,
+        walletSpendLimitCents: cap > 0 ? cap : undefined,
       };
     }
     if (opts.markupCents != null && Number.isFinite(opts.markupCents)) {
@@ -403,7 +421,7 @@ export async function adminUpdateLabelBilling(
       settings = { ...settings, apiFee: normalizeLabelApiFeeSettings(nextFee) };
     }
     if (opts.resetPeriodUsed) {
-      settings = { ...settings, periodUsedCents: 0 };
+      settings = { ...settings, periodUsedCents: 0, walletPeriodUsedCents: 0 };
       ledgerDraft = {
         type: "period_reset",
         amountCents: 0,
@@ -411,6 +429,9 @@ export async function adminUpdateLabelBilling(
         periodUsedAfter: 0,
         reason: opts.reason || "Period usage reset by admin",
       };
+    }
+    if (opts.resetWalletPeriodUsed) {
+      settings = { ...settings, walletPeriodUsedCents: 0 };
     }
     if (opts.walletBalanceCents != null && Number.isFinite(opts.walletBalanceCents)) {
       const newBal = Math.max(0, Math.floor(opts.walletBalanceCents));
@@ -427,7 +448,7 @@ export async function adminUpdateLabelBilling(
     if (opts.reissueCreditCents != null && opts.reissueCreditCents > 0) {
       const credit = Math.floor(opts.reissueCreditCents);
       const newBal = (settings.walletBalanceCents || 0) + credit;
-      settings = { ...settings, walletBalanceCents: newBal, mode: "wallet" };
+      settings = { ...settings, walletBalanceCents: newBal };
       ledgerDraft = {
         type: "reissue_credit",
         amountCents: credit,

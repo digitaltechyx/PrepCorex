@@ -10,8 +10,12 @@ import { cn } from "@/lib/utils";
 import {
   formatLabelBillingMoney,
   formatLabelBillingPeriod,
+  isLabelTrialActive,
   labelBillingRemainingCents,
   labelBillingSummaryLine,
+  labelTrialEndsAt,
+  labelWalletRemainingCents,
+  labelWalletSpendLimitCents,
 } from "@/lib/label-billing";
 import type { LabelBillingPeriod, LabelBillingSettings } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -40,10 +44,11 @@ export function AdminLabelBillingPanel() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<LabelBillingSettings | null>(null);
-  const [mode, setMode] = useState<"limit" | "wallet">("limit");
   const [period, setPeriod] = useState<LabelBillingPeriod>("monthly");
   const [limitDollars, setLimitDollars] = useState("50");
+  const [walletSpendLimitDollars, setWalletSpendLimitDollars] = useState("50");
   const [walletDollars, setWalletDollars] = useState("0");
+  const [trialDisabled, setTrialDisabled] = useState(false);
   const [reissueDollars, setReissueDollars] = useState("");
   const [markupDollars, setMarkupDollars] = useState("0.15");
   const [allowShippo, setAllowShippo] = useState(true);
@@ -108,10 +113,11 @@ export function AdminLabelBillingPanel() {
       if (!res.ok) throw new Error(data.error || "Failed to load");
       const s = data.settings as LabelBillingSettings;
       setSettings(s);
-      setMode(s.mode);
       setPeriod(s.period);
       setLimitDollars((s.limitAmountCents / 100).toFixed(2));
+      setWalletSpendLimitDollars((labelWalletSpendLimitCents(s) / 100).toFixed(2));
       setWalletDollars(((s.walletBalanceCents || 0) / 100).toFixed(2));
+      setTrialDisabled(s.trialDisabled === true);
       setMarkupDollars(((s.markupCents ?? 15) / 100).toFixed(2));
       setAllowShippo(s.allowShippo !== false);
       setAllowShipbest(s.allowShipbest !== false);
@@ -170,8 +176,8 @@ export function AdminLabelBillingPanel() {
       <CardHeader>
         <CardTitle>Label billing settings</CardTitle>
         <CardDescription>
-          Default is a $20 monthly purchase limit, $0.15 rate markup, and both Shippo + PrepCorex GOFO
-          rates. Adjust billing, markup, couriers, and optional API fee per client.
+          Clients get a 30-day Buy Label trial plus a wallet. After 30 days the trial hides and only
+          the wallet remains. Default trial cap is $20/month with $0.15 markup.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 overflow-visible">
@@ -263,23 +269,18 @@ export function AdminLabelBillingPanel() {
               {labelBillingSummaryLine(settings)}
               <span className="text-muted-foreground">
                 {" "}
-                · Remaining {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
+                · Trial left {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
+                {" · "}
+                Wallet left {formatLabelBillingMoney(labelWalletRemainingCents(settings))}
               </span>
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {isLabelTrialActive(settings)
+                ? `Trial active until ${labelTrialEndsAt(settings)?.toLocaleString() || "—"}`
+                : "Trial ended or disabled — wallet only"}
             </p>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Mode</Label>
-                <Select value={mode} onValueChange={(v) => setMode(v as "limit" | "wallet")}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="limit">Purchase limit</SelectItem>
-                    <SelectItem value="wallet">Wallet</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="space-y-2">
                 <Label>Period</Label>
                 <Select value={period} onValueChange={(v) => setPeriod(v as LabelBillingPeriod)}>
@@ -295,10 +296,7 @@ export function AdminLabelBillingPanel() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>
-                  {mode === "wallet" ? "Wallet spend limit (USD)" : "Purchase limit (USD)"} /{" "}
-                  {formatLabelBillingPeriod(period)}
-                </Label>
+                <Label>Trial purchase limit (USD) / {formatLabelBillingPeriod(period)}</Label>
                 <Input
                   type="number"
                   min="0"
@@ -307,18 +305,35 @@ export function AdminLabelBillingPanel() {
                   onChange={(e) => setLimitDollars(e.target.value)}
                 />
               </div>
-              {mode === "wallet" ? (
-                <div className="space-y-2">
-                  <Label>Wallet balance (USD)</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={walletDollars}
-                    onChange={(e) => setWalletDollars(e.target.value)}
+              <div className="space-y-2">
+                <Label>Wallet spend limit (USD) / {formatLabelBillingPeriod(period)}</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={walletSpendLimitDollars}
+                  onChange={(e) => setWalletSpendLimitDollars(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Wallet balance (USD)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={walletDollars}
+                  onChange={(e) => setWalletDollars(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={trialDisabled}
+                    onCheckedChange={(v) => setTrialDisabled(v === true)}
                   />
-                </div>
-              ) : null}
+                  Disable Buy Label trial (wallet only)
+                </label>
+              </div>
               <div className="space-y-2">
                 <Label>Rate markup (USD)</Label>
                 <Input
@@ -431,9 +446,10 @@ export function AdminLabelBillingPanel() {
                 onClick={() =>
                   void patch(
                     {
-                      mode,
                       period,
                       limitAmountDollars: Number(limitDollars),
+                      walletSpendLimitDollars: Number(walletSpendLimitDollars),
+                      trialDisabled,
                       markupDollars: Number(markupDollars),
                       allowShippo,
                       allowShipbest,
@@ -461,51 +477,59 @@ export function AdminLabelBillingPanel() {
               >
                 Reset used (keep limit &amp; end date)
               </Button>
-              {mode === "wallet" ? (
-                <>
-                  <Button
-                    variant="secondary"
-                    disabled={saving}
-                    onClick={() =>
-                      void patch(
-                        {
-                          walletBalanceDollars: Number(walletDollars),
-                          reason: reason || "Wallet balance adjusted by admin",
-                        },
-                        "Wallet balance updated"
-                      )
-                    }
-                  >
-                    Set wallet balance
-                  </Button>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      className="w-28"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="Credit $"
-                      value={reissueDollars}
-                      onChange={(e) => setReissueDollars(e.target.value)}
-                    />
-                    <Button
-                      variant="secondary"
-                      disabled={saving || !reissueDollars}
-                      onClick={() =>
-                        void patch(
-                          {
-                            reissueCreditDollars: Number(reissueDollars),
-                            reason: reason || "Reissue credit",
-                          },
-                          "Credit reissued"
-                        )
-                      }
-                    >
-                      Reissue credit
-                    </Button>
-                  </div>
-                </>
-              ) : null}
+              <Button
+                variant="outline"
+                disabled={saving}
+                onClick={() =>
+                  void patch(
+                    { resetTrial: true, reason: reason || "30-day trial restarted by admin" },
+                    "30-day trial restarted"
+                  )
+                }
+              >
+                Restart 30-day trial
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={saving}
+                onClick={() =>
+                  void patch(
+                    {
+                      walletBalanceDollars: Number(walletDollars),
+                      reason: reason || "Wallet balance adjusted by admin",
+                    },
+                    "Wallet balance updated"
+                  )
+                }
+              >
+                Set wallet balance
+              </Button>
+              <div className="flex items-center gap-2">
+                <Input
+                  className="w-28"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Credit $"
+                  value={reissueDollars}
+                  onChange={(e) => setReissueDollars(e.target.value)}
+                />
+                <Button
+                  variant="secondary"
+                  disabled={saving || !reissueDollars}
+                  onClick={() =>
+                    void patch(
+                      {
+                        reissueCreditDollars: Number(reissueDollars),
+                        reason: reason || "Reissue credit",
+                      },
+                      "Credit reissued"
+                    )
+                  }
+                >
+                  Reissue credit
+                </Button>
+              </div>
             </div>
           </>
         ) : (

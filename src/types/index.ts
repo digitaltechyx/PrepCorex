@@ -583,15 +583,24 @@ export interface LabelApiFeeSettings {
 
 /** Per-user Buy Labels billing (stored on `users/{uid}.labelBilling`). */
 export interface LabelBillingSettings {
+  /** @deprecated Derived from trial/wallet availability; kept for legacy reads. */
   mode: LabelBillingMode;
-  /** Cap for the current calendar period (limit mode = purchase cap; wallet mode = spend-from-wallet cap). Cents. */
+  /** ISO instant when the 30-day Buy Label trial window started. */
+  trialStartedAtIso?: string | null;
+  /** When true, trial is hidden even if within 30 days (admin override). */
+  trialDisabled?: boolean;
+  /** Cap for trial purchases in the current calendar period. Cents. */
   limitAmountCents: number;
   period: LabelBillingPeriod;
-  /** Spend counted in the current `periodKey`. */
+  /** Trial spend counted in the current `periodKey`. */
   periodUsedCents: number;
+  /** Wallet spend counted in the current `periodKey`. */
+  walletPeriodUsedCents?: number;
+  /** Optional wallet period spend cap; defaults to `limitAmountCents`. Cents. */
+  walletSpendLimitCents?: number;
   /** Calendar key for the active period (e.g. `2026-08`, `2026-W32`). */
   periodKey: string;
-  /** Prepaid wallet balance in cents (wallet mode only). */
+  /** Prepaid wallet balance in cents. */
   walletBalanceCents?: number;
   /** Admin margin added to carrier rates (cents). Default 15 ($0.15). */
   markupCents: number;

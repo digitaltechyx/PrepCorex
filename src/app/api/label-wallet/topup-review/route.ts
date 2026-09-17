@@ -124,7 +124,6 @@ export async function POST(request: NextRequest) {
       const newBal = (settings.walletBalanceCents || 0) + creditedAmountCents;
       const next: LabelBillingSettings = {
         ...settings,
-        mode: "wallet",
         walletBalanceCents: newBal,
       };
       tx.set(
