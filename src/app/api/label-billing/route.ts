@@ -18,6 +18,7 @@ import {
   labelTrialEndsAt,
   labelWalletRemainingCents,
   normalizeLabelBillingSettings,
+  toFirestoreLabelBilling,
 } from "@/lib/label-billing";
 import type { LabelBillingPeriod } from "@/types";
 
@@ -195,7 +196,11 @@ export async function PATCH(request: NextRequest) {
 
     // Touch updatedAt on user for clients listening
     await adminDb().collection("users").doc(userId).set(
-      { labelBilling: { ...normalizeLabelBillingSettings(settings), updatedAt: FieldValue.serverTimestamp() } },
+      {
+        labelBilling: toFirestoreLabelBilling(normalizeLabelBillingSettings(settings), {
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+      },
       { merge: true }
     );
 

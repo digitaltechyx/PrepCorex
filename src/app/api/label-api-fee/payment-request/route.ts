@@ -7,6 +7,7 @@ import {
   labelApiFeePaymentPath,
   normalizeLabelApiFeeSettings,
   normalizeLabelBillingSettings,
+  toFirestoreLabelBilling,
 } from "@/lib/label-billing";
 import { clampLabelWalletProofUrls } from "@/lib/label-wallet-proof";
 import { ensureLabelBillingPeriodRolled } from "@/lib/label-billing-admin";
@@ -97,7 +98,11 @@ export async function POST(request: NextRequest) {
       });
       tx.set(
         userRef,
-        { labelBilling: { ...next, updatedAt: FieldValue.serverTimestamp() } },
+        {
+          labelBilling: toFirestoreLabelBilling(next, {
+            updatedAt: FieldValue.serverTimestamp(),
+          }),
+        },
         { merge: true }
       );
     });

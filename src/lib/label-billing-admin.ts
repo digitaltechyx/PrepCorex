@@ -12,6 +12,7 @@ import {
   normalizeLabelApiFeeSettings,
   normalizeLabelBillingSettings,
   resolveLabelPaymentSource,
+  toFirestoreLabelBilling,
 } from "@/lib/label-billing";
 import { markupCentsToDollars } from "@/lib/buy-labels-markup";
 import type {
@@ -98,12 +99,9 @@ export async function ensureLabelBillingPeriodRolled(
   if (needsWrite) {
     await ref.set(
       {
-        labelBilling: {
-          ...settings,
-          walletBalanceCents: settings.walletBalanceCents ?? 0,
-          walletPeriodUsedCents: settings.walletPeriodUsedCents ?? 0,
+        labelBilling: toFirestoreLabelBilling(settings, {
           updatedAt: FieldValue.serverTimestamp(),
-        },
+        }),
       },
       { merge: true }
     );
@@ -226,7 +224,11 @@ export async function applyLabelBillingSpend(
       };
       tx.set(
         userRef,
-        { labelBilling: { ...next, updatedAt: FieldValue.serverTimestamp() } },
+        {
+          labelBilling: toFirestoreLabelBilling(next, {
+            updatedAt: FieldValue.serverTimestamp(),
+          }),
+        },
         { merge: true }
       );
       return next;
@@ -241,7 +243,11 @@ export async function applyLabelBillingSpend(
     };
     tx.set(
       userRef,
-      { labelBilling: { ...next, updatedAt: FieldValue.serverTimestamp() } },
+      {
+        labelBilling: toFirestoreLabelBilling(next, {
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+      },
       { merge: true }
     );
     return next;
@@ -346,7 +352,7 @@ export async function adminUpdateLabelBilling(
       const cap = Math.max(0, Math.floor(opts.walletSpendLimitCents));
       settings = {
         ...settings,
-        walletSpendLimitCents: cap > 0 ? cap : undefined,
+        walletSpendLimitCents: cap > 0 ? cap : settings.limitAmountCents,
       };
     }
     if (opts.markupCents != null && Number.isFinite(opts.markupCents)) {
@@ -461,7 +467,11 @@ export async function adminUpdateLabelBilling(
     settings = normalizeLabelBillingSettings(settings);
     tx.set(
       userRef,
-      { labelBilling: { ...settings, updatedAt: FieldValue.serverTimestamp() } },
+      {
+        labelBilling: toFirestoreLabelBilling(settings, {
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+      },
       { merge: true }
     );
     return { next: settings, ledger: ledgerDraft };
@@ -532,7 +542,11 @@ export async function payLabelApiFeeFromWallet(
     settings = normalizeLabelBillingSettings(settings);
     tx.set(
       userRef,
-      { labelBilling: { ...settings, updatedAt: FieldValue.serverTimestamp() } },
+      {
+        labelBilling: toFirestoreLabelBilling(settings, {
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+      },
       { merge: true }
     );
     return { next: settings, amountPaid: fee.amountCents };
@@ -583,7 +597,11 @@ export async function markLabelApiFeePaid(
     settings = normalizeLabelBillingSettings(settings);
     tx.set(
       userRef,
-      { labelBilling: { ...settings, updatedAt: FieldValue.serverTimestamp() } },
+      {
+        labelBilling: toFirestoreLabelBilling(settings, {
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+      },
       { merge: true }
     );
     return settings;

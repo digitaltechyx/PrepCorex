@@ -8,7 +8,7 @@ import {
   ensureLabelBillingPeriodRolled,
 } from "@/lib/label-billing-admin";
 import { clampLabelWalletProofUrls } from "@/lib/label-wallet-proof";
-import { normalizeLabelBillingSettings } from "@/lib/label-billing";
+import { normalizeLabelBillingSettings, toFirestoreLabelBilling } from "@/lib/label-billing";
 import type { LabelBillingSettings, LabelWalletTopupRequest } from "@/types";
 
 export async function POST(request: NextRequest) {
@@ -128,7 +128,11 @@ export async function POST(request: NextRequest) {
       };
       tx.set(
         userRef,
-        { labelBilling: { ...next, updatedAt: FieldValue.serverTimestamp() } },
+        {
+          labelBilling: toFirestoreLabelBilling(next, {
+            updatedAt: FieldValue.serverTimestamp(),
+          }),
+        },
         { merge: true }
       );
       tx.update(requestRef, {

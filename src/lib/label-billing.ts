@@ -273,11 +273,13 @@ export function normalizeLabelBillingSettings(
         : LABEL_BILLING_DEFAULT_LIMIT_CENTS
     )
   );
+  const resolvedLimitCents =
+    limitAmountCents > 0 ? limitAmountCents : LABEL_BILLING_DEFAULT_LIMIT_CENTS;
   const walletSpendLimitRaw = Math.floor(Number(raw?.walletSpendLimitCents));
   const walletSpendLimitCents =
     Number.isFinite(walletSpendLimitRaw) && walletSpendLimitRaw > 0
       ? walletSpendLimitRaw
-      : undefined;
+      : resolvedLimitCents;
   const currentKey = labelBillingPeriodKey(period, now);
   const storedKey = String(raw?.periodKey || "").trim();
   const rolled = !storedKey || storedKey !== currentKey;
@@ -327,8 +329,7 @@ export function normalizeLabelBillingSettings(
     mode: legacyMode,
     trialStartedAtIso,
     trialDisabled,
-    limitAmountCents:
-      limitAmountCents > 0 ? limitAmountCents : LABEL_BILLING_DEFAULT_LIMIT_CENTS,
+    limitAmountCents: resolvedLimitCents,
     period,
     periodUsedCents,
     walletPeriodUsedCents,
@@ -384,6 +385,26 @@ export function labelWalletSpendLimitCents(settings: LabelBillingSettings): numb
   const cap = Math.floor(Number(settings.walletSpendLimitCents));
   if (Number.isFinite(cap) && cap > 0) return cap;
   return settings.limitAmountCents;
+}
+
+/** Firestore rejects `undefined` fields; persist only concrete billing values. */
+export function toFirestoreLabelBilling(
+  settings: LabelBillingSettings,
+  extra?: Record<string, unknown>
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    ...settings,
+    walletBalanceCents: settings.walletBalanceCents ?? 0,
+    walletPeriodUsedCents: settings.walletPeriodUsedCents ?? 0,
+    walletSpendLimitCents: labelWalletSpendLimitCents(settings),
+    trialStartedAtIso: settings.trialStartedAtIso ?? null,
+    trialDisabled: settings.trialDisabled === true,
+    ...extra,
+  };
+  for (const key of Object.keys(payload)) {
+    if (payload[key] === undefined) delete payload[key];
+  }
+  return payload;
 }
 
 export function labelWalletRemainingCents(settings: LabelBillingSettings): number {

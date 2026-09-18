@@ -11,7 +11,7 @@ import {
   buildShipBestCustomNo,
   purchaseLabelFromShipBest,
 } from "@/lib/shipbest-purchase";
-import { normalizeLabelBillingSettings } from "@/lib/label-billing";
+import { normalizeLabelBillingSettings, toFirestoreLabelBilling } from "@/lib/label-billing";
 import type { LabelBillingSettings } from "@/types";
 
 const SHIPPO_API_BASE = "https://api.goshippo.com";
@@ -75,13 +75,19 @@ async function refundWalletSpend(userId: string, amountCents: number, labelPurch
     const credit = Math.max(0, Math.floor(amountCents));
     const nextSettings: LabelBillingSettings = {
       ...settings,
-      mode: "wallet",
       walletBalanceCents: (settings.walletBalanceCents || 0) + credit,
-      periodUsedCents: Math.max(0, settings.periodUsedCents - credit),
+      walletPeriodUsedCents: Math.max(
+        0,
+        Math.floor(Number(settings.walletPeriodUsedCents) || 0) - credit
+      ),
     };
     tx.set(
       userRef,
-      { labelBilling: { ...nextSettings, updatedAt: adminFieldValue().serverTimestamp() } },
+      {
+        labelBilling: toFirestoreLabelBilling(nextSettings, {
+          updatedAt: adminFieldValue().serverTimestamp(),
+        }),
+      },
       { merge: true }
     );
     return nextSettings;
@@ -92,7 +98,7 @@ async function refundWalletSpend(userId: string, amountCents: number, labelPurch
     type: "purchase_refund",
     amountCents: Math.max(0, Math.floor(amountCents)),
     balanceAfterCents: next.walletBalanceCents || 0,
-    periodUsedAfterCents: next.periodUsedCents,
+    periodUsedAfterCents: next.walletPeriodUsedCents ?? next.periodUsedCents,
     labelPurchaseId,
     reason: "Wallet refund after label purchase failure",
     createdBy: actorUid,
