@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json({
         ok: true,
-        message: `Inbound #${data.requestId} approved. Status: pending receive.`,
+        message: `Inbound #${data.requestId} approved (clientUserId=${data.clientUserId}). Status: pending receive. To complete receive, use the same clientUserId and requestId.`,
         data,
       });
     }

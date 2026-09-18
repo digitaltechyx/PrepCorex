@@ -9,6 +9,8 @@ export type LexiActionType =
   | "outbound_pick_pack"
   | "outbound_ship_inventory"
   | "outbound_dispatch"
+  | "inbound_fulfill_all"
+  | "outbound_fulfill_all"
   | "restock"
   | "return_review"
   | "dispose_review"
@@ -18,6 +20,8 @@ export type LexiActionType =
 
 export const LEXI_CLIENT_ACTION_TYPES: LexiActionType[] = [
   "inbound_complete",
+  "inbound_fulfill_all",
+  "outbound_fulfill_all",
   "outbound_create",
   "outbound_reject",
   "outbound_pick_pack",
@@ -94,17 +98,50 @@ export type LexiInboundCompletePayload = {
   useDefaultBin?: boolean;
 };
 
-export type LexiOutboundCreatePayload = {
-  clientUserId: string;
-  clientUserName: string;
+export type LexiOutboundLinePayload = {
   productId: string;
   productName: string;
   sku?: string;
   quantity: number;
-  packOf?: number;
-  service?: string;
+  packOf: number;
+  unitPrice: number;
+  totalPrice: number;
+};
+
+export type LexiOutboundCreatePayload = {
+  clientUserId: string;
+  clientUserName: string;
+  service: string;
+  shipmentPreference: "box" | "pallet";
+  productType?: string;
   shipTo?: string;
   remarks?: string;
+  lines: LexiOutboundLinePayload[];
+  fbaLabelWorkflow: boolean;
+};
+
+export type LexiInboundFulfillAllPayload = {
+  clientUserId: string;
+  clientUserName: string;
+  requestId: string;
+  productName: string;
+  sku: string;
+  quantity: number;
+  skipApprove?: boolean;
+  useDefaultBin?: boolean;
+  binPath?: string;
+  warehouseId?: string;
+};
+
+export type LexiOutboundFulfillAllPayload = {
+  clientUserId: string;
+  clientUserName: string;
+  requestId: string;
+  productName: string;
+  quantity: number;
+  trackingNumber?: string;
+  useShipFromInventory?: boolean;
+  skipApprove?: boolean;
 };
 
 export type LexiOutboundApprovePayload = {

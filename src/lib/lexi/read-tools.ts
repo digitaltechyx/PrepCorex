@@ -305,6 +305,7 @@ export async function lexiListPending(
           const data = d.data();
           return {
             type,
+            clientUserId: uid,
             requestId: d.id,
             status: data.status ?? "",
             productName: nameOf(data),
@@ -434,6 +435,7 @@ export async function lexiListPending(
         const data = d.data() as InventoryRequest;
         return {
           type: "inbound_pending_receive",
+          clientUserId: uid,
           requestId: d.id,
           status: data.status ?? "",
           fulfillmentStatus: data.fulfillmentStatus ?? null,

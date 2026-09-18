@@ -141,10 +141,21 @@ export function LexiFloatingChat() {
         resultMessage = String(data.message ?? "Action completed.");
       }
 
+      const payload = pendingAction.payload as Record<string, unknown> | undefined;
+      const clientUserId =
+        payload?.clientUserId != null ? String(payload.clientUserId).trim() : "";
+      const requestId = payload?.requestId != null ? String(payload.requestId).trim() : "";
+      const metaLines = [
+        `[Confirmed ${pendingAction.type}]`,
+        clientUserId ? `clientUserId=${clientUserId}` : null,
+        requestId ? `requestId=${requestId}` : null,
+        pendingAction.summary,
+        `Result: ${resultMessage}`,
+      ].filter(Boolean);
       const systemNote: UiMessage = {
         id: newId(),
         role: "user",
-        content: `[Confirmed] ${pendingAction.summary}\nResult: ${resultMessage}`,
+        content: metaLines.join("\n"),
       };
       const next = [...messages, systemNote];
       setMessages(next);

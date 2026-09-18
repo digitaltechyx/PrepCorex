@@ -22,12 +22,15 @@ import { db } from "@/lib/firebase";
 import { auth } from "@/lib/firebase";
 import { lexiCompleteInboundOnClient } from "@/lib/lexi/inbound-complete-client";
 import { lexiCreateOutboundOnClient } from "@/lib/lexi/outbound-create-client";
+import { lexiFulfillInboundAll, lexiFulfillOutboundAll } from "@/lib/lexi/workflow-client";
 import type {
   LexiDisposeReviewPayload,
   LexiInboundCompletePayload,
+  LexiInboundFulfillAllPayload,
   LexiLabelReviewPayload,
   LexiOutboundCreatePayload,
   LexiOutboundDispatchPayload,
+  LexiOutboundFulfillAllPayload,
   LexiOutboundJobPayload,
   LexiPendingAction,
   LexiRejectPayload,
@@ -88,6 +91,12 @@ export async function lexiRunClientAction(
     case "inbound_complete":
       return (await lexiCompleteInboundOnClient(action.payload as LexiInboundCompletePayload, operatorId))
         .message;
+
+    case "inbound_fulfill_all":
+      return lexiFulfillInboundAll(action.payload as LexiInboundFulfillAllPayload, operatorId);
+
+    case "outbound_fulfill_all":
+      return lexiFulfillOutboundAll(action.payload as LexiOutboundFulfillAllPayload, operatorId);
 
     case "outbound_create":
       return (await lexiCreateOutboundOnClient(action.payload as LexiOutboundCreatePayload, operatorId))

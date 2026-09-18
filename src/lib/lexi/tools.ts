@@ -1,13 +1,14 @@
 import { randomUUID } from "crypto";
 import type OpenAI from "openai";
 import { LEXI_EXTRA_TOOLS, runLexiExtraTool } from "@/lib/lexi/extra-tools";
-import { resolveLexiClient } from "@/lib/lexi/access";
+import { resolveLexiClient, resolveLexiClientForInbound } from "@/lib/lexi/access";
 import {
   lexiFindClients,
   lexiFindProducts,
   lexiGetInboundRequest,
   lexiGetOutboundRequest,
 } from "@/lib/lexi/read-tools";
+import { prepareLexiOutboundCreate } from "@/lib/lexi/outbound-create-server";
 import type {
   LexiInboundApprovePayload,
   LexiInboundCompletePayload,
@@ -176,7 +177,7 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "propose_outbound_create",
       description:
-        "Propose creating a pending product outbound/shipment request (requires admin confirmation). Reserves sellable stock.",
+        "Propose creating a pending product outbound request (requires admin confirmation). ALWAYS ask admin for service (FBA/WFS/TFS vs DTC/FBM) and shipmentPreference (box vs pallet) unless they already provided them. Supports multiple lines in one request, including the same product with different pack sizes (e.g. 5 pack of 2 and 10 pack of 3). Uses client pricing tariff — never $0.",
       parameters: {
         type: "object",
         properties: {
@@ -185,19 +186,40 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             description: "Exact Firebase uid from find_clients — never a display name",
           },
           clientUserName: { type: "string" },
-          productId: {
+          service: {
             type: "string",
-            description: "Exact inventory product id from find_products",
+            enum: ["FBA/WFS/TFS", "DTC/FBM"],
+            description: "FBA/WFS/TFS = marketplace prep. DTC/FBM = merchant fulfilled.",
           },
-          productName: { type: "string" },
-          sku: { type: "string" },
-          quantity: { type: "number", description: "Number of packs / lines (units = quantity × packOf)" },
-          packOf: { type: "number" },
-          service: { type: "string" },
-          shipTo: { type: "string" },
+          shipmentPreference: {
+            type: "string",
+            enum: ["box", "pallet"],
+            description: "box = small parcel (SPD). pallet = LTL.",
+          },
+          productType: {
+            type: "string",
+            enum: ["Standard", "Custom"],
+            description: "Default Standard unless admin says Custom.",
+          },
+          shipTo: { type: "string", description: "Optional ship-to / destination note." },
           remarks: { type: "string" },
+          lines: {
+            type: "array",
+            description: "One or more product lines. Same product may appear multiple times with different packOf.",
+            items: {
+              type: "object",
+              properties: {
+                productId: { type: "string", description: "From find_products" },
+                productName: { type: "string" },
+                sku: { type: "string" },
+                quantity: { type: "number", description: "Number of packs/boxes on this line" },
+                packOf: { type: "number", description: "Units per pack (default 1)" },
+              },
+              required: ["productId", "productName", "quantity"],
+            },
+          },
         },
-        required: ["clientUserId", "clientUserName", "productId", "productName", "quantity"],
+        required: ["clientUserId", "clientUserName", "service", "shipmentPreference", "lines"],
       },
     },
   },
@@ -252,11 +274,11 @@ export async function runLexiTool(
       return { toolResult: JSON.stringify({ clientUserId: client.uid, products: results }) };
     }
     case "get_inbound_request": {
-      const client = await resolveLexiClient(
-        adminProfile,
-        String(args.clientUserId ?? ""),
-        String(args.clientUserName ?? "")
-      );
+      const client = await resolveLexiClientForInbound(adminProfile, {
+        clientUserId: String(args.clientUserId ?? ""),
+        clientUserName: String(args.clientUserName ?? ""),
+        requestId: args.requestId ? String(args.requestId) : undefined,
+      });
       const result = await lexiGetInboundRequest(
         adminProfile,
         client.uid,
@@ -302,11 +324,11 @@ export async function runLexiTool(
       };
     }
     case "propose_inbound_approve": {
-      const client = await resolveLexiClient(
-        adminProfile,
-        String(args.clientUserId ?? ""),
-        String(args.clientUserName ?? "")
-      );
+      const client = await resolveLexiClientForInbound(adminProfile, {
+        clientUserId: String(args.clientUserId ?? ""),
+        clientUserName: String(args.clientUserName ?? ""),
+        requestId: String(args.requestId ?? ""),
+      });
       const payload: LexiInboundApprovePayload = {
         clientUserId: client.uid,
         clientUserName: client.name,
@@ -321,24 +343,61 @@ export async function runLexiTool(
       };
     }
     case "propose_inbound_complete": {
-      const client = await resolveLexiClient(
-        adminProfile,
-        String(args.clientUserId ?? ""),
-        String(args.clientUserName ?? "")
-      );
+      const requestId = String(args.requestId ?? "").trim();
+      const client = await resolveLexiClientForInbound(adminProfile, {
+        clientUserId: String(args.clientUserId ?? ""),
+        clientUserName: String(args.clientUserName ?? ""),
+        requestId,
+      });
+      const request = await lexiGetInboundRequest(adminProfile, client.uid, requestId);
+      if (!request) {
+        return {
+          toolResult: JSON.stringify({
+            error: `Inbound request #${requestId} not found for ${client.name}.`,
+          }),
+        };
+      }
+      const status = String(request.status ?? "").trim().toLowerCase();
+      if (status !== "approved") {
+        return {
+          toolResult: JSON.stringify({
+            error: `Request #${requestId} is "${request.status}" — not approved yet. Approve first and wait for Confirm success, then complete receive. clientUserId=${client.uid}`,
+            clientUserId: client.uid,
+            requestId,
+            status: request.status,
+          }),
+        };
+      }
+      const fulfillment = String(request.fulfillmentStatus ?? "").trim().toLowerCase();
+      if (fulfillment && fulfillment !== "open") {
+        return {
+          toolResult: JSON.stringify({
+            error: `Request #${requestId} fulfillment is "${request.fulfillmentStatus}" — only open approved inbounds can be received.`,
+            clientUserId: client.uid,
+            requestId,
+          }),
+        };
+      }
       const payload: LexiInboundCompletePayload = {
         clientUserId: client.uid,
         clientUserName: client.name,
-        requestId: String(args.requestId),
-        productName: String(args.productName),
-        sku: String(args.sku),
-        quantity: args.quantity != null ? Number(args.quantity) : undefined,
+        requestId,
+        productName: String(args.productName || request.productName || ""),
+        sku: String(args.sku || request.sku || ""),
+        quantity:
+          args.quantity != null
+            ? Number(args.quantity)
+            : Number(request.remainingToReceive) > 0
+              ? Number(request.remainingToReceive)
+              : undefined,
         binPath: args.binPath ? String(args.binPath) : undefined,
         useDefaultBin: args.useDefaultBin === true || !args.binPath,
         warehouseId: args.warehouseId ? String(args.warehouseId) : undefined,
       };
       const qtyLabel = payload.quantity != null ? `${payload.quantity} good units` : "remaining good units";
-      const dest = payload.binPath ? `bin ${payload.binPath}` : "auto-resolved default bin";
+      const dest = payload.binPath
+        ? `bin ${payload.binPath}`
+        : "default warehouse bin (auto: prior SKU bin, else first compatible bin)";
       const summary = `Complete receive for #${payload.requestId} (${payload.productName}): ${qtyLabel} → ${dest}`;
       return {
         toolResult: JSON.stringify({ proposed: true, summary, awaitingConfirmation: true }),
@@ -351,25 +410,64 @@ export async function runLexiTool(
         String(args.clientUserId ?? ""),
         String(args.clientUserName ?? "")
       );
-      const payload: LexiOutboundCreatePayload = {
-        clientUserId: client.uid,
-        clientUserName: client.name,
-        productId: String(args.productId),
-        productName: String(args.productName),
-        sku: args.sku ? String(args.sku) : undefined,
-        quantity: Number(args.quantity),
-        packOf: args.packOf != null ? Number(args.packOf) : 1,
-        service: args.service ? String(args.service) : undefined,
-        shipTo: args.shipTo ? String(args.shipTo) : undefined,
-        remarks: args.remarks ? String(args.remarks) : undefined,
-      };
-      const packOf = payload.packOf ?? 1;
-      const totalUnits = payload.quantity * packOf;
-      const summary = `Create outbound for ${payload.clientUserName}: ${payload.quantity} × pack ${packOf} (${totalUnits} units) of ${payload.productName}`;
-      return {
-        toolResult: JSON.stringify({ proposed: true, summary, awaitingConfirmation: true }),
-        pendingAction: { id: randomUUID(), type: "outbound_create", summary, payload },
-      };
+      const rawLines = Array.isArray(args.lines) ? args.lines : [];
+      const linesInput =
+        rawLines.length > 0
+          ? rawLines.map((row: Record<string, unknown>) => ({
+              productId: String(row.productId ?? ""),
+              productName: String(row.productName ?? ""),
+              sku: row.sku ? String(row.sku) : undefined,
+              quantity: Number(row.quantity),
+              packOf: row.packOf != null ? Number(row.packOf) : 1,
+            }))
+          : args.productId
+            ? [
+                {
+                  productId: String(args.productId),
+                  productName: String(args.productName ?? ""),
+                  sku: args.sku ? String(args.sku) : undefined,
+                  quantity: Number(args.quantity),
+                  packOf: args.packOf != null ? Number(args.packOf) : 1,
+                },
+              ]
+            : [];
+
+      try {
+        const payload = await prepareLexiOutboundCreate({
+          clientUserId: client.uid,
+          clientUserName: client.name,
+          service: String(args.service ?? ""),
+          shipmentPreference: String(args.shipmentPreference ?? ""),
+          productType: args.productType ? String(args.productType) : undefined,
+          shipTo: args.shipTo ? String(args.shipTo) : undefined,
+          remarks: args.remarks ? String(args.remarks) : undefined,
+          lines: linesInput,
+        });
+        const totalUnits = payload.lines.reduce(
+          (sum, line) => sum + line.quantity * line.packOf,
+          0
+        );
+        const totalPrice = payload.lines.reduce((sum, line) => sum + line.totalPrice, 0);
+        const lineText = payload.lines
+          .map((line) => `${line.quantity}×pack${line.packOf} ${line.productName}`)
+          .join("; ");
+        const summary = `Create outbound for ${payload.clientUserName}: ${lineText}. ${totalUnits} units · $${totalPrice.toFixed(2)} · ${payload.service} · ${payload.shipmentPreference}${payload.fbaLabelWorkflow ? " · FBA workflow" : ""}`;
+        return {
+          toolResult: JSON.stringify({
+            proposed: true,
+            summary,
+            clientUserId: client.uid,
+            awaitingConfirmation: true,
+          }),
+          pendingAction: { id: randomUUID(), type: "outbound_create", summary, payload },
+        };
+      } catch (error) {
+        return {
+          toolResult: JSON.stringify({
+            error: error instanceof Error ? error.message : "Could not prepare outbound.",
+          }),
+        };
+      }
     }
     case "propose_outbound_approve": {
       const client = await resolveLexiClient(

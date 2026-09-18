@@ -1,6 +1,6 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
-import { resolveLexiClient } from "@/lib/lexi/access";
+import { resolveLexiClient, resolveLexiClientForInbound } from "@/lib/lexi/access";
 import type {
   LexiInboundApprovePayload,
   LexiInboundCreatePayload,
@@ -59,11 +59,11 @@ export async function lexiApproveInboundRequest(
   adminUid: string,
   payload: LexiInboundApprovePayload
 ): Promise<{ requestId: string; clientUserId: string }> {
-  const client = await resolveLexiClient(
-    adminProfile,
-    payload.clientUserId,
-    payload.clientUserName
-  );
+  const client = await resolveLexiClientForInbound(adminProfile, {
+    clientUserId: payload.clientUserId,
+    clientUserName: payload.clientUserName,
+    requestId: payload.requestId,
+  });
 
   const ref = adminDb()
     .collection(`users/${client.uid}/inventoryRequests`)

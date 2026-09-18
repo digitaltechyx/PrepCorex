@@ -59,6 +59,61 @@ export async function resolveLexiClient(
   );
 }
 
+/** Find which managed client owns an inbound inventoryRequests doc. */
+export async function resolveLexiClientByInboundRequestId(
+  adminProfile: UserProfile,
+  requestId: string
+): Promise<{ uid: string; name: string } | null> {
+  const reqId = String(requestId ?? "").trim();
+  if (!reqId) return null;
+
+  const managed = await loadManagedClientProfiles(adminProfile);
+  for (const client of managed) {
+    const uid = String(client.uid ?? "").trim();
+    if (!uid) continue;
+    const snap = await adminDb().collection(`users/${uid}/inventoryRequests`).doc(reqId).get();
+    if (snap.exists) {
+      await assertLexiCanManageClient(adminProfile, uid);
+      return { uid, name: displayName(client) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve client for inbound tools. Handles the common mistake of passing requestId as clientUserId.
+ */
+export async function resolveLexiClientForInbound(
+  adminProfile: UserProfile,
+  opts: { clientUserId?: string; clientUserName?: string; requestId?: string }
+): Promise<{ uid: string; name: string }> {
+  const id = String(opts.clientUserId ?? "").trim();
+  const reqId = String(opts.requestId ?? "").trim();
+  const nameHint = String(opts.clientUserName ?? "").trim();
+
+  if (reqId) {
+    const byRequest = await resolveLexiClientByInboundRequestId(adminProfile, reqId);
+    if (byRequest) return byRequest;
+  }
+
+  if (id && id !== reqId) {
+    try {
+      return await resolveLexiClient(adminProfile, id, nameHint);
+    } catch (error) {
+      const byWrongId = await resolveLexiClientByInboundRequestId(adminProfile, id);
+      if (byWrongId) return byWrongId;
+      throw error;
+    }
+  }
+
+  if (id) {
+    const byWrongId = await resolveLexiClientByInboundRequestId(adminProfile, id);
+    if (byWrongId) return byWrongId;
+  }
+
+  return resolveLexiClient(adminProfile, id, nameHint);
+}
+
 export async function loadLexiAdminProfile(adminUid: string): Promise<UserProfile | null> {
   const snap = await adminDb().collection("users").doc(adminUid).get();
   if (!snap.exists) return null;

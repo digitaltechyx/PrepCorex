@@ -63,7 +63,14 @@ export async function runLexiChat(input: {
 
       const result = await runLexiTool(input.adminProfile, call.function.name, args);
       if (result.pendingAction) {
-        pendingAction = result.pendingAction;
+        // Keep approve before complete when the model proposes both in one turn.
+        if (
+          !pendingAction ||
+          (result.pendingAction.type === "inbound_approve" &&
+            pendingAction.type === "inbound_complete")
+        ) {
+          pendingAction = result.pendingAction;
+        }
       }
       if (result.report) {
         report = result.report;

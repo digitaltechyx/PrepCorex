@@ -1,13 +1,21 @@
 import { randomUUID } from "crypto";
 import type OpenAI from "openai";
-import { resolveLexiClient } from "@/lib/lexi/access";
+import { resolveLexiClient, resolveLexiClientForInbound } from "@/lib/lexi/access";
 import { lexiGenerateReport } from "@/lib/lexi/generate-report";
-import { lexiListPending, lexiListWarehouses, lexiLookupClientRecords } from "@/lib/lexi/read-tools";
+import {
+  lexiGetInboundRequest,
+  lexiGetOutboundRequest,
+  lexiListPending,
+  lexiListWarehouses,
+  lexiLookupClientRecords,
+} from "@/lib/lexi/read-tools";
 import type {
   LexiActionType,
   LexiDisposeReviewPayload,
+  LexiInboundFulfillAllPayload,
   LexiLabelReviewPayload,
   LexiOutboundDispatchPayload,
+  LexiOutboundFulfillAllPayload,
   LexiOutboundJobPayload,
   LexiPendingAction,
   LexiRejectPayload,
@@ -307,6 +315,47 @@ export const LEXI_EXTRA_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "propose_inbound_fulfill_all",
+      description:
+        "Propose approve + receive + putaway for an inbound in ONE confirm when admin asks to complete/process/fulfill the whole request. Use when status is pending or approved open inbound.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: uidProp,
+          clientUserName: { type: "string" },
+          requestId: { type: "string" },
+          productName: { type: "string" },
+          sku: { type: "string" },
+          quantity: { type: "number" },
+        },
+        required: ["clientUserId", "clientUserName", "requestId", "productName", "sku", "quantity"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_outbound_fulfill_all",
+      description:
+        "Propose approve + pick/pack + dispatch for an outbound in ONE confirm when admin asks to complete/process/ship the whole request.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: uidProp,
+          clientUserName: { type: "string" },
+          requestId: { type: "string" },
+          productName: { type: "string" },
+          quantity: { type: "number" },
+          trackingNumber: { type: "string" },
+          useShipFromInventory: { type: "boolean" },
+        },
+        required: ["clientUserId", "clientUserName", "requestId", "productName", "quantity"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "propose_label_review",
       description: "Propose approve or reject a label refund, wallet top-up, or API fee payment request.",
       parameters: {
@@ -436,6 +485,72 @@ export async function runLexiExtraTool(
         `Dispatch outbound #${payload.requestId} for ${payload.clientUserName}${payload.trackingNumber ? ` tracking ${payload.trackingNumber}` : ""}`,
         payload
       );
+    }
+    case "propose_inbound_fulfill_all": {
+      const requestId = String(args.requestId ?? "").trim();
+      const client = await resolveLexiClientForInbound(adminProfile, {
+        clientUserId: String(args.clientUserId ?? ""),
+        clientUserName: String(args.clientUserName ?? ""),
+        requestId,
+      });
+      const request = await lexiGetInboundRequest(adminProfile, client.uid, requestId);
+      if (!request) {
+        return { toolResult: JSON.stringify({ error: `Inbound #${requestId} not found.` }) };
+      }
+      const status = String(request.status ?? "").toLowerCase();
+      const skipApprove = status === "approved";
+      if (status !== "pending" && !skipApprove) {
+        return {
+          toolResult: JSON.stringify({
+            error: `Inbound #${requestId} is "${request.status}" — only pending or approved open inbounds can be fulfilled.`,
+          }),
+        };
+      }
+      const payload: LexiInboundFulfillAllPayload = {
+        clientUserId: client.uid,
+        clientUserName: client.name,
+        requestId,
+        productName: String(args.productName || request.productName || ""),
+        sku: String(args.sku || request.sku || ""),
+        quantity: Number(args.quantity ?? request.quantity ?? request.remainingToReceive ?? 0),
+        skipApprove,
+        useDefaultBin: true,
+      };
+      const summary = skipApprove
+        ? `Complete receive for inbound #${requestId} (${payload.productName}) — receive + putaway in one step`
+        : `Approve + complete inbound #${requestId} (${payload.productName}) in one step`;
+      return pending("inbound_fulfill_all", summary, payload);
+    }
+    case "propose_outbound_fulfill_all": {
+      const requestId = String(args.requestId ?? "").trim();
+      const client = await resolve();
+      const request = await lexiGetOutboundRequest(adminProfile, client.uid, requestId);
+      if (!request) {
+        return { toolResult: JSON.stringify({ error: `Outbound #${requestId} not found.` }) };
+      }
+      const status = String(request.status ?? "").toLowerCase();
+      const skipApprove = status !== "pending";
+      if (status === "rejected" || status === "cancelled") {
+        return {
+          toolResult: JSON.stringify({
+            error: `Outbound #${requestId} is "${request.status}" and cannot be fulfilled.`,
+          }),
+        };
+      }
+      const payload: LexiOutboundFulfillAllPayload = {
+        clientUserId: client.uid,
+        clientUserName: client.name,
+        requestId,
+        productName: String(args.productName || request.productName || ""),
+        quantity: Number(args.quantity ?? request.quantity ?? 0),
+        trackingNumber: args.trackingNumber ? String(args.trackingNumber) : undefined,
+        useShipFromInventory: args.useShipFromInventory === true,
+        skipApprove,
+      };
+      const summary = skipApprove
+        ? `Pick/pack + dispatch outbound #${requestId} (${payload.productName}) in one step`
+        : `Approve + pick/pack + dispatch outbound #${requestId} (${payload.productName}) in one step`;
+      return pending("outbound_fulfill_all", summary, payload);
     }
     case "propose_restock": {
       const client = await resolve();
