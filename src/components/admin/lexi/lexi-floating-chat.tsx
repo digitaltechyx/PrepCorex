@@ -2,7 +2,6 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Download, Loader2, Send, Sparkles, X } from "lucide-react";
-import { brandLogoSrc } from "@/components/logo";
 import { auth } from "@/lib/firebase";
 import { lexiRunClientAction } from "@/lib/lexi/run-client";
 import {
@@ -199,19 +198,9 @@ export function LexiFloatingChat() {
                 <p className="font-semibold leading-tight">
                   LEXI<sup className="ml-0.5 text-[9px] font-normal opacity-90">™</sup>
                 </p>
-                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-violet-100/90">
-                    powered by
-                  </span>
-                  <img
-                    src={brandLogoSrc}
-                    alt="PrepCorex"
-                    className="h-[13px] w-auto max-w-[108px] object-contain object-left"
-                    width={418}
-                    height={100}
-                    decoding="async"
-                  />
-                </div>
+                <p className="mt-0.5 text-[11px] text-violet-100">
+                  powered by <span className="font-semibold text-white">PrepCorex</span>
+                </p>
               </div>
             </div>
             <Button
