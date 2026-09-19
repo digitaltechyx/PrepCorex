@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Download, Loader2, MessageCircle, Send, Sparkles, X } from "lucide-react";
+import { Download, Loader2, Send, Sparkles, X } from "lucide-react";
+import { brandLogoSrc } from "@/components/logo";
 import { auth } from "@/lib/firebase";
 import { lexiRunClientAction } from "@/lib/lexi/run-client";
 import {
@@ -38,7 +39,7 @@ export function LexiFloatingChat() {
       id: newId(),
       role: "assistant",
       content:
-        "Hi, I'm LEXI. Ask me anything about PrepCorex, a client's data, or a report — I'll look it up and can download a CSV. I only change data for inbound, outbound, restock, returns, dispose, delete, quarantine, and label reviews, and only after you Confirm.",
+        "Hi, I'm LEXI™, powered by PrepCorex. Ask me anything about PrepCorex, a client's data, or a report — I'll look it up and can download a CSV. I only change data for inbound, outbound, restock, returns, dispose, delete, quarantine, and label reviews, and only after you Confirm.",
     },
   ]);
   const [pendingAction, setPendingAction] = useState<LexiPendingAction | null>(null);
@@ -180,7 +181,8 @@ export function LexiFloatingChat() {
           type="button"
           onClick={() => setOpen(true)}
           className="fixed bottom-20 right-4 z-50 h-14 w-14 rounded-full bg-violet-600 p-0 shadow-lg hover:bg-violet-700 sm:bottom-6 sm:right-24"
-          aria-label="Open LEXI assistant"
+          aria-label="Open LEXI, powered by PrepCorex"
+          title="LEXI™ · Powered by PrepCorex"
         >
           <Sparkles className="h-6 w-6 text-white" />
         </Button>
@@ -189,11 +191,27 @@ export function LexiFloatingChat() {
       {open ? (
         <div className="fixed bottom-4 right-4 z-50 flex h-[min(560px,calc(100vh-2rem))] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border bg-background shadow-2xl sm:bottom-6 sm:right-24">
           <div className="flex items-center justify-between border-b bg-violet-600 px-4 py-3 text-white">
-            <div className="flex items-center gap-2">
-              <MessageCircle className="h-5 w-5" />
-              <div>
-                <p className="font-semibold leading-tight">LEXI</p>
-                <p className="text-xs text-violet-100">PrepCorex admin assistant</p>
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/20">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold leading-tight">
+                  LEXI<sup className="ml-0.5 text-[9px] font-normal opacity-90">™</sup>
+                </p>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-violet-100/90">
+                    powered by
+                  </span>
+                  <img
+                    src={brandLogoSrc}
+                    alt="PrepCorex"
+                    className="h-[13px] w-auto max-w-[108px] object-contain object-left"
+                    width={418}
+                    height={100}
+                    decoding="async"
+                  />
+                </div>
               </div>
             </div>
             <Button
@@ -236,7 +254,7 @@ export function LexiFloatingChat() {
             {loading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                LEXI is thinking…
+                LEXI™ is thinking…
               </div>
             ) : null}
           </div>
@@ -304,6 +322,9 @@ export function LexiFloatingChat() {
                 <Send className="h-4 w-4" />
               </Button>
             </div>
+            <p className="mt-2 text-center text-[10px] text-muted-foreground">
+              LEXI™ · Powered by PrepCorex
+            </p>
           </div>
         </div>
       ) : null}
