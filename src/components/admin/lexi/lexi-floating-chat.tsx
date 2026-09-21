@@ -5,9 +5,15 @@ import { Download, Loader2, Send, Sparkles, X } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { lexiRunClientAction } from "@/lib/lexi/run-client";
 import {
+  firstSupportedQueueIndex,
+  formatQueueContinueUserMessage,
+  formatQueueStartUserMessage,
+} from "@/lib/lexi/pending-queue-shared";
+import {
   LEXI_CLIENT_ACTION_TYPES,
   type LexiChatMessage,
   type LexiPendingAction,
+  type LexiPendingProcessingQueue,
   type LexiReportAttachment,
 } from "@/lib/lexi/types";
 import { Button } from "@/components/ui/button";
@@ -42,9 +48,30 @@ export function LexiFloatingChat() {
     },
   ]);
   const [pendingAction, setPendingAction] = useState<LexiPendingAction | null>(null);
+  const [pendingQueue, setPendingQueue] = useState<LexiPendingProcessingQueue | null>(null);
+  const [queueActive, setQueueActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const queueActiveRef = useRef(false);
+  const pendingQueueRef = useRef<LexiPendingProcessingQueue | null>(null);
+
+  const supportedQueueTotal = pendingQueue?.supportedCount ?? 0;
+
+  const stopQueue = useCallback(() => {
+    queueActiveRef.current = false;
+    pendingQueueRef.current = null;
+    setQueueActive(false);
+    setPendingQueue(null);
+  }, []);
+
+  const applyQueueFromResponse = useCallback((queue: LexiPendingProcessingQueue | null | undefined) => {
+    if (!queue || queue.supportedCount === 0) return;
+    queueActiveRef.current = true;
+    pendingQueueRef.current = queue;
+    setQueueActive(true);
+    setPendingQueue(queue);
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -86,7 +113,9 @@ export function LexiFloatingChat() {
           },
         ]);
         setPendingAction(data.pendingAction ?? null);
+        applyQueueFromResponse(data.pendingQueue ?? null);
         scrollToBottom();
+        return data;
       } catch (error) {
         const text = error instanceof Error ? error.message : "LEXI request failed.";
         setMessages((prev) => [
@@ -97,19 +126,77 @@ export function LexiFloatingChat() {
         setLoading(false);
       }
     },
-    [getToken, scrollToBottom]
+    [applyQueueFromResponse, getToken, scrollToBottom]
+  );
+
+  const sendUserText = useCallback(
+    async (text: string, options?: { keepQueue?: boolean }) => {
+      const trimmed = text.trim();
+      if (!trimmed || loading) return;
+      if (!options?.keepQueue) {
+        setPendingAction(null);
+      }
+      const userMsg: UiMessage = { id: newId(), role: "user", content: trimmed };
+      const next = [...messages, userMsg];
+      setMessages(next);
+      scrollToBottom();
+      await sendToLexi(next);
+    },
+    [loading, messages, scrollToBottom, sendToLexi]
+  );
+
+  const continueQueueAfterConfirm = useCallback(
+    async (baseMessages: UiMessage[], queue: LexiPendingProcessingQueue) => {
+      if (!queueActiveRef.current) return;
+
+      const nextIndex = firstSupportedQueueIndex(queue.items, queue.currentIndex + 1);
+      if (nextIndex < 0) {
+        stopQueue();
+        const doneMsg: UiMessage = {
+          id: newId(),
+          role: "user",
+          content: `[Pending queue complete] All ${queue.supportedCount} supported pending items were processed. Summarize what was done.`,
+        };
+        const next = [...baseMessages, doneMsg];
+        setMessages(next);
+        scrollToBottom();
+        await sendToLexi(next);
+        return;
+      }
+
+      const nextItem = queue.items[nextIndex];
+      const step = queue.items.slice(0, nextIndex + 1).filter((i) => i.supported).length;
+      const updatedQueue = { ...queue, currentIndex: nextIndex };
+      pendingQueueRef.current = updatedQueue;
+      setPendingQueue(updatedQueue);
+
+      const continueMsg: UiMessage = {
+        id: newId(),
+        role: "user",
+        content: formatQueueContinueUserMessage(nextItem, step, queue.supportedCount, queue.mode),
+      };
+      const next = [...baseMessages, continueMsg];
+      setMessages(next);
+      scrollToBottom();
+      await sendToLexi(next);
+    },
+    [scrollToBottom, sendToLexi, stopQueue]
   );
 
   const handleSend = async () => {
     const text = input.trim();
     if (!text || loading) return;
     setInput("");
-    setPendingAction(null);
-    const userMsg: UiMessage = { id: newId(), role: "user", content: text };
-    const next = [...messages, userMsg];
-    setMessages(next);
-    scrollToBottom();
-    await sendToLexi(next);
+    if (!text.toLowerCase().includes("pending processing queue")) {
+      stopQueue();
+    }
+    await sendUserText(text);
+  };
+
+  const handleStartQueue = async () => {
+    if (loading) return;
+    stopQueue();
+    await sendUserText(formatQueueStartUserMessage("approve"));
   };
 
   const handleConfirm = async () => {
@@ -161,9 +248,15 @@ export function LexiFloatingChat() {
       setMessages(next);
       setPendingAction(null);
       scrollToBottom();
-      await sendToLexi(next);
+
+      if (queueActiveRef.current && pendingQueueRef.current) {
+        await continueQueueAfterConfirm(next, pendingQueueRef.current);
+      } else {
+        await sendToLexi(next);
+      }
     } catch (error) {
       const text = error instanceof Error ? error.message : "Action failed.";
+      stopQueue();
       setMessages((prev) => [
         ...prev,
         { id: newId(), role: "assistant", content: `Action failed: ${text}` },
@@ -213,6 +306,30 @@ export function LexiFloatingChat() {
               <X className="h-4 w-4" />
             </Button>
           </div>
+
+          {queueActive && pendingQueue ? (
+            <div className="border-b bg-violet-50 px-4 py-2 dark:bg-violet-950/30">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-violet-900 dark:text-violet-100">
+                  Pending queue:{" "}
+                  {pendingQueue.items
+                    .slice(0, pendingQueue.currentIndex + 1)
+                    .filter((i) => i.supported).length}
+                  /{supportedQueueTotal} ({pendingQueue.mode})
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={stopQueue}
+                  disabled={executing}
+                >
+                  Stop queue
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
             {messages.map((m) => (
@@ -287,6 +404,18 @@ export function LexiFloatingChat() {
           ) : null}
 
           <div className="border-t p-3">
+            {!queueActive ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mb-2 h-8 w-full text-xs"
+                disabled={loading}
+                onClick={() => void handleStartQueue()}
+              >
+                Process pending queue (approve one by one)
+              </Button>
+            ) : null}
             <div className="flex gap-2">
               <Textarea
                 value={input}

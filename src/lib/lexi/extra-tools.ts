@@ -2,9 +2,11 @@ import { randomUUID } from "crypto";
 import type OpenAI from "openai";
 import { resolveLexiClient, resolveLexiClientForInbound } from "@/lib/lexi/access";
 import { lexiGenerateReport } from "@/lib/lexi/generate-report";
+import { buildPendingProcessingQueue } from "@/lib/lexi/pending-queue";
 import {
   lexiGetInboundRequest,
   lexiGetOutboundRequest,
+  lexiListAllPending,
   lexiListPending,
   lexiListWarehouses,
   lexiLookupClientRecords,
@@ -19,6 +21,7 @@ import type {
   LexiOutboundJobPayload,
   LexiPendingAction,
   LexiRejectPayload,
+  LexiPendingProcessingQueue,
   LexiReportAttachment,
   LexiRestockPayload,
   LexiReviewPayload,
@@ -45,8 +48,35 @@ export const LEXI_EXTRA_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "start_pending_processing_queue",
+      description:
+        "Start a one-by-one pending queue (approve or fulfill each item with Confirm after each). Returns queue metadata and firstItem. ALWAYS call when admin asks to process/approve all pending one by one. Default mode is approve (safer). Use fulfill only when admin explicitly wants full inbound receive or outbound ship in one step per item.",
+      parameters: {
+        type: "object",
+        properties: {
+          mode: { type: "string", enum: ["approve", "fulfill"], description: "Default approve" },
+          clientUserId: {
+            type: "string",
+            description: "Optional — limit queue to one client's uid",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_all_pending_requests",
+      description:
+        "List pending requests awaiting admin approval across ALL managed clients (matches Admin → Notifications → Pending tab total). Returns grandTotalPending, per-client totals, and sample items. ALWAYS call this first when the admin asks what is pending without naming a specific client. Never infer pending counts from find_clients alone.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "list_pending_requests",
-      description: "List pending requests awaiting admin approval (matches Notifications → Pending tab). Returns totalPending, per-type counts, product names, quantities, and outbound line details. pendingReceive is separate (approved inbound awaiting receive). Always call when asked what is pending.",
+      description: "List pending requests awaiting admin approval for ONE client (matches Notifications → Pending tab). Returns totalPending, per-type counts, product names, quantities, and outbound line details. pendingReceive is separate (approved inbound awaiting receive). Use when a specific client is named or after list_all_pending_requests identifies them.",
       parameters: {
         type: "object",
         properties: {
@@ -378,11 +408,50 @@ export async function runLexiExtraTool(
   adminProfile: UserProfile,
   name: string,
   args: Record<string, unknown>
-): Promise<{ toolResult: string; pendingAction?: LexiPendingAction; report?: LexiReportAttachment } | null> {
+): Promise<{
+  toolResult: string;
+  pendingAction?: LexiPendingAction;
+  report?: LexiReportAttachment;
+  pendingQueue?: LexiPendingProcessingQueue;
+} | null> {
   const resolve = () =>
     resolveLexiClient(adminProfile, String(args.clientUserId ?? ""), String(args.clientUserName ?? ""));
 
   switch (name) {
+    case "list_all_pending_requests": {
+      try {
+        const summary = await lexiListAllPending(adminProfile);
+        return { toolResult: JSON.stringify(summary) };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not list all pending requests.";
+        return { toolResult: JSON.stringify({ error: message, grandTotalPending: 0 }) };
+      }
+    }
+    case "start_pending_processing_queue": {
+      try {
+        const mode = args.mode === "fulfill" ? "fulfill" : "approve";
+        const clientUserId = args.clientUserId ? String(args.clientUserId).trim() : undefined;
+        const queue = await buildPendingProcessingQueue(adminProfile, mode, clientUserId);
+        return {
+          toolResult: JSON.stringify({
+            started: true,
+            mode: queue.mode,
+            total: queue.total,
+            supportedCount: queue.supportedCount,
+            skippedCount: queue.skippedCount,
+            currentIndex: queue.currentIndex,
+            firstItem: queue.items[queue.currentIndex] ?? null,
+            note:
+              "After starting, immediately propose the action for firstItem using its proposeTool. Client will auto-continue the queue after each Confirm.",
+          }),
+          pendingQueue: queue,
+        };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Could not start pending processing queue.";
+        return { toolResult: JSON.stringify({ error: message, started: false }) };
+      }
+    }
     case "list_pending_requests": {
       try {
         const client = await resolve();

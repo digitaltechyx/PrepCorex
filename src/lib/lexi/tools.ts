@@ -252,6 +252,7 @@ export type LexiToolRunResult = {
   toolResult: string;
   pendingAction?: LexiPendingAction;
   report?: LexiReportAttachment;
+  pendingQueue?: import("@/lib/lexi/types").LexiPendingProcessingQueue;
 };
 
 export async function runLexiTool(

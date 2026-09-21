@@ -482,6 +482,90 @@ export async function lexiListPending(
   };
 }
 
+const PENDING_ITEM_KEYS = [
+  "inbound",
+  "inboundBatches",
+  "outbound",
+  "returns",
+  "dispose",
+  "disposeBatches",
+  "deletes",
+  "quarantine",
+  "labelRefunds",
+  "labelTopups",
+  "labelApiFees",
+] as const;
+
+function flattenPendingItems(pending: Record<string, unknown>, limit = 12): Array<Record<string, unknown>> {
+  const items: Array<Record<string, unknown>> = [];
+  for (const key of PENDING_ITEM_KEYS) {
+    const block = pending[key] as { items?: Array<Record<string, unknown>> } | undefined;
+    if (block?.items?.length) items.push(...block.items);
+  }
+  return items.slice(0, limit);
+}
+
+/** Platform-wide pending across all managed clients (matches Notifications → Pending tab). */
+export async function lexiListAllPending(
+  adminProfile: UserProfile
+): Promise<Record<string, unknown>> {
+  const clients = await loadManagedClientProfiles(adminProfile);
+  const BATCH_SIZE = 8;
+  const byClient: Array<{
+    clientUserId: string;
+    clientUserName: string;
+    totalPending: number;
+    pendingReceiveCount: number;
+    items: Array<Record<string, unknown>>;
+  }> = [];
+
+  let grandTotalPending = 0;
+  let grandPendingReceive = 0;
+
+  for (let i = 0; i < clients.length; i += BATCH_SIZE) {
+    const chunk = clients.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(
+      chunk.map(async (client) => {
+        const uid = String(client.uid ?? "").trim();
+        if (!uid) return null;
+        const pending = await lexiListPending(adminProfile, uid);
+        const totalPending = Number(pending.totalPending) || 0;
+        const pendingReceiveCount = Number(
+          (pending.pendingReceive as { count?: number } | undefined)?.count
+        ) || 0;
+        return {
+          clientUserId: uid,
+          clientUserName: displayName(client),
+          totalPending,
+          pendingReceiveCount,
+          items: flattenPendingItems(pending),
+        };
+      })
+    );
+
+    for (const row of results) {
+      if (!row) continue;
+      grandTotalPending += row.totalPending;
+      grandPendingReceive += row.pendingReceiveCount;
+      if (row.totalPending > 0) {
+        byClient.push(row);
+      }
+    }
+  }
+
+  byClient.sort((a, b) => b.totalPending - a.totalPending || a.clientUserName.localeCompare(b.clientUserName));
+
+  return {
+    grandTotalPending,
+    grandPendingReceive,
+    clientsWithPending: byClient.length,
+    managedClientCount: clients.length,
+    byClient: byClient.slice(0, 25),
+    note:
+      "grandTotalPending matches Admin → Notifications → Pending tab across all managed clients. pendingReceive is separate (Notifications → Pending receive). When grandTotalPending > 0, never say there are no pending requests. Use list_pending_requests for one client's full breakdown.",
+  };
+}
+
 function toIso(value: unknown): string | null {
   if (!value) return null;
   if (typeof value === "object" && value !== null && "toDate" in value && typeof (value as { toDate: () => Date }).toDate === "function") {

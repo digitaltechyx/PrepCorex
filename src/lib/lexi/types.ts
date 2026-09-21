@@ -41,6 +41,31 @@ export type LexiReportAttachment = {
   csv: string;
 };
 
+export type LexiPendingQueueItem = {
+  key: string;
+  clientUserId: string;
+  clientUserName: string;
+  requestId: string;
+  type: string;
+  productName: string;
+  quantity: number;
+  proposeTool: string;
+  supported: boolean;
+  skipReason?: string;
+  labelKind?: "refund" | "topup" | "api_fee";
+  batchId?: string;
+  batchLineId?: string;
+};
+
+export type LexiPendingProcessingQueue = {
+  mode: "approve" | "fulfill";
+  total: number;
+  supportedCount: number;
+  skippedCount: number;
+  items: LexiPendingQueueItem[];
+  currentIndex: number;
+};
+
 export type LexiChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
