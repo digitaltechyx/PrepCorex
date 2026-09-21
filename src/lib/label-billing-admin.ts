@@ -607,3 +607,68 @@ export async function markLabelApiFeePaid(
     return settings;
   });
 }
+
+/** Credit a label wallet after admin approves a refund on a wallet-paid purchase. */
+export async function creditLabelWalletRefund(
+  db: AdminDb,
+  input: {
+    userId: string;
+    amountCents: number;
+    labelPurchaseId: string;
+    refundRequestId?: string | null;
+    actorUid: string;
+    actorName?: string | null;
+    reason?: string | null;
+  }
+): Promise<LabelBillingSettings> {
+  const userRef = db.collection("users").doc(input.userId);
+  const credit = Math.max(0, Math.floor(input.amountCents));
+  if (credit < 1) {
+    throw new Error("Invalid wallet refund amount.");
+  }
+
+  await ensureLabelBillingPeriodRolled(db, input.userId);
+
+  const next = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists) throw new Error("User not found.");
+    const data = snap.data() || {};
+    const settings = normalizeLabelBillingSettings(
+      (data.labelBilling as Partial<LabelBillingSettings> | undefined) || null
+    );
+    const nextSettings: LabelBillingSettings = {
+      ...settings,
+      walletBalanceCents: (settings.walletBalanceCents || 0) + credit,
+      walletPeriodUsedCents: Math.max(
+        0,
+        Math.floor(Number(settings.walletPeriodUsedCents) || 0) - credit
+      ),
+    };
+    tx.set(
+      userRef,
+      {
+        labelBilling: toFirestoreLabelBilling(nextSettings, {
+          updatedAt: FieldValue.serverTimestamp(),
+        }),
+      },
+      { merge: true }
+    );
+    return nextSettings;
+  });
+
+  await appendLabelWalletLedger(db, {
+    userId: input.userId,
+    type: "purchase_refund",
+    amountCents: credit,
+    balanceAfterCents: next.walletBalanceCents || 0,
+    periodUsedAfterCents: next.walletPeriodUsedCents ?? next.periodUsedCents,
+    labelPurchaseId: input.labelPurchaseId,
+    reason:
+      input.reason?.trim() ||
+      `Admin-approved label refund${input.refundRequestId ? ` (#${input.refundRequestId.slice(0, 8)})` : ""}`,
+    createdBy: input.actorUid,
+    createdByName: input.actorName || null,
+  });
+
+  return next;
+}

@@ -1,17 +1,52 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { collection, collectionGroup, getCountFromServer, onSnapshot, query, where } from "firebase/firestore";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  collection,
+  collectionGroup,
+  getCountFromServer,
+  onSnapshot,
+  query,
+  where,
+  type QueryDocumentSnapshot,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getUserRoles } from "@/lib/permissions";
 import type { UserProfile } from "@/types";
 
+/** Matches ShopifyOrdersPanel unfulfilled filter (not partial/cancelled). */
 function isUnfulfilledShopifyOrder(status: unknown): boolean {
-  return String(status || "").toLowerCase() !== "fulfilled";
+  const s = status == null ? "" : String(status);
+  return !s || s === "unfulfilled" || s === "null";
 }
 
-function isUnfulfilledEbayOrder(status: unknown): boolean {
-  return String(status || "").toUpperCase() !== "FULFILLED";
+/** Matches admin eBay orders "Quick Fulfill" eligibility. */
+function isActionableEbayOrder(data: Record<string, unknown>): boolean {
+  if (String(data.orderFulfillmentStatus || "") === "FULFILLED") return false;
+  const items = Array.isArray(data.lineItems) ? data.lineItems : [];
+  return items.some((li) => {
+    const fs = String((li as Record<string, unknown>).lineItemFulfillmentStatus || "");
+    return fs === "NOT_STARTED" || fs === "IN_PROGRESS";
+  });
+}
+
+function ownerUid(doc: QueryDocumentSnapshot): string | null {
+  return doc.ref.parent.parent?.id ?? null;
+}
+
+function countScopedMarketplaceOrders(
+  docs: QueryDocumentSnapshot[],
+  managedUids: Set<string>,
+  connectedUids: Set<string>,
+  isCountable: (data: Record<string, unknown>) => boolean
+): number {
+  let count = 0;
+  for (const docSnap of docs) {
+    const uid = ownerUid(docSnap);
+    if (!uid || !managedUids.has(uid) || !connectedUids.has(uid)) continue;
+    if (isCountable(docSnap.data())) count++;
+  }
+  return count;
 }
 
 export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = true) {
@@ -27,6 +62,21 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
   const [pendingLabelsCount, setPendingLabelsCount] = useState(0);
   const [unfulfilledShopifyOrdersCount, setUnfulfilledShopifyOrdersCount] = useState(0);
   const [unfulfilledEbayOrdersCount, setUnfulfilledEbayOrdersCount] = useState(0);
+
+  const managedUidSet = useMemo(
+    () => new Set(managedUsers.map((user) => user.uid).filter((uid): uid is string => Boolean(uid))),
+    [managedUsers]
+  );
+  const managedUidSetRef = useRef(managedUidSet);
+  managedUidSetRef.current = managedUidSet;
+
+  const marketplaceStateRef = useRef({
+    shopifyDocs: [] as QueryDocumentSnapshot[],
+    ebayDocs: [] as QueryDocumentSnapshot[],
+    shopifyConnectedUids: new Set<string>(),
+    ebayConnectedUids: new Set<string>(),
+  });
+  const recomputeMarketplaceCountsRef = useRef<() => void>(() => {});
 
   const pendingUsersCount = useMemo(
     () => managedUsers.filter((user) => user.status === "pending").length,
@@ -179,6 +229,31 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
     const labelsQ = collection(db, "uploadedPDFs");
     const shopifyQ = query(collectionGroup(db, "shopifyOrders"));
     const ebayQ = query(collectionGroup(db, "ebayOrders"));
+    const shopifyConnectionsQ = query(collectionGroup(db, "shopifyConnections"));
+    const ebayConnectionsQ = query(collectionGroup(db, "ebayConnections"));
+
+    const recomputeMarketplaceCounts = () => {
+      if (cancelled) return;
+      const state = marketplaceStateRef.current;
+      const managed = managedUidSetRef.current;
+      setUnfulfilledShopifyOrdersCount(
+        countScopedMarketplaceOrders(
+          state.shopifyDocs,
+          managed,
+          state.shopifyConnectedUids,
+          (data) => isUnfulfilledShopifyOrder(data.fulfillment_status)
+        )
+      );
+      setUnfulfilledEbayOrdersCount(
+        countScopedMarketplaceOrders(
+          state.ebayDocs,
+          managed,
+          state.ebayConnectedUids,
+          isActionableEbayOrder
+        )
+      );
+    };
+    recomputeMarketplaceCountsRef.current = recomputeMarketplaceCounts;
 
     const onListenerError = (label: string) => (err: unknown) => {
       if (cancelled) return;
@@ -261,14 +336,40 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       },
       onListenerError("uploadedPDFs")
     );
+    const unsubShopifyConnections = onSnapshot(
+      shopifyConnectionsQ,
+      (snap) => {
+        if (cancelled) return;
+        const connected = new Set<string>();
+        for (const doc of snap.docs) {
+          const uid = ownerUid(doc);
+          if (uid) connected.add(uid);
+        }
+        marketplaceStateRef.current.shopifyConnectedUids = connected;
+        recomputeMarketplaceCounts();
+      },
+      onListenerError("shopifyConnections")
+    );
+    const unsubEbayConnections = onSnapshot(
+      ebayConnectionsQ,
+      (snap) => {
+        if (cancelled) return;
+        const connected = new Set<string>();
+        for (const doc of snap.docs) {
+          const uid = ownerUid(doc);
+          if (uid) connected.add(uid);
+        }
+        marketplaceStateRef.current.ebayConnectedUids = connected;
+        recomputeMarketplaceCounts();
+      },
+      onListenerError("ebayConnections")
+    );
     const unsub8 = onSnapshot(
       shopifyQ,
       (snap) => {
         if (cancelled) return;
-        const count = snap.docs.filter((docSnap) =>
-          isUnfulfilledShopifyOrder(docSnap.data().fulfillment_status)
-        ).length;
-        setUnfulfilledShopifyOrdersCount(count);
+        marketplaceStateRef.current.shopifyDocs = snap.docs;
+        recomputeMarketplaceCounts();
       },
       onListenerError("shopifyOrders")
     );
@@ -276,10 +377,8 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       ebayQ,
       (snap) => {
         if (cancelled) return;
-        const count = snap.docs.filter((docSnap) =>
-          isUnfulfilledEbayOrder(docSnap.data().orderFulfillmentStatus)
-        ).length;
-        setUnfulfilledEbayOrdersCount(count);
+        marketplaceStateRef.current.ebayDocs = snap.docs;
+        recomputeMarketplaceCounts();
       },
       onListenerError("ebayOrders")
     );
@@ -304,10 +403,16 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       unsubLabelRefund();
       unsub6();
       unsub7();
+      unsubShopifyConnections();
+      unsubEbayConnections();
       unsub8();
       unsub9();
     };
   }, [enabled]);
+
+  useEffect(() => {
+    recomputeMarketplaceCountsRef.current();
+  }, [managedUidSet]);
 
   return {
     shipmentPendingCount,

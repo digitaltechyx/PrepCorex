@@ -32,7 +32,6 @@ import {
   RotateCcw,
   Package,
   Boxes,
-  Tag,
   Plug,
   ShoppingCart,
   Ship,
@@ -107,7 +106,6 @@ const MARKETPLACE_ORDER_CHILD_PATHS = [
 const MORE_MENU_ROOT = "/__more_menu__";
 
 const MORE_CHILD_PATHS = [
-  "/admin/dashboard/buy-labels",
   "/admin/dashboard/documents",
   "/admin/dashboard/integrations",
   "/admin/dashboard/reports",
@@ -204,13 +202,9 @@ export function AdminSidebar() {
   // Use managed users so sub admin badge counts reflect only assigned users
   const { managedUsers } = useManagedUsers();
   const {
-    productReturnsPendingCount,
-    disposePendingCount,
     pendingDocumentRequestsCount,
     pendingRequestsCount,
-    inventoryActionCount,
     pendingInvoicesCount,
-    pendingLabelsCount,
     pendingUsersCount,
     pendingCommissionAgentsCount,
     unfulfilledShopifyOrdersCount,
@@ -261,7 +255,6 @@ export function AdminSidebar() {
       url: "/admin/dashboard/inventory-management",
       icon: Boxes,
       color: "text-violet-600",
-      badge: inventoryActionCount > 0 ? inventoryActionCount : null,
       requiredFeature: "manage_inventory_admin" as const,
     },
     {
@@ -332,19 +325,10 @@ export function AdminSidebar() {
       requiredFeature: "manage_notifications" as const,
     },
     {
-      title: "Buy Labels",
-      url: "/admin/dashboard/buy-labels",
-      icon: Tag,
-      color: "text-cyan-600",
-      badge: pendingLabelsCount > 0 ? pendingLabelsCount : null,
-      requiredFeature: "manage_labels" as const,
-    },
-    {
       title: "Product Returns",
       url: "/admin/dashboard/product-returns",
       icon: Package,
       color: "text-teal-600",
-      badge: productReturnsPendingCount > 0 ? productReturnsPendingCount : null,
       requiredFeature: "manage_product_returns" as const,
     },
     {
@@ -352,7 +336,6 @@ export function AdminSidebar() {
       url: "/admin/dashboard/dispose-requests",
       icon: RotateCcw,
       color: "text-orange-600",
-      badge: disposePendingCount > 0 ? disposePendingCount : null,
       requiredFeature: "manage_dispose_requests" as const,
     },
     {
@@ -556,13 +539,7 @@ export function AdminSidebar() {
     inventoryNestedItems.find((item) => item.url === "/admin/dashboard/inventory-management")?.url ??
     inventoryNestedItems[0]?.url ??
     "/admin/dashboard/inventory-management";
-  const inventoryCombinedBadge = useMemo(() => {
-    const total = inventoryNestedItems.reduce(
-      (sum, item) => sum + (item.badge ?? 0),
-      0
-    );
-    return total > 0 ? total : null;
-  }, [inventoryNestedItems]);
+  const inventoryCombinedBadge = null;
 
   const marketplaceOrdersNestedItems = useMemo(
     () =>
@@ -599,9 +576,9 @@ export function AdminSidebar() {
     [moreNestedItems]
   );
   const moreMenuHref =
-    moreNestedItems.find((item) => item.url === "/admin/dashboard/buy-labels")?.url ??
+    moreNestedItems.find((item) => item.url === "/admin/dashboard/documents")?.url ??
     moreNestedItems[0]?.url ??
-    "/admin/dashboard/buy-labels";
+    "/admin/dashboard/documents";
   const moreCombinedBadge = useMemo(() => {
     const total = moreNestedItems.reduce((sum, item) => sum + (item.badge ?? 0), 0);
     return total > 0 ? total : null;
@@ -859,9 +836,9 @@ export function AdminSidebar() {
                       ? inventoryNestedItems.filter((child) => matchesNavQuery(child.title))
                       : inventoryNestedItems;
                     const showNested = inventoryMenuOpen || Boolean(navQuery);
-
-                    return (
-                      <SidebarMenuItem key={item.url}>
+                  
+                  return (
+                    <SidebarMenuItem key={item.url}>
                         <div className="space-y-1">
                           <SidebarMenuButton
                             isActive={inventoryActive}
@@ -1428,8 +1405,8 @@ export function AdminSidebar() {
                         tooltip={item.title}
                         className={cn(
                           "group relative h-11 overflow-visible rounded-lg transition-all duration-200",
-                          isActive
-                            ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20"
+                          isActive 
+                            ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary shadow-sm border border-primary/20" 
                             : "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                         )}
                       >
@@ -1442,7 +1419,7 @@ export function AdminSidebar() {
                             label={item.title}
                             className={cn(
                               "font-medium transition-colors",
-                              isActive && "font-semibold"
+                            isActive && "font-semibold"
                             )}
                           />
                           {item.badge !== null && item.badge !== undefined && (

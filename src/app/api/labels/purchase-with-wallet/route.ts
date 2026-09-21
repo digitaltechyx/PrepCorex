@@ -3,7 +3,7 @@ import { adminDb, adminFieldValue } from "@/lib/firebase-admin";
 import { verifyBearerToken } from "@/lib/api-admin-auth";
 import {
   applyLabelBillingSpend,
-  appendLabelWalletLedger,
+  creditLabelWalletRefund,
   ensureLabelBillingPeriodRolled,
   isLabelBillingExemptUser,
 } from "@/lib/label-billing-admin";
@@ -11,9 +11,6 @@ import {
   buildShipBestCustomNo,
   purchaseLabelFromShipBest,
 } from "@/lib/shipbest-purchase";
-import { normalizeLabelBillingSettings, toFirestoreLabelBilling } from "@/lib/label-billing";
-import type { LabelBillingSettings } from "@/types";
-
 const SHIPPO_API_BASE = "https://api.goshippo.com";
 
 async function purchaseLabelFromShippo({
@@ -61,47 +58,6 @@ async function purchaseLabelFromShippo({
     trackingNumber: transaction.tracking_number || null,
     labelUrl: transaction.label_url || null,
     labelPurchasedAt: adminFieldValue().serverTimestamp(),
-  });
-}
-
-async function refundWalletSpend(userId: string, amountCents: number, labelPurchaseId: string, actorUid: string) {
-  const userRef = adminDb().collection("users").doc(userId);
-  const next = await adminDb().runTransaction(async (tx: any) => {
-    const snap = await tx.get(userRef);
-    const data = snap.data() || {};
-    const settings = normalizeLabelBillingSettings(
-      (data.labelBilling as Partial<LabelBillingSettings> | undefined) || null
-    );
-    const credit = Math.max(0, Math.floor(amountCents));
-    const nextSettings: LabelBillingSettings = {
-      ...settings,
-      walletBalanceCents: (settings.walletBalanceCents || 0) + credit,
-      walletPeriodUsedCents: Math.max(
-        0,
-        Math.floor(Number(settings.walletPeriodUsedCents) || 0) - credit
-      ),
-    };
-    tx.set(
-      userRef,
-      {
-        labelBilling: toFirestoreLabelBilling(nextSettings, {
-          updatedAt: adminFieldValue().serverTimestamp(),
-        }),
-      },
-      { merge: true }
-    );
-    return nextSettings;
-  });
-
-  await appendLabelWalletLedger(adminDb(), {
-    userId,
-    type: "purchase_refund",
-    amountCents: Math.max(0, Math.floor(amountCents)),
-    balanceAfterCents: next.walletBalanceCents || 0,
-    periodUsedAfterCents: next.walletPeriodUsedCents ?? next.periodUsedCents,
-    labelPurchaseId,
-    reason: "Wallet refund after label purchase failure",
-    createdBy: actorUid,
   });
 }
 
@@ -219,7 +175,13 @@ export async function POST(request: NextRequest) {
     } catch (err: unknown) {
       if (spent) {
         try {
-          await refundWalletSpend(userId, amount, docRef.id, userId);
+          await creditLabelWalletRefund(adminDb(), {
+            userId,
+            amountCents: amount,
+            labelPurchaseId: docRef.id,
+            actorUid: userId,
+            reason: "Wallet refund after label purchase failure",
+          });
         } catch (refundErr) {
           console.error("[purchase-with-wallet] refund failed", refundErr);
         }

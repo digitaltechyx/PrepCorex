@@ -2138,6 +2138,8 @@ export interface LabelPurchase {
   /** User/admin refund workflow for this purchase. */
   refundStatus?: "none" | "requested" | "refunded" | "rejected";
   refundRequestId?: string | null;
+  /** Set when admin declines a refund request. */
+  refundRejectionReason?: string | null;
   stripeRefundId?: string | null;
   refundedAt?: any;
 }
@@ -2155,6 +2157,8 @@ export interface LabelRefundRequest {
   paymentAmount: number;
   paymentCurrency: string;
   stripePaymentIntentId: string;
+  /** stripe card charge vs label wallet debit. */
+  paymentMethod?: "stripe" | "wallet" | null;
   stripeChargeId?: string | null;
   trackingNumber?: string | null;
   labelUrl?: string | null;
@@ -2188,6 +2192,8 @@ export interface LabelRefundRequest {
   reviewedByName?: string | null;
   reviewedAt?: any;
   rejectionReason?: string | null;
+  /** How the refund was issued after approval. */
+  refundMethod?: "stripe" | "wallet" | null;
   stripeRefundId?: string | null;
   refundedAmount?: number | null;
 }

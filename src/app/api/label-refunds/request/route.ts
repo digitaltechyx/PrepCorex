@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
       paymentAmount: Math.max(0, Math.floor(Number(label.paymentAmount) || 0)),
       paymentCurrency: String(label.paymentCurrency || "usd").toLowerCase(),
       stripePaymentIntentId: label.stripePaymentIntentId,
+      paymentMethod: label.paymentMethod || null,
       stripeChargeId: label.stripeChargeId || null,
       trackingNumber: label.trackingNumber || null,
       labelUrl: label.labelUrl || null,

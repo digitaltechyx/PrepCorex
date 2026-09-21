@@ -10,6 +10,7 @@ import {
   formatLabelAge,
   formatLabelMoney,
   formatLabelProviderName,
+  isWalletLabelPayment,
   labelRefundRequestsPath,
   mergeLabelRefundWithPurchase,
 } from "@/lib/label-refund";
@@ -292,8 +293,19 @@ export function LabelRefundReviewDialog({
                 </>
               ) : null}
               <p>
-                <span className="text-muted-foreground">Stripe PI: </span>
-                <span className="font-mono text-xs">{request.stripePaymentIntentId}</span>
+                <span className="text-muted-foreground">Payment: </span>
+                {isWalletLabelPayment({
+                  paymentMethod: request.paymentMethod ?? undefined,
+                  stripePaymentIntentId: request.stripePaymentIntentId,
+                }) ? (
+                  <span className="font-medium">Label wallet</span>
+                ) : (
+                  <>
+                    <span className="font-medium">Stripe card</span>
+                    <span className="text-muted-foreground"> · </span>
+                    <span className="font-mono text-xs">{request.stripePaymentIntentId}</span>
+                  </>
+                )}
               </p>
               <p>
                 <span className="text-muted-foreground">Ship from → to: </span>

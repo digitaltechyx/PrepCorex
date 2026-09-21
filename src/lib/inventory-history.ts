@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { getReceivedQuantity, getRequestedQuantity } from "@/lib/inventory-qty-display";
 import type {
   DeleteLog,
   EditLog,
@@ -669,6 +670,7 @@ export function buildInventoryHistory(
 
   const itemInboundLogs = inboundReceiveLogsForItem(item, sources.inboundReceiveLogs ?? []);
   const mergedInboundPutaway = mergeInboundReceiveLogs(itemInboundLogs);
+  const requestById = new Map(sources.inventoryRequests.map((req) => [req.id, req]));
   const putawayRequestIds = new Set<string>();
   for (const log of itemInboundLogs) {
     const reqId = String(log.inventoryRequestId ?? "").trim();
@@ -677,19 +679,15 @@ export function buildInventoryHistory(
 
   for (const row of mergedInboundPutaway) {
     if (row.goodQty <= 0) continue;
+    const linkedRequest = row.inventoryRequestId
+      ? requestById.get(row.inventoryRequestId) ?? null
+      : null;
     raw.push({
       timestamp: row.putawayAtMs,
       event: row.eventType === "restock" ? "Inbound restock (putaway)" : "Inbound received (putaway)",
       eventType: row.eventType === "restock" ? "restock" : "received",
       qtyChange: row.goodQty,
-      details: [
-        `+${row.goodQty} sellable units`,
-        row.goodBinPath ? `Bin: ${row.goodBinPath}` : "",
-        row.damagedQty > 0 ? `${row.damagedQty} damaged (not sellable)` : "",
-        row.remarks?.trim() || "",
-      ]
-        .filter(Boolean)
-        .join(" · "),
+      details: formatInboundPutawayDetails(row, linkedRequest),
       user: "PSF Operations",
     });
   }
@@ -1202,11 +1200,47 @@ export function inboundReceiveLogsForItem(
     .sort((a, b) => toTimestamp(b.putawayAt) - toTimestamp(a.putawayAt));
 }
 
+/** Total units received on an inbound request (warehouse putaway or legacy approve). */
+export function getInboundRequestReceivedTotal(req: InventoryRequest): number {
+  const whGood = req.warehouseGoodReceivedQty;
+  const whDamaged = req.warehouseDamagedReceivedQty;
+  if (typeof whGood === "number" || typeof whDamaged === "number") {
+    return Math.max(0, Number(whGood ?? 0)) + Math.max(0, Number(whDamaged ?? 0));
+  }
+  const approved = getReceivedQuantity(req);
+  if (approved != null) return approved;
+  return 0;
+}
+
+/** Overview / CSV details for one inbound putaway session. */
+export function formatInboundPutawayDetails(
+  row: Pick<
+    MergedInboundReceiveRow,
+    "goodQty" | "damagedQty" | "goodBinPath" | "remarks" | "totalReceived"
+  >,
+  request: InventoryRequest | null
+): string {
+  const parts: string[] = [];
+  if (request) {
+    const requested = getRequestedQuantity(request);
+    if (requested > 0) {
+      const receivedTotal = getInboundRequestReceivedTotal(request) || row.totalReceived;
+      parts.push(`Requested: ${requested} · Received: ${receivedTotal}`);
+    }
+  }
+  parts.push(`+${row.goodQty} sellable units`);
+  if (row.goodBinPath) parts.push(`Bin: ${row.goodBinPath}`);
+  if (row.damagedQty > 0) parts.push(`${row.damagedQty} damaged (not sellable)`);
+  if (row.remarks?.trim()) parts.push(row.remarks.trim());
+  return parts.filter(Boolean).join(" · ");
+}
+
 /** One display row per receive session (good + damaged putaway merged). */
 export type MergedInboundReceiveRow = {
   id: string;
   eventType: "initial" | "restock";
   putawayAtMs: number;
+  inventoryRequestId: string | null;
   totalReceived: number;
   goodQty: number;
   damagedQty: number;
@@ -1292,10 +1326,13 @@ export function mergeInboundReceiveLogs(logs: InboundReceiveLog[]): MergedInboun
     const photoUrls: string[] = [];
     const sourceLogIds: string[] = [];
     let putawayAtMs = 0;
+    let inventoryRequestId: string | null = null;
     let eventType: "initial" | "restock" = sorted[0]?.eventType === "restock" ? "restock" : "initial";
 
     for (const log of sorted) {
       sourceLogIds.push(log.id);
+      const reqId = String(log.inventoryRequestId ?? "").trim();
+      if (reqId && !inventoryRequestId) inventoryRequestId = reqId;
       const g = Math.max(0, Number(log.goodQty) || 0);
       const d = Math.max(0, Number(log.damagedQty) || 0);
       goodQty += g;
@@ -1319,6 +1356,7 @@ export function mergeInboundReceiveLogs(logs: InboundReceiveLog[]): MergedInboun
       id: sourceLogIds.slice().sort().join("_") || `merged-${putawayAtMs}`,
       eventType,
       putawayAtMs,
+      inventoryRequestId,
       totalReceived: goodQty + damagedQty,
       goodQty,
       damagedQty,

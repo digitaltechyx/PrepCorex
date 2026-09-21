@@ -49,11 +49,13 @@ import {
   formatChangeCell,
   formatInboundLogDate,
   formatQtyCell,
+  getInboundRequestReceivedTotal,
   inboundReceiveLogsForItem,
   mergeInboundReceiveLogs,
   type InventoryHistoryEventType,
   type InventoryHistoryRow,
 } from "@/lib/inventory-history";
+import { getRequestedQuantity } from "@/lib/inventory-qty-display";
 import { cn } from "@/lib/utils";
 import { InboundReceiveVideoDialog } from "@/components/inventory/inbound-receive-video-dialog";
 import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
@@ -240,6 +242,11 @@ export function InventoryHistoryDialog({
     if (!item) return [];
     return mergeInboundReceiveLogs(inboundReceiveLogsForItem(item, inboundReceiveLogs));
   }, [item, inboundReceiveLogs]);
+
+  const inboundRequestById = useMemo(
+    () => new Map(inventoryRequests.map((req) => [req.id, req])),
+    [inventoryRequests]
+  );
 
   const damagedOnHand = Math.max(0, Number((item as InventoryItem & { damagedQuantity?: number })?.damagedQuantity ?? 0));
 
@@ -447,7 +454,10 @@ export function InventoryHistoryDialog({
                       </TableHead>
                       <TableHead className={stickyHeadClass}>Receive type</TableHead>
                       <TableHead className={cn(stickyHeadClass, "text-right")}>
-                        Total received
+                        Requested / received
+                      </TableHead>
+                      <TableHead className={cn(stickyHeadClass, "text-right")}>
+                        This putaway
                       </TableHead>
                       <TableHead className={stickyHeadClass}>Sellable qty</TableHead>
                       <TableHead className={stickyHeadClass}>Damaged qty</TableHead>
@@ -457,6 +467,13 @@ export function InventoryHistoryDialog({
                   <TableBody>
                     {inboundLogs.map((row) => {
                       const rowRequestId = String(row.inventoryRequestId || "").trim();
+                      const linkedRequest = rowRequestId
+                        ? inboundRequestById.get(rowRequestId) ?? null
+                        : null;
+                      const requestedQty = linkedRequest ? getRequestedQuantity(linkedRequest) : null;
+                      const receivedTotal = linkedRequest
+                        ? getInboundRequestReceivedTotal(linkedRequest) || row.totalReceived
+                        : row.totalReceived;
                       return (
                       <TableRow key={row.id}>
                         <TableCell className="text-xs whitespace-nowrap py-2.5">
@@ -466,6 +483,19 @@ export function InventoryHistoryDialog({
                           <Badge variant="outline" className="text-[10px] capitalize font-normal">
                             {row.eventType === "restock" ? "Restock" : "Initial inbound"}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-right tabular-nums py-2.5">
+                          {requestedQty != null && requestedQty > 0 ? (
+                            <span
+                              className={cn(
+                                receivedTotal !== requestedQty && "text-amber-800 font-medium"
+                              )}
+                            >
+                              {requestedQty} / {receivedTotal}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-xs text-right tabular-nums font-semibold py-2.5">
                           {row.totalReceived}

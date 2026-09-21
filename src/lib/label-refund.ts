@@ -77,6 +77,30 @@ export function formatLabelRefundCountdown(anchorMs: number, nowMs = Date.now())
   return remMin > 0 ? `${hours}h ${remMin}m left` : `${hours}h left`;
 }
 
+export function isWalletLabelPayment(
+  label: Pick<LabelPurchase, "paymentMethod" | "stripePaymentIntentId">
+): boolean {
+  if (String(label.paymentMethod || "").toLowerCase() === "wallet") return true;
+  return String(label.stripePaymentIntentId || "").startsWith("wallet_");
+}
+
+export function isStripePaymentIntentId(id?: string | null): boolean {
+  const value = String(id || "").trim();
+  return value.startsWith("pi_");
+}
+
+export type LabelRefundDisplayStatus = "none" | "pending" | "approved" | "declined";
+
+export function labelRefundDisplayStatus(
+  refundStatus?: LabelPurchase["refundStatus"] | string | null
+): LabelRefundDisplayStatus {
+  const status = String(refundStatus || "none").toLowerCase();
+  if (status === "requested") return "pending";
+  if (status === "refunded") return "approved";
+  if (status === "rejected") return "declined";
+  return "none";
+}
+
 export function canRequestLabelRefund(
   label: LabelPurchase,
   nowMs = Date.now()
@@ -86,7 +110,10 @@ export function canRequestLabelRefund(
     return { ok: false, reason: "A refund request is already pending admin review." };
   }
   if (refundStatus === "refunded") {
-    return { ok: false, reason: "This label was already refunded." };
+    return { ok: false, reason: "This label refund was already approved." };
+  }
+  if (refundStatus === "rejected") {
+    return { ok: false, reason: "Your refund request was declined." };
   }
 
   const paymentOk =
@@ -219,6 +246,7 @@ export function mergeLabelRefundWithPurchase(
     toCity: firstNonEmpty(request.toCity, label.toAddress?.city),
     toCountry: firstNonEmpty(request.toCountry, label.toAddress?.country),
     stripeChargeId: firstNonEmpty(request.stripeChargeId, label.stripeChargeId),
+    paymentMethod: request.paymentMethod || label.paymentMethod || null,
   };
 }
 

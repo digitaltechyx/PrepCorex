@@ -8,12 +8,15 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Download, Package, MapPin, Calendar, Truck, ExternalLink, Filter, RotateCcw } from "lucide-react";
-import type { LabelPurchase } from "@/types";
+import type { LabelPurchase, LabelRefundRequest } from "@/types";
 import { getBuyLabelRateDisplay } from "@/lib/buy-label-rate-display";
 import {
   canRequestLabelRefund,
   formatLabelRefundCountdown,
   labelPurchaseAnchorMs,
+  isWalletLabelPayment,
+  labelRefundDisplayStatus,
+  LABEL_REFUND_REQUESTS_COLLECTION,
 } from "@/lib/label-refund";
 import { LabelRefundRequestDialog } from "@/components/labels/label-refund-request-dialog";
 import { format } from "date-fns";
@@ -25,11 +28,15 @@ type PurchasedLabelsPanelProps = {
 
 function getStatusBadge(label: LabelPurchase) {
   const { status, paymentStatus, errorMessage, refundStatus } = label;
+  const refundDisplay = labelRefundDisplayStatus(refundStatus);
 
-  if (String(refundStatus || "").toLowerCase() === "refunded") {
-    return <Badge className="bg-slate-600 text-white">Refunded</Badge>;
+  if (refundDisplay === "approved") {
+    return <Badge className="bg-emerald-600 text-white">Refund approved</Badge>;
   }
-  if (String(refundStatus || "").toLowerCase() === "requested") {
+  if (refundDisplay === "declined") {
+    return <Badge variant="destructive">Refund declined</Badge>;
+  }
+  if (refundDisplay === "pending") {
     return <Badge className="bg-amber-500 text-white">Refund pending</Badge>;
   }
 
@@ -127,6 +134,17 @@ function getStatusDetail(label: LabelPurchase): {
   return null;
 }
 
+function getRefundRejectionReason(
+  label: LabelPurchase,
+  refundByPurchaseId: Map<string, LabelRefundRequest>
+): string | null {
+  const fromLabel = String(label.refundRejectionReason || "").trim();
+  if (fromLabel) return fromLabel;
+  const linked = refundByPurchaseId.get(label.id);
+  const fromRequest = String(linked?.rejectionReason || "").trim();
+  return fromRequest || null;
+}
+
 function handleDownloadLabel(labelUrl: string) {
   if (labelUrl) {
     window.open(labelUrl, "_blank");
@@ -163,6 +181,19 @@ export function PurchasedLabelsPanel({
   const { data: labels, loading } = useCollection<LabelPurchase>(
     userId ? `users/${userId}/labelPurchases` : ""
   );
+  const { data: refundRequests } = useCollection<LabelRefundRequest>(
+    userId ? `users/${userId}/${LABEL_REFUND_REQUESTS_COLLECTION}` : ""
+  );
+
+  const refundByPurchaseId = useMemo(() => {
+    const map = new Map<string, LabelRefundRequest>();
+    for (const request of refundRequests || []) {
+      if (request.labelPurchaseId) {
+        map.set(request.labelPurchaseId, request);
+      }
+    }
+    return map;
+  }, [refundRequests]);
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -464,15 +495,37 @@ export function PurchasedLabelsPanel({
                   )}
                   </div>
                   {(() => {
-                    const refundStatus = String(label.refundStatus || "none").toLowerCase();
-                    if (refundStatus === "refunded") {
+                    const refundDisplay = labelRefundDisplayStatus(label.refundStatus);
+                    if (refundDisplay === "approved") {
+                      const walletRefund = isWalletLabelPayment(label);
                       return (
-                        <p className="text-[11px] text-muted-foreground">
-                          This purchase was refunded.
-                        </p>
+                        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                          <p className="font-semibold uppercase tracking-wide text-[11px]">
+                            Refund approved
+                          </p>
+                          <p className="mt-1 leading-snug">
+                            {walletRefund
+                              ? "Your refund was approved and credited to your label wallet."
+                              : "Your refund was approved and sent to your original payment method."}
+                          </p>
+                        </div>
                       );
                     }
-                    if (refundStatus === "requested") {
+                    if (refundDisplay === "declined") {
+                      const rejectionReason = getRefundRejectionReason(label, refundByPurchaseId);
+                      return (
+                        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                          <p className="font-semibold uppercase tracking-wide text-[11px]">
+                            Refund declined
+                          </p>
+                          <p className="mt-1 leading-snug">
+                            {rejectionReason ||
+                              "The admin declined this refund request. Contact support if you have questions."}
+                          </p>
+                        </div>
+                      );
+                    }
+                    if (refundDisplay === "pending") {
                       return (
                         <Button size="sm" variant="secondary" disabled className="w-full">
                           Refund request pending
