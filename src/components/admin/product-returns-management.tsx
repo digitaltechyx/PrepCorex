@@ -182,12 +182,6 @@ export function ProductReturnsManagement({
     if (filterUserId) setClientFilter(filterUserId);
   }, [filterUserId]);
 
-  useEffect(() => {
-    if (!selectedReturn?.id) return;
-    const ownerId = getReturnOwnerId(selectedReturn);
-    const fresh = returns.find((r) => r.id === selectedReturn.id && getReturnOwnerId(r) === ownerId);
-    if (fresh) setSelectedReturn(fresh);
-  }, [returns, selectedReturn?.id]);
   const [rejectReason, setRejectReason] = useState<string>("");
   const [shipQuantity, setShipQuantity] = useState<string>("");
   const [shipTo, setShipTo] = useState<string>("");
@@ -256,6 +250,13 @@ export function ProductReturnsManagement({
     }
     return list;
   }, [allReturns, managedUserIds, clientFilter, searchQuery, managedUsers]);
+
+  useEffect(() => {
+    if (!selectedReturn?.id) return;
+    const ownerId = getReturnOwnerId(selectedReturn);
+    const fresh = returns.find((r) => r.id === selectedReturn.id && getReturnOwnerId(r) === ownerId);
+    if (fresh && fresh !== selectedReturn) setSelectedReturn(fresh);
+  }, [returns, selectedReturn]);
 
   const [didAutoOpen, setDidAutoOpen] = useState(false);
   useEffect(() => {
