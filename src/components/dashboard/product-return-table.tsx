@@ -29,6 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AddReturnTrackingDialog } from "@/components/inventory/add-return-tracking-dialog";
 import { getProductReturnImageUrls } from "@/lib/product-return-images";
 import { ProductReturnArrivalsTimeline } from "@/components/product-returns/product-return-arrivals-timeline";
+import { countedReturnUnits } from "@/lib/product-return-arrivals";
 
 function formatDate(date: ProductReturn["createdAt"]) {
   if (!date) return "N/A";
@@ -198,8 +199,9 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
               </TableRow>
             ) : (
               filteredReturns.map((returnItem) => {
+                const counted = countedReturnUnits(returnItem);
                 const progress = returnItem.requestedQuantity > 0
-                  ? Math.round((returnItem.receivedQuantity / returnItem.requestedQuantity) * 100)
+                  ? Math.round((counted.total / returnItem.requestedQuantity) * 100)
                   : 0;
                 const productName = returnItem.productName || returnItem.newProductName || "N/A";
                 const hasShipping = returnItem.additionalServices?.shipToAddress;
@@ -214,7 +216,7 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                       </Badge>
                     </TableCell>
                     <TableCell className="tabular-nums">
-                      {returnItem.receivedQuantity} / {returnItem.requestedQuantity}
+                      {counted.total} / {returnItem.requestedQuantity}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2 min-w-[90px]">
@@ -326,12 +328,13 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                     <div className="font-medium">{selectedReturn.requestedQuantity}</div>
                   </div>
                   <div>
-                    <div className="text-sm text-muted-foreground">Received (good)</div>
+                    <div className="text-sm text-muted-foreground">Received</div>
                     <div className="font-medium tabular-nums">
-                      {selectedReturn.receivedQuantity}
+                      {countedReturnUnits(selectedReturn).total}
                       {(selectedReturn.receivedDamagedQuantity ?? 0) > 0 ? (
                         <span className="text-sm text-muted-foreground font-normal ml-1">
-                          · damaged {selectedReturn.receivedDamagedQuantity}
+                          {countedReturnUnits(selectedReturn).good} good ·{" "}
+                          {selectedReturn.receivedDamagedQuantity} damaged
                         </span>
                       ) : null}
                     </div>
@@ -359,14 +362,16 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                         className="bg-primary h-3 rounded-full transition-all"
                         style={{
                           width: `${Math.min(
-                            (selectedReturn.receivedQuantity / selectedReturn.requestedQuantity) * 100,
+                            (countedReturnUnits(selectedReturn).total /
+                              selectedReturn.requestedQuantity) *
+                              100,
                             100
                           )}%`,
                         }}
                       />
                     </div>
                     <span className="text-sm font-medium">
-                      {selectedReturn.receivedQuantity} / {selectedReturn.requestedQuantity}
+                      {countedReturnUnits(selectedReturn).total} / {selectedReturn.requestedQuantity}
                     </span>
                   </div>
                 </div>

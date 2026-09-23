@@ -11,6 +11,7 @@ import {
   groupArrivalsByTracking,
   normalizeReturnArrivals,
   returnArrivalStatusLabel,
+  countedReturnUnits,
   summarizeReturnArrivals,
 } from "@/lib/product-return-arrivals";
 import { Package, Truck, Video } from "lucide-react";
@@ -103,6 +104,11 @@ export function ProductReturnArrivalsTimeline({
 }) {
   const arrivals = normalizeReturnArrivals(returnItem.returnArrivals);
   const summary = summarizeReturnArrivals(arrivals);
+  const counted = countedReturnUnits({
+    receivedQuantity: returnItem.receivedQuantity ?? summary.goodTotal,
+    receivedGoodQuantity: returnItem.receivedGoodQuantity ?? summary.goodTotal,
+    receivedDamagedQuantity: returnItem.receivedDamagedQuantity ?? summary.damagedTotal,
+  });
 
   if (arrivals.length === 0) {
     return (
@@ -132,8 +138,7 @@ export function ProductReturnArrivalsTimeline({
           </Badge>
         ) : null}
         <span className="text-muted-foreground tabular-nums">
-          Received good / requested: {returnItem.receivedQuantity ?? summary.goodTotal} /{" "}
-          {returnItem.requestedQuantity}
+          Counted / requested: {counted.total} / {returnItem.requestedQuantity}
         </span>
       </div>
 

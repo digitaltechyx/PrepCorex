@@ -52,6 +52,17 @@ export function normalizeReturnArrivals(raw: unknown): ReturnArrival[] {
     });
 }
 
+/** Good plus damaged units already counted. Good alone is what can be added to inventory. */
+export function countedReturnUnits(item: {
+  receivedQuantity?: number;
+  receivedGoodQuantity?: number;
+  receivedDamagedQuantity?: number;
+}) {
+  const good = Math.max(0, item.receivedGoodQuantity ?? item.receivedQuantity ?? 0);
+  const damaged = Math.max(0, item.receivedDamagedQuantity ?? 0);
+  return { good, damaged, total: good + damaged };
+}
+
 export function summarizeReturnArrivals(arrivals: ReturnArrival[]) {
   let goodTotal = 0;
   let damagedTotal = 0;

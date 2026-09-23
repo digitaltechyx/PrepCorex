@@ -107,6 +107,7 @@ import {
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { getProductReturnImageUrls } from "@/lib/product-return-images";
 import {
+  countedReturnUnits,
   normalizeReturnArrivals,
   summarizeReturnArrivals,
 } from "@/lib/product-return-arrivals";
@@ -1319,8 +1320,9 @@ export function ProductReturnsManagement({
                   <TableBody>
                     {paginatedReturns.map((returnItem) => {
                       const row = returnItem as AdminProductReturn;
+                      const counted = countedReturnUnits(row);
                       const progress = row.requestedQuantity > 0
-                        ? Math.round((row.receivedQuantity / row.requestedQuantity) * 100)
+                        ? Math.round((counted.total / row.requestedQuantity) * 100)
                         : 0;
                       const productName = row.productName || row.newProductName || "N/A";
                       const canUpdate = row.status === "approved" || row.status === "in_progress";
@@ -1354,7 +1356,7 @@ export function ProductReturnsManagement({
                             </div>
                           </TableCell>
                           <TableCell className="tabular-nums">
-                            {returnItem.receivedQuantity} / {returnItem.requestedQuantity}
+                            {counted.total} / {returnItem.requestedQuantity}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2 min-w-[100px]">
@@ -1517,12 +1519,13 @@ export function ProductReturnsManagement({
                       <div className="font-medium">{selectedReturn.requestedQuantity}</div>
                     </div>
                     <div>
-                      <div className="text-sm text-muted-foreground">Received (good)</div>
+                      <div className="text-sm text-muted-foreground">Received</div>
                       <div className="font-medium tabular-nums">
-                        {selectedReturn.receivedQuantity}
+                        {countedReturnUnits(selectedReturn).total}
                         {(selectedReturn.receivedDamagedQuantity ?? 0) > 0 ? (
                           <span className="text-sm text-muted-foreground font-normal ml-2">
-                            · damaged {selectedReturn.receivedDamagedQuantity}
+                            {countedReturnUnits(selectedReturn).good} good ·{" "}
+                            {selectedReturn.receivedDamagedQuantity} damaged
                           </span>
                         ) : null}
                       </div>
