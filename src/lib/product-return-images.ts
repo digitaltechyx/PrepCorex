@@ -14,20 +14,7 @@ export function validateProductReturnImageFile(file: File): string | null {
   return null;
 }
 
-async function compressImage(file: File): Promise<File> {
-  try {
-    return await imageCompression(file, {
-      maxSizeMB: 1,
-      maxWidthOrHeight: 1920,
-      useWebWorker: true,
-      fileType: file.type,
-    });
-  } catch {
-    return file;
-  }
-}
-
-/** Upload optional product photo for a return request. */
+/** Upload optional product photo for a return request (Storage limit ~1MB). */
 export async function uploadProductReturnImage(
   ownerUid: string,
   file: File
@@ -35,11 +22,41 @@ export async function uploadProductReturnImage(
   const err = validateProductReturnImageFile(file);
   if (err) throw new Error(err);
 
-  const compressed = await compressImage(file);
-  const cleanName = file.name.replace(/\s+/g, "_");
+  let toUpload = file;
+  try {
+    toUpload = await imageCompression(file, {
+      maxSizeMB: 0.9,
+      maxWidthOrHeight: 1920,
+      useWebWorker: true,
+      fileType: file.type.startsWith("image/") ? file.type : "image/jpeg",
+    });
+  } catch {
+    toUpload = file;
+  }
+
+  if (toUpload.size >= 1024 * 1024) {
+    throw new Error(
+      "This photo is too large. Please choose a smaller image (under 1 MB) and try again."
+    );
+  }
+
+  const cleanName = (toUpload.name || file.name || "return.jpg").replace(/\s+/g, "_");
   const path = `product-return-images/${ownerUid}/${Date.now()}_${Math.random().toString(36).slice(2, 9)}_${cleanName}`;
   const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, compressed);
+  try {
+    await uploadBytes(storageRef, toUpload, {
+      contentType: toUpload.type || file.type || "image/jpeg",
+    });
+  } catch (uploadErr: unknown) {
+    const raw = uploadErr instanceof Error ? uploadErr.message : String(uploadErr || "");
+    if (/storage\/unauthorized|permission/i.test(raw)) {
+      throw new Error(
+        "Could not upload this photo. Please use a smaller image (under 1 MB) and try again."
+      );
+    }
+    throw new Error("Could not upload the product photo. Please try another image.");
+  }
+
   return getDownloadURL(storageRef);
 }
 

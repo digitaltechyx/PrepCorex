@@ -7,6 +7,7 @@ import {
   ensureLabelBillingPeriodRolled,
   isLabelBillingExemptUser,
 } from "@/lib/label-billing-admin";
+import { assertAllowlistedBuyLabelRate } from "@/lib/buy-label-rate-display";
 import {
   buildShipBestCustomNo,
   purchaseLabelFromShipBest,
@@ -131,6 +132,14 @@ export async function POST(request: NextRequest) {
         (String(selectedRate?.objectId || "").startsWith("shipbest:") ? "shipbest" : "shippo");
 
       if (labelProvider === "shipbest") {
+        assertAllowlistedBuyLabelRate({
+          provider: selectedRate?.provider,
+          serviceLevel: selectedRate?.serviceLevel,
+          labelProvider: selectedRate?.labelProvider ?? "shipbest",
+          objectId: selectedRate?.objectId,
+          logisticsProductCode: selectedRate?.logisticsProductCode,
+        });
+
         const logisticsProductCode =
           selectedRate?.logisticsProductCode ||
           String(selectedRate?.objectId || "").split(":")[2] ||

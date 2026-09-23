@@ -39,7 +39,10 @@ import {
 import { ParcelBoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import { BUY_LABELS_FROM_NAME, BUY_LABELS_DEFAULT_FROM_PHONE } from "@/lib/buy-labels-bulk-import";
 import { buildBuyLabelParcelPrefillFromSource } from "@/lib/buy-label-parcel-prefill";
-import { getBuyLabelRateDisplay } from "@/lib/buy-label-rate-display";
+import {
+  filterVisibleBuyLabelRates,
+  getBuyLabelRateDisplay,
+} from "@/lib/buy-label-rate-display";
 import { formatUnitDimensions, formatUnitWeight } from "@/lib/box-suggestion";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
@@ -839,9 +842,9 @@ export function BuyLabelsForm({
         })
       );
 
-      const combinedRates = providerResults
-        .flatMap((result) => result.rates)
-        .sort((a, b) => Number(a.amount) - Number(b.amount));
+      const combinedRates = filterVisibleBuyLabelRates(
+        providerResults.flatMap((result) => result.rates)
+      ).sort((a, b) => Number(a.amount) - Number(b.amount));
       const shippoShipmentId =
         providerResults.find((result) => result.name === "Shippo")?.shipmentId || null;
 

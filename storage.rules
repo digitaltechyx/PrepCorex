@@ -30,6 +30,33 @@ service firebase.storage {
       allow delete: if request.auth != null;
     }
 
+    // Legacy inventory images (early uploads before inventory-images/ prefix)
+    match /images/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 1024 * 1024;
+      allow delete: if request.auth != null;
+    }
+
+    // Product return images: clients and admins upload optional return photos
+    match /product-return-images/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 1024 * 1024;
+      allow delete: if request.auth != null;
+    }
+
+    // Product return open-receive dock photos (admin)
+    match /product-return-receive/{userId}/{returnId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 1024 * 1024;
+      allow delete: if request.auth != null;
+    }
+
     // Restock images: Admins upload photos of the received stock during a restock action.
     // Both the client (owner) and admins can read; admins (authenticated users) can write.
     match /restock-images/{userId}/{fileName} {

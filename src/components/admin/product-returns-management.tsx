@@ -106,6 +106,12 @@ import {
 } from "@/hooks/use-all-product-returns";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import { getProductReturnImageUrls } from "@/lib/product-return-images";
+import {
+  normalizeReturnArrivals,
+  summarizeReturnArrivals,
+} from "@/lib/product-return-arrivals";
+import { ProductReturnAdminReceiveWorkflow } from "@/components/admin/product-return-admin-receive-workflow";
+import { ProductReturnArrivalsTimeline } from "@/components/product-returns/product-return-arrivals-timeline";
 import { hasRole } from "@/lib/permissions";
 import { Search } from "lucide-react";
 
@@ -160,8 +166,10 @@ export function ProductReturnsManagement({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [isUpdateQuantityOpen, setIsUpdateQuantityOpen] = useState(false);
+  const [detailsTab, setDetailsTab] = useState("details");
   const [isCloseDialogOpen, setIsCloseDialogOpen] = useState(false);
+  const [closeGoodBinPath, setCloseGoodBinPath] = useState("");
+  const [closeDamagedBinPath, setCloseDamagedBinPath] = useState("");
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [isShipDialogOpen, setIsShipDialogOpen] = useState(false);
   const [addReturnDialogOpen, setAddReturnDialogOpen] = useState(false);
@@ -173,8 +181,13 @@ export function ProductReturnsManagement({
   useEffect(() => {
     if (filterUserId) setClientFilter(filterUserId);
   }, [filterUserId]);
-  const [newQuantity, setNewQuantity] = useState<string>("");
-  const [quantityNotes, setQuantityNotes] = useState<string>("");
+
+  useEffect(() => {
+    if (!selectedReturn?.id) return;
+    const ownerId = getReturnOwnerId(selectedReturn);
+    const fresh = returns.find((r) => r.id === selectedReturn.id && getReturnOwnerId(r) === ownerId);
+    if (fresh) setSelectedReturn(fresh);
+  }, [returns, selectedReturn?.id]);
   const [rejectReason, setRejectReason] = useState<string>("");
   const [shipQuantity, setShipQuantity] = useState<string>("");
   const [shipTo, setShipTo] = useState<string>("");
@@ -382,67 +395,6 @@ export function ProductReturnsManagement({
         variant: "destructive",
         title: "Error",
         description: error.message || "Failed to reject return request.",
-      });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleUpdateQuantity = async () => {
-    const ownerId = getReturnOwnerId(selectedReturn);
-    if (!selectedReturn || !adminProfile || !ownerId) return;
-
-    const quantity = parseInt(newQuantity);
-    if (isNaN(quantity) || quantity <= 0) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please enter a valid quantity.",
-      });
-      return;
-    }
-
-    setIsProcessing(true);
-    try {
-      const returnRef = doc(db, `users/${ownerId}/productReturns`, selectedReturn.id);
-      const now = Timestamp.now();
-      const currentReceived = selectedReturn.receivedQuantity || 0;
-      const newReceived = currentReceived + quantity;
-
-      // Get current receiving log
-      const currentLog = selectedReturn.receivingLog || [];
-      const newLogEntry: any = {
-        quantity: quantity,
-        receivedAt: now,
-        receivedBy: adminProfile.uid,
-      };
-      if (quantityNotes && quantityNotes.trim()) {
-        newLogEntry.notes = quantityNotes;
-      }
-
-      // Update status to in_progress if not already
-      const newStatus = selectedReturn.status === "approved" ? "in_progress" : selectedReturn.status;
-
-      await updateDoc(returnRef, {
-        receivedQuantity: newReceived,
-        receivingLog: [...currentLog, newLogEntry],
-        status: newStatus,
-        updatedAt: now,
-      });
-
-      toast({
-        title: "Success",
-        description: `Added ${quantity} units. Total received: ${newReceived} / ${selectedReturn.requestedQuantity}`,
-      });
-
-      setNewQuantity("");
-      setQuantityNotes("");
-      setIsUpdateQuantityOpen(false);
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to update quantity.",
       });
     } finally {
       setIsProcessing(false);
@@ -669,7 +621,32 @@ export function ProductReturnsManagement({
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Cannot close request with zero received quantity.",
+        description: "Cannot close request with zero good received quantity.",
+      });
+      return;
+    }
+
+    const damagedTotal =
+      selectedReturn.receivedDamagedQuantity ??
+      summarizeReturnArrivals(normalizeReturnArrivals(selectedReturn.returnArrivals)).damagedTotal;
+    const willCreditInventory =
+      !selectedReturn.additionalServices?.shipToAddress ||
+      Math.max(0, selectedReturn.receivedQuantity - (selectedReturn.shippedQuantity || 0)) > 0;
+
+    if (willCreditInventory && !closeGoodBinPath.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Bin required",
+        description: "Enter a bin path for good stock before closing.",
+      });
+      return;
+    }
+
+    if (damagedTotal > 0 && !closeDamagedBinPath.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Damaged bin required",
+        description: "Enter a damaged/quarantine bin when damaged qty is greater than zero.",
       });
       return;
     }
@@ -737,20 +714,30 @@ export function ProductReturnsManagement({
           "User";
         const returnReason = (latestReturn?.userRemarks || selectedReturn.userRemarks || "").trim();
         const returnTypeLabel = selectedReturn.type === "existing" ? "Existing Product Return" : "New Product Return";
+        const arrivalSummary = summarizeReturnArrivals(
+          normalizeReturnArrivals(latestReturn?.returnArrivals ?? selectedReturn.returnArrivals)
+        );
+        const goodBin = closeGoodBinPath.trim();
+        const damagedBin = closeDamagedBinPath.trim();
         const returnSummaryParts = [
           `[Return Completed] ID: ${selectedReturn.id}`,
           `Type: ${returnTypeLabel}`,
           `Product: ${productName}`,
           `SKU: ${sku || "N/A"}`,
           `Requested Qty: ${selectedReturn.requestedQuantity || 0}`,
-          `Received Qty: ${selectedReturn.receivedQuantity || 0}`,
+          `Received Good Qty: ${selectedReturn.receivedGoodQuantity ?? selectedReturn.receivedQuantity ?? 0}`,
+          `Received Damaged Qty: ${selectedReturn.receivedDamagedQuantity ?? arrivalSummary.damagedTotal ?? 0}`,
           `Already Shipped: ${shippedQty || 0}`,
           `Added To Inventory: ${remainingQuantity}`,
+          goodBin ? `Good Bin: ${goodBin}` : null,
+          damagedBin && (selectedReturn.receivedDamagedQuantity ?? arrivalSummary.damagedTotal) > 0
+            ? `Damaged Bin: ${damagedBin}`
+            : null,
           `Requested By: ${requestedByLabel}`,
           `Closed By: ${closedByLabel}`,
           `Closed At: ${closedAtLabel}`,
           `Return Reason: ${returnReason || "N/A"}`,
-        ];
+        ].filter(Boolean) as string[];
         const returnSummary = returnSummaryParts.join(" | ");
         const shipToAddress = (() => {
           const shippingAddress = selectedReturn.additionalServices?.shippingAddress;
@@ -780,6 +767,8 @@ export function ProductReturnsManagement({
           pricing: pricing,
           updatedAt: now,
         };
+        if (goodBin) returnUpdate.closeGoodBinPath = goodBin;
+        if (damagedBin) returnUpdate.closeDamagedBinPath = damagedBin;
 
         // If user selected ship-to-address, mark remaining items as shipped on close (append to shipping log)
         if (willShipRemainingOnClose) {
@@ -1079,8 +1068,9 @@ export function ProductReturnsManagement({
     }
   };
 
-  const handleViewDetails = (returnItem: ProductReturn) => {
+  const handleViewDetails = (returnItem: ProductReturn, tab = "details") => {
     setSelectedReturn(returnItem);
+    setDetailsTab(tab);
     setIsDetailsOpen(true);
     // Reset form states
     setReturnFee("");
@@ -1095,13 +1085,6 @@ export function ProductReturnsManagement({
     setRejectReason("");
   };
 
-  const handleOpenUpdateQuantity = (returnItem: ProductReturn) => {
-    setSelectedReturn(returnItem);
-    setNewQuantity("");
-    setQuantityNotes("");
-    setIsUpdateQuantityOpen(true);
-  };
-
   const handleOpenCloseDialog = (returnItem: ProductReturn) => {
     setSelectedReturn(returnItem);
     setReturnFee("");
@@ -1109,6 +1092,8 @@ export function ProductReturnsManagement({
     setPalletFee("");
     setShippingFee("");
     setCloseShippingUnitPrice("");
+    setCloseGoodBinPath("");
+    setCloseDamagedBinPath("");
     setIsCloseDialogOpen(true);
   };
 
@@ -1400,10 +1385,10 @@ export function ProductReturnsManagement({
                                   variant="outline"
                                   size="sm"
                                   className="h-8 rounded-md text-xs"
-                                  onClick={() => handleOpenUpdateQuantity(returnItem)}
+                                  onClick={() => handleViewDetails(returnItem, "receive")}
                                 >
-                                  <Plus className="h-3.5 w-3.5 mr-1" />
-                                  Add Qty
+                                  <Package className="h-3.5 w-3.5 mr-1" />
+                                  Receive
                                 </Button>
                               )}
                               {canClose && (
@@ -1475,9 +1460,14 @@ export function ProductReturnsManagement({
                   View detailed information and activity log
                 </DialogDescription>
               </DialogHeader>
-              <Tabs defaultValue="details" className="flex-1 flex flex-col min-h-0 px-6 pb-6">
+              <Tabs
+                value={detailsTab}
+                onValueChange={setDetailsTab}
+                className="flex-1 flex flex-col min-h-0 px-6 pb-6"
+              >
                 <TabsList className="mb-4">
                   <TabsTrigger value="details">Details</TabsTrigger>
+                  <TabsTrigger value="receive">Receive</TabsTrigger>
                   <TabsTrigger value="logs">Logs</TabsTrigger>
                 </TabsList>
                 <TabsContent value="details" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
@@ -1516,10 +1506,24 @@ export function ProductReturnsManagement({
                       <div className="font-medium">{selectedReturn.requestedQuantity}</div>
                     </div>
                     <div>
-                      <div className="text-sm text-muted-foreground">Received Quantity</div>
-                      <div className="font-medium">{selectedReturn.receivedQuantity}</div>
+                      <div className="text-sm text-muted-foreground">Received (good)</div>
+                      <div className="font-medium tabular-nums">
+                        {selectedReturn.receivedQuantity}
+                        {(selectedReturn.receivedDamagedQuantity ?? 0) > 0 ? (
+                          <span className="text-sm text-muted-foreground font-normal ml-2">
+                            · damaged {selectedReturn.receivedDamagedQuantity}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
+
+                  {normalizeReturnArrivals(selectedReturn.returnArrivals).length > 0 ? (
+                    <div>
+                      <div className="text-sm font-medium mb-2">Arrival timeline</div>
+                      <ProductReturnArrivalsTimeline returnItem={selectedReturn} compact />
+                    </div>
+                  ) : null}
 
                   {/* User Remarks */}
                   {selectedReturn.userRemarks && (
@@ -1663,6 +1667,16 @@ export function ProductReturnsManagement({
                   )}
                   </div>
                 </TabsContent>
+                <TabsContent value="receive" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
+                  {selectedReturn?.id && adminProfile ? (
+                    <ProductReturnAdminReceiveWorkflow
+                      ownerUserId={getReturnOwnerId(selectedReturn)}
+                      returnItem={{ ...selectedReturn, id: selectedReturn.id }}
+                      operatorId={adminProfile.uid}
+                      disabled={isProcessing}
+                    />
+                  ) : null}
+                </TabsContent>
                 <TabsContent value="logs" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
                   <div className="space-y-6">
                     {/* Receiving Log */}
@@ -1674,7 +1688,22 @@ export function ProductReturnsManagement({
                             <div key={index} className="p-3 bg-muted rounded-md">
                               <div className="flex justify-between items-start">
                                 <div>
-                                  <div className="font-medium">+{log.quantity} units received</div>
+                                  <div className="font-medium">
+                                    +{log.quantity} units
+                                    {typeof log.goodQty === "number" || typeof log.damagedQty === "number" ? (
+                                      <span className="text-sm font-normal text-muted-foreground">
+                                        {" "}
+                                        (good {String(log.goodQty ?? log.quantity)}, damaged{" "}
+                                        {String(log.damagedQty ?? 0)})
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  {log.trackingNumber ? (
+                                    <div className="text-xs font-mono text-muted-foreground mt-0.5">
+                                      {String(log.trackingNumber)}
+                                      {log.unitType ? ` · ${String(log.unitType)}` : ""}
+                                    </div>
+                                  ) : null}
                                   {log.notes && (
                                     <div className="text-sm text-muted-foreground mt-1">{log.notes}</div>
                                   )}
@@ -1725,60 +1754,6 @@ export function ProductReturnsManagement({
                   </div>
                 </TabsContent>
               </Tabs>
-            </DialogContent>
-          </Dialog>
-
-          {/* Update Quantity Dialog */}
-          <Dialog open={isUpdateQuantityOpen} onOpenChange={setIsUpdateQuantityOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Received Quantity</DialogTitle>
-                <DialogDescription>
-                  Add quantity received for this return request
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label>Quantity Received</Label>
-                  <Input
-                    type="number"
-                    value={newQuantity || ""}
-                    onChange={(e) => setNewQuantity(e.target.value)}
-                    placeholder="Enter quantity"
-                    min="1"
-                  />
-                </div>
-                <div>
-                  <Label>Notes (Optional)</Label>
-                  <Textarea
-                    value={quantityNotes}
-                    onChange={(e) => setQuantityNotes(e.target.value)}
-                    placeholder="Add any notes about this receiving..."
-                    rows={3}
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleUpdateQuantity}
-                    disabled={isProcessing || !newQuantity}
-                    className="flex-1"
-                  >
-                    {isProcessing ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Plus className="mr-2 h-4 w-4" />
-                    )}
-                    Add Quantity
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsUpdateQuantityOpen(false)}
-                    disabled={isProcessing}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
             </DialogContent>
           </Dialog>
 
@@ -1842,8 +1817,8 @@ export function ProductReturnsManagement({
               <ScrollArea className="max-h-[70vh] pr-4">
                 <div className="space-y-6">
                   {/* Summary */}
-                  <div className="p-4 bg-muted rounded-lg">
-                    <div className="text-sm font-medium mb-2">Summary</div>
+                  <div className="p-4 bg-muted rounded-lg space-y-3">
+                    <div className="text-sm font-medium">Receive summary</div>
                     <div className="space-y-1 text-sm">
                       <div className="flex justify-between">
                         <span>Product:</span>
@@ -1852,10 +1827,56 @@ export function ProductReturnsManagement({
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Received Quantity:</span>
-                        <span className="font-medium">{selectedReturn.receivedQuantity}</span>
+                        <span>Good qty (sellable):</span>
+                        <span className="font-medium tabular-nums">
+                          {selectedReturn.receivedQuantity}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Damaged qty:</span>
+                        <span className="font-medium tabular-nums">
+                          {selectedReturn.receivedDamagedQuantity ??
+                            summarizeReturnArrivals(
+                              normalizeReturnArrivals(selectedReturn.returnArrivals)
+                            ).damagedTotal}
+                        </span>
                       </div>
                     </div>
+                    {summarizeReturnArrivals(normalizeReturnArrivals(selectedReturn.returnArrivals))
+                      .arrivedOnly > 0 ? (
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        {summarizeReturnArrivals(normalizeReturnArrivals(selectedReturn.returnArrivals))
+                          .arrivedOnly}{" "}
+                        arrival(s) not opened yet — only counted good qty will be credited to
+                        inventory.
+                      </p>
+                    ) : null}
+                    <ProductReturnArrivalsTimeline returnItem={selectedReturn} compact />
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="text-sm font-medium">Putaway (inbound-style)</div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Good stock bin *</Label>
+                        <Input
+                          value={closeGoodBinPath}
+                          onChange={(e) => setCloseGoodBinPath(e.target.value)}
+                          placeholder="e.g. A-01-02"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Damaged bin (if any)</Label>
+                        <Input
+                          value={closeDamagedBinPath}
+                          onChange={(e) => setCloseDamagedBinPath(e.target.value)}
+                          placeholder="Quarantine / damaged bin"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Inventory remarks will note this is a product return, including bin paths.
+                    </p>
                   </div>
 
                   {/* Pricing */}

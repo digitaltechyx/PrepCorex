@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStripe } from '@/lib/stripe';
 import { adminDb, adminFieldValue } from '@/lib/firebase-admin';
+import { assertAllowlistedBuyLabelRate } from '@/lib/buy-label-rate-display';
 import {
   buildShipBestCustomNo,
   purchaseLabelFromShipBest,
@@ -233,6 +234,25 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
         : "shippo");
 
     if (labelProvider === "shipbest") {
+      try {
+        assertAllowlistedBuyLabelRate({
+          provider: selectedRate?.provider,
+          serviceLevel: selectedRate?.serviceLevel,
+          labelProvider: selectedRate?.labelProvider ?? "shipbest",
+          objectId: selectedRate?.objectId,
+          logisticsProductCode: selectedRate?.logisticsProductCode,
+        });
+      } catch (allowlistErr: unknown) {
+        await labelPurchaseRef.update({
+          status: "label_failed",
+          errorMessage:
+            allowlistErr instanceof Error
+              ? allowlistErr.message
+              : "This ShipBest courier rate is not available.",
+        });
+        continue;
+      }
+
       const logisticsProductCode =
         selectedRate?.logisticsProductCode ||
         String(selectedRate?.objectId || "").split(":")[2] ||

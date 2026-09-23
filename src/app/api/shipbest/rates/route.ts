@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyBuyLabelsMarkup } from "@/lib/buy-labels-markup";
+import { filterVisibleBuyLabelRates } from "@/lib/buy-label-rate-display";
 import { verifyBearerToken } from "@/lib/api-admin-auth";
 import { adminDb } from "@/lib/firebase-admin";
 import { resolveBuyLabelsRateOptions } from "@/lib/label-billing-admin";
@@ -140,7 +141,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const rates = Array.from(uniqueServices.values())
+    const allRates = Array.from(uniqueServices.values())
       .filter((q) => (q.totalDiscountShippingFee || q.totalShippingFee) > 0)
       .map((q) => {
         const baseAmount = q.totalDiscountShippingFee || q.totalShippingFee;
@@ -165,13 +166,18 @@ export async function POST(request: NextRequest) {
         };
       });
 
+    // Clients only see PrepCorex GOFO from ShipBest — hide ShipBest USPS / other couriers.
+    const rates = filterVisibleBuyLabelRates(allRates);
+
     if (rates.length === 0) {
       return NextResponse.json(
         {
-          error: "No ShipBest rates for this shipment",
+          error: "No PrepCorex GOFO rates for this shipment",
           details:
-            lastQuoteError ||
-            "ShipBest returned no priced logistics products for this address/parcel. Check product coverage for this lane or try different dimensions/weight.",
+            allRates.length > 0
+              ? "ShipBest returned courier products, but only PrepCorex GOFO rates are offered in Buy Labels for this account."
+              : lastQuoteError ||
+                "ShipBest returned no priced GOFO products for this address/parcel. Check product coverage for this lane or try different dimensions/weight.",
         },
         { status: 400 }
       );

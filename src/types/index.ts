@@ -1546,6 +1546,30 @@ export interface RecycledInventoryItem {
 }
 
 /** Product return request (stored under users/{uid}/productReturns). */
+export type ReturnArrivalUnitType = "carton" | "pallet" | "package";
+
+/** arrived = logged at dock; opened = inspection started; received = good/bad counted */
+export type ReturnArrivalStatus = "arrived" | "opened" | "received";
+
+/** Physical unit logged against a return tracking number (admin workflow v2). */
+export interface ReturnArrival {
+  id: string;
+  trackingNumber: string;
+  unitType: ReturnArrivalUnitType;
+  status: ReturnArrivalStatus;
+  arrivedAt?: { seconds: number; nanoseconds: number } | string;
+  arrivedBy?: string;
+  openedAt?: { seconds: number; nanoseconds: number } | string;
+  openedBy?: string;
+  receivedAt?: { seconds: number; nanoseconds: number } | string;
+  receivedBy?: string;
+  goodQty?: number;
+  damagedQty?: number;
+  notes?: string;
+  receivePhotoUrls?: string[];
+  videoUrls?: string[];
+}
+
 export interface ProductReturn {
   id?: string;
   userId?: string;
@@ -1558,6 +1582,16 @@ export interface ProductReturn {
   newProductSku?: string;
   requestedQuantity: number;
   receivedQuantity: number;
+  /** Sum of good qty from opened arrivals (mirrors receivedQuantity when using arrival workflow). */
+  receivedGoodQuantity?: number;
+  /** Sum of damaged qty from opened arrivals (not sellable — same rules as inbound). */
+  receivedDamagedQuantity?: number;
+  /** Dock arrivals before open receive (admin workflow v2). */
+  returnArrivals?: ReturnArrival[];
+  /** Bin assigned on close for good stock credited to inventory. */
+  closeGoodBinPath?: string;
+  /** Bin for damaged stock on close (when damaged qty > 0). */
+  closeDamagedBinPath?: string;
   /** Units already shipped back out from this return. */
   shippedQuantity?: number;
   /** Units already credited to client inventory (putaway / QC restock). */

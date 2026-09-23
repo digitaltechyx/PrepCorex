@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AddReturnTrackingDialog } from "@/components/inventory/add-return-tracking-dialog";
 import { getProductReturnImageUrls } from "@/lib/product-return-images";
+import { ProductReturnArrivalsTimeline } from "@/components/product-returns/product-return-arrivals-timeline";
 
 function formatDate(date: ProductReturn["createdAt"]) {
   if (!date) return "N/A";
@@ -325,8 +326,15 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                     <div className="font-medium">{selectedReturn.requestedQuantity}</div>
                   </div>
                   <div>
-                    <div className="text-sm text-muted-foreground">Received Quantity</div>
-                    <div className="font-medium">{selectedReturn.receivedQuantity}</div>
+                    <div className="text-sm text-muted-foreground">Received (good)</div>
+                    <div className="font-medium tabular-nums">
+                      {selectedReturn.receivedQuantity}
+                      {(selectedReturn.receivedDamagedQuantity ?? 0) > 0 ? (
+                        <span className="text-sm text-muted-foreground font-normal ml-1">
+                          · damaged {selectedReturn.receivedDamagedQuantity}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   <div>
                     <div className="text-sm text-muted-foreground">Created</div>
@@ -362,6 +370,15 @@ export function ProductReturnTable({ statusFilter: statusFilterProp, onStatusFil
                     </span>
                   </div>
                 </div>
+
+                {(selectedReturn.status === "approved" ||
+                  selectedReturn.status === "in_progress" ||
+                  selectedReturn.status === "closed") && (
+                  <div>
+                    <div className="text-sm font-medium mb-2">Warehouse receive timeline</div>
+                    <ProductReturnArrivalsTimeline returnItem={selectedReturn} />
+                  </div>
+                )}
 
                 {/* Return tracking for dock match */}
                 {canAddTracking(selectedReturn.status) && (
