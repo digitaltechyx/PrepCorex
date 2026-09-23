@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/use-auth";
+import { warehouseCameraPlaybackUrl } from "@/lib/warehouse-camera-client";
 import type { ProductReturn, ReturnArrival } from "@/types";
 import {
   formatReturnArrivalUnitType,
@@ -22,6 +25,58 @@ function formatTs(value: ReturnArrival["arrivedAt"]): string {
     return format(new Date(value.seconds * 1000), "PPp");
   }
   return "";
+}
+
+function ReturnDriveVideos({ sessionIds }: { sessionIds: string[] }) {
+  const { user } = useAuth();
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const idKey = sessionIds.join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user || !idKey) {
+      setUrls({});
+      return;
+    }
+    void user.getIdToken().then((token) => {
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      for (const id of idKey.split("|")) {
+        next[id] = warehouseCameraPlaybackUrl(id, token);
+      }
+      setUrls(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, idKey]);
+
+  if (sessionIds.length === 0) return null;
+
+  return (
+    <div className="pl-5 pt-1 space-y-2">
+      {sessionIds.map((id) =>
+        urls[id] ? (
+          <div key={id} className="space-y-1">
+            <video
+              src={urls[id]}
+              controls
+              playsInline
+              className="w-full max-w-sm max-h-48 rounded-md border bg-black"
+            />
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <Video className="h-3.5 w-3.5" />
+              Receive video
+            </span>
+          </div>
+        ) : (
+          <p key={id} className="text-xs text-muted-foreground">
+            Loading receive video…
+          </p>
+        )
+      )}
+    </div>
+  );
 }
 
 function statusBadgeVariant(
@@ -131,19 +186,29 @@ export function ProductReturnArrivalsTimeline({
                       ))}
                     </div>
                   ) : null}
+                  {arrival.videoSessionIds && arrival.videoSessionIds.length > 0 ? (
+                    <ReturnDriveVideos sessionIds={arrival.videoSessionIds} />
+                  ) : null}
                   {arrival.videoUrls && arrival.videoUrls.length > 0 ? (
-                    <div className="pl-5 pt-1 space-y-1">
+                    <div className="pl-5 pt-1 space-y-2">
                       {arrival.videoUrls.map((url) => (
-                        <a
-                          key={url}
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                        >
-                          <Video className="h-3.5 w-3.5" />
-                          Watch receive video
-                        </a>
+                        <div key={url} className="space-y-1">
+                          <video
+                            src={url}
+                            controls
+                            playsInline
+                            className="w-full max-w-sm max-h-48 rounded-md border bg-black"
+                          />
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <Video className="h-3.5 w-3.5" />
+                            Open receive video
+                          </a>
+                        </div>
                       ))}
                     </div>
                   ) : null}

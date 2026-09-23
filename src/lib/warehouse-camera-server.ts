@@ -121,6 +121,8 @@ export function serializeCameraSession(
         )
       : [],
     shipmentRequestIds,
+    productReturnId: data.productReturnId ? String(data.productReturnId) : "",
+    returnArrivalId: data.returnArrivalId ? String(data.returnArrivalId) : "",
     jobType,
     warehouseId: String(data.warehouseId || ""),
     warehouseLabel: String(data.warehouseLabel || data.warehouseId || "Warehouse"),
@@ -332,14 +334,19 @@ export function warehouseCameraDriveRequestFolderName(input: {
   requestDate: string;
 }): string {
   const kind =
-    input.jobType === "receive" ? "Inbound" : "Outbound";
+    input.jobType === "receive" ? "Inbound" : input.jobType === "return" ? "Return" : "Outbound";
   const requestDate = warehouseCameraDateStamp(input.requestDate);
   const summaries = input.summaries.length
     ? input.summaries
     : [
         {
           id: "",
-          productName: kind === "Inbound" ? "Inbound request" : "Outbound shipment",
+          productName:
+            kind === "Inbound"
+              ? "Inbound request"
+              : kind === "Return"
+                ? "Product return"
+                : "Outbound shipment",
           sku: null,
           quantity: 0,
         },

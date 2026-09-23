@@ -1671,6 +1671,13 @@ export function ProductReturnsManagement({
                   {selectedReturn?.id && adminProfile ? (
                     <ProductReturnAdminReceiveWorkflow
                       ownerUserId={getReturnOwnerId(selectedReturn)}
+                      clientDisplayName={formatUserDisplayName(
+                        getClientProfile(getReturnOwnerId(selectedReturn)) || {
+                          uid: getReturnOwnerId(selectedReturn),
+                          name: getReturnOwnerId(selectedReturn),
+                        },
+                        { showEmail: false }
+                      )}
                       returnItem={{ ...selectedReturn, id: selectedReturn.id }}
                       operatorId={adminProfile.uid}
                       disabled={isProcessing}

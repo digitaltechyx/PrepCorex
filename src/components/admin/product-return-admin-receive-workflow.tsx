@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import type { ProductReturn, ReturnArrival, ReturnArrivalUnitType } from "@/types";
 import {
   formatReturnArrivalUnitType,
@@ -32,10 +33,13 @@ import {
 } from "@/lib/product-return-arrivals";
 import { ProductReturnArrivalsTimeline } from "@/components/product-returns/product-return-arrivals-timeline";
 import { uploadProductReturnReceivePhotos } from "@/lib/product-return-receive-photos";
+import { importWarehouseCameraVideoFile } from "@/lib/warehouse-camera-client";
+import { ProductReturnReceiveVideoField } from "@/components/admin/product-return-receive-video-field";
 import { Badge } from "@/components/ui/badge";
 
 type Props = {
   ownerUserId: string;
+  clientDisplayName?: string;
   returnItem: ProductReturn & { id: string };
   operatorId: string;
   disabled?: boolean;
@@ -44,12 +48,14 @@ type Props = {
 
 export function ProductReturnAdminReceiveWorkflow({
   ownerUserId,
+  clientDisplayName,
   returnItem,
   operatorId,
   disabled,
   onUpdated,
 }: Props) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [trackingNumber, setTrackingNumber] = useState("");
   const [unitType, setUnitType] = useState<ReturnArrivalUnitType>("carton");
   const [arrivalNotes, setArrivalNotes] = useState("");
@@ -60,6 +66,7 @@ export function ProductReturnAdminReceiveWorkflow({
   const [damagedQty, setDamagedQty] = useState("");
   const [openNotes, setOpenNotes] = useState("");
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+  const [videoFiles, setVideoFiles] = useState<File[]>([]);
   const [isOpening, setIsOpening] = useState(false);
 
   const arrivals = useMemo(
@@ -112,6 +119,7 @@ export function ProductReturnAdminReceiveWorkflow({
     setDamagedQty("");
     setOpenNotes("");
     setPhotoFiles([]);
+    setVideoFiles([]);
   };
 
   const handlePhotoSelect = (event: ChangeEvent<HTMLInputElement>) => {
@@ -144,6 +152,29 @@ export function ProductReturnAdminReceiveWorkflow({
         });
       }
 
+      let videoSessionIds: string[] | undefined;
+      if (videoFiles.length > 0) {
+        if (!user) {
+          throw new Error("Sign in again to upload the receive video to Google Drive.");
+        }
+        const ids: string[] = [];
+        for (let index = 0; index < videoFiles.length; index += 1) {
+          const session = await importWarehouseCameraVideoFile(user, {
+            jobType: "return",
+            clientUserId: ownerUserId,
+            clientDisplayName: clientDisplayName?.trim() || ownerUserId,
+            productReturnId: returnItem.id,
+            returnArrivalId: openArrival.id,
+            warehouseId: "admin",
+            warehouseLabel: "Admin",
+            clipNumber: index + 1,
+            file: videoFiles[index],
+          });
+          ids.push(session.id);
+        }
+        videoSessionIds = ids;
+      }
+
       await openReceiveReturnArrival({
         ownerUserId,
         returnId: returnItem.id,
@@ -153,11 +184,14 @@ export function ProductReturnAdminReceiveWorkflow({
         operatorId,
         notes: openNotes.trim() || undefined,
         receivePhotoUrls,
+        videoSessionIds,
       });
 
       toast({
         title: "Receive recorded",
-        description: `Good ${good}, damaged ${damaged} for ${formatReturnArrivalUnitType(openArrival.unitType)}.`,
+        description: videoSessionIds?.length
+          ? `Good ${good}, damaged ${damaged} for ${formatReturnArrivalUnitType(openArrival.unitType)}. Video saved to Google Drive.`
+          : `Good ${good}, damaged ${damaged} for ${formatReturnArrivalUnitType(openArrival.unitType)}.`,
       });
       setOpenArrival(null);
       onUpdated?.();
@@ -340,6 +374,12 @@ export function ProductReturnAdminReceiveWorkflow({
                   <Badge variant="secondary">{photoFiles.length} photo(s) selected</Badge>
                 ) : null}
               </div>
+              <ProductReturnReceiveVideoField
+                key={openArrival.id}
+                files={videoFiles}
+                onChange={setVideoFiles}
+                disabled={isOpening}
+              />
               <div className="flex gap-2">
                 <Button
                   type="button"

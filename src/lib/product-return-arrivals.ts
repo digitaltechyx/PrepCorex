@@ -45,6 +45,9 @@ export function normalizeReturnArrivals(raw: unknown): ReturnArrival[] {
         videoUrls: Array.isArray(row.videoUrls)
           ? row.videoUrls.map((u) => String(u || "").trim()).filter(Boolean)
           : undefined,
+        videoSessionIds: Array.isArray(row.videoSessionIds)
+          ? row.videoSessionIds.map((id) => String(id || "").trim()).filter(Boolean)
+          : undefined,
       };
     });
 }
@@ -193,6 +196,8 @@ export async function openReceiveReturnArrival(input: {
   operatorId: string;
   notes?: string;
   receivePhotoUrls?: string[];
+  videoUrls?: string[];
+  videoSessionIds?: string[];
 }): Promise<void> {
   const goodQty = Math.max(0, Math.floor(input.goodQty));
   const damagedQty = Math.max(0, Math.floor(input.damagedQty));
@@ -224,6 +229,14 @@ export async function openReceiveReturnArrival(input: {
       input.receivePhotoUrls && input.receivePhotoUrls.length > 0
         ? input.receivePhotoUrls
         : target.receivePhotoUrls,
+    videoUrls:
+      input.videoUrls && input.videoUrls.length > 0
+        ? input.videoUrls
+        : target.videoUrls,
+    videoSessionIds:
+      input.videoSessionIds && input.videoSessionIds.length > 0
+        ? input.videoSessionIds
+        : target.videoSessionIds,
   };
   arrivals[index] = updatedArrival;
 

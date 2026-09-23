@@ -29,6 +29,7 @@ function canOperateJobType(
 ): boolean {
   if (auth.isAdmin) return true;
   if (jobType === "receive") return hasFeature(auth.profile, "ops_receive");
+  if (jobType === "return") return hasFeature(auth.profile, "manage_product_returns");
   if (jobType === "pick") return hasFeature(auth.profile, "ops_pick");
   return hasFeature(auth.profile, "ops_pack");
 }
@@ -43,6 +44,8 @@ export async function GET(request: NextRequest) {
   const shipmentRequestId =
     request.nextUrl.searchParams.get("shipmentRequestId")?.trim() || "";
   const jobTypeFilter = request.nextUrl.searchParams.get("jobType")?.trim() || "";
+  const productReturnId =
+    request.nextUrl.searchParams.get("productReturnId")?.trim() || "";
   const requestedClientId =
     request.nextUrl.searchParams.get("clientUserId")?.trim() || "";
   const clientUserId = auth.canOperate ? requestedClientId : auth.uid;
@@ -71,6 +74,9 @@ export async function GET(request: NextRequest) {
       return true;
     })
     .filter((session: WarehouseCameraSession) => {
+      if (productReturnId) {
+        return session.productReturnId === productReturnId;
+      }
       if (shipmentRequestId) {
         return session.shipmentRequestIds.includes(shipmentRequestId);
       }
@@ -152,13 +158,21 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+  const productReturnId = String(body.productReturnId || "").trim();
+  const returnArrivalId = String(body.returnArrivalId || "").trim();
+  if (jobType === "return" && !productReturnId) {
+    return NextResponse.json(
+      { error: "Product return is required for return recording" },
+      { status: 400 }
+    );
+  }
   if (jobType === "receive" && inventoryRequestIds.length === 0) {
     return NextResponse.json(
       { error: "Inbound request is required for receive recording" },
       { status: 400 }
     );
   }
-  if (jobType !== "receive" && shipmentRequestIds.length === 0) {
+  if (jobType !== "receive" && jobType !== "return" && shipmentRequestIds.length === 0) {
     return NextResponse.json(
       { error: "Shipment request is required for outbound recording" },
       { status: 400 }
@@ -174,7 +188,29 @@ export async function POST(request: NextRequest) {
   let inventoryRequestSummaries: WarehouseCameraRequestSummary[] = [];
   let inventoryRequestLabels: string[] = [];
 
-  if (jobType === "receive") {
+  if (jobType === "return") {
+    const returnSnap = await adminDb()
+      .collection("users")
+      .doc(clientUserId)
+      .collection("productReturns")
+      .doc(productReturnId)
+      .get();
+    if (!returnSnap.exists) {
+      return NextResponse.json({ error: "Product return was not found for this client" }, { status: 404 });
+    }
+    const returnData = returnSnap.data() ?? {};
+    const productName = String(returnData.productName || returnData.newProductName || "Product return");
+    const sku = String(returnData.sku || returnData.newProductSku || "").trim() || null;
+    inventoryRequestSummaries = [
+      {
+        id: productReturnId,
+        productName,
+        sku,
+        quantity: Math.max(0, Number(returnData.requestedQuantity) || 0),
+      },
+    ];
+    inventoryRequestLabels = inventoryRequestSummaries.map(warehouseCameraRequestLabel);
+  } else if (jobType === "receive") {
     const requestSnaps = await Promise.all(
       inventoryRequestIds.map((id) =>
         adminDb().collection("users").doc(clientUserId).collection("inventoryRequests").doc(id).get()
@@ -233,7 +269,9 @@ export async function POST(request: NextRequest) {
     clientUserId,
     clientDisplayName: cleanCameraLabel(body.clientDisplayName, "Client"),
     inventoryRequestIds: jobType === "receive" ? inventoryRequestIds : [],
-    shipmentRequestIds: jobType === "receive" ? [] : shipmentRequestIds,
+    shipmentRequestIds: jobType === "receive" || jobType === "return" ? [] : shipmentRequestIds,
+    productReturnId: jobType === "return" ? productReturnId : "",
+    returnArrivalId: jobType === "return" ? returnArrivalId : "",
     jobType,
     inventoryRequestLabels,
     inventoryRequestSummaries,

@@ -30,11 +30,13 @@ async function cameraFetch<T>(
 export async function createWarehouseCameraSession(
   user: User,
   input: {
-    jobType?: "receive" | "pick" | "pack" | "dispatch";
+    jobType?: "receive" | "pick" | "pack" | "dispatch" | "return";
     clientUserId: string;
     clientDisplayName: string;
     inventoryRequestIds?: string[];
     shipmentRequestIds?: string[];
+    productReturnId?: string;
+    returnArrivalId?: string;
     requestSummaries?: Array<{
       id: string;
       productName: string;
@@ -65,6 +67,7 @@ export async function listWarehouseCameraSessions(
   input: {
     requestId?: string;
     shipmentRequestId?: string;
+    productReturnId?: string;
     clientUserId?: string;
     jobType?: string;
   }
@@ -72,6 +75,7 @@ export async function listWarehouseCameraSessions(
   const params = new URLSearchParams();
   if (input.requestId) params.set("requestId", input.requestId);
   if (input.shipmentRequestId) params.set("shipmentRequestId", input.shipmentRequestId);
+  if (input.productReturnId) params.set("productReturnId", input.productReturnId);
   if (input.clientUserId) params.set("clientUserId", input.clientUserId);
   if (input.jobType) params.set("jobType", input.jobType);
   const data = await cameraFetch<{ sessions: WarehouseCameraSession[] }>(
@@ -84,11 +88,13 @@ export async function listWarehouseCameraSessions(
 export async function importWarehouseCameraVideoFile(
   user: User,
   input: {
-    jobType?: "receive" | "pick" | "pack" | "dispatch";
+    jobType?: "receive" | "pick" | "pack" | "dispatch" | "return";
     clientUserId: string;
     clientDisplayName: string;
     inventoryRequestIds?: string[];
     shipmentRequestIds?: string[];
+    productReturnId?: string;
+    returnArrivalId?: string;
     requestSummaries?: Array<{
       id: string;
       productName: string;
@@ -109,6 +115,8 @@ export async function importWarehouseCameraVideoFile(
     clientDisplayName: input.clientDisplayName,
     inventoryRequestIds: input.inventoryRequestIds,
     shipmentRequestIds: input.shipmentRequestIds,
+    productReturnId: input.productReturnId,
+    returnArrivalId: input.returnArrivalId,
     requestSummaries: input.requestSummaries,
     warehouseId: input.warehouseId,
     warehouseLabel: input.warehouseLabel,

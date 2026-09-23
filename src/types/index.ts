@@ -1568,6 +1568,8 @@ export interface ReturnArrival {
   notes?: string;
   receivePhotoUrls?: string[];
   videoUrls?: string[];
+  /** Google Drive clips stored as warehouse camera sessions. */
+  videoSessionIds?: string[];
 }
 
 export interface ProductReturn {

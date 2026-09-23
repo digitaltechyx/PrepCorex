@@ -7,8 +7,8 @@ export type WarehouseCameraSessionStatus =
   | "upload_failed"
   | "discarded";
 
-/** Receive = inbound. pick/pack/dispatch = outbound stages. */
-export type WarehouseCameraJobType = "receive" | "pick" | "pack" | "dispatch";
+/** Receive = inbound. pick/pack/dispatch = outbound. return = product-return open receive. */
+export type WarehouseCameraJobType = "receive" | "pick" | "pack" | "dispatch" | "return";
 
 export type WarehouseCameraRequestSummary = {
   id: string;
@@ -37,6 +37,10 @@ export type WarehouseCameraSession = {
   inventoryRequestSummaries: WarehouseCameraRequestSummary[];
   /** Outbound shipment request ids (empty for receive). */
   shipmentRequestIds: string[];
+  /** Product return this clip belongs to, when jobType is return. */
+  productReturnId?: string;
+  /** Arrival / tracking unit this clip was recorded for. */
+  returnArrivalId?: string;
   jobType: WarehouseCameraJobType;
   warehouseId: string;
   warehouseLabel: string;
@@ -60,7 +64,7 @@ export const WAREHOUSE_CAMERA_HEARTBEAT_TIMEOUT_MS = 30_000;
 
 export function normalizeWarehouseCameraJobType(value: unknown): WarehouseCameraJobType {
   const raw = String(value || "").trim().toLowerCase();
-  if (raw === "pick" || raw === "pack" || raw === "dispatch" || raw === "receive") {
+  if (raw === "pick" || raw === "pack" || raw === "dispatch" || raw === "receive" || raw === "return") {
     return raw;
   }
   return "receive";
@@ -74,6 +78,8 @@ export function warehouseCameraJobTypeLabel(jobType: WarehouseCameraJobType): st
       return "Pack";
     case "dispatch":
       return "Dispatch";
+    case "return":
+      return "Return";
     default:
       return "Receive";
   }
@@ -87,6 +93,8 @@ export function warehouseCameraDriveStageFolder(jobType: WarehouseCameraJobType)
       return "Pack";
     case "dispatch":
       return "Dispatch";
+    case "return":
+      return "Return receive";
     default:
       return "Receiving";
   }
@@ -105,7 +113,7 @@ export function warehouseCameraDriveRequestKind(
   jobType: WarehouseCameraJobType
 ): "Inbound" | "Outbound" | "Return" {
   if (jobType === "receive") return "Inbound";
-  // Return camera can map here later when jobType expands.
+  if (jobType === "return") return "Return";
   return "Outbound";
 }
 
@@ -161,7 +169,7 @@ export function warehouseCameraRecordedShipmentIds(
   const ids = new Set<string>();
   for (const session of sessions) {
     if (!warehouseCameraSessionHasRecording(session)) continue;
-    if (session.jobType === "receive") continue;
+    if (session.jobType === "receive" || session.jobType === "return") continue;
     for (const id of session.shipmentRequestIds || []) {
       const shipmentId = String(id || "").trim();
       if (shipmentId) ids.add(shipmentId);

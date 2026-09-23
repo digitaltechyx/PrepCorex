@@ -135,7 +135,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }),
       stageFolder: warehouseCameraDriveStageFolderWithDate(session.jobType, recordingDate),
     });
-    const extension = mimeType.includes("mp4") ? "mp4" : "webm";
+    const extension = mimeType.includes("mp4")
+      ? "mp4"
+      : mimeType.includes("quicktime") || mimeType.includes("mov")
+        ? "mov"
+        : "webm";
     const fileName = warehouseCameraDriveFileName({
       summaries: requestSummaries,
       startedAt: session.startedAt,
