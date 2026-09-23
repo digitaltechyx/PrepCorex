@@ -207,7 +207,6 @@ export function AdminSidebar() {
     pendingDocumentRequestsCount,
     pendingRequestsCount,
     pendingInvoicesCount,
-    pendingLabelsCount,
     pendingUsersCount,
     pendingCommissionAgentsCount,
     unfulfilledShopifyOrdersCount,
@@ -332,7 +331,6 @@ export function AdminSidebar() {
       url: "/admin/dashboard/buy-labels",
       icon: Tag,
       color: "text-cyan-600",
-      badge: pendingLabelsCount > 0 ? pendingLabelsCount : null,
       requiredFeature: "manage_labels" as const,
     },
     {
