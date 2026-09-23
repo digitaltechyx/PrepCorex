@@ -112,6 +112,10 @@ import {
   summarizeReturnArrivals,
 } from "@/lib/product-return-arrivals";
 import { ProductReturnAdminReceiveWorkflow } from "@/components/admin/product-return-admin-receive-workflow";
+import {
+  ProductReturnPutawayFields,
+  type ReturnPutawayValue,
+} from "@/components/admin/product-return-putaway-fields";
 import { ProductReturnArrivalsTimeline } from "@/components/product-returns/product-return-arrivals-timeline";
 import { hasRole } from "@/lib/permissions";
 import { Search } from "lucide-react";
@@ -169,8 +173,10 @@ export function ProductReturnsManagement({
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [detailsTab, setDetailsTab] = useState("details");
   const [isCloseDialogOpen, setIsCloseDialogOpen] = useState(false);
-  const [closeGoodBinPath, setCloseGoodBinPath] = useState("");
-  const [closeDamagedBinPath, setCloseDamagedBinPath] = useState("");
+  const [closePutaway, setClosePutaway] = useState<ReturnPutawayValue | null>(null);
+  const handleClosePutawayChange = useMemo(() => {
+    return (value: ReturnPutawayValue) => setClosePutaway(value);
+  }, []);
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [isShipDialogOpen, setIsShipDialogOpen] = useState(false);
   const [addReturnDialogOpen, setAddReturnDialogOpen] = useState(false);
@@ -635,20 +641,20 @@ export function ProductReturnsManagement({
       !selectedReturn.additionalServices?.shipToAddress ||
       Math.max(0, selectedReturn.receivedQuantity - (selectedReturn.shippedQuantity || 0)) > 0;
 
-    if (willCreditInventory && !closeGoodBinPath.trim()) {
+    if (willCreditInventory && !closePutaway?.goodReady) {
       toast({
         variant: "destructive",
-        title: "Bin required",
-        description: "Enter a bin path for good stock before closing.",
+        title: "Putaway required",
+        description: "Select a warehouse and a storage bin for good stock before closing.",
       });
       return;
     }
 
-    if (damagedTotal > 0 && !closeDamagedBinPath.trim()) {
+    if (damagedTotal > 0 && !closePutaway?.damagedReady) {
       toast({
         variant: "destructive",
         title: "Damaged bin required",
-        description: "Enter a damaged/quarantine bin when damaged qty is greater than zero.",
+        description: "Select a quarantine bin when damaged qty is greater than zero.",
       });
       return;
     }
@@ -719,8 +725,11 @@ export function ProductReturnsManagement({
         const arrivalSummary = summarizeReturnArrivals(
           normalizeReturnArrivals(latestReturn?.returnArrivals ?? selectedReturn.returnArrivals)
         );
-        const goodBin = closeGoodBinPath.trim();
-        const damagedBin = closeDamagedBinPath.trim();
+        const goodBin = closePutaway?.goodBinPath.trim() || "";
+        const damagedBin = closePutaway?.damagedBinPath.trim() || "";
+        const closeWarehouse = closePutaway?.warehouseLabel.trim() || "";
+        const closeLot = closePutaway?.lot.trim() || "";
+        const closeExpiry = closePutaway?.expiry.trim() || "";
         const returnSummaryParts = [
           `[Return Completed] ID: ${selectedReturn.id}`,
           `Type: ${returnTypeLabel}`,
@@ -731,10 +740,13 @@ export function ProductReturnsManagement({
           `Received Damaged Qty: ${selectedReturn.receivedDamagedQuantity ?? arrivalSummary.damagedTotal ?? 0}`,
           `Already Shipped: ${shippedQty || 0}`,
           `Added To Inventory: ${remainingQuantity}`,
+          closeWarehouse ? `Warehouse: ${closeWarehouse}` : null,
           goodBin ? `Good Bin: ${goodBin}` : null,
           damagedBin && (selectedReturn.receivedDamagedQuantity ?? arrivalSummary.damagedTotal) > 0
             ? `Damaged Bin: ${damagedBin}`
             : null,
+          closeLot ? `Lot: ${closeLot}` : null,
+          closeExpiry ? `Expiry: ${closeExpiry}` : null,
           `Requested By: ${requestedByLabel}`,
           `Closed By: ${closedByLabel}`,
           `Closed At: ${closedAtLabel}`,
@@ -771,6 +783,9 @@ export function ProductReturnsManagement({
         };
         if (goodBin) returnUpdate.closeGoodBinPath = goodBin;
         if (damagedBin) returnUpdate.closeDamagedBinPath = damagedBin;
+        if (closePutaway?.warehouseId) returnUpdate.closeWarehouseId = closePutaway.warehouseId;
+        if (closeLot) returnUpdate.closeLot = closeLot;
+        if (closeExpiry) returnUpdate.closeExpiry = closeExpiry;
 
         // If user selected ship-to-address, mark remaining items as shipped on close (append to shipping log)
         if (willShipRemainingOnClose) {
@@ -805,34 +820,41 @@ export function ProductReturnsManagement({
                 status: "In Stock",
                 remarks: mergedRemarks,
                 updatedAt: now,
+                ...(closeExpiry
+                  ? { expiryDate: Timestamp.fromDate(new Date(`${closeExpiry}T12:00:00`)) }
+                  : {}),
               });
             } else {
               // Product not found, create new inventory item
               const newInventoryRef = doc(collection(db, `users/${ownerId}/inventory`));
-              transaction.set(
-                newInventoryRef,
-                buildInventoryCreatePayload({
+              transaction.set(newInventoryRef, {
+                ...buildInventoryCreatePayload({
                   productName,
                   quantity: remainingQuantity,
                   now,
                   returnSummary,
                   sku,
-                })
-              );
+                }),
+                ...(closeExpiry
+                  ? { expiryDate: Timestamp.fromDate(new Date(`${closeExpiry}T12:00:00`)) }
+                  : {}),
+              });
             }
           } else {
             // Create new inventory item for new product return
             const newInventoryRef = doc(collection(db, `users/${ownerId}/inventory`));
-            transaction.set(
-              newInventoryRef,
-              buildInventoryCreatePayload({
+            transaction.set(newInventoryRef, {
+              ...buildInventoryCreatePayload({
                 productName,
                 quantity: remainingQuantity,
                 now,
                 returnSummary,
                 sku,
-              })
-            );
+              }),
+              ...(closeExpiry
+                ? { expiryDate: Timestamp.fromDate(new Date(`${closeExpiry}T12:00:00`)) }
+                : {}),
+            });
           }
         }
 
@@ -1094,8 +1116,7 @@ export function ProductReturnsManagement({
     setPalletFee("");
     setShippingFee("");
     setCloseShippingUnitPrice("");
-    setCloseGoodBinPath("");
-    setCloseDamagedBinPath("");
+    setClosePutaway(null);
     setIsCloseDialogOpen(true);
   };
 
@@ -1876,27 +1897,25 @@ export function ProductReturnsManagement({
                   </div>
 
                   <div className="space-y-3">
-                    <div className="text-sm font-medium">Putaway (inbound-style)</div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Good stock bin *</Label>
-                        <Input
-                          value={closeGoodBinPath}
-                          onChange={(e) => setCloseGoodBinPath(e.target.value)}
-                          placeholder="e.g. A-01-02"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Damaged bin (if any)</Label>
-                        <Input
-                          value={closeDamagedBinPath}
-                          onChange={(e) => setCloseDamagedBinPath(e.target.value)}
-                          placeholder="Quarantine / damaged bin"
-                        />
-                      </div>
-                    </div>
+                    <div className="text-sm font-medium">Putaway</div>
+                    <ProductReturnPutawayFields
+                      key={selectedReturn.id}
+                      goodQty={selectedReturn.receivedQuantity}
+                      damagedQty={
+                        selectedReturn.receivedDamagedQuantity ??
+                        summarizeReturnArrivals(
+                          normalizeReturnArrivals(selectedReturn.returnArrivals)
+                        ).damagedTotal
+                      }
+                      sku={resolveReturnSku(selectedReturn)}
+                      productName={
+                        selectedReturn.productName || selectedReturn.newProductName || "Product return"
+                      }
+                      clientUserId={getReturnOwnerId(selectedReturn)}
+                      onChange={handleClosePutawayChange}
+                    />
                     <p className="text-xs text-muted-foreground">
-                      Inventory remarks will note this is a product return, including bin paths.
+                      Inventory remarks will note this is a product return, including warehouse, bin, lot, and expiry.
                     </p>
                   </div>
 

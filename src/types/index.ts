@@ -1594,6 +1594,9 @@ export interface ProductReturn {
   closeGoodBinPath?: string;
   /** Bin for damaged stock on close (when damaged qty > 0). */
   closeDamagedBinPath?: string;
+  closeWarehouseId?: string;
+  closeLot?: string;
+  closeExpiry?: string;
   /** Units already shipped back out from this return. */
   shippedQuantity?: number;
   /** Units already credited to client inventory (putaway / QC restock). */
