@@ -1454,7 +1454,17 @@ export function ProductReturnsManagement({
       {selectedReturn && (
         <>
           <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-            <DialogContent className="max-w-3xl h-[90vh] flex flex-col overflow-hidden p-0">
+            <DialogContent
+              className="max-w-3xl h-[90vh] flex flex-col overflow-hidden p-0"
+              onPointerDownOutside={(event) => {
+                const target = event.target as HTMLElement | null;
+                if (target?.closest("[role='dialog']")) event.preventDefault();
+              }}
+              onInteractOutside={(event) => {
+                const target = event.target as HTMLElement | null;
+                if (target?.closest("[role='dialog']")) event.preventDefault();
+              }}
+            >
               <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4">
                 <DialogTitle>Return Request Details</DialogTitle>
                 <DialogDescription>

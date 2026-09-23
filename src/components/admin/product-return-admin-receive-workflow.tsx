@@ -35,6 +35,8 @@ import { ProductReturnArrivalsTimeline } from "@/components/product-returns/prod
 import { uploadProductReturnReceivePhotos } from "@/lib/product-return-receive-photos";
 import { importWarehouseCameraVideoFile } from "@/lib/warehouse-camera-client";
 import { ProductReturnReceiveVideoField } from "@/components/admin/product-return-receive-video-field";
+import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
+import { normalizeTrackingScan } from "@/lib/carrier-detect";
 import { Badge } from "@/components/ui/badge";
 
 type Props = {
@@ -77,7 +79,8 @@ export function ProductReturnAdminReceiveWorkflow({
   const pendingOpen = arrivals.filter((a) => a.status !== "received");
 
   const handleLogArrival = async () => {
-    if (!trackingNumber.trim()) {
+    const tracking = normalizeTrackingScan(trackingNumber);
+    if (!tracking) {
       toast({
         variant: "destructive",
         title: "Tracking required",
@@ -90,14 +93,14 @@ export function ProductReturnAdminReceiveWorkflow({
       await logReturnArrival({
         ownerUserId,
         returnId: returnItem.id,
-        trackingNumber: trackingNumber.trim(),
+        trackingNumber: tracking,
         unitType,
         operatorId,
         notes: arrivalNotes.trim() || undefined,
       });
       toast({
         title: "Arrival logged",
-        description: `${formatReturnArrivalUnitType(unitType)} recorded for tracking ${trackingNumber.trim()}.`,
+        description: `${formatReturnArrivalUnitType(unitType)} recorded for tracking ${tracking}.`,
       });
       setTrackingNumber("");
       setArrivalNotes("");
@@ -232,15 +235,25 @@ export function ProductReturnAdminReceiveWorkflow({
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
                 <Label>Tracking number</Label>
-                <Input
-                  value={trackingNumber}
-                  onChange={(e) => setTrackingNumber(e.target.value)}
-                  placeholder="Scan or type tracking…"
-                  className="font-mono"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void handleLogArrival();
-                  }}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={trackingNumber}
+                    onChange={(e) => setTrackingNumber(e.target.value)}
+                    placeholder="Scan, type, or use camera…"
+                    className="font-mono"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleLogArrival();
+                    }}
+                  />
+                  <ScanCameraButton
+                    showLabel
+                    label="Camera"
+                    disabled={isLogging}
+                    scannerTitle="Scan return tracking"
+                    scannerDescription="Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box."
+                    onScan={(value) => setTrackingNumber(normalizeTrackingScan(value))}
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Unit type</Label>

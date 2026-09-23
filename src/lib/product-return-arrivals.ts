@@ -112,6 +112,15 @@ export function returnArrivalStatusLabel(status: ReturnArrivalStatus): string {
   }
 }
 
+/** Firestore updateDoc rejects explicit `undefined` anywhere in the payload. */
+function firestoreData<T extends Record<string, unknown>>(value: T): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (entry !== undefined) out[key] = entry;
+  }
+  return out;
+}
+
 function mergePhotoUrls(existing: unknown, incoming: string[]): string[] {
   const prev = Array.isArray(existing)
     ? existing.map((u) => String(u || "").trim()).filter(Boolean)
@@ -165,6 +174,7 @@ export async function logReturnArrival(input: {
   }
 
   const now = Timestamp.now();
+  const note = input.notes?.trim();
   const arrival: ReturnArrival = {
     id: createReturnArrivalId(),
     trackingNumber: tracking,
@@ -172,14 +182,14 @@ export async function logReturnArrival(input: {
     status: "arrived",
     arrivedAt: now,
     arrivedBy: input.operatorId,
-    notes: input.notes?.trim() || undefined,
+    ...(note ? { notes: note } : {}),
   };
 
   const arrivals = [...normalizeReturnArrivals(data.returnArrivals), arrival];
   const nextStatus = data.status === "approved" ? "in_progress" : data.status;
 
   await updateDoc(returnRef, {
-    returnArrivals: arrivals,
+    returnArrivals: arrivals.map((row) => firestoreData(row as unknown as Record<string, unknown>)),
     status: nextStatus,
     updatedAt: now,
   });
@@ -252,7 +262,7 @@ export async function openReceiveReturnArrival(input: {
   });
 
   const patch: Record<string, unknown> = {
-    returnArrivals: arrivals,
+    returnArrivals: arrivals.map((row) => firestoreData(row as unknown as Record<string, unknown>)),
     receivedQuantity: summary.goodTotal,
     receivedGoodQuantity: summary.goodTotal,
     receivedDamagedQuantity: summary.damagedTotal,
