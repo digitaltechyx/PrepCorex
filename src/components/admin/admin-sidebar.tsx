@@ -32,6 +32,7 @@ import {
   RotateCcw,
   Package,
   Boxes,
+  Tag,
   Plug,
   ShoppingCart,
   Ship,
@@ -106,6 +107,7 @@ const MARKETPLACE_ORDER_CHILD_PATHS = [
 const MORE_MENU_ROOT = "/__more_menu__";
 
 const MORE_CHILD_PATHS = [
+  "/admin/dashboard/buy-labels",
   "/admin/dashboard/documents",
   "/admin/dashboard/integrations",
   "/admin/dashboard/reports",
@@ -205,6 +207,7 @@ export function AdminSidebar() {
     pendingDocumentRequestsCount,
     pendingRequestsCount,
     pendingInvoicesCount,
+    pendingLabelsCount,
     pendingUsersCount,
     pendingCommissionAgentsCount,
     unfulfilledShopifyOrdersCount,
@@ -323,6 +326,14 @@ export function AdminSidebar() {
       color: "text-purple-600",
       badge: pendingRequestsCount > 0 ? pendingRequestsCount : null,
       requiredFeature: "manage_notifications" as const,
+    },
+    {
+      title: "Buy Labels",
+      url: "/admin/dashboard/buy-labels",
+      icon: Tag,
+      color: "text-cyan-600",
+      badge: pendingLabelsCount > 0 ? pendingLabelsCount : null,
+      requiredFeature: "manage_labels" as const,
     },
     {
       title: "Product Returns",
@@ -576,9 +587,9 @@ export function AdminSidebar() {
     [moreNestedItems]
   );
   const moreMenuHref =
-    moreNestedItems.find((item) => item.url === "/admin/dashboard/documents")?.url ??
+    moreNestedItems.find((item) => item.url === "/admin/dashboard/buy-labels")?.url ??
     moreNestedItems[0]?.url ??
-    "/admin/dashboard/documents";
+    "/admin/dashboard/buy-labels";
   const moreCombinedBadge = useMemo(() => {
     const total = moreNestedItems.reduce((sum, item) => sum + (item.badge ?? 0), 0);
     return total > 0 ? total : null;
