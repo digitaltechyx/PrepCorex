@@ -1,4 +1,5 @@
 import type { OutboundTrackerEntry } from "@/types";
+import { normalizeTrackingScan } from "@/lib/carrier-detect";
 
 export const OUTBOUND_TRACKING_COLLECTION = "outboundTracker";
 export const OUTBOUND_TRACKING_REFRESH_MS = 6 * 60 * 60 * 1000;
@@ -299,7 +300,7 @@ export function outboundTrackerFilterOptions(entries: OutboundTrackerEntry[]): {
 }
 
 export function normalizeTrackingNumber(raw: string): string {
-  return raw.trim().replace(/\s+/g, "");
+  return normalizeTrackingScan(raw);
 }
 
 export function outboundTrackerDocId(trackingNumber: string): string {

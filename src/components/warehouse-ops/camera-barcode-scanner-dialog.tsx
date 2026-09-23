@@ -90,8 +90,8 @@ export function CameraBarcodeScannerDialog({
           fps: 15,
           // Wide, shallow scan region — 1D shipping barcodes read better than square QR boxes.
           qrbox: (viewfinderWidth, viewfinderHeight) => ({
-            width: Math.floor(viewfinderWidth * 0.95),
-            height: Math.floor(Math.min(viewfinderHeight * 0.28, 160)),
+            width: Math.floor(viewfinderWidth * 0.98),
+            height: Math.floor(Math.min(viewfinderHeight * 0.42, 240)),
           }),
           aspectRatio: 1.777,
           disableFlip: false,

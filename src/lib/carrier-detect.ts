@@ -12,18 +12,48 @@ export type DetectedCarrier =
   | "Amazon Logistics"
   | null;
 
-/** Strip GS1-style symbology prefixes (`(420)`, `]C1`) and whitespace. */
+/**
+ * Turn a raw scanner or camera read into the carrier tracking number.
+ * USPS labels often include an AIM prefix (`]C1`) and a `420` + ZIP routing
+ * code (sometimes separated by one extra character) before the real number.
+ */
 export function normalizeTrackingScan(raw: string): string {
   let v = String(raw ?? "").trim().toUpperCase();
-  // Strip GS1 AI prefix like (420)92110 or (00) (01) etc.
+  v = v.replace(/[\u0000-\u001F\u007F]/g, "");
   v = v.replace(/^\((\d{2,4})\)/, "");
-  // Strip Code 128 / AIM prefixes
-  v = v.replace(/^]C[01]/, "");
-  // Strip "TRK:" / "TN:" prefixes
+  // AIM symbology ids: ]C1 Code 128, ]e0 GS1-128, ]d2 Data Matrix, ]Q3 QR, etc.
+  while (/^\][A-Z]\d/.test(v)) {
+    v = v.slice(3);
+  }
   v = v.replace(/^(TRK|TN|TRACK)[:#]?/, "");
-  // Remove embedded spaces / dashes
   v = v.replace(/[\s-]/g, "");
-  return v;
+  if (!v) return "";
+
+  const ups = v.match(/1Z[0-9A-Z]{16}/);
+  if (ups) return ups[0];
+
+  // 420 + ZIP (5 or 9) + optional one-character separator + USPS tracking digits.
+  const routed = v.match(/^420(?:\d{9}|\d{5})[^0-9]?(\d{20,34})$/);
+  if (routed) return preferUspsLookupNumber(routed[1]);
+
+  const compact = v.replace(/[^0-9A-Z]/g, "");
+  if (/^\d{23,}$/.test(compact)) return preferUspsLookupNumber(compact);
+
+  return compact;
+}
+
+/** Carrier lookup wants the printed USPS number, not the routing barcode. */
+function preferUspsLookupNumber(digits: string): string {
+  if (/^(20|22|26|34)$/.test(String(digits.length)) && /^9/.test(digits)) {
+    return digits;
+  }
+  if (digits.length > 22) {
+    const last22 = digits.slice(-22);
+    if (/^9[2-6]\d{20}$/.test(last22)) return last22;
+    const embedded = digits.match(/9[2-6]\d{20}/);
+    if (embedded) return embedded[0];
+  }
+  return digits;
 }
 
 export function detectCarrier(raw: string): DetectedCarrier {
