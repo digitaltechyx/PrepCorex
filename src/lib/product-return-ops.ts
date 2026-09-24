@@ -657,7 +657,6 @@ export async function shipReturnQuantity(input: ShipReturnInput): Promise<{
         shippedQty: quantity,
         boxesShipped: 1,
         unitsForPricing: quantity,
-        remainingQty: 0,
         packOf: 1,
         unitPrice: quantity > 0 ? shippingCost / quantity : unitPrice,
         shipTo: input.shipTo.trim(),
@@ -672,13 +671,13 @@ export async function shipReturnQuantity(input: ShipReturnInput): Promise<{
             shippedQty: quantity,
             packOf: 1,
             unitPrice: quantity > 0 ? shippingCost / quantity : unitPrice,
-            remainingQty: 0,
           },
         ],
         totalBoxes: 1,
         totalUnits: quantity,
         totalSkus: 1,
         returnRequestId: input.returnId,
+        returnDirectShip: true,
         source: "warehouse_ops_return_ship",
       });
     }
@@ -770,14 +769,21 @@ export async function creditReturnInventory(input: {
       updatedAt: now,
     };
 
+    let inventoryId = "";
+    let qtyBefore = 0;
+    let eventType: "initial" | "restock" = "initial";
+
     if (data.type === "existing" && data.productId) {
       const invRef = doc(db, `users/${input.ownerUserId}/inventory`, data.productId);
       const invSnap = await transaction.get(invRef);
+      inventoryId = invRef.id;
       if (invSnap.exists()) {
         const current = invSnap.data();
+        qtyBefore = Math.max(0, Number(current.quantity || 0));
+        eventType = "restock";
         const existingRemarks = String(current.remarks || "").trim();
         const invPatch: Record<string, unknown> = {
-          quantity: (current.quantity || 0) + toCredit,
+          quantity: qtyBefore + toCredit,
           status: "In Stock",
           remarks: existingRemarks ? `${existingRemarks}\n\n${summary}` : summary,
           updatedAt: now,
@@ -804,6 +810,7 @@ export async function creditReturnInventory(input: {
       }
     } else {
       const newInv = doc(collection(db, `users/${input.ownerUserId}/inventory`));
+      inventoryId = newInv.id;
       transaction.set(
         newInv,
         buildInventoryCreatePayload({
@@ -819,6 +826,24 @@ export async function creditReturnInventory(input: {
       returnPatch.type = "existing";
       returnPatch.productName = productName;
       if (sku) returnPatch.sku = sku;
+    }
+
+    if (inventoryId) {
+      const damagedQty = Math.max(0, Math.floor(Number(data.receivedDamagedQuantity ?? 0)));
+      transaction.set(doc(collection(db, `users/${input.ownerUserId}/inboundReceiveLogs`)), {
+        inventoryId,
+        productName,
+        sku: sku || null,
+        eventType,
+        goodQty: toCredit,
+        damagedQty,
+        goodQtyBefore: qtyBefore,
+        goodQtyAfter: qtyBefore + toCredit,
+        remarks: `Product return ${input.returnId}`,
+        operatorId: input.operatorId || null,
+        putawayAt: now,
+        syncKey: `return_${input.returnId}_${credited + toCredit}`,
+      });
     }
 
     transaction.update(returnRef, returnPatch);
@@ -1060,7 +1085,6 @@ export async function closeProductReturnWithInvoice(
         shippedQty: remainingQuantity,
         boxesShipped: (selected.additionalServices?.boxesCount as number) || 1,
         unitsForPricing: remainingQuantity,
-        remainingQty: 0,
         packOf: 1,
         unitPrice: shippingUnitPriceNum,
         shipTo: shipToAddress,
@@ -1075,13 +1099,14 @@ export async function closeProductReturnWithInvoice(
             shippedQty: remainingQuantity,
             packOf: 1,
             unitPrice: shippingUnitPriceNum,
-            remainingQty: 0,
           },
         ],
         totalBoxes: (selected.additionalServices?.boxesCount as number) || 1,
         totalUnits: remainingQuantity,
         totalSkus: 1,
         returnRequestId: input.returnId,
+        returnDirectShip: true,
+        source: "product_return",
       });
     }
   });

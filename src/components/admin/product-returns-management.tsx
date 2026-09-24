@@ -91,6 +91,10 @@ import {
   CheckCircle,
   Clock,
   FileStack,
+  DollarSign,
+  Boxes,
+  Layers,
+  Warehouse,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -204,6 +208,9 @@ export function ProductReturnsManagement({
   const [palletFee, setPalletFee] = useState<string>("");
   const [palletQuantity, setPalletQuantity] = useState<string>("");
   const [palletPricePerUnit, setPalletPricePerUnit] = useState<string>("");
+  const [fulfilmentFee, setFulfilmentFee] = useState<string>("");
+  const [fulfilmentQuantity, setFulfilmentQuantity] = useState<string>("");
+  const [fulfilmentPricePerUnit, setFulfilmentPricePerUnit] = useState<string>("");
   // Used in "Ship Products" dialog (admin enters total shipping cost for that shipment)
   const [shippingFee, setShippingFee] = useState<string>("");
   // Used in "Ship Products" dialog (admin enters per-unit shipping price; total is auto-calculated)
@@ -545,6 +552,45 @@ export function ProductReturnsManagement({
             updatedAt: now,
           });
         }
+
+        const productName =
+          selectedReturn.productName || selectedReturn.newProductName || "Unknown Product";
+        const shippingCost = parseFloat(shippingFee) || 0;
+        const unitPrice =
+          quantity > 0
+            ? parseFloat(shipShippingUnitPrice) || shippingCost / quantity || 0
+            : 0;
+        const shippedRef = doc(collection(db, `users/${ownerId}/shipped`));
+        transaction.set(shippedRef, {
+          productName,
+          date: Timestamp.fromDate(today),
+          createdAt: now,
+          shippedQty: quantity,
+          boxesShipped: 1,
+          unitsForPricing: quantity,
+          packOf: 1,
+          unitPrice,
+          shipTo: shipTo.trim(),
+          service: "Product Return Shipment",
+          productType: "Standard",
+          remarks: `Product Return - Request ID: ${selectedReturn.id}`,
+          items: [
+            {
+              productId: selectedReturn.productId || "",
+              productName,
+              boxesShipped: 1,
+              shippedQty: quantity,
+              packOf: 1,
+              unitPrice,
+            },
+          ],
+          totalBoxes: 1,
+          totalUnits: quantity,
+          totalSkus: 1,
+          returnRequestId: selectedReturn.id,
+          returnDirectShip: true,
+          source: "product_return",
+        });
       });
 
       // Generate PDF after transaction if invoice was requested
@@ -671,10 +717,13 @@ export function ProductReturnsManagement({
       const returnHandlingTotal = returnFeeNum * selectedReturn.receivedQuantity;
       const packingFeeNum = parseFloat(packingFee) || 0;
       const palletFeeNum = parseFloat(palletFee) || 0;
+      const fulfilmentQtyNum = parseFloat(fulfilmentQuantity) || 0;
+      const fulfilmentUnitPriceNum = parseFloat(fulfilmentPricePerUnit) || 0;
+      const fulfilmentFeeNum = fulfilmentQtyNum * fulfilmentUnitPriceNum;
       const shippingUnitPriceNum = parseFloat(closeShippingUnitPrice) || 0;
       const shouldShipOnClose = !!selectedReturn.additionalServices?.shipToAddress;
       const shippingFeeNum = shouldShipOnClose ? (remainingToShipOnClose * shippingUnitPriceNum) : 0;
-      const servicesTotal = packingFeeNum + palletFeeNum + shippingFeeNum;
+      const servicesTotal = packingFeeNum + palletFeeNum + fulfilmentFeeNum + shippingFeeNum;
       const grandTotal = returnHandlingTotal + servicesTotal;
 
       // Build pricing object without undefined values (Firestore doesn't allow undefined)
@@ -689,6 +738,12 @@ export function ProductReturnsManagement({
       
       if (palletFeeNum > 0) {
         pricing.palletFee = palletFeeNum;
+      }
+
+      if (fulfilmentFeeNum > 0) {
+        pricing.fulfilmentFee = fulfilmentFeeNum;
+        pricing.fulfilmentQuantity = fulfilmentQtyNum;
+        pricing.fulfilmentUnitPrice = fulfilmentUnitPriceNum;
       }
       
       if (shippingFeeNum > 0) {
@@ -824,6 +879,25 @@ export function ProductReturnsManagement({
                   ? { expiryDate: Timestamp.fromDate(new Date(`${closeExpiry}T12:00:00`)) }
                   : {}),
               });
+              transaction.set(doc(collection(db, `users/${ownerId}/inboundReceiveLogs`)), {
+                inventoryId: inventoryRef.id,
+                productName,
+                sku: sku || null,
+                eventType: "restock",
+                goodQty: remainingQuantity,
+                damagedQty: selectedReturn.receivedDamagedQuantity ?? arrivalSummary.damagedTotal ?? 0,
+                goodQtyBefore: currentQuantity,
+                goodQtyAfter: currentQuantity + remainingQuantity,
+                remarks: `Product return ${selectedReturn.id}`,
+                warehouseId: closePutaway?.warehouseId || null,
+                binPath: goodBin || null,
+                operatorId: adminProfile.uid,
+                putawayAt: now,
+                syncKey: `return_${selectedReturn.id}`,
+              });
+              transaction.update(returnRef, {
+                inventoryCreditedQuantity: remainingQuantity,
+              });
             } else {
               // Product not found, create new inventory item
               const newInventoryRef = doc(collection(db, `users/${ownerId}/inventory`));
@@ -838,6 +912,29 @@ export function ProductReturnsManagement({
                 ...(closeExpiry
                   ? { expiryDate: Timestamp.fromDate(new Date(`${closeExpiry}T12:00:00`)) }
                   : {}),
+              });
+              transaction.set(doc(collection(db, `users/${ownerId}/inboundReceiveLogs`)), {
+                inventoryId: newInventoryRef.id,
+                productName,
+                sku: sku || null,
+                eventType: "initial",
+                goodQty: remainingQuantity,
+                damagedQty: selectedReturn.receivedDamagedQuantity ?? arrivalSummary.damagedTotal ?? 0,
+                goodQtyBefore: 0,
+                goodQtyAfter: remainingQuantity,
+                remarks: `Product return ${selectedReturn.id}`,
+                warehouseId: closePutaway?.warehouseId || null,
+                binPath: goodBin || null,
+                operatorId: adminProfile.uid,
+                putawayAt: now,
+                syncKey: `return_${selectedReturn.id}`,
+              });
+              transaction.update(returnRef, {
+                productId: newInventoryRef.id,
+                type: "existing",
+                productName,
+                ...(sku ? { sku } : {}),
+                inventoryCreditedQuantity: remainingQuantity,
               });
             }
           } else {
@@ -854,6 +951,29 @@ export function ProductReturnsManagement({
               ...(closeExpiry
                 ? { expiryDate: Timestamp.fromDate(new Date(`${closeExpiry}T12:00:00`)) }
                 : {}),
+            });
+            transaction.set(doc(collection(db, `users/${ownerId}/inboundReceiveLogs`)), {
+              inventoryId: newInventoryRef.id,
+              productName,
+              sku: sku || null,
+              eventType: "initial",
+              goodQty: remainingQuantity,
+              damagedQty: selectedReturn.receivedDamagedQuantity ?? arrivalSummary.damagedTotal ?? 0,
+              goodQtyBefore: 0,
+              goodQtyAfter: remainingQuantity,
+              remarks: `Product return ${selectedReturn.id}`,
+              warehouseId: closePutaway?.warehouseId || null,
+              binPath: goodBin || null,
+              operatorId: adminProfile.uid,
+              putawayAt: now,
+              syncKey: `return_${selectedReturn.id}`,
+            });
+            transaction.update(returnRef, {
+              productId: newInventoryRef.id,
+              type: "existing",
+              productName,
+              ...(sku ? { sku } : {}),
+              inventoryCreditedQuantity: remainingQuantity,
             });
           }
         }
@@ -900,6 +1020,18 @@ export function ProductReturnsManagement({
               shipTo: '',
               unitPrice: palletQty > 0 ? palletFeeNum / palletQty : palletFeeNum,
               amount: palletFeeNum,
+            });
+          }
+
+          if (fulfilmentFeeNum > 0) {
+            invoiceItems.push({
+              quantity: fulfilmentQtyNum,
+              productName: `Fulfilment Fee`,
+              shipDate: format(today, 'dd/MM/yyyy'),
+              packaging: 'N/A',
+              shipTo: '',
+              unitPrice: fulfilmentUnitPriceNum,
+              amount: fulfilmentFeeNum,
             });
           }
 
@@ -951,7 +1083,6 @@ export function ProductReturnsManagement({
             shippedQty: remainingQuantity,
             boxesShipped: selectedReturn.additionalServices?.boxesCount || 1,
             unitsForPricing: remainingQuantity,
-            remainingQty: 0, // Returned products, so no remaining
             packOf: 1,
             unitPrice: shippingUnitPriceNum,
             shipTo: shipToAddress,
@@ -965,12 +1096,13 @@ export function ProductReturnsManagement({
               shippedQty: remainingQuantity,
               packOf: 1,
               unitPrice: shippingUnitPriceNum,
-              remainingQty: 0,
             }],
             totalBoxes: selectedReturn.additionalServices?.boxesCount || 1,
             totalUnits: remainingQuantity,
             totalSkus: 1,
-            returnRequestId: selectedReturn.id, // Link to return request
+            returnRequestId: selectedReturn.id,
+            returnDirectShip: true,
+            source: "product_return",
           });
         }
 
@@ -1031,6 +1163,18 @@ export function ProductReturnsManagement({
           });
         }
 
+        if (fulfilmentFeeNum > 0) {
+          invoiceItems.push({
+            quantity: fulfilmentQtyNum,
+            productName: `Fulfilment Fee`,
+            shipDate: format(today, 'dd/MM/yyyy'),
+            packaging: 'N/A',
+            shipTo: '',
+            unitPrice: fulfilmentUnitPriceNum,
+            amount: fulfilmentFeeNum,
+          });
+        }
+
         if (shippingFeeNum > 0) {
           invoiceItems.push({
             quantity: remainingToShipOnClose,
@@ -1079,6 +1223,9 @@ export function ProductReturnsManagement({
       setPalletFee("");
       setPalletQuantity("");
       setPalletPricePerUnit("");
+      setFulfilmentFee("");
+      setFulfilmentQuantity("");
+      setFulfilmentPricePerUnit("");
       setShippingFee("");
     } catch (error: any) {
       console.error("Error closing return request:", error);
@@ -1104,6 +1251,9 @@ export function ProductReturnsManagement({
     setPalletFee("");
     setPalletQuantity("");
     setPalletPricePerUnit("");
+    setFulfilmentFee("");
+    setFulfilmentQuantity("");
+    setFulfilmentPricePerUnit("");
     setShippingFee("");
     setCloseShippingUnitPrice("");
     setRejectReason("");
@@ -1113,7 +1263,14 @@ export function ProductReturnsManagement({
     setSelectedReturn(returnItem);
     setReturnFee("");
     setPackingFee("");
+    setBoxQuantity("");
+    setBoxPricePerUnit("");
     setPalletFee("");
+    setPalletQuantity("");
+    setPalletPricePerUnit("");
+    setFulfilmentFee("");
+    setFulfilmentQuantity("");
+    setFulfilmentPricePerUnit("");
     setShippingFee("");
     setCloseShippingUnitPrice("");
     setClosePutaway(null);
@@ -1849,44 +2006,47 @@ export function ProductReturnsManagement({
 
           {/* Close Request Dialog */}
           <Dialog open={isCloseDialogOpen} onOpenChange={setIsCloseDialogOpen}>
-            <DialogContent className="max-w-2xl max-h-[90vh]">
-              <DialogHeader>
-                <DialogTitle>Close Return Request</DialogTitle>
-                <DialogDescription>
-                  Set pricing and close this return request. Invoice will be generated automatically.
+            <DialogContent className="max-w-3xl max-h-[92vh] gap-0 overflow-hidden p-0">
+              <DialogHeader className="border-b bg-gradient-to-r from-slate-950 via-slate-900 to-violet-950 px-6 py-5 text-white">
+                <DialogTitle className="text-white">Close return request</DialogTitle>
+                <DialogDescription className="text-slate-300">
+                  Confirm putaway, set fees, and close. An invoice is created when that option is on.
                 </DialogDescription>
               </DialogHeader>
-              <ScrollArea className="max-h-[70vh] pr-4">
-                <div className="space-y-6">
-                  {/* Summary */}
-                  <div className="p-4 bg-muted rounded-lg space-y-3">
-                    <div className="text-sm font-medium">Receive summary</div>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex justify-between">
-                        <span>Product:</span>
-                        <span className="font-medium">
+              <ScrollArea className="max-h-[74vh] px-6 py-5">
+                <div className="space-y-5">
+                  <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+                    <div className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Product</p>
+                        <p className="truncate text-sm font-semibold">
                           {selectedReturn.productName || selectedReturn.newProductName || "N/A"}
-                        </span>
+                        </p>
                       </div>
-                      <div className="flex justify-between">
-                        <span>Good qty (sellable):</span>
-                        <span className="font-medium tabular-nums">
+                      <Badge variant="secondary" className="shrink-0">Receive summary</Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-2">
+                      <div className="bg-card px-4 py-3">
+                        <p className="text-xs text-muted-foreground">Good qty</p>
+                        <p className="text-2xl font-semibold tabular-nums text-emerald-700">
                           {selectedReturn.receivedQuantity}
-                        </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">Sellable, added to inventory</p>
                       </div>
-                      <div className="flex justify-between">
-                        <span>Damaged qty:</span>
-                        <span className="font-medium tabular-nums">
+                      <div className="bg-card px-4 py-3">
+                        <p className="text-xs text-muted-foreground">Damaged qty</p>
+                        <p className="text-2xl font-semibold tabular-nums text-rose-700">
                           {selectedReturn.receivedDamagedQuantity ??
                             summarizeReturnArrivals(
                               normalizeReturnArrivals(selectedReturn.returnArrivals)
                             ).damagedTotal}
-                        </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">Quarantine, not sellable</p>
                       </div>
                     </div>
                     {summarizeReturnArrivals(normalizeReturnArrivals(selectedReturn.returnArrivals))
                       .arrivedOnly > 0 ? (
-                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                      <p className="px-4 pt-3 text-xs text-amber-700 dark:text-amber-300">
                         {summarizeReturnArrivals(normalizeReturnArrivals(selectedReturn.returnArrivals))
                           .arrivedOnly}{" "}
                         arrival(s) not opened yet — only counted good qty will be credited to
@@ -1896,8 +2056,16 @@ export function ProductReturnsManagement({
                     <ProductReturnArrivalsTimeline returnItem={selectedReturn} compact />
                   </div>
 
-                  <div className="space-y-3">
-                    <div className="text-sm font-medium">Putaway</div>
+                  <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
+                        <Warehouse className="h-4 w-4" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold">Putaway</p>
+                        <p className="text-xs text-muted-foreground">Warehouse, bins, lot, and expiry</p>
+                      </div>
+                    </div>
                     <ProductReturnPutawayFields
                       key={selectedReturn.id}
                       goodQty={selectedReturn.receivedQuantity}
@@ -1919,10 +2087,24 @@ export function ProductReturnsManagement({
                     </p>
                   </div>
 
-                  {/* Pricing */}
-                  <div className="space-y-4">
-                    <div>
-                      <Label>Return Handling Fee (per unit) *</Label>
+                  <div className="space-y-3">
+                    <p className="text-sm font-semibold">Fees</p>
+                    <div className="rounded-2xl border bg-card p-4 shadow-sm">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+                            <DollarSign className="h-4 w-4" />
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold">Return handling</p>
+                            <p className="text-xs text-muted-foreground">Required · price per good unit</p>
+                          </div>
+                        </div>
+                        <p className="text-sm font-semibold tabular-nums">
+                          ${((parseFloat(returnFee) || 0) * selectedReturn.receivedQuantity).toFixed(2)}
+                        </p>
+                      </div>
+                      <Label className="text-xs text-muted-foreground">Price per unit</Label>
                       <Input
                         type="number"
                         value={returnFee || ""}
@@ -1931,13 +2113,23 @@ export function ProductReturnsManagement({
                         step="0.01"
                         min="0"
                       />
-                      <div className="text-xs text-muted-foreground mt-1">
-                        Total: ${(parseFloat(returnFee) || 0) * selectedReturn.receivedQuantity}
-                      </div>
                     </div>
 
-                    <div className="space-y-3">
-                      <Label>Packing Fee</Label>
+                    <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
+                            <Boxes className="h-4 w-4" />
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold">Packing fee</p>
+                            <p className="text-xs text-muted-foreground">Boxes × price per box</p>
+                          </div>
+                        </div>
+                        <p className="text-sm font-semibold tabular-nums">
+                          ${(parseFloat(packingFee) || 0).toFixed(2)}
+                        </p>
+                      </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <Label className="text-xs text-muted-foreground">Box Quantity</Label>
@@ -1974,13 +2166,23 @@ export function ProductReturnsManagement({
                           />
                         </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        Total: ${(parseFloat(packingFee) || 0).toFixed(2)}
-                      </div>
                     </div>
 
-                    <div className="space-y-3">
-                      <Label>Palletizing Fee</Label>
+                    <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-100 text-orange-800">
+                            <Layers className="h-4 w-4" />
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold">Palletizing fee</p>
+                            <p className="text-xs text-muted-foreground">Pallets × price per pallet</p>
+                          </div>
+                        </div>
+                        <p className="text-sm font-semibold tabular-nums">
+                          ${(parseFloat(palletFee) || 0).toFixed(2)}
+                        </p>
+                      </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <Label className="text-xs text-muted-foreground">Pallet Quantity</Label>
@@ -2017,8 +2219,56 @@ export function ProductReturnsManagement({
                           />
                         </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        Total: ${(parseFloat(palletFee) || 0).toFixed(2)}
+                    </div>
+
+                    <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800">
+                            <Package className="h-4 w-4" />
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold">Fulfilment fee</p>
+                            <p className="text-xs text-muted-foreground">Units × price per unit · added to the invoice when used</p>
+                          </div>
+                        </div>
+                        <p className="text-sm font-semibold tabular-nums">
+                          ${((parseFloat(fulfilmentQuantity) || 0) * (parseFloat(fulfilmentPricePerUnit) || 0)).toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Number of units</Label>
+                          <Input
+                            type="number"
+                            value={fulfilmentQuantity || ""}
+                            onChange={(e) => {
+                              const qty = e.target.value;
+                              setFulfilmentQuantity(qty);
+                              const price = parseFloat(fulfilmentPricePerUnit) || 0;
+                              setFulfilmentFee(((parseFloat(qty) || 0) * price).toFixed(2));
+                            }}
+                            placeholder="0"
+                            step="1"
+                            min="0"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Price per unit</Label>
+                          <Input
+                            type="number"
+                            value={fulfilmentPricePerUnit || ""}
+                            onChange={(e) => {
+                              const price = e.target.value;
+                              setFulfilmentPricePerUnit(price);
+                              const qty = parseFloat(fulfilmentQuantity) || 0;
+                              setFulfilmentFee((qty * (parseFloat(price) || 0)).toFixed(2));
+                            }}
+                            placeholder="0.00"
+                            step="0.01"
+                            min="0"
+                          />
+                        </div>
                       </div>
                     </div>
 
@@ -2063,16 +2313,18 @@ export function ProductReturnsManagement({
                       </div>
                     )}
 
-                    {/* Total */}
-                    <div className="p-4 bg-muted rounded-lg">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">Grand Total:</span>
-                        <span className="text-2xl font-bold">
+                    <div className="flex items-center justify-between rounded-2xl bg-slate-950 px-5 py-4 text-white">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-300">Grand total</p>
+                        <p className="text-sm text-slate-400">Handling, packing, palletizing, fulfilment, and shipping</p>
+                      </div>
+                        <span className="text-2xl font-semibold tabular-nums">
                           $
                           {(
                             (parseFloat(returnFee) || 0) * selectedReturn.receivedQuantity +
                             (parseFloat(packingFee) || 0) +
                             (parseFloat(palletFee) || 0) +
+                            (parseFloat(fulfilmentQuantity) || 0) * (parseFloat(fulfilmentPricePerUnit) || 0) +
                             (selectedReturn.additionalServices?.shipToAddress
                               ? Math.max(0, selectedReturn.receivedQuantity - (selectedReturn.shippedQuantity || 0)) *
                                 (parseFloat(closeShippingUnitPrice) || 0)
@@ -2081,10 +2333,9 @@ export function ProductReturnsManagement({
                         </span>
                       </div>
                     </div>
-                  </div>
 
                   {/* Invoice Generation Option */}
-                  <div className="flex items-center space-x-2 pt-2 border-t">
+                  <label className="flex cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm">
                     <input
                       type="checkbox"
                       id="generateInvoice"
@@ -2092,12 +2343,15 @@ export function ProductReturnsManagement({
                       onChange={(e) => setGenerateInvoiceOnClose(e.target.checked)}
                       className="h-4 w-4"
                     />
-                    <Label htmlFor="generateInvoice" className="text-sm font-normal cursor-pointer">
-                      Generate invoice on close
-                    </Label>
-                  </div>
+                    <span className="text-sm">
+                      <span className="font-medium">Generate invoice on close</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Fulfilment, packing, and palletizing lines are included when those fees are filled in.
+                      </span>
+                    </span>
+                  </label>
 
-                  <div className="flex gap-2 pt-4 border-t">
+                  <div className="flex gap-2 pb-2">
                     <Button
                       onClick={handleCloseRequest}
                       disabled={isProcessing || !returnFee}
@@ -2125,20 +2379,28 @@ export function ProductReturnsManagement({
 
           {/* Ship Dialog */}
           <Dialog open={isShipDialogOpen} onOpenChange={setIsShipDialogOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Ship Products</DialogTitle>
-                <DialogDescription>
-                  Ship a portion of the received products. This will be logged but won't appear in shipped orders.
+            <DialogContent className="max-w-lg gap-0 overflow-hidden p-0">
+              <DialogHeader className="border-b bg-gradient-to-r from-slate-950 via-slate-900 to-sky-950 px-6 py-5 text-white">
+                <DialogTitle className="text-white">Ship products</DialogTitle>
+                <DialogDescription className="text-slate-300">
+                  Ship units from this return. A shipped order is created, and the shipment is recorded in inventory history.
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label>Available to Ship</Label>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    Received: {selectedReturn.receivedQuantity} | 
-                    Already Shipped: {selectedReturn.shippedQuantity || 0} | 
-                    Available: {selectedReturn.receivedQuantity - (selectedReturn.shippedQuantity || 0)}
+              <div className="space-y-4 px-6 py-5">
+                <div className="grid grid-cols-3 gap-2 rounded-2xl border bg-card p-3 text-center shadow-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Received</p>
+                    <p className="text-lg font-semibold tabular-nums">{selectedReturn.receivedQuantity}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Shipped</p>
+                    <p className="text-lg font-semibold tabular-nums">{selectedReturn.shippedQuantity || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Available</p>
+                    <p className="text-lg font-semibold tabular-nums text-sky-700">
+                      {selectedReturn.receivedQuantity - (selectedReturn.shippedQuantity || 0)}
+                    </p>
                   </div>
                 </div>
                 <div>

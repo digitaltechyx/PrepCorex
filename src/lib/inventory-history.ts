@@ -1001,19 +1001,32 @@ export function buildInventoryHistory(
       }
     }
 
+    const returnDirectShip =
+      (s as ShippedItem & { returnDirectShip?: boolean }).returnDirectShip === true ||
+      Boolean(String((s as ShippedItem & { returnRequestId?: string }).returnRequestId ?? "").trim());
+
     for (const line of lines) {
       raw.push({
         timestamp: shippedEventTimestamp(s),
         event: "Shipped",
         eventType: "shipped",
-        qtyBefore: line.qtyBefore,
-        qtyAfter: line.qtyAfter,
-        qtyChange: -line.units,
-        details: formatOutboundShipmentDetails({
-          units: line.units,
-          packOf: line.packOf,
-          boxesShipped: line.boxesShipped,
-        }),
+        qtyBefore: returnDirectShip ? null : line.qtyBefore,
+        qtyAfter: returnDirectShip ? null : line.qtyAfter,
+        qtyChange: returnDirectShip ? 0 : -line.units,
+        details: returnDirectShip
+          ? [
+              `Shipped ${line.units} units`,
+              s.shipTo ? `to ${s.shipTo}` : "",
+              "Product return (not taken from on-hand stock)",
+              s.remarks?.trim() || "",
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : formatOutboundShipmentDetails({
+              units: line.units,
+              packOf: line.packOf,
+              boxesShipped: line.boxesShipped,
+            }),
         user: "Fulfillment",
         sourceId: s.id ? `${s.id}:${line.name}` : undefined,
       });
