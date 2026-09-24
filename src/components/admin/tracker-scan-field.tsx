@@ -201,6 +201,7 @@ export function TrackerScanField({
             disabled={adding}
             scannerTitle={scannerTitle}
             scannerDescription={scannerDescription}
+            shippingBarcode
           />
           {onReload ? (
             <Button

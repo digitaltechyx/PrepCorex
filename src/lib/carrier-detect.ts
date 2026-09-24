@@ -17,29 +17,51 @@ export type DetectedCarrier =
  * USPS labels often include an AIM prefix (`]C1`) and a `420` + ZIP routing
  * code (sometimes separated by one extra character) before the real number.
  */
+const ADDRESS_WORDS =
+  /\b(STREET|AVENUE|AVE|ROAD|BLVD|BOULEVARD|DRIVE|LANE|COURT|APT|SUITE|POBOX|P\.?O\.?\s*BOX)\b/;
+
 export function normalizeTrackingScan(raw: string): string {
   let v = String(raw ?? "").trim().toUpperCase();
   v = v.replace(/[\u0000-\u001F\u007F]/g, "");
-  v = v.replace(/^\((\d{2,4})\)/, "");
-  // AIM symbology ids: ]C1 Code 128, ]e0 GS1-128, ]d2 Data Matrix, ]Q3 QR, etc.
-  while (/^\][A-Z]\d/.test(v)) {
-    v = v.slice(3);
-  }
+  v = v.replace(/\][A-Z]\d/g, "");
+  v = v.replace(/\(\d{2,4}\)/g, "");
   v = v.replace(/^(TRK|TN|TRACK)[:#]?/, "");
-  v = v.replace(/[\s-]/g, "");
-  if (!v) return "";
+  if (!v.trim()) return "";
 
-  const ups = v.match(/1Z[0-9A-Z]{16}/);
+  const compact = v.replace(/[\s-]/g, "");
+
+  const ups = compact.match(/1Z[0-9A-Z]{16}/);
   if (ups) return ups[0];
 
-  // 420 + ZIP (5 or 9) + optional one-character separator + USPS tracking digits.
-  const routed = v.match(/^420(?:\d{9}|\d{5})[^0-9]?(\d{20,34})$/);
+  const amazon = compact.match(/TBA\d{12}/);
+  if (amazon) return amazon[0];
+
+  const dhlAlpha = compact.match(/J[JVD][A-Z0-9]{14,22}/);
+  if (dhlAlpha) return dhlAlpha[0];
+
+  // 420 + ZIP (5 or 9) + optional separator + the printed USPS number.
+  const routed = compact.match(/420(?:\d{9}|\d{5})[^0-9]?(\d{20,34})/);
   if (routed) return preferUspsLookupNumber(routed[1]);
 
-  const compact = v.replace(/[^0-9A-Z]/g, "");
-  if (/^\d{23,}$/.test(compact)) return preferUspsLookupNumber(compact);
+  // ZIP routing barcode by itself is not a tracking number.
+  if (/^420\d{5}$/.test(compact) || /^420\d{9}$/.test(compact)) return "";
 
-  return compact;
+  const usps = compact.match(/9(?:4|3|2|1)\d{19,32}/);
+  if (usps) return preferUspsLookupNumber(usps[0].slice(0, 34));
+
+  const fedex96 = compact.match(/96\d{18,22}/);
+  if (fedex96 && fedex96[0].length >= 20 && fedex96[0].length <= 22) return fedex96[0];
+
+  const digits = compact.replace(/[^0-9]/g, "");
+  const letters = compact.replace(/[^A-Z]/g, "");
+  if (ADDRESS_WORDS.test(v) || letters.length > 8) return "";
+
+  if (digits.length === 12 && !digits.startsWith("420")) return digits;
+  if (digits.length === 15 || digits.length === 20) return digits;
+  if (digits.length === 10 && compact === digits) return digits;
+  if (/^\d{22,34}$/.test(digits)) return preferUspsLookupNumber(digits);
+
+  return "";
 }
 
 /** Carrier lookup wants the printed USPS number, not the routing barcode. */
@@ -73,13 +95,11 @@ export function detectCarrier(raw: string): DetectedCarrier {
   // USPS Tracking common prefixes:
   //   9400 1XXX (Tracking Plus), 9205 5XXX (Priority), 9303 (Standard),
   //   9407 (Certified), 9405 (Standard), 9270 (Express)
-  if (/^9(400|205|303|407|405|270|2055|2056)\d/.test(v)) return "USPS";
-  // USPS 22-26 digit numeric
-  if (/^\d{22,26}$/.test(v)) return "USPS";
+  if (/^96\d{18,22}$/.test(v) || /^\d{12}$/.test(v) || /^\d{15}$/.test(v)) return "FedEx";
+  if (/^\d{20}$/.test(v) && !v.startsWith("9")) return "FedEx";
 
-  // FedEx Express (12 digit) / Ground (15 digit starting 96 or 100)
-  if (/^\d{12}$/.test(v)) return "FedEx";
-  if (/^96\d{20}$/.test(v) || /^\d{15}$/.test(v) || /^\d{20}$/.test(v)) return "FedEx";
+  if (/^9(400|205|303|407|405|270|2055|2056)\d/.test(v)) return "USPS";
+  if (/^\d{22,34}$/.test(v) && v.startsWith("9")) return "USPS";
 
   return null;
 }

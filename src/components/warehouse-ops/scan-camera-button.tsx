@@ -17,6 +17,8 @@ type Props = {
   disabled?: boolean;
   scannerTitle?: string;
   scannerDescription?: string;
+  /** Tracker scans should read the long 1D shipping barcode, not address codes. */
+  shippingBarcode?: boolean;
 };
 
 /** Opens the device camera to scan barcodes / QR (mobile-friendly). */
@@ -30,6 +32,7 @@ export function ScanCameraButton({
   disabled,
   scannerTitle,
   scannerDescription,
+  shippingBarcode = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const buttonSize = showLabel && size === "icon" ? "default" : size;
@@ -55,6 +58,7 @@ export function ScanCameraButton({
         onScan={onScan}
         title={scannerTitle}
         description={scannerDescription}
+        shippingBarcode={shippingBarcode}
       />
     </>
   );

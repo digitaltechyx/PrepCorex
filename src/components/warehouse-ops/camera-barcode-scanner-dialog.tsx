@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Camera, Loader2, SwitchCamera } from "lucide-react";
+import { normalizeTrackingScan } from "@/lib/carrier-detect";
 
 type Html5QrcodeInstance = import("html5-qrcode").Html5Qrcode;
 
@@ -19,6 +20,8 @@ type Props = {
   onScan: (decodedText: string) => void;
   title?: string;
   description?: string;
+  /** Read only the long 1D shipping barcode and ignore address / product codes. */
+  shippingBarcode?: boolean;
 };
 
 export function CameraBarcodeScannerDialog({
@@ -27,6 +30,7 @@ export function CameraBarcodeScannerDialog({
   onScan,
   title = "Scan with camera",
   description = "Point your phone at the barcode or QR code. Works best in good light with the back camera.",
+  shippingBarcode = false,
 }: Props) {
   const reactId = useId();
   const regionId = `cam-scan-${reactId.replace(/:/g, "")}`;
@@ -62,21 +66,29 @@ export function CameraBarcodeScannerDialog({
 
     try {
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
-      const formatsToSupport = [
-        Html5QrcodeSupportedFormats.QR_CODE,
-        Html5QrcodeSupportedFormats.DATA_MATRIX,
-        Html5QrcodeSupportedFormats.PDF_417,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.CODE_93,
-        Html5QrcodeSupportedFormats.CODABAR,
-        Html5QrcodeSupportedFormats.ITF,
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.RSS_14,
-      ];
+      const formatsToSupport = shippingBarcode
+        ? [
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.CODE_93,
+            Html5QrcodeSupportedFormats.CODABAR,
+            Html5QrcodeSupportedFormats.ITF,
+          ]
+        : [
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.DATA_MATRIX,
+            Html5QrcodeSupportedFormats.PDF_417,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.CODE_93,
+            Html5QrcodeSupportedFormats.CODABAR,
+            Html5QrcodeSupportedFormats.ITF,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.RSS_14,
+          ];
 
       const scanner = new Html5Qrcode(regionId, {
         verbose: false,
@@ -107,8 +119,15 @@ export function CameraBarcodeScannerDialog({
           },
         },
         (decodedText) => {
-          const text = decodedText.trim();
-          if (!text) return;
+          const text = shippingBarcode
+            ? normalizeTrackingScan(decodedText)
+            : decodedText.trim();
+          if (!text) {
+            if (shippingBarcode) {
+              setErrorMsg("That barcode is not a tracking number. Aim at the long shipping barcode.");
+            }
+            return;
+          }
           const now = Date.now();
           if (
             lastScanRef.current.text === text &&
@@ -144,7 +163,7 @@ export function CameraBarcodeScannerDialog({
         setErrorMsg(msg);
       }
     }
-  }, [facingMode, onOpenChange, onScan, regionId, stopScanner]);
+  }, [facingMode, onOpenChange, onScan, regionId, shippingBarcode, stopScanner]);
 
   useEffect(() => {
     if (!open) {

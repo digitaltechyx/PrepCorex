@@ -205,7 +205,14 @@ export function InboundTrackerPortal({ mode = "admin" }: InboundTrackerPortalPro
     async (raw: string, addedVia: "scan" | "manual" = "manual") => {
       const trackingNumber = normalizeTrackingNumber(raw);
       if (!trackingNumber) {
-        toast({ variant: "destructive", title: "Enter a tracking number." });
+        toast({
+          variant: "destructive",
+          title: addedVia === "scan" ? "Not a tracking barcode" : "Enter a tracking number.",
+          description:
+            addedVia === "scan"
+              ? "Scan the long shipping barcode. Addresses and routing codes are ignored."
+              : undefined,
+        });
         return;
       }
       setAdding(true);
@@ -449,6 +456,18 @@ export function InboundTrackerPortal({ mode = "admin" }: InboundTrackerPortalPro
             <Card
               className={cn(
                 "cursor-pointer shadow-none transition-colors hover:border-primary/40",
+                filters.status === "pending" && "border-primary ring-1 ring-primary/20"
+              )}
+              onClick={() => setFilter("status", "pending")}
+            >
+              <CardHeader className="p-4 pb-2">
+                <CardDescription>Not Scanned</CardDescription>
+                <CardTitle className="text-2xl">{report.pending}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card
+              className={cn(
+                "cursor-pointer shadow-none transition-colors hover:border-primary/40",
                 filters.status === "in_transit" && "border-primary ring-1 ring-primary/20"
               )}
               onClick={() => setFilter("status", "in_transit")}
@@ -477,18 +496,6 @@ export function InboundTrackerPortal({ mode = "admin" }: InboundTrackerPortalPro
             <Card
               className={cn(
                 "cursor-pointer shadow-none transition-colors hover:border-primary/40",
-                filters.status === "pending" && "border-primary ring-1 ring-primary/20"
-              )}
-              onClick={() => setFilter("status", "pending")}
-            >
-              <CardHeader className="p-4 pb-2">
-                <CardDescription>Not Scanned</CardDescription>
-                <CardTitle className="text-2xl">{report.pending}</CardTitle>
-              </CardHeader>
-            </Card>
-            <Card
-              className={cn(
-                "cursor-pointer shadow-none transition-colors hover:border-primary/40",
                 filters.status === "error" && "border-primary ring-1 ring-primary/20"
               )}
               onClick={() => setFilter("status", "error")}
@@ -502,7 +509,7 @@ export function InboundTrackerPortal({ mode = "admin" }: InboundTrackerPortalPro
             </Card>
             <Card className="shadow-none">
               <CardHeader className="p-4 pb-2">
-                <CardDescription>scanner/manual</CardDescription>
+                <CardDescription>Scanner/Manual</CardDescription>
                 <CardTitle className="text-lg">
                   {report.scanned} / {report.manual}
                 </CardTitle>
