@@ -32,6 +32,7 @@ import {
   summarizeReturnArrivals,
 } from "@/lib/product-return-arrivals";
 import { ProductReturnArrivalsTimeline } from "@/components/product-returns/product-return-arrivals-timeline";
+import { PagedRows } from "@/components/product-returns/paged-rows";
 import { uploadProductReturnReceivePhotos } from "@/lib/product-return-receive-photos";
 import { importWarehouseCameraVideoFile } from "@/lib/warehouse-camera-client";
 import { ProductReturnReceiveVideoField } from "@/components/admin/product-return-receive-video-field";
@@ -214,12 +215,12 @@ export function ProductReturnAdminReceiveWorkflow({
     (returnItem.status === "approved" || returnItem.status === "in_progress");
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h4 className="text-sm font-semibold mb-1">Receive workflow</h4>
-        <p className="text-xs text-muted-foreground">
-          Log physical arrivals first, then open and count good/damaged units per tracking. Client
-          sees this timeline on their return page.
+    <div className="space-y-5">
+      <div className="rounded-2xl border bg-card px-4 py-3 shadow-sm">
+        <h4 className="text-sm font-semibold">Receive workflow</h4>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Log physical arrivals first, then open and count good and damaged units per tracking. The
+          client sees this timeline on their return page.
         </p>
       </div>
 
@@ -227,10 +228,15 @@ export function ProductReturnAdminReceiveWorkflow({
 
       {canUse ? (
         <>
-          <div className="rounded-xl border border-dashed p-4 space-y-3 bg-muted/10">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <ScanLine className="h-4 w-4" />
-              Log arrival (not opened)
+          <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+                <ScanLine className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">Log arrival</p>
+                <p className="text-xs text-muted-foreground">Scan tracking before the carton is opened</p>
+              </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
@@ -297,12 +303,14 @@ export function ProductReturnAdminReceiveWorkflow({
 
           {pendingOpen.length > 0 ? (
             <div className="space-y-2">
-              <div className="text-sm font-medium">Open receive</div>
+              <p className="text-sm font-semibold">Open receive</p>
+              <PagedRows items={pendingOpen}>
+                {(pageRows) => (
               <div className="space-y-2">
-                {pendingOpen.map((arrival) => (
+                {pageRows.map((arrival) => (
                   <div
                     key={arrival.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border bg-card px-3 py-2.5 shadow-sm"
                   >
                     <div className="text-sm">
                       <span className="font-mono">{arrival.trackingNumber || "—"}</span>
@@ -324,6 +332,8 @@ export function ProductReturnAdminReceiveWorkflow({
                   </div>
                 ))}
               </div>
+                )}
+              </PagedRows>
             </div>
           ) : summary.totalArrivals > 0 ? (
             <p className="text-sm text-muted-foreground">All logged arrivals have been counted.</p>

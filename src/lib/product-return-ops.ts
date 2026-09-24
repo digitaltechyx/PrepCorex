@@ -839,7 +839,7 @@ export async function creditReturnInventory(input: {
         damagedQty,
         goodQtyBefore: qtyBefore,
         goodQtyAfter: qtyBefore + toCredit,
-        remarks: `Product return ${input.returnId}`,
+        remarks: summary,
         operatorId: input.operatorId || null,
         putawayAt: now,
         syncKey: `return_${input.returnId}_${credited + toCredit}`,

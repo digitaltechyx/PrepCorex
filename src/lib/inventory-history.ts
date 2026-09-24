@@ -682,10 +682,17 @@ export function buildInventoryHistory(
     const linkedRequest = row.inventoryRequestId
       ? requestById.get(row.inventoryRequestId) ?? null
       : null;
+    const returnCredit = /product return/i.test(row.remarks ?? "");
     raw.push({
       timestamp: row.putawayAtMs,
-      event: row.eventType === "restock" ? "Inbound restock (putaway)" : "Inbound received (putaway)",
+      event: returnCredit
+        ? "Product return received"
+        : row.eventType === "restock"
+          ? "Inbound restock (putaway)"
+          : "Inbound received (putaway)",
       eventType: row.eventType === "restock" ? "restock" : "received",
+      qtyBefore: row.goodQtyBefore,
+      qtyAfter: row.goodQtyAfter,
       qtyChange: row.goodQty,
       details: formatInboundPutawayDetails(row, linkedRequest),
       user: "PSF Operations",
@@ -748,13 +755,19 @@ export function buildInventoryHistory(
       (e.qtyChange != null && e.qtyChange > 0)
   );
   if (!hasInboundQtyEvent && addedTs > 0) {
-    // Informational anchor only — never use current on-hand as a historical delta.
+    const remarks = String((item as InventoryItem & { remarks?: string }).remarks ?? "").trim();
+    const addedMatch = remarks.match(/Added To Inventory:\s*(\d+)/i);
+    const addedQty = addedMatch ? Math.max(0, Math.floor(Number(addedMatch[1]))) : null;
+    const isReturn = remarks.includes("[Return Completed]");
     raw.push({
       timestamp: addedTs,
-      event: "Added to inventory",
-      eventType: "created",
-      details: item.source ? `Source: ${item.source}` : "Initial stock record",
-      user: "System",
+      event: isReturn ? "Product return received" : "Added to inventory",
+      eventType: isReturn ? "received" : "created",
+      qtyBefore: isReturn && addedQty != null ? 0 : null,
+      qtyAfter: isReturn && addedQty != null ? addedQty : null,
+      qtyChange: isReturn && addedQty != null ? addedQty : null,
+      details: remarks || (item.source ? `Source: ${item.source}` : "Initial stock record"),
+      user: isReturn ? "PSF Operations" : "System",
     });
   }
 
@@ -1229,7 +1242,7 @@ export function getInboundRequestReceivedTotal(req: InventoryRequest): number {
 export function formatInboundPutawayDetails(
   row: Pick<
     MergedInboundReceiveRow,
-    "goodQty" | "damagedQty" | "goodBinPath" | "remarks" | "totalReceived"
+    "goodQty" | "damagedQty" | "goodBinPath" | "damagedLocation" | "remarks" | "totalReceived"
   >,
   request: InventoryRequest | null
 ): string {
@@ -1244,6 +1257,7 @@ export function formatInboundPutawayDetails(
   parts.push(`+${row.goodQty} sellable units`);
   if (row.goodBinPath) parts.push(`Bin: ${row.goodBinPath}`);
   if (row.damagedQty > 0) parts.push(`${row.damagedQty} damaged (not sellable)`);
+  if (row.damagedLocation) parts.push(`Damaged bin: ${row.damagedLocation}`);
   if (row.remarks?.trim()) parts.push(row.remarks.trim());
   return parts.filter(Boolean).join(" · ");
 }
@@ -1259,6 +1273,8 @@ export type MergedInboundReceiveRow = {
   damagedQty: number;
   goodBinPath: string | null;
   damagedLocation: string | null;
+  goodQtyBefore: number | null;
+  goodQtyAfter: number | null;
   remarks: string | null;
   photoUrls: string[];
   sourceLogIds: string[];
@@ -1335,6 +1351,10 @@ export function mergeInboundReceiveLogs(logs: InboundReceiveLog[]): MergedInboun
     let damagedQty = 0;
     let goodBinPath: string | null = null;
     let damagedLocation: string | null = null;
+    let goodQtyBefore: number | null = null;
+    let goodQtyAfter: number | null = null;
+    let beforeTs = Number.POSITIVE_INFINITY;
+    let afterTs = 0;
     const remarks: string[] = [];
     const photoUrls: string[] = [];
     const sourceLogIds: string[] = [];
@@ -1357,6 +1377,14 @@ export function mergeInboundReceiveLogs(logs: InboundReceiveLog[]): MergedInboun
       if (g > 0 && log.binPath?.trim() && !goodBinPath) {
         goodBinPath = log.binPath.trim();
       }
+      if (log.goodQtyBefore != null && Number.isFinite(Number(log.goodQtyBefore)) && logTs <= beforeTs) {
+        beforeTs = logTs || beforeTs;
+        goodQtyBefore = Math.floor(Number(log.goodQtyBefore));
+      }
+      if (log.goodQtyAfter != null && Number.isFinite(Number(log.goodQtyAfter)) && logTs >= afterTs) {
+        afterTs = logTs;
+        goodQtyAfter = Math.floor(Number(log.goodQtyAfter));
+      }
       if (d > 0 && !damagedLocation) {
         const loc = log.binPath?.trim() || log.stagingArea?.trim() || null;
         if (loc) damagedLocation = loc;
@@ -1375,6 +1403,8 @@ export function mergeInboundReceiveLogs(logs: InboundReceiveLog[]): MergedInboun
       damagedQty,
       goodBinPath,
       damagedLocation,
+      goodQtyBefore,
+      goodQtyAfter,
       remarks: remarks.length ? [...new Set(remarks)].join(" · ") : null,
       photoUrls: [...new Set(photoUrls)],
       sourceLogIds,

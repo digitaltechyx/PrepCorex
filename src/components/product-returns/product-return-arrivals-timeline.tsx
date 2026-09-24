@@ -15,6 +15,7 @@ import {
   summarizeReturnArrivals,
 } from "@/lib/product-return-arrivals";
 import { Package, Truck, Video } from "lucide-react";
+import { PagedRows } from "@/components/product-returns/paged-rows";
 
 function formatTs(value: ReturnArrival["arrivedAt"]): string {
   if (!value) return "";
@@ -123,37 +124,41 @@ export function ProductReturnArrivalsTimeline({
 
   return (
     <div className={compact ? "space-y-3" : "space-y-4"}>
-      <div className="flex flex-wrap gap-2 text-sm">
-        <Badge variant="outline" className="tabular-nums">
-          Good: {summary.goodTotal}
-        </Badge>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 tabular-nums">
+          Good {summary.goodTotal}
+        </span>
         {summary.damagedTotal > 0 ? (
-          <Badge variant="destructive" className="tabular-nums">
-            Damaged: {summary.damagedTotal}
-          </Badge>
+          <span className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-800 tabular-nums">
+            Damaged {summary.damagedTotal}
+          </span>
         ) : null}
         {summary.arrivedOnly > 0 ? (
           <Badge variant="secondary" className="tabular-nums">
             {summary.arrivedOnly} awaiting open
           </Badge>
         ) : null}
-        <span className="text-muted-foreground tabular-nums">
-          Counted / requested: {counted.total} / {returnItem.requestedQuantity}
+        <span className="text-xs text-muted-foreground tabular-nums">
+          Counted / requested {counted.total} / {returnItem.requestedQuantity}
         </span>
       </div>
 
-      <div className="space-y-4">
-        {[...byTracking.entries()].map(([tracking, items]) => (
-          <div key={tracking} className="rounded-lg border bg-muted/20 p-3 space-y-2">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Truck className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="font-mono break-all">{tracking}</span>
+      <PagedRows items={[...byTracking.entries()]}>
+        {(pageGroups) => (
+      <div className="space-y-3">
+        {pageGroups.map(([tracking, items]) => (
+          <div key={tracking} className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+            <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
+                <Truck className="h-3.5 w-3.5" />
+              </span>
+              <span className="font-mono text-sm font-medium break-all">{tracking}</span>
             </div>
-            <div className="space-y-2 pl-6">
+            <div className="space-y-2 p-3">
               {items.map((arrival) => (
                 <div
                   key={arrival.id}
-                  className="rounded-md border bg-background px-3 py-2 text-sm space-y-1"
+                  className="rounded-xl border bg-background px-3 py-2.5 text-sm space-y-1"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <Package className="h-3.5 w-3.5 text-muted-foreground" />
@@ -223,6 +228,8 @@ export function ProductReturnArrivalsTimeline({
           </div>
         ))}
       </div>
+        )}
+      </PagedRows>
     </div>
   );
 }

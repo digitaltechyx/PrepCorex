@@ -121,6 +121,7 @@ import {
   type ReturnPutawayValue,
 } from "@/components/admin/product-return-putaway-fields";
 import { ProductReturnArrivalsTimeline } from "@/components/product-returns/product-return-arrivals-timeline";
+import { PagedRows } from "@/components/product-returns/paged-rows";
 import { hasRole } from "@/lib/permissions";
 import { Search } from "lucide-react";
 
@@ -888,7 +889,7 @@ export function ProductReturnsManagement({
                 damagedQty: selectedReturn.receivedDamagedQuantity ?? arrivalSummary.damagedTotal ?? 0,
                 goodQtyBefore: currentQuantity,
                 goodQtyAfter: currentQuantity + remainingQuantity,
-                remarks: `Product return ${selectedReturn.id}`,
+                remarks: returnSummary,
                 warehouseId: closePutaway?.warehouseId || null,
                 binPath: goodBin || null,
                 operatorId: adminProfile.uid,
@@ -922,7 +923,7 @@ export function ProductReturnsManagement({
                 damagedQty: selectedReturn.receivedDamagedQuantity ?? arrivalSummary.damagedTotal ?? 0,
                 goodQtyBefore: 0,
                 goodQtyAfter: remainingQuantity,
-                remarks: `Product return ${selectedReturn.id}`,
+                remarks: returnSummary,
                 warehouseId: closePutaway?.warehouseId || null,
                 binPath: goodBin || null,
                 operatorId: adminProfile.uid,
@@ -961,7 +962,7 @@ export function ProductReturnsManagement({
               damagedQty: selectedReturn.receivedDamagedQuantity ?? arrivalSummary.damagedTotal ?? 0,
               goodQtyBefore: 0,
               goodQtyAfter: remainingQuantity,
-              remarks: `Product return ${selectedReturn.id}`,
+              remarks: returnSummary,
               warehouseId: closePutaway?.warehouseId || null,
               binPath: goodBin || null,
               operatorId: adminProfile.uid,
@@ -1635,7 +1636,7 @@ export function ProductReturnsManagement({
         <>
           <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
             <DialogContent
-              className="max-w-3xl h-[90vh] flex flex-col overflow-hidden p-0"
+              className="max-w-3xl h-[90vh] flex flex-col overflow-hidden p-0 [&>button]:text-white [&>button]:hover:text-white"
               onPointerDownOutside={(event) => {
                 const target = event.target as HTMLElement | null;
                 if (target?.closest("[role='dialog']")) event.preventDefault();
@@ -1645,83 +1646,80 @@ export function ProductReturnsManagement({
                 if (target?.closest("[role='dialog']")) event.preventDefault();
               }}
             >
-              <DialogHeader className="flex-shrink-0 px-6 pt-6 pb-4">
-                <DialogTitle>Return Request Details</DialogTitle>
-                <DialogDescription>
-                  View detailed information and activity log
+              <DialogHeader className="flex-shrink-0 border-b bg-gradient-to-r from-slate-950 via-slate-900 to-violet-950 px-6 py-5 text-white">
+                <DialogTitle className="text-white">Return request details</DialogTitle>
+                <DialogDescription className="text-slate-300">
+                  Product, arrivals, receive, and activity
                 </DialogDescription>
               </DialogHeader>
               <Tabs
                 value={detailsTab}
                 onValueChange={setDetailsTab}
-                className="flex-1 flex flex-col min-h-0 px-6 pb-6"
+                className="flex-1 flex flex-col min-h-0 px-6 pb-6 pt-4"
               >
-                <TabsList className="mb-4">
-                  <TabsTrigger value="details">Details</TabsTrigger>
-                  <TabsTrigger value="receive">Receive</TabsTrigger>
-                  <TabsTrigger value="logs">Logs</TabsTrigger>
+                <TabsList className="mb-4 grid h-10 w-full grid-cols-3 rounded-xl bg-muted p-1">
+                  <TabsTrigger value="details" className="rounded-lg">Details</TabsTrigger>
+                  <TabsTrigger value="receive" className="rounded-lg">Receive</TabsTrigger>
+                  <TabsTrigger value="logs" className="rounded-lg">Logs</TabsTrigger>
                 </TabsList>
                 <TabsContent value="details" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
-                  <div className="space-y-6">
-                  {/* Basic Info */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-sm text-muted-foreground">Product Name</div>
-                      <div className="font-medium">
+                  <div className="space-y-5">
+                  <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+                    <div className="border-b bg-muted/40 px-4 py-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Product</p>
+                      <p className="text-base font-semibold">
                         {selectedReturn.productName || selectedReturn.newProductName || "N/A"}
+                      </p>
+                      <p className="font-mono text-xs text-muted-foreground">
+                        {selectedReturn.sku || selectedReturn.newProductSku || "No SKU"}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4">
+                      <div className="bg-card px-4 py-3">
+                        <p className="text-xs text-muted-foreground">Requested</p>
+                        <p className="text-xl font-semibold tabular-nums">{selectedReturn.requestedQuantity}</p>
+                      </div>
+                      <div className="bg-card px-4 py-3">
+                        <p className="text-xs text-muted-foreground">Counted</p>
+                        <p className="text-xl font-semibold tabular-nums">{countedReturnUnits(selectedReturn).total}</p>
+                      </div>
+                      <div className="bg-card px-4 py-3">
+                        <p className="text-xs text-muted-foreground">Good</p>
+                        <p className="text-xl font-semibold tabular-nums text-emerald-700">
+                          {countedReturnUnits(selectedReturn).good}
+                        </p>
+                      </div>
+                      <div className="bg-card px-4 py-3">
+                        <p className="text-xs text-muted-foreground">Damaged</p>
+                        <p className="text-xl font-semibold tabular-nums text-rose-700">
+                          {selectedReturn.receivedDamagedQuantity ?? countedReturnUnits(selectedReturn).damaged}
+                        </p>
                       </div>
                     </div>
-                    <div>
-                      <div className="text-sm text-muted-foreground">SKU</div>
-                      <div className="font-medium">
-                        {selectedReturn.sku || selectedReturn.newProductSku || "N/A"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-muted-foreground">Type</div>
-                      <div className="font-medium">
-                        {selectedReturn.type === "existing" ? "Existing Product" : "New Inventory"}
-                        {selectedReturn.type === "existing" && selectedReturn.returnType && (
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            ({selectedReturn.returnType === "combine" ? "Combine" : "Partial"})
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-muted-foreground">Status</div>
-                      <div>{getStatusBadge(selectedReturn.status)}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-muted-foreground">Requested Quantity</div>
-                      <div className="font-medium">{selectedReturn.requestedQuantity}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-muted-foreground">Received</div>
-                      <div className="font-medium tabular-nums">
-                        {countedReturnUnits(selectedReturn).total}
-                        {(selectedReturn.receivedDamagedQuantity ?? 0) > 0 ? (
-                          <span className="text-sm text-muted-foreground font-normal ml-2">
-                            {countedReturnUnits(selectedReturn).good} good ·{" "}
-                            {selectedReturn.receivedDamagedQuantity} damaged
-                          </span>
-                        ) : null}
-                      </div>
+                    <div className="flex flex-wrap items-center gap-2 border-t px-4 py-3">
+                      <span className="text-xs text-muted-foreground">Type</span>
+                      <Badge variant="secondary">
+                        {selectedReturn.type === "existing" ? "Existing product" : "New inventory"}
+                        {selectedReturn.type === "existing" && selectedReturn.returnType
+                          ? ` · ${selectedReturn.returnType === "combine" ? "Combine" : "Partial"}`
+                          : ""}
+                      </Badge>
+                      {getStatusBadge(selectedReturn.status)}
                     </div>
                   </div>
 
                   {normalizeReturnArrivals(selectedReturn.returnArrivals).length > 0 ? (
                     <div>
-                      <div className="text-sm font-medium mb-2">Arrival timeline</div>
+                      <p className="mb-3 text-sm font-semibold">Arrival timeline</p>
                       <ProductReturnArrivalsTimeline returnItem={selectedReturn} compact />
                     </div>
                   ) : null}
 
                   {/* User Remarks */}
                   {selectedReturn.userRemarks && (
-                    <div>
-                      <div className="text-sm text-muted-foreground mb-1">User Remarks</div>
-                      <div className="p-3 bg-muted rounded-md">{selectedReturn.userRemarks}</div>
+                    <div className="rounded-2xl border bg-card p-4 shadow-sm">
+                      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Client remarks</p>
+                      <p className="text-sm">{selectedReturn.userRemarks}</p>
                     </div>
                   )}
 
@@ -1750,8 +1748,8 @@ export function ProductReturnsManagement({
 
                   {/* Additional Services */}
                   {selectedReturn.additionalServices && (
-                    <div>
-                      <div className="text-sm font-medium mb-2">Additional Services</div>
+                    <div className="rounded-2xl border bg-card p-4 shadow-sm">
+                      <p className="mb-3 text-sm font-semibold">Additional services</p>
                       <div className="space-y-2">
                         {selectedReturn.additionalServices.packIntoBoxes && (
                           <div className="flex items-center gap-2">
@@ -1880,53 +1878,47 @@ export function ProductReturnsManagement({
                   <div className="space-y-6">
                     {/* Receiving Log */}
                     {selectedReturn.receivingLog && selectedReturn.receivingLog.length > 0 && (
-                      <div>
-                        <div className="text-sm font-medium mb-2">Receiving History</div>
-                        <div className="space-y-2">
-                          {selectedReturn.receivingLog.map((log, index) => (
-                            <div key={index} className="p-3 bg-muted rounded-md">
-                              <div className="flex justify-between items-start">
-                                <div>
-                                  <div className="font-medium">
-                                    +{log.quantity} units
-                                    {typeof log.goodQty === "number" || typeof log.damagedQty === "number" ? (
-                                      <span className="text-sm font-normal text-muted-foreground">
-                                        {" "}
-                                        (good {String(log.goodQty ?? log.quantity)}, damaged{" "}
-                                        {String(log.damagedQty ?? 0)})
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  {log.trackingNumber ? (
-                                    <div className="text-xs font-mono text-muted-foreground mt-0.5">
-                                      {String(log.trackingNumber)}
-                                      {log.unitType ? ` · ${String(log.unitType)}` : ""}
-                                    </div>
-                                  ) : null}
-                                  {log.notes && (
-                                    <div className="text-sm text-muted-foreground mt-1">{log.notes}</div>
-                                  )}
-                                </div>
-                                <div className="text-sm text-muted-foreground">
-                                  {formatDate(log.receivedAt)}
-                                </div>
+                      <div className="space-y-2">
+                        <p className="text-sm font-semibold">Receiving history</p>
+                        <PagedRows items={selectedReturn.receivingLog}>
+                          {(pageLogs) => pageLogs.map((log, index) => (
+                          <div key={index} className="rounded-2xl border bg-card p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-emerald-700">+{log.quantity} units</p>
+                                {typeof log.goodQty === "number" || typeof log.damagedQty === "number" ? (
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    Good {String(log.goodQty ?? log.quantity)} · Damaged {String(log.damagedQty ?? 0)}
+                                  </p>
+                                ) : null}
+                                {log.trackingNumber ? (
+                                  <p className="mt-1 font-mono text-xs text-muted-foreground">
+                                    {String(log.trackingNumber)}
+                                    {log.unitType ? ` · ${String(log.unitType)}` : ""}
+                                  </p>
+                                ) : null}
+                                {log.notes ? (
+                                  <p className="mt-2 text-sm text-muted-foreground">{log.notes}</p>
+                                ) : null}
                               </div>
+                              <p className="shrink-0 text-xs text-muted-foreground">{formatDate(log.receivedAt)}</p>
                             </div>
-                          ))}
-                        </div>
+                          </div>
+                        ))}
+                        </PagedRows>
                       </div>
                     )}
 
                     {/* Shipping Log */}
                     {selectedReturn.shippingLog && selectedReturn.shippingLog.length > 0 && (
-                      <div>
-                        <div className="text-sm font-medium mb-2">Shipping History</div>
-                        <div className="space-y-2">
-                          {selectedReturn.shippingLog.map((log: any, index: number) => (
-                            <div key={index} className="p-3 bg-muted rounded-md">
-                              <div className="flex justify-between items-start">
-                                <div className="flex-1">
-                                  <div className="font-medium">-{log.quantity} units shipped</div>
+                      <div className="space-y-2">
+                        <p className="text-sm font-semibold">Shipping history</p>
+                        <PagedRows items={selectedReturn.shippingLog}>
+                          {(pageLogs) => pageLogs.map((log: any, index: number) => (
+                          <div key={index} className="rounded-2xl border bg-card p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                <p className="text-sm font-semibold text-sky-700">−{log.quantity} units shipped</p>
                                   {log.notes && (
                                     <div className="text-sm text-muted-foreground mt-1">{log.notes}</div>
                                   )}
@@ -1941,15 +1933,20 @@ export function ProductReturnsManagement({
                                     </div>
                                   )}
                                 </div>
-                                <div className="text-sm text-muted-foreground ml-4">
+                                <p className="shrink-0 text-xs text-muted-foreground">
                                   {formatDate(log.shippedAt)}
-                                </div>
+                                </p>
                               </div>
                             </div>
-                          ))}
-                        </div>
+                        ))}
+                        </PagedRows>
                       </div>
                     )}
+                    {!selectedReturn.receivingLog?.length && !selectedReturn.shippingLog?.length ? (
+                      <div className="rounded-2xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                        No receive or ship activity yet.
+                      </div>
+                    ) : null}
                   </div>
                 </TabsContent>
               </Tabs>

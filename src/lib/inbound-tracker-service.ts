@@ -82,6 +82,14 @@ async function refreshOneEntry(entry: InboundTrackerEntry): Promise<InboundTrack
   };
 }
 
+function withoutUndefined<T extends Record<string, unknown>>(data: T): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
+
 async function persistEntry(entry: InboundTrackerEntry): Promise<void> {
   const db = getAdminDb();
   const FieldValue = getAdminFieldValue();
@@ -89,7 +97,10 @@ async function persistEntry(entry: InboundTrackerEntry): Promise<void> {
   await db
     .collection(INBOUND_TRACKER_COLLECTION)
     .doc(id)
-    .set({ ...rest, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    .set(
+      withoutUndefined({ ...rest, updatedAt: FieldValue.serverTimestamp() }),
+      { merge: true }
+    );
 }
 
 export async function listInboundTrackerEntries(limit = 500): Promise<InboundTrackerEntry[]> {

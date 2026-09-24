@@ -60,7 +60,6 @@ import {
   PackageSearch,
   RefreshCw,
   ScanLine,
-  Truck,
   CheckCircle2,
   Clock,
   Trash2,
@@ -434,7 +433,7 @@ export function InboundTrackerPortal({ mode = "admin" }: InboundTrackerPortalPro
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Card
               className={cn(
                 "cursor-pointer shadow-none transition-colors hover:border-primary/40",
@@ -450,27 +449,13 @@ export function InboundTrackerPortal({ mode = "admin" }: InboundTrackerPortalPro
             <Card
               className={cn(
                 "cursor-pointer shadow-none transition-colors hover:border-primary/40",
-                filters.status === "active" && "border-primary ring-1 ring-primary/20"
-              )}
-              onClick={() => setFilter("status", "active")}
-            >
-              <CardHeader className="p-4 pb-2">
-                <CardDescription className="flex items-center gap-1">
-                  <Truck className="h-3.5 w-3.5" /> Active
-                </CardDescription>
-                <CardTitle className="text-2xl">{report.active}</CardTitle>
-              </CardHeader>
-            </Card>
-            <Card
-              className={cn(
-                "cursor-pointer shadow-none transition-colors hover:border-primary/40",
                 filters.status === "in_transit" && "border-primary ring-1 ring-primary/20"
               )}
               onClick={() => setFilter("status", "in_transit")}
             >
               <CardHeader className="p-4 pb-2">
                 <CardDescription className="flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5" /> In transit
+                  <Clock className="h-3.5 w-3.5" /> Scanned
                 </CardDescription>
                 <CardTitle className="text-2xl">{report.inTransit}</CardTitle>
               </CardHeader>
@@ -497,7 +482,7 @@ export function InboundTrackerPortal({ mode = "admin" }: InboundTrackerPortalPro
               onClick={() => setFilter("status", "pending")}
             >
               <CardHeader className="p-4 pb-2">
-                <CardDescription>Pre-transit</CardDescription>
+                <CardDescription>Not Scanned</CardDescription>
                 <CardTitle className="text-2xl">{report.pending}</CardTitle>
               </CardHeader>
             </Card>
@@ -510,14 +495,14 @@ export function InboundTrackerPortal({ mode = "admin" }: InboundTrackerPortalPro
             >
               <CardHeader className="p-4 pb-2">
                 <CardDescription className="flex items-center gap-1">
-                  <AlertCircle className="h-3.5 w-3.5" /> Errors
+                  <AlertCircle className="h-3.5 w-3.5" /> Wrong Tracking
                 </CardDescription>
                 <CardTitle className="text-2xl">{report.error}</CardTitle>
               </CardHeader>
             </Card>
             <Card className="shadow-none">
               <CardHeader className="p-4 pb-2">
-                <CardDescription>Scan / manual</CardDescription>
+                <CardDescription>scanner/manual</CardDescription>
                 <CardTitle className="text-lg">
                   {report.scanned} / {report.manual}
                 </CardTitle>
