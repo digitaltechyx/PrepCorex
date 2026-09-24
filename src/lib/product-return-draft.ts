@@ -74,6 +74,10 @@ export function validateReturnDraft(
   if (draft.type === "new" && !draft.newProductName.trim()) {
     return `${label}: enter product name.`;
   }
+  const sku = (draft.type === "existing" ? draft.sku : draft.newProductSku).trim();
+  if (!sku) {
+    return `${label}: SKU is required.`;
+  }
   const qty = Number(draft.requestedQuantity);
   if (!Number.isFinite(qty) || qty <= 0) {
     return `${label}: enter a positive quantity.`;

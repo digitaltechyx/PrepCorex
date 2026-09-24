@@ -439,12 +439,18 @@ export function validateExistingProductReturnRows(
       });
     }
 
+    const sku = String(product.sku ?? "").trim() || raw.SKU.trim();
+    if (!sku) {
+      errors.push({ rowNumber, message: "SKU is required." });
+      return;
+    }
+
     valid.push({
       rowNumber,
       type: "existing",
       productId: product.id,
       productName: product.productName,
-      sku: String(product.sku ?? raw.SKU.trim()),
+      sku,
       currentQuantity: liveQty,
       ...shared,
     });
@@ -477,6 +483,10 @@ export function validateNewProductReturnRows(
 
     if (!productName) {
       errors.push({ rowNumber, message: "Product Name is required." });
+      return;
+    }
+    if (!raw.SKU.trim()) {
+      errors.push({ rowNumber, message: "SKU is required." });
       return;
     }
 

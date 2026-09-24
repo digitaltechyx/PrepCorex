@@ -996,6 +996,7 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
           throw new Error("Select an existing product or enter a name.");
         }
         if (walkType === "new" && !walkName.trim()) throw new Error("Enter a product name.");
+        if (!walkSku.trim()) throw new Error("SKU is required.");
         const { returnId } = await createWalkInReturnWithUser({
           ownerUserId: walkClientId,
           type: walkType,

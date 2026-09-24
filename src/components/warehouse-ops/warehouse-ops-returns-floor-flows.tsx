@@ -450,9 +450,21 @@ function WalkInFlow({
                       </SelectContent>
                     </Select>
                     {props.walkProductId ? (
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2 text-xs text-muted-foreground">
-                        <p>Name: {props.walkName || "—"}</p>
-                        <p>SKU: {props.walkSku || "—"}</p>
+                      <div className="mt-2 space-y-2">
+                        <div className="grid gap-2 sm:grid-cols-2 text-xs text-muted-foreground">
+                          <p>Name: {props.walkName || "—"}</p>
+                          <p>SKU: {props.walkSku || "—"}</p>
+                        </div>
+                        {!props.walkInventory.find((item) => item.id === props.walkProductId)?.sku?.trim() ? (
+                          <div>
+                            <Label>SKU *</Label>
+                            <Input
+                              value={props.walkSku}
+                              onChange={(e) => props.setWalkSku(e.target.value)}
+                              placeholder="Enter SKU"
+                            />
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -466,7 +478,7 @@ function WalkInFlow({
                       />
                     </div>
                     <div>
-                      <Label>SKU (optional)</Label>
+                      <Label>SKU *</Label>
                       <Input
                         value={props.walkSku}
                         onChange={(e) => props.setWalkSku(e.target.value)}

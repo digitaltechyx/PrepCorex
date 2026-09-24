@@ -182,8 +182,20 @@ function ReturnDraftEditor({
                   <Input value={draft.productName} readOnly className="rounded-lg h-11 bg-muted/50" />
                 </div>
                 <div className="space-y-2">
-                  <Label>SKU</Label>
-                  <Input value={draft.sku} readOnly className="rounded-lg h-11 bg-muted/50" />
+                  <Label>SKU *</Label>
+                  <Input
+                    value={draft.sku}
+                    readOnly={Boolean(
+                      availableInventory.find((item) => item.id === draft.productId)?.sku?.trim()
+                    )}
+                    onChange={(e) => patch({ sku: e.target.value })}
+                    placeholder="Enter SKU"
+                    className={
+                      availableInventory.find((item) => item.id === draft.productId)?.sku?.trim()
+                        ? "rounded-lg h-11 bg-muted/50"
+                        : "rounded-lg h-11"
+                    }
+                  />
                 </div>
               </>
             ) : null}
@@ -200,7 +212,7 @@ function ReturnDraftEditor({
               />
             </div>
             <div className="space-y-2">
-              <Label>SKU (optional)</Label>
+              <Label>SKU *</Label>
               <Input
                 value={draft.newProductSku}
                 onChange={(e) => patch({ newProductSku: e.target.value })}

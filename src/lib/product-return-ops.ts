@@ -265,11 +265,16 @@ export async function createWalkInReturnWithUser(input: {
   const qty = Math.floor(input.requestedQuantity);
   if (qty < 1) throw new Error("Quantity must be at least 1.");
   if (input.type === "existing") {
-    if (!input.productName?.trim() && !input.sku?.trim()) {
-      throw new Error("Existing return needs a product name or SKU.");
+    if (!input.productName?.trim()) {
+      throw new Error("Existing return needs a product name.");
+    }
+    if (!input.sku?.trim()) {
+      throw new Error("SKU is required.");
     }
   } else if (!input.newProductName?.trim()) {
     throw new Error("New product name is required.");
+  } else if (!input.newProductSku?.trim()) {
+    throw new Error("SKU is required.");
   }
 
   const now = Timestamp.now();
