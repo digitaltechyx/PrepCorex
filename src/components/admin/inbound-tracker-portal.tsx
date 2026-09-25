@@ -323,7 +323,7 @@ export function InboundTrackerPortal({ mode = "admin" }: InboundTrackerPortalPro
         <h1 className="text-2xl font-semibold tracking-tight">Inbound Tracker</h1>
         <p className="text-sm text-muted-foreground">
           Scan with a Bluetooth label scanner or phone camera, or type tracking numbers manually.
-          Status updates automatically every 6 hours until delivered.
+          Status updates automatically every 3 hours until delivered.
         </p>
       </div>
 

@@ -1,7 +1,7 @@
 import type { InboundTrackingEntry } from "@/types";
 
-/** Re-fetch carrier status when older than this (6 hours). */
-export const INBOUND_TRACKING_REFRESH_MS = 6 * 60 * 60 * 1000;
+/** Re-fetch carrier status when older than this (3 hours). */
+export const INBOUND_TRACKING_REFRESH_MS = 3 * 60 * 60 * 1000;
 
 /**
  * Prefer inboundTrackings[]; fall back to legacy flat trackingNumber/carrier on the doc or batch line.

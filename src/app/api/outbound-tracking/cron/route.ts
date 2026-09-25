@@ -16,7 +16,7 @@ function authorizeCron(request: NextRequest): boolean {
   );
 }
 
-/** Poll Shippo for open outbound trackings (every 6 hours). */
+/** Poll Shippo for open outbound trackings (every 3 hours). */
 export async function POST(request: NextRequest) {
   if (!authorizeCron(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

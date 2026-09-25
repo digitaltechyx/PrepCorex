@@ -2,7 +2,7 @@ import type { OutboundTrackerEntry } from "@/types";
 import { normalizeTrackingScan } from "@/lib/carrier-detect";
 
 export const OUTBOUND_TRACKING_COLLECTION = "outboundTracker";
-export const OUTBOUND_TRACKING_REFRESH_MS = 6 * 60 * 60 * 1000;
+export const OUTBOUND_TRACKING_REFRESH_MS = 3 * 60 * 60 * 1000;
 export const OUTBOUND_TRACKING_STALE_MS = 48 * 60 * 60 * 1000;
 
 export function toMillis(value: unknown): number | null {

@@ -956,7 +956,7 @@ export function InventoryTable({
     };
   }, [effectiveUserId, data, inventoryRequests, user]);
 
-  // Refresh stale carrier statuses (> 6 hours) when inventory loads
+  // Refresh stale carrier statuses (> 3 hours) when inventory loads
   useEffect(() => {
     if (!user || !effectiveUserId) return;
     let cancelled = false;

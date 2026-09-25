@@ -1124,7 +1124,7 @@ export interface InventoryChangeLog {
   at?: { seconds: number; nanoseconds: number } | string | Date;
 }
 
-/** Inbound shipment tracking (client → warehouse). Status refreshed every 6 hours via Shippo. */
+/** Inbound shipment tracking (client → warehouse). Status refreshed every 3 hours via Shippo. */
 export interface InboundTrackingEntry {
   id: string;
   trackingNumber: string;

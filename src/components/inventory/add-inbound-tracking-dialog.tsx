@@ -88,7 +88,7 @@ export function AddInboundTrackingDialog({
       if (!res.ok) throw new Error(data.error || "Failed to add tracking");
       toast({
         title: "Tracking added",
-        description: "Status will refresh automatically every 6 hours.",
+        description: "Status will refresh automatically every 3 hours.",
       });
       setTrackingNumber("");
       setCarrier("usps");
@@ -112,7 +112,7 @@ export function AddInboundTrackingDialog({
         <DialogHeader>
           <DialogTitle>Add inbound tracking</DialogTitle>
           <DialogDescription>
-            {productName} — carrier status updates from Shippo every <strong>6 hours</strong>.
+            {productName} — carrier status updates from Shippo every <strong>3 hours</strong>.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">

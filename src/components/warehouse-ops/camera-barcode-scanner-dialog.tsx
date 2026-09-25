@@ -73,6 +73,9 @@ export function CameraBarcodeScannerDialog({
             Html5QrcodeSupportedFormats.CODE_93,
             Html5QrcodeSupportedFormats.CODABAR,
             Html5QrcodeSupportedFormats.ITF,
+            Html5QrcodeSupportedFormats.PDF_417,
+            Html5QrcodeSupportedFormats.DATA_MATRIX,
+            Html5QrcodeSupportedFormats.QR_CODE,
           ]
         : [
             Html5QrcodeSupportedFormats.QR_CODE,

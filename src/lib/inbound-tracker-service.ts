@@ -132,7 +132,7 @@ export async function addInboundTrackerEntry(input: {
   }
 
   const detected = detectCarrier(tn);
-  const carrier = input.carrier?.trim() || detected || "USPS";
+  const carrier = detected || input.carrier?.trim() || "Unknown";
   const now = trackingNow();
 
   let entry: InboundTrackerEntry = {

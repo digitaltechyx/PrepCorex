@@ -19,11 +19,14 @@ export function carrierToShippoCode(carrier?: string | null): string {
       return "fedex";
     case "dhl":
       return "dhl_express";
+    case "gofo":
+    case "gofo express":
+      return "gofo";
     case "amazon logistics":
     case "amazon":
       return "usps";
     default:
-      return "usps";
+      return carrier.trim().toLowerCase() || "usps";
   }
 }
 

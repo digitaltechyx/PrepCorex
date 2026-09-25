@@ -38,7 +38,7 @@ export function InboundTrackingDetailDialog({
         <DialogHeader>
           <DialogTitle>Inbound tracking</DialogTitle>
           <DialogDescription>
-            {productName} — carrier status from Shippo. Refreshes every <strong>6 hours</strong>.
+            {productName} — carrier status from Shippo. Refreshes every <strong>3 hours</strong>.
             Delivered here does not mean received at the warehouse.
           </DialogDescription>
         </DialogHeader>

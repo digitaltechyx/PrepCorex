@@ -323,7 +323,7 @@ export function OutboundTrackerPortal({ mode = "admin" }: OutboundTrackerPortalP
         <h1 className="text-2xl font-semibold tracking-tight">Outbound Tracker</h1>
         <p className="text-sm text-muted-foreground">
           Scan with a Bluetooth label scanner or phone camera, or type outbound tracking numbers
-          manually. Status updates automatically every 6 hours until delivered.
+          manually. Status updates automatically every 3 hours until delivered.
         </p>
       </div>
 

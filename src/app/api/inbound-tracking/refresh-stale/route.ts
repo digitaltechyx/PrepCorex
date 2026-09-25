@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       message:
         refreshedRequests > 0
           ? `Refreshed tracking for ${refreshedRequests} request(s).`
-          : "All trackings are up to date (checked within 6 hours).",
+          : "All trackings are up to date (checked within 3 hours).",
     });
   } catch (e) {
     return NextResponse.json(

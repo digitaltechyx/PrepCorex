@@ -220,7 +220,7 @@ export async function refreshStaleInboundTrackingsForUser(userId: string): Promi
   return refreshed;
 }
 
-/** Cron: refresh all index entries stale > 6 hours. */
+/** Cron: refresh all index entries stale > 3 hours. */
 export async function refreshStaleInboundTrackingIndex(limit = 200): Promise<number> {
   const db = getAdminDb();
   const cutoff = Date.now() - INBOUND_TRACKING_REFRESH_MS;
