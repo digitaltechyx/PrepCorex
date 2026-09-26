@@ -1,11 +1,25 @@
-import { Timestamp, doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  Timestamp,
+  collectionGroup,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  updateDoc,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { normalizeTrackingScan } from "@/lib/carrier-detect";
+import { normalizeReturnTracking } from "@/lib/return-tracking-client";
 import type {
   ProductReturn,
   ReturnArrival,
   ReturnArrivalStatus,
   ReturnArrivalUnitType,
 } from "@/types";
+
+function trackingKey(raw: string): string {
+  return normalizeTrackingScan(raw) || normalizeReturnTracking(raw);
+}
 
 export function createReturnArrivalId(): string {
   return `arr_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -168,6 +182,61 @@ async function loadReturnDoc(ownerUserId: string, returnId: string) {
   return { returnRef, data: snap.data() as ProductReturn };
 }
 
+export type ReturnArrivalTrackingConflict = {
+  ownerUserId: string;
+  returnId: string;
+  source: "arrival" | "client_tracking";
+};
+
+/**
+ * Find another product return that already claims this tracking
+ * (dock arrival or client-added return tracking). Same return is ignored.
+ */
+export async function findReturnTrackingConflict(input: {
+  trackingNumber: string;
+  excludeOwnerUserId: string;
+  excludeReturnId: string;
+}): Promise<ReturnArrivalTrackingConflict | null> {
+  const key = trackingKey(input.trackingNumber);
+  if (!key) return null;
+
+  const snap = await getDocs(query(collectionGroup(db, "productReturns")));
+  for (const docSnap of snap.docs) {
+    const pathParts = docSnap.ref.path.split("/");
+    const ownerUserId = pathParts[1] || "";
+    const returnId = docSnap.id;
+    if (
+      ownerUserId === input.excludeOwnerUserId &&
+      returnId === input.excludeReturnId
+    ) {
+      continue;
+    }
+
+    const data = docSnap.data() as ProductReturn;
+    const arrivals = normalizeReturnArrivals(data.returnArrivals);
+    if (arrivals.some((a) => trackingKey(a.trackingNumber) === key)) {
+      return { ownerUserId, returnId, source: "arrival" };
+    }
+
+    const clientTrackings = Array.isArray(data.returnTrackings)
+      ? data.returnTrackings
+      : [];
+    if (
+      clientTrackings.some(
+        (entry) =>
+          entry &&
+          typeof entry === "object" &&
+          trackingKey(String((entry as { trackingNumber?: string }).trackingNumber || "")) ===
+            key
+      )
+    ) {
+      return { ownerUserId, returnId, source: "client_tracking" };
+    }
+  }
+
+  return null;
+}
+
 export async function logReturnArrival(input: {
   ownerUserId: string;
   returnId: string;
@@ -176,12 +245,32 @@ export async function logReturnArrival(input: {
   operatorId: string;
   notes?: string;
 }): Promise<ReturnArrival> {
-  const tracking = input.trackingNumber.trim();
+  const tracking = trackingKey(input.trackingNumber);
   if (!tracking) throw new Error("Tracking number is required.");
 
   const { returnRef, data } = await loadReturnDoc(input.ownerUserId, input.returnId);
   if (data.status !== "approved" && data.status !== "in_progress") {
     throw new Error("Arrivals can only be logged on approved or in-progress returns.");
+  }
+
+  const existingArrivals = normalizeReturnArrivals(data.returnArrivals);
+  if (existingArrivals.some((a) => trackingKey(a.trackingNumber) === tracking)) {
+    throw new Error(
+      "This tracking is already logged on this return. One tracking number = one parcel."
+    );
+  }
+
+  const conflict = await findReturnTrackingConflict({
+    trackingNumber: tracking,
+    excludeOwnerUserId: input.ownerUserId,
+    excludeReturnId: input.returnId,
+  });
+  if (conflict) {
+    throw new Error(
+      conflict.source === "client_tracking"
+        ? "This tracking belongs to another client's return. Do not log it here — remove if scanned by mistake."
+        : "This tracking was already scanned on another return. One tracking number = one parcel."
+    );
   }
 
   const now = Timestamp.now();
@@ -196,7 +285,7 @@ export async function logReturnArrival(input: {
     ...(note ? { notes: note } : {}),
   };
 
-  const arrivals = [...normalizeReturnArrivals(data.returnArrivals), arrival];
+  const arrivals = [...existingArrivals, arrival];
   const nextStatus = data.status === "approved" ? "in_progress" : data.status;
 
   await updateDoc(returnRef, {
@@ -206,6 +295,39 @@ export async function logReturnArrival(input: {
   });
 
   return arrival;
+}
+
+/** Remove a wrongly scanned arrival. Recalculates counted totals if it was already received. */
+export async function deleteReturnArrival(input: {
+  ownerUserId: string;
+  returnId: string;
+  arrivalId: string;
+}): Promise<void> {
+  const { returnRef, data } = await loadReturnDoc(input.ownerUserId, input.returnId);
+  const arrivals = normalizeReturnArrivals(data.returnArrivals);
+  const target = arrivals.find((a) => a.id === input.arrivalId);
+  if (!target) throw new Error("Arrival not found.");
+
+  const remaining = arrivals.filter((a) => a.id !== input.arrivalId);
+  const summary = summarizeReturnArrivals(remaining);
+  const currentLog = Array.isArray(data.receivingLog) ? data.receivingLog : [];
+  const nextLog = currentLog.filter((entry) => {
+    if (!entry || typeof entry !== "object") return true;
+    const arrivalId = (entry as { arrivalId?: string }).arrivalId;
+    return arrivalId !== input.arrivalId;
+  });
+
+  const now = Timestamp.now();
+  await updateDoc(returnRef, {
+    returnArrivals: remaining.map((row) =>
+      firestoreData(row as unknown as Record<string, unknown>)
+    ),
+    receivedQuantity: summary.goodTotal,
+    receivedGoodQuantity: summary.goodTotal,
+    receivedDamagedQuantity: summary.damagedTotal,
+    receivingLog: nextLog,
+    updatedAt: now,
+  });
 }
 
 export async function openReceiveReturnArrival(input: {

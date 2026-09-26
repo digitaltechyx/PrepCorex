@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ChangeEvent } from "react";
-import { Loader2, PackagePlus, ScanLine, Box } from "lucide-react";
+import { Loader2, PackagePlus, ScanLine, Box, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { ProductReturn, ReturnArrival, ReturnArrivalUnitType } from "@/types";
 import {
   formatReturnArrivalUnitType,
+  deleteReturnArrival,
   logReturnArrival,
   normalizeReturnArrivals,
   openReceiveReturnArrival,
@@ -39,6 +40,27 @@ import { ProductReturnReceiveVideoField } from "@/components/admin/product-retur
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
 import { normalizeTrackingScan } from "@/lib/carrier-detect";
 import { Badge } from "@/components/ui/badge";
+
+const UNIT_TYPE_STORAGE_KEY = "psf.returnArrival.preferredUnitType";
+
+function readStoredUnitType(): ReturnArrivalUnitType {
+  if (typeof window === "undefined") return "carton";
+  try {
+    const raw = window.sessionStorage.getItem(UNIT_TYPE_STORAGE_KEY);
+    if (raw === "pallet" || raw === "package" || raw === "carton") return raw;
+  } catch {
+    /* ignore */
+  }
+  return "carton";
+}
+
+function persistUnitType(value: ReturnArrivalUnitType) {
+  try {
+    window.sessionStorage.setItem(UNIT_TYPE_STORAGE_KEY, value);
+  } catch {
+    /* ignore */
+  }
+}
 
 type Props = {
   ownerUserId: string;
@@ -60,9 +82,10 @@ export function ProductReturnAdminReceiveWorkflow({
   const { toast } = useToast();
   const { user } = useAuth();
   const [trackingNumber, setTrackingNumber] = useState("");
-  const [unitType, setUnitType] = useState<ReturnArrivalUnitType>("carton");
+  const [unitType, setUnitType] = useState<ReturnArrivalUnitType>(readStoredUnitType);
   const [arrivalNotes, setArrivalNotes] = useState("");
   const [isLogging, setIsLogging] = useState(false);
+  const [deletingArrivalId, setDeletingArrivalId] = useState<string | null>(null);
 
   const [openArrival, setOpenArrival] = useState<ReturnArrival | null>(null);
   const [goodQty, setGoodQty] = useState("");
@@ -114,6 +137,43 @@ export function ProductReturnAdminReceiveWorkflow({
       });
     } finally {
       setIsLogging(false);
+    }
+  };
+
+  const handleDeleteArrival = async (arrival: ReturnArrival) => {
+    const tracking = arrival.trackingNumber || "this scan";
+    const counted =
+      arrival.status === "received"
+        ? ` This arrival was already counted (good ${arrival.goodQty ?? 0}, damaged ${arrival.damagedQty ?? 0}) — counts will be reversed.`
+        : "";
+    if (
+      !window.confirm(
+        `Remove tracking ${tracking}?${counted}\n\nUse this if the wrong label or another client's tracking was scanned.`
+      )
+    ) {
+      return;
+    }
+    setDeletingArrivalId(arrival.id);
+    try {
+      await deleteReturnArrival({
+        ownerUserId,
+        returnId: returnItem.id,
+        arrivalId: arrival.id,
+      });
+      toast({
+        title: "Scan removed",
+        description: `Tracking ${tracking} deleted from this return.`,
+      });
+      if (openArrival?.id === arrival.id) setOpenArrival(null);
+      onUpdated?.();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Could not delete scan",
+        description: err instanceof Error ? err.message : "Try again.",
+      });
+    } finally {
+      setDeletingArrivalId(null);
     }
   };
 
@@ -219,12 +279,16 @@ export function ProductReturnAdminReceiveWorkflow({
       <div className="rounded-2xl border bg-card px-4 py-3 shadow-sm">
         <h4 className="text-sm font-semibold">Receive workflow</h4>
         <p className="mt-1 text-xs text-muted-foreground">
-          Log physical arrivals first, then open and count good and damaged units per tracking. The
-          client sees this timeline on their return page.
+          Log each physical parcel once (one tracking = one parcel). Wrong scans can be deleted
+          from the timeline. Duplicate tracking on this return or another client is blocked.
         </p>
       </div>
 
-      <ProductReturnArrivalsTimeline returnItem={{ ...returnItem, returnArrivals: arrivals }} />
+      <ProductReturnArrivalsTimeline
+        returnItem={{ ...returnItem, returnArrivals: arrivals }}
+        onDeleteArrival={canUse ? (arrival) => void handleDeleteArrival(arrival) : undefined}
+        deletingArrivalId={deletingArrivalId}
+      />
 
       {canUse ? (
         <>
@@ -235,7 +299,10 @@ export function ProductReturnAdminReceiveWorkflow({
               </span>
               <div>
                 <p className="text-sm font-semibold">Log arrival</p>
-                <p className="text-xs text-muted-foreground">Scan tracking before the carton is opened</p>
+                <p className="text-xs text-muted-foreground">
+                  One tracking number per parcel — duplicates are blocked. Unit type stays
+                  selected until you change it.
+                </p>
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -265,7 +332,11 @@ export function ProductReturnAdminReceiveWorkflow({
                 <Label>Unit type</Label>
                 <Select
                   value={unitType}
-                  onValueChange={(v) => setUnitType(v as ReturnArrivalUnitType)}
+                  onValueChange={(v) => {
+                    const next = v as ReturnArrivalUnitType;
+                    setUnitType(next);
+                    persistUnitType(next);
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -312,23 +383,45 @@ export function ProductReturnAdminReceiveWorkflow({
                     key={arrival.id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border bg-card px-3 py-2.5 shadow-sm"
                   >
-                    <div className="text-sm">
+                    <div className="text-sm min-w-0">
                       <span className="font-mono">{arrival.trackingNumber || "—"}</span>
                       <span className="text-muted-foreground">
                         {" "}
                         · {formatReturnArrivalUnitType(arrival.unitType)} ·{" "}
                         {returnArrivalStatusLabel(arrival.status)}
                       </span>
+                      {arrival.notes?.trim() ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground whitespace-pre-wrap">
+                          Notes: {arrival.notes.trim()}
+                        </p>
+                      ) : null}
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => startOpenReceive(arrival)}
-                    >
-                      <Box className="mr-1.5 h-3.5 w-3.5" />
-                      Open & count
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => startOpenReceive(arrival)}
+                      >
+                        <Box className="mr-1.5 h-3.5 w-3.5" />
+                        Open & count
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        disabled={deletingArrivalId === arrival.id}
+                        title="Remove wrong scan"
+                        onClick={() => void handleDeleteArrival(arrival)}
+                      >
+                        {deletingArrivalId === arrival.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

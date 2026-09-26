@@ -14,7 +14,8 @@ import {
   countedReturnUnits,
   summarizeReturnArrivals,
 } from "@/lib/product-return-arrivals";
-import { Package, Truck, Video } from "lucide-react";
+import { Package, Truck, Video, Trash2, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { PagedRows } from "@/components/product-returns/paged-rows";
 
 function formatTs(value: ReturnArrival["arrivedAt"]): string {
@@ -92,6 +93,8 @@ function statusBadgeVariant(
 export function ProductReturnArrivalsTimeline({
   returnItem,
   compact = false,
+  onDeleteArrival,
+  deletingArrivalId,
 }: {
   returnItem: Pick<
     ProductReturn,
@@ -102,6 +105,9 @@ export function ProductReturnArrivalsTimeline({
     | "requestedQuantity"
   >;
   compact?: boolean;
+  /** Admin-only: remove a wrongly scanned arrival. */
+  onDeleteArrival?: (arrival: ReturnArrival) => void;
+  deletingArrivalId?: string | null;
 }) {
   const arrivals = normalizeReturnArrivals(returnItem.returnArrivals);
   const summary = summarizeReturnArrivals(arrivals);
@@ -171,7 +177,30 @@ export function ProductReturnArrivalsTimeline({
                         Arrived {formatTs(arrival.arrivedAt)}
                       </span>
                     ) : null}
+                    {onDeleteArrival ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto h-7 px-2 text-destructive hover:text-destructive"
+                        disabled={deletingArrivalId === arrival.id}
+                        title="Remove wrongly scanned tracking"
+                        onClick={() => onDeleteArrival(arrival)}
+                      >
+                        {deletingArrivalId === arrival.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                        <span className="sr-only">Delete scan</span>
+                      </Button>
+                    ) : null}
                   </div>
+                  {arrival.notes?.trim() ? (
+                    <p className="pl-5 text-xs text-muted-foreground whitespace-pre-wrap">
+                      Notes: <span className="text-foreground">{arrival.notes.trim()}</span>
+                    </p>
+                  ) : null}
                   {arrival.status === "received" ? (
                     <div className="text-xs text-muted-foreground pl-5">
                       Good: <span className="font-medium text-foreground">{arrival.goodQty ?? 0}</span>
