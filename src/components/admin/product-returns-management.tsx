@@ -1657,9 +1657,10 @@ export function ProductReturnsManagement({
                 onValueChange={setDetailsTab}
                 className="flex-1 flex flex-col min-h-0 px-6 pb-6 pt-4"
               >
-                <TabsList className="mb-4 grid h-10 w-full grid-cols-3 rounded-xl bg-muted p-1">
+                <TabsList className="mb-4 grid h-10 w-full grid-cols-4 rounded-xl bg-muted p-1">
                   <TabsTrigger value="details" className="rounded-lg">Details</TabsTrigger>
                   <TabsTrigger value="receive" className="rounded-lg">Receive</TabsTrigger>
+                  <TabsTrigger value="open-receive" className="rounded-lg">Open receive</TabsTrigger>
                   <TabsTrigger value="logs" className="rounded-lg">Logs</TabsTrigger>
                 </TabsList>
                 <TabsContent value="details" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
@@ -1860,6 +1861,25 @@ export function ProductReturnsManagement({
                 <TabsContent value="receive" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
                   {selectedReturn?.id && adminProfile ? (
                     <ProductReturnAdminReceiveWorkflow
+                      mode="log"
+                      ownerUserId={getReturnOwnerId(selectedReturn)}
+                      clientDisplayName={formatUserDisplayName(
+                        getClientProfile(getReturnOwnerId(selectedReturn)) || {
+                          uid: getReturnOwnerId(selectedReturn),
+                          name: getReturnOwnerId(selectedReturn),
+                        },
+                        { showEmail: false }
+                      )}
+                      returnItem={{ ...selectedReturn, id: selectedReturn.id }}
+                      operatorId={adminProfile.uid}
+                      disabled={isProcessing}
+                    />
+                  ) : null}
+                </TabsContent>
+                <TabsContent value="open-receive" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
+                  {selectedReturn?.id && adminProfile ? (
+                    <ProductReturnAdminReceiveWorkflow
+                      mode="open"
                       ownerUserId={getReturnOwnerId(selectedReturn)}
                       clientDisplayName={formatUserDisplayName(
                         getClientProfile(getReturnOwnerId(selectedReturn)) || {

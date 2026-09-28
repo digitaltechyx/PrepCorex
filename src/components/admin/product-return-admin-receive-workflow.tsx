@@ -62,6 +62,13 @@ function persistUnitType(value: ReturnArrivalUnitType) {
   }
 }
 
+function trackingMatches(a: string, b: string): boolean {
+  const left = normalizeTrackingScan(a);
+  const right = normalizeTrackingScan(b);
+  if (!left || !right) return false;
+  return left === right;
+}
+
 type Props = {
   ownerUserId: string;
   clientDisplayName?: string;
@@ -69,6 +76,8 @@ type Props = {
   operatorId: string;
   disabled?: boolean;
   onUpdated?: () => void;
+  /** `log` = dock arrivals; `open` = scan + open & count */
+  mode?: "log" | "open";
 };
 
 export function ProductReturnAdminReceiveWorkflow({
@@ -78,6 +87,7 @@ export function ProductReturnAdminReceiveWorkflow({
   operatorId,
   disabled,
   onUpdated,
+  mode = "log",
 }: Props) {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -87,6 +97,7 @@ export function ProductReturnAdminReceiveWorkflow({
   const [isLogging, setIsLogging] = useState(false);
   const [deletingArrivalId, setDeletingArrivalId] = useState<string | null>(null);
 
+  const [openScan, setOpenScan] = useState("");
   const [openArrival, setOpenArrival] = useState<ReturnArrival | null>(null);
   const [goodQty, setGoodQty] = useState("");
   const [damagedQty, setDamagedQty] = useState("");
@@ -100,7 +111,10 @@ export function ProductReturnAdminReceiveWorkflow({
     [returnItem.returnArrivals]
   );
   const summary = useMemo(() => summarizeReturnArrivals(arrivals), [arrivals]);
-  const pendingOpen = arrivals.filter((a) => a.status !== "received");
+  const pendingOpen = useMemo(
+    () => arrivals.filter((a) => a.status !== "received"),
+    [arrivals]
+  );
 
   const handleLogArrival = async () => {
     const tracking = normalizeTrackingScan(trackingNumber);
@@ -184,6 +198,47 @@ export function ProductReturnAdminReceiveWorkflow({
     setOpenNotes("");
     setPhotoFiles([]);
     setVideoFiles([]);
+  };
+
+  const resolveOpenScan = (raw: string) => {
+    const tracking = normalizeTrackingScan(raw);
+    if (!tracking) {
+      toast({
+        variant: "destructive",
+        title: "Tracking required",
+        description: "Scan or enter the parcel tracking number.",
+      });
+      return;
+    }
+
+    const awaiting = pendingOpen.find((a) => trackingMatches(a.trackingNumber, tracking));
+    if (awaiting) {
+      setOpenScan("");
+      startOpenReceive(awaiting);
+      toast({
+        title: "Parcel found",
+        description: `${tracking} — ready to open & count.`,
+      });
+      return;
+    }
+
+    const alreadyCounted = arrivals.find(
+      (a) => a.status === "received" && trackingMatches(a.trackingNumber, tracking)
+    );
+    if (alreadyCounted) {
+      toast({
+        variant: "destructive",
+        title: "Already counted",
+        description: `${tracking} was already opened and counted on this return.`,
+      });
+      return;
+    }
+
+    toast({
+      variant: "destructive",
+      title: "Not awaiting open",
+      description: `${tracking} is not in the open queue for this return. Log it on Receive first if it just arrived.`,
+    });
   };
 
   const handlePhotoSelect = (event: ChangeEvent<HTMLInputElement>) => {
@@ -274,13 +329,255 @@ export function ProductReturnAdminReceiveWorkflow({
     !disabled &&
     (returnItem.status === "approved" || returnItem.status === "in_progress");
 
+  const openReceiveDialog = (
+    <Dialog open={!!openArrival} onOpenChange={(open) => !open && setOpenArrival(null)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Open receive</DialogTitle>
+          <DialogDescription>
+            Count good and damaged units for this{" "}
+            {openArrival ? formatReturnArrivalUnitType(openArrival.unitType).toLowerCase() : "unit"}.
+            Damaged qty follows the same inbound rules (not sellable).
+          </DialogDescription>
+        </DialogHeader>
+        {openArrival ? (
+          <div className="space-y-4">
+            <div className="rounded-md bg-muted/50 px-3 py-2 text-sm font-mono break-all">
+              {openArrival.trackingNumber}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Good qty</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={goodQty}
+                  onChange={(e) => setGoodQty(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Damaged qty</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={damagedQty}
+                  onChange={(e) => setDamagedQty(e.target.value)}
+                  className="border-red-200"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Notes (optional)</Label>
+              <Textarea
+                value={openNotes}
+                onChange={(e) => setOpenNotes(e.target.value)}
+                rows={2}
+                placeholder="Inspection notes…"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Photos (optional)</Label>
+              <Input type="file" accept="image/*" multiple onChange={handlePhotoSelect} />
+              {photoFiles.length > 0 ? (
+                <Badge variant="secondary">{photoFiles.length} photo(s) selected</Badge>
+              ) : null}
+            </div>
+            <ProductReturnReceiveVideoField
+              key={openArrival.id}
+              files={videoFiles}
+              onChange={setVideoFiles}
+              disabled={isOpening}
+            />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                className="flex-1"
+                disabled={isOpening}
+                onClick={() => void handleOpenReceive()}
+              >
+                {isOpening ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save counts
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isOpening}
+                onClick={() => setOpenArrival(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+
+  if (mode === "open") {
+    return (
+      <div className="space-y-5">
+        <div className="rounded-2xl border bg-card px-4 py-3 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-semibold">Open receive</h4>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Scan a parcel to open & count it immediately, or pick from the awaiting-open list.
+              </p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold tabular-nums text-amber-950">
+                {summary.arrivedOnly} awaiting
+              </p>
+              {summary.receivedUnits > 0 ? (
+                <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                  {summary.receivedUnits} counted
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {canUse ? (
+          <>
+            <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
+                  <ScanLine className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold">Scan parcel</p>
+                  <p className="text-xs text-muted-foreground">
+                    Matching tracking opens the count form automatically.
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Tracking number</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={openScan}
+                    onChange={(e) => setOpenScan(e.target.value)}
+                    placeholder="Scan, type, or use camera…"
+                    className="font-mono"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        resolveOpenScan(openScan);
+                      }
+                    }}
+                  />
+                  <ScanCameraButton
+                    showLabel
+                    label="Camera"
+                    disabled={isOpening}
+                    scannerTitle="Scan parcel for open receive"
+                    scannerDescription="Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box."
+                    onScan={(value) => {
+                      const next = normalizeTrackingScan(value);
+                      setOpenScan(next);
+                      resolveOpenScan(next);
+                    }}
+                  />
+                </div>
+              </div>
+              <Button
+                type="button"
+                onClick={() => resolveOpenScan(openScan)}
+                disabled={isOpening || !openScan.trim()}
+                className="w-full sm:w-auto"
+              >
+                <Box className="mr-2 h-4 w-4" />
+                Find & open
+              </Button>
+            </div>
+
+            {pendingOpen.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">
+                  Awaiting open ({pendingOpen.length})
+                </p>
+                <PagedRows items={pendingOpen}>
+                  {(pageRows) => (
+                    <div className="space-y-2">
+                      {pageRows.map((arrival) => (
+                        <div
+                          key={arrival.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border bg-card px-3 py-2.5 shadow-sm"
+                        >
+                          <div className="text-sm min-w-0">
+                            <span className="font-mono">{arrival.trackingNumber || "—"}</span>
+                            <span className="text-muted-foreground">
+                              {" "}
+                              · {formatReturnArrivalUnitType(arrival.unitType)} ·{" "}
+                              {returnArrivalStatusLabel(arrival.status)}
+                            </span>
+                            {arrival.notes?.trim() ? (
+                              <p className="mt-0.5 text-xs text-muted-foreground whitespace-pre-wrap">
+                                Notes: {arrival.notes.trim()}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => startOpenReceive(arrival)}
+                            >
+                              <Box className="mr-1.5 h-3.5 w-3.5" />
+                              Open & count
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              disabled={deletingArrivalId === arrival.id}
+                              title="Remove wrong scan"
+                              onClick={() => void handleDeleteArrival(arrival)}
+                            >
+                              {deletingArrivalId === arrival.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </PagedRows>
+              </div>
+            ) : summary.totalArrivals > 0 ? (
+              <p className="text-sm text-muted-foreground">
+                All logged arrivals have been counted.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No parcels awaiting open. Log arrivals on the Receive tab first.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Approve this return to open & count arrivals.
+          </p>
+        )}
+
+        {openReceiveDialog}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border bg-card px-4 py-3 shadow-sm">
         <h4 className="text-sm font-semibold">Receive workflow</h4>
         <p className="mt-1 text-xs text-muted-foreground">
           Log each physical parcel once (one tracking = one parcel). Wrong scans can be deleted
-          from the timeline. Duplicate tracking on this return or another client is blocked.
+          from the timeline. Use the Open receive tab to scan and count units.
         </p>
       </div>
 
@@ -291,13 +588,13 @@ export function ProductReturnAdminReceiveWorkflow({
       />
 
       {canUse ? (
-        <>
-          <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+        <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
                 <ScanLine className="h-4 w-4" />
               </span>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-semibold">Log arrival</p>
                 <p className="text-xs text-muted-foreground">
                   One tracking number per parcel — duplicates are blocked. Unit type stays
@@ -305,220 +602,92 @@ export function ProductReturnAdminReceiveWorkflow({
                 </p>
               </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Tracking number</Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={trackingNumber}
-                    onChange={(e) => setTrackingNumber(e.target.value)}
-                    placeholder="Scan, type, or use camera…"
-                    className="font-mono"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void handleLogArrival();
-                    }}
-                  />
-                  <ScanCameraButton
-                    showLabel
-                    label="Camera"
-                    disabled={isLogging}
-                    scannerTitle="Scan return tracking"
-                    scannerDescription="Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box."
-                    onScan={(value) => setTrackingNumber(normalizeTrackingScan(value))}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Unit type</Label>
-                <Select
-                  value={unitType}
-                  onValueChange={(v) => {
-                    const next = v as ReturnArrivalUnitType;
-                    setUnitType(next);
-                    persistUnitType(next);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="carton">Carton</SelectItem>
-                    <SelectItem value="pallet">Pallet</SelectItem>
-                    <SelectItem value="package">Package</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Notes (optional)</Label>
+            <div className="shrink-0 text-right">
+              <p className="rounded-full bg-violet-100 px-3 py-1 text-sm font-semibold tabular-nums text-violet-900">
+                {summary.totalArrivals} arrived
+              </p>
+              {summary.arrivedOnly > 0 ? (
+                <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                  {summary.arrivedOnly} awaiting open
+                </p>
+              ) : summary.receivedUnits > 0 ? (
+                <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                  {summary.receivedUnits} counted
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2 sm:col-span-2">
+              <Label>Tracking number</Label>
+              <div className="flex gap-2">
                 <Input
-                  value={arrivalNotes}
-                  onChange={(e) => setArrivalNotes(e.target.value)}
-                  placeholder="Dock notes…"
+                  value={trackingNumber}
+                  onChange={(e) => setTrackingNumber(e.target.value)}
+                  placeholder="Scan, type, or use camera…"
+                  className="font-mono"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleLogArrival();
+                  }}
+                />
+                <ScanCameraButton
+                  showLabel
+                  label="Camera"
+                  disabled={isLogging}
+                  scannerTitle="Scan return tracking"
+                  scannerDescription="Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box."
+                  onScan={(value) => setTrackingNumber(normalizeTrackingScan(value))}
                 />
               </div>
             </div>
-            <Button
-              type="button"
-              onClick={() => void handleLogArrival()}
-              disabled={isLogging}
-              className="w-full sm:w-auto"
-            >
-              {isLogging ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <PackagePlus className="mr-2 h-4 w-4" />
-              )}
-              Log arrival
-            </Button>
-          </div>
-
-          {pendingOpen.length > 0 ? (
             <div className="space-y-2">
-              <p className="text-sm font-semibold">Open receive</p>
-              <PagedRows items={pendingOpen}>
-                {(pageRows) => (
-              <div className="space-y-2">
-                {pageRows.map((arrival) => (
-                  <div
-                    key={arrival.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border bg-card px-3 py-2.5 shadow-sm"
-                  >
-                    <div className="text-sm min-w-0">
-                      <span className="font-mono">{arrival.trackingNumber || "—"}</span>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        · {formatReturnArrivalUnitType(arrival.unitType)} ·{" "}
-                        {returnArrivalStatusLabel(arrival.status)}
-                      </span>
-                      {arrival.notes?.trim() ? (
-                        <p className="mt-0.5 text-xs text-muted-foreground whitespace-pre-wrap">
-                          Notes: {arrival.notes.trim()}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => startOpenReceive(arrival)}
-                      >
-                        <Box className="mr-1.5 h-3.5 w-3.5" />
-                        Open & count
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive"
-                        disabled={deletingArrivalId === arrival.id}
-                        title="Remove wrong scan"
-                        onClick={() => void handleDeleteArrival(arrival)}
-                      >
-                        {deletingArrivalId === arrival.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-                )}
-              </PagedRows>
+              <Label>Unit type</Label>
+              <Select
+                value={unitType}
+                onValueChange={(v) => {
+                  const next = v as ReturnArrivalUnitType;
+                  setUnitType(next);
+                  persistUnitType(next);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="carton">Carton</SelectItem>
+                  <SelectItem value="pallet">Pallet</SelectItem>
+                  <SelectItem value="package">Package</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          ) : summary.totalArrivals > 0 ? (
-            <p className="text-sm text-muted-foreground">All logged arrivals have been counted.</p>
-          ) : null}
-        </>
+            <div className="space-y-2">
+              <Label>Notes (optional)</Label>
+              <Input
+                value={arrivalNotes}
+                onChange={(e) => setArrivalNotes(e.target.value)}
+                placeholder="Dock notes…"
+              />
+            </div>
+          </div>
+          <Button
+            type="button"
+            onClick={() => void handleLogArrival()}
+            disabled={isLogging}
+            className="w-full sm:w-auto"
+          >
+            {isLogging ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <PackagePlus className="mr-2 h-4 w-4" />
+            )}
+            Log arrival
+          </Button>
+        </div>
       ) : (
         <p className="text-sm text-muted-foreground">
           Approve this return to log arrivals and open receive.
         </p>
       )}
-
-      <Dialog open={!!openArrival} onOpenChange={(open) => !open && setOpenArrival(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Open receive</DialogTitle>
-            <DialogDescription>
-              Count good and damaged units for this{" "}
-              {openArrival ? formatReturnArrivalUnitType(openArrival.unitType).toLowerCase() : "unit"}.
-              Damaged qty follows the same inbound rules (not sellable).
-            </DialogDescription>
-          </DialogHeader>
-          {openArrival ? (
-            <div className="space-y-4">
-              <div className="rounded-md bg-muted/50 px-3 py-2 text-sm font-mono break-all">
-                {openArrival.trackingNumber}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>Good qty</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={goodQty}
-                    onChange={(e) => setGoodQty(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Damaged qty</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={damagedQty}
-                    onChange={(e) => setDamagedQty(e.target.value)}
-                    className="border-red-200"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Notes (optional)</Label>
-                <Textarea
-                  value={openNotes}
-                  onChange={(e) => setOpenNotes(e.target.value)}
-                  rows={2}
-                  placeholder="Inspection notes…"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Photos (optional)</Label>
-                <Input type="file" accept="image/*" multiple onChange={handlePhotoSelect} />
-                {photoFiles.length > 0 ? (
-                  <Badge variant="secondary">{photoFiles.length} photo(s) selected</Badge>
-                ) : null}
-              </div>
-              <ProductReturnReceiveVideoField
-                key={openArrival.id}
-                files={videoFiles}
-                onChange={setVideoFiles}
-                disabled={isOpening}
-              />
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  className="flex-1"
-                  disabled={isOpening}
-                  onClick={() => void handleOpenReceive()}
-                >
-                  {isOpening ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Save counts
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={isOpening}
-                  onClick={() => setOpenArrival(null)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
