@@ -31,6 +31,7 @@ import {
   openReceiveReturnArrival,
   returnArrivalStatusLabel,
   summarizeReturnArrivals,
+  trackingKey,
 } from "@/lib/product-return-arrivals";
 import { ProductReturnArrivalsTimeline } from "@/components/product-returns/product-return-arrivals-timeline";
 import { PagedRows } from "@/components/product-returns/paged-rows";
@@ -38,7 +39,6 @@ import { uploadProductReturnReceivePhotos } from "@/lib/product-return-receive-p
 import { importWarehouseCameraVideoFile } from "@/lib/warehouse-camera-client";
 import { ProductReturnReceiveVideoField } from "@/components/admin/product-return-receive-video-field";
 import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
-import { normalizeTrackingScan } from "@/lib/carrier-detect";
 import { Badge } from "@/components/ui/badge";
 
 const UNIT_TYPE_STORAGE_KEY = "psf.returnArrival.preferredUnitType";
@@ -63,8 +63,8 @@ function persistUnitType(value: ReturnArrivalUnitType) {
 }
 
 function trackingMatches(a: string, b: string): boolean {
-  const left = normalizeTrackingScan(a);
-  const right = normalizeTrackingScan(b);
+  const left = trackingKey(a);
+  const right = trackingKey(b);
   if (!left || !right) return false;
   return left === right;
 }
@@ -117,7 +117,7 @@ export function ProductReturnAdminReceiveWorkflow({
   );
 
   const handleLogArrival = async () => {
-    const tracking = normalizeTrackingScan(trackingNumber);
+    const tracking = trackingKey(trackingNumber);
     if (!tracking) {
       toast({
         variant: "destructive",
@@ -201,7 +201,7 @@ export function ProductReturnAdminReceiveWorkflow({
   };
 
   const resolveOpenScan = (raw: string) => {
-    const tracking = normalizeTrackingScan(raw);
+    const tracking = trackingKey(raw);
     if (!tracking) {
       toast({
         variant: "destructive",
@@ -474,7 +474,7 @@ export function ProductReturnAdminReceiveWorkflow({
                     scannerTitle="Scan parcel for open receive"
                     scannerDescription="Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box."
                     onScan={(value) => {
-                      const next = normalizeTrackingScan(value);
+                      const next = trackingKey(value);
                       setOpenScan(next);
                       resolveOpenScan(next);
                     }}
@@ -636,7 +636,7 @@ export function ProductReturnAdminReceiveWorkflow({
                   disabled={isLogging}
                   scannerTitle="Scan return tracking"
                   scannerDescription="Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box."
-                  onScan={(value) => setTrackingNumber(normalizeTrackingScan(value))}
+                  onScan={(value) => setTrackingNumber(trackingKey(value))}
                 />
               </div>
             </div>

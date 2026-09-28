@@ -17,7 +17,8 @@ import type {
   ReturnArrivalUnitType,
 } from "@/types";
 
-function trackingKey(raw: string): string {
+/** Same key used when logging arrivals — carrier parse, else trimmed uppercase. */
+export function trackingKey(raw: string): string {
   return normalizeTrackingScan(raw) || normalizeReturnTracking(raw);
 }
 
