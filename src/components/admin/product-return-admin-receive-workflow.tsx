@@ -38,7 +38,7 @@ import { PagedRows } from "@/components/product-returns/paged-rows";
 import { uploadProductReturnReceivePhotos } from "@/lib/product-return-receive-photos";
 import { importWarehouseCameraVideoFile } from "@/lib/warehouse-camera-client";
 import { ProductReturnReceiveVideoField } from "@/components/admin/product-return-receive-video-field";
-import { ScanCameraButton } from "@/components/warehouse-ops/scan-camera-button";
+import { TrackingScanInput } from "@/components/admin/tracking-scan-input";
 import { Badge } from "@/components/ui/badge";
 
 const UNIT_TYPE_STORAGE_KEY = "psf.returnArrival.preferredUnitType";
@@ -453,33 +453,24 @@ export function ProductReturnAdminReceiveWorkflow({
               </div>
               <div className="space-y-2">
                 <Label>Tracking number</Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={openScan}
-                    onChange={(e) => setOpenScan(e.target.value)}
-                    placeholder="Scan, type, or use camera…"
-                    className="font-mono"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        resolveOpenScan(openScan);
-                      }
-                    }}
-                  />
-                  <ScanCameraButton
-                    showLabel
-                    label="Camera"
-                    disabled={isOpening}
-                    scannerTitle="Scan parcel for open receive"
-                    scannerDescription="Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box."
-                    onScan={(value) => {
+                <TrackingScanInput
+                  value={openScan}
+                  onChange={setOpenScan}
+                  onSubmit={(raw) => resolveOpenScan(raw)}
+                  autoFocus
+                  disabled={isOpening}
+                  camera={{
+                    disabled: isOpening,
+                    scannerTitle: "Scan parcel for open receive",
+                    scannerDescription:
+                      "Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box.",
+                    onScan: (value) => {
                       const next = trackingKey(value);
                       setOpenScan(next);
                       resolveOpenScan(next);
-                    }}
-                  />
-                </div>
+                    },
+                  }}
+                />
               </div>
               <Button
                 type="button"
@@ -620,25 +611,19 @@ export function ProductReturnAdminReceiveWorkflow({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2 sm:col-span-2">
               <Label>Tracking number</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={trackingNumber}
-                  onChange={(e) => setTrackingNumber(e.target.value)}
-                  placeholder="Scan, type, or use camera…"
-                  className="font-mono"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void handleLogArrival();
-                  }}
-                />
-                <ScanCameraButton
-                  showLabel
-                  label="Camera"
-                  disabled={isLogging}
-                  scannerTitle="Scan return tracking"
-                  scannerDescription="Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box."
-                  onScan={(value) => setTrackingNumber(trackingKey(value))}
-                />
-              </div>
+              <TrackingScanInput
+                value={trackingNumber}
+                onChange={setTrackingNumber}
+                onSubmit={() => void handleLogArrival()}
+                disabled={isLogging}
+                camera={{
+                  disabled: isLogging,
+                  scannerTitle: "Scan return tracking",
+                  scannerDescription:
+                    "Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box.",
+                  onScan: (value) => setTrackingNumber(trackingKey(value)),
+                }}
+              />
             </div>
             <div className="space-y-2">
               <Label>Unit type</Label>
