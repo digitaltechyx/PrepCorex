@@ -5,7 +5,6 @@ import { Loader2, PackagePlus, ScanLine, Box, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -39,6 +38,7 @@ import { uploadProductReturnReceivePhotos } from "@/lib/product-return-receive-p
 import { importWarehouseCameraVideoFile } from "@/lib/warehouse-camera-client";
 import { ProductReturnReceiveVideoField } from "@/components/admin/product-return-receive-video-field";
 import { TrackingScanInput } from "@/components/admin/tracking-scan-input";
+import { OnScreenKeyboardField } from "@/components/admin/on-screen-keyboard-field";
 import { Badge } from "@/components/ui/badge";
 
 const UNIT_TYPE_STORAGE_KEY = "psf.returnArrival.preferredUnitType";
@@ -331,7 +331,7 @@ export function ProductReturnAdminReceiveWorkflow({
 
   const openReceiveDialog = (
     <Dialog open={!!openArrival} onOpenChange={(open) => !open && setOpenArrival(null)}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Open receive</DialogTitle>
           <DialogDescription>
@@ -345,33 +345,39 @@ export function ProductReturnAdminReceiveWorkflow({
             <div className="rounded-md bg-muted/50 px-3 py-2 text-sm font-mono break-all">
               {openArrival.trackingNumber}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-2 min-w-0">
                 <Label>Good qty</Label>
-                <Input
-                  type="number"
-                  min={0}
+                <OnScreenKeyboardField
+                  mode="numeric"
                   value={goodQty}
-                  onChange={(e) => setGoodQty(e.target.value)}
+                  onChange={setGoodQty}
+                  disabled={isOpening}
+                  placeholder="0"
+                  autoFocus
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 min-w-0">
                 <Label>Damaged qty</Label>
-                <Input
-                  type="number"
-                  min={0}
+                <OnScreenKeyboardField
+                  mode="numeric"
                   value={damagedQty}
-                  onChange={(e) => setDamagedQty(e.target.value)}
-                  className="border-red-200"
+                  onChange={setDamagedQty}
+                  disabled={isOpening}
+                  placeholder="0"
+                  inputClassName="border-red-200"
                 />
               </div>
             </div>
             <div className="space-y-2">
               <Label>Notes (optional)</Label>
-              <Textarea
-                value={openNotes}
-                onChange={(e) => setOpenNotes(e.target.value)}
+              <OnScreenKeyboardField
+                mode="text"
+                multiline
                 rows={2}
+                value={openNotes}
+                onChange={setOpenNotes}
+                disabled={isOpening}
                 placeholder="Inspection notes…"
               />
             </div>
@@ -647,9 +653,11 @@ export function ProductReturnAdminReceiveWorkflow({
             </div>
             <div className="space-y-2">
               <Label>Notes (optional)</Label>
-              <Input
+              <OnScreenKeyboardField
+                mode="text"
                 value={arrivalNotes}
-                onChange={(e) => setArrivalNotes(e.target.value)}
+                onChange={setArrivalNotes}
+                disabled={isLogging}
                 placeholder="Dock notes…"
               />
             </div>
