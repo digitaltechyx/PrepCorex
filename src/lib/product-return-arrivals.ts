@@ -245,6 +245,8 @@ export async function logReturnArrival(input: {
   unitType: ReturnArrivalUnitType;
   operatorId: string;
   notes?: string;
+  /** Optional client-generated id so optimistic UI and Firestore share the same arrival. */
+  arrivalId?: string;
 }): Promise<ReturnArrival> {
   const tracking = trackingKey(input.trackingNumber);
   if (!tracking) throw new Error("Tracking number is required.");
@@ -261,23 +263,14 @@ export async function logReturnArrival(input: {
     );
   }
 
-  const conflict = await findReturnTrackingConflict({
-    trackingNumber: tracking,
-    excludeOwnerUserId: input.ownerUserId,
-    excludeReturnId: input.returnId,
-  });
-  if (conflict) {
-    throw new Error(
-      conflict.source === "client_tracking"
-        ? "This tracking belongs to another client's return. Do not log it here — remove if scanned by mistake."
-        : "This tracking was already scanned on another return. One tracking number = one parcel."
-    );
-  }
+  // Intentionally skip findReturnTrackingConflict here: that function scans the entire
+  // productReturns collectionGroup and added 3–5s+ per dock scan. Same-return duplicates
+  // are still blocked; wrong cross-return scans can be deleted from the timeline.
 
   const now = Timestamp.now();
   const note = input.notes?.trim();
   const arrival: ReturnArrival = {
-    id: createReturnArrivalId(),
+    id: input.arrivalId?.trim() || createReturnArrivalId(),
     trackingNumber: tracking,
     unitType: input.unitType,
     status: "arrived",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Loader2, PackagePlus, ScanLine, Box, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ import type { ProductReturn, ReturnArrival, ReturnArrivalUnitType } from "@/type
 import {
   formatReturnArrivalUnitType,
   attachReturnArrivalReceiveMedia,
+  createReturnArrivalId,
   deleteReturnArrival,
   logReturnArrival,
   normalizeReturnArrivals,
@@ -111,18 +112,68 @@ export function ProductReturnAdminReceiveWorkflow({
   const [videoFiles, setVideoFiles] = useState<File[]>([]);
   const [isOpening, setIsOpening] = useState(false);
   const [isAttachingMedia, setIsAttachingMedia] = useState(false);
+  /** Optimistic received patches so the dock can scan the next parcel before Firestore finishes. */
+  const [optimisticReceived, setOptimisticReceived] = useState<
+    Record<string, Pick<ReturnArrival, "status" | "goodQty" | "damagedQty" | "notes">>
+  >({});
+  /** Newly logged arrivals not yet visible from props. */
+  const [optimisticLogged, setOptimisticLogged] = useState<ReturnArrival[]>([]);
+  /** Serializes background arrival writes so rapid scans do not race on returnArrivals. */
+  const arrivalWriteQueueRef = useRef(Promise.resolve());
 
-  const arrivals = useMemo(
-    () => normalizeReturnArrivals(returnItem.returnArrivals),
-    [returnItem.returnArrivals]
-  );
+  const arrivals = useMemo(() => {
+    const server = normalizeReturnArrivals(returnItem.returnArrivals).map((arrival) => {
+      const patch = optimisticReceived[arrival.id];
+      return patch ? { ...arrival, ...patch } : arrival;
+    });
+    const serverIds = new Set(server.map((a) => a.id));
+    const serverKeys = new Set(
+      server.map((a) => trackingKey(a.trackingNumber)).filter(Boolean)
+    );
+    const pendingLogged = optimisticLogged.filter((a) => {
+      const key = trackingKey(a.trackingNumber);
+      return !serverIds.has(a.id) && (!key || !serverKeys.has(key));
+    });
+    return [...server, ...pendingLogged];
+  }, [returnItem.returnArrivals, optimisticReceived, optimisticLogged]);
   const summary = useMemo(() => summarizeReturnArrivals(arrivals), [arrivals]);
   const pendingOpen = useMemo(
     () => arrivals.filter((a) => a.status !== "received"),
     [arrivals]
   );
 
-  const handleLogArrival = async () => {
+  // Drop optimistic patches once Firestore (via props) shows the arrival as received / logged.
+  useEffect(() => {
+    const server = normalizeReturnArrivals(returnItem.returnArrivals);
+    setOptimisticReceived((prev) => {
+      const ids = Object.keys(prev);
+      if (ids.length === 0) return prev;
+      let changed = false;
+      const next = { ...prev };
+      for (const id of ids) {
+        const row = server.find((a) => a.id === id);
+        if (row?.status === "received") {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setOptimisticLogged((prev) => {
+      if (prev.length === 0) return prev;
+      const serverIds = new Set(server.map((a) => a.id));
+      const serverKeys = new Set(
+        server.map((a) => trackingKey(a.trackingNumber)).filter(Boolean)
+      );
+      const next = prev.filter((a) => {
+        const key = trackingKey(a.trackingNumber);
+        return !serverIds.has(a.id) && (!key || !serverKeys.has(key));
+      });
+      return next.length === prev.length ? prev : next;
+    });
+  }, [returnItem.returnArrivals]);
+
+  const handleLogArrival = () => {
     const tracking = trackingKey(trackingNumber);
     if (!tracking) {
       toast({
@@ -132,32 +183,66 @@ export function ProductReturnAdminReceiveWorkflow({
       });
       return;
     }
-    setIsLogging(true);
-    try {
-      await logReturnArrival({
-        ownerUserId,
-        returnId: returnItem.id,
-        trackingNumber: tracking,
-        unitType,
-        operatorId,
-        notes: arrivalNotes.trim() || undefined,
-      });
-      toast({
-        title: "Arrival logged",
-        description: `${formatReturnArrivalUnitType(unitType)} recorded for tracking ${tracking}.`,
-      });
-      setTrackingNumber("");
-      setArrivalNotes("");
-      onUpdated?.();
-    } catch (err: unknown) {
+
+    if (arrivals.some((a) => trackingKey(a.trackingNumber) === tracking)) {
       toast({
         variant: "destructive",
-        title: "Could not log arrival",
-        description: err instanceof Error ? err.message : "Try again.",
+        title: "Already logged",
+        description: `${tracking} is already on this return. One tracking = one parcel.`,
       });
-    } finally {
-      setIsLogging(false);
+      return;
     }
+
+    const notesSnapshot = arrivalNotes.trim() || undefined;
+    const unitTypeSnapshot = unitType;
+    const arrivalId = createReturnArrivalId();
+    const optimisticArrival: ReturnArrival = {
+      id: arrivalId,
+      trackingNumber: tracking,
+      unitType: unitTypeSnapshot,
+      status: "arrived",
+      arrivedAt: new Date().toISOString(),
+      arrivedBy: operatorId,
+      ...(notesSnapshot ? { notes: notesSnapshot } : {}),
+    };
+
+    setOptimisticLogged((prev) => [...prev, optimisticArrival]);
+    setTrackingNumber("");
+    setArrivalNotes("");
+    setIsLogging(false);
+
+    toast({
+      title: "Queued",
+      description: `${formatReturnArrivalUnitType(unitTypeSnapshot)} · ${tracking} — saving in background. Scan the next parcel.`,
+    });
+
+    arrivalWriteQueueRef.current = arrivalWriteQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await logReturnArrival({
+            ownerUserId,
+            returnId: returnItem.id,
+            trackingNumber: tracking,
+            unitType: unitTypeSnapshot,
+            operatorId,
+            notes: notesSnapshot,
+            arrivalId,
+          });
+          onUpdated?.();
+          toast({
+            title: "Arrival logged",
+            description: `${formatReturnArrivalUnitType(unitTypeSnapshot)} · ${tracking}`,
+          });
+        } catch (err: unknown) {
+          setOptimisticLogged((prev) => prev.filter((a) => a.id !== arrivalId));
+          toast({
+            variant: "destructive",
+            title: "Could not log arrival",
+            description: `${tracking}: ${err instanceof Error ? err.message : "Try again."}`,
+          });
+        }
+      });
   };
 
   const handleDeleteArrival = async (arrival: ReturnArrival) => {
@@ -379,7 +464,7 @@ export function ProductReturnAdminReceiveWorkflow({
     if (files.length > 0) setPhotoFiles((prev) => [...prev, ...files]);
   };
 
-  const handleOpenReceive = async () => {
+  const handleOpenReceive = () => {
     if (!openArrival) return;
     const good = Math.max(0, parseInt(goodQty, 10) || 0);
     const damaged = Math.max(0, parseInt(damagedQty, 10) || 0);
@@ -398,38 +483,56 @@ export function ProductReturnAdminReceiveWorkflow({
     const videosSnapshot = [...videoFiles];
     const hasMedia = photosSnapshot.length > 0 || videosSnapshot.length > 0;
 
-    setIsOpening(true);
-    try {
-      // Save counts first so the dock can scan the next parcel immediately.
-      await openReceiveReturnArrival({
-        ownerUserId,
-        returnId: returnItem.id,
-        arrivalId: arrivalSnapshot.id,
+    // Optimistic UI: close immediately so the next parcel can be scanned.
+    setOptimisticReceived((prev) => ({
+      ...prev,
+      [arrivalSnapshot.id]: {
+        status: "received",
         goodQty: good,
         damagedQty: damaged,
-        operatorId,
-        notes: notesSnapshot,
-      });
+        notes: notesSnapshot || arrivalSnapshot.notes,
+      },
+    }));
+    setOpenArrival(null);
+    setPhotoFiles([]);
+    setVideoFiles([]);
+    setGoodQty("");
+    setDamagedQty("");
+    setOpenNotes("");
+    setIsOpening(false);
 
-      toast({
-        title: "Counts saved",
-        description: hasMedia
-          ? `Good ${good}, damaged ${damaged}. Photos/video uploading in the background — you can scan the next parcel.`
-          : `Good ${good}, damaged ${damaged} for ${formatReturnArrivalUnitType(arrivalSnapshot.unitType)}.`,
-      });
-      setOpenArrival(null);
-      setPhotoFiles([]);
-      setVideoFiles([]);
-      setGoodQty("");
-      setDamagedQty("");
-      setOpenNotes("");
-      onUpdated?.();
+    toast({
+      title: "Queued",
+      description: hasMedia
+        ? `Good ${good}, damaged ${damaged} for ${arrivalSnapshot.trackingNumber || "parcel"} — saving + media in background. Scan the next parcel.`
+        : `Good ${good}, damaged ${damaged} for ${arrivalSnapshot.trackingNumber || "parcel"} — saving in background. Scan the next parcel.`,
+    });
 
-      if (!hasMedia) return;
-
-      // Background media — does not block the next open & count.
-      void (async () => {
+    arrivalWriteQueueRef.current = arrivalWriteQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        let countsSaved = false;
         try {
+          await openReceiveReturnArrival({
+            ownerUserId,
+            returnId: returnItem.id,
+            arrivalId: arrivalSnapshot.id,
+            goodQty: good,
+            damagedQty: damaged,
+            operatorId,
+            notes: notesSnapshot,
+          });
+          countsSaved = true;
+          onUpdated?.();
+
+          if (!hasMedia) {
+            toast({
+              title: "Counts saved",
+              description: `${arrivalSnapshot.trackingNumber || "Parcel"} · good ${good}, damaged ${damaged}.`,
+            });
+            return;
+          }
+
           let receivePhotoUrls: string[] | undefined;
           if (photosSnapshot.length > 0) {
             receivePhotoUrls = await uploadProductReturnReceivePhotos({
@@ -468,7 +571,7 @@ export function ProductReturnAdminReceiveWorkflow({
             toast({
               variant: "destructive",
               title: "Media upload failed",
-              description: `Counts are saved for ${arrivalSnapshot.trackingNumber || "parcel"}. Use Retry media on that arrival to attach photos/video.`,
+              description: `Counts are saved for ${arrivalSnapshot.trackingNumber || "parcel"}. Use Retry media on that arrival.`,
             });
             return;
           }
@@ -482,9 +585,11 @@ export function ProductReturnAdminReceiveWorkflow({
           });
 
           toast({
-            title: "Media attached",
+            title: "Saved with media",
             description: [
               arrivalSnapshot.trackingNumber || "Parcel",
+              `good ${good}`,
+              `damaged ${damaged}`,
               photoCount > 0 ? `${photoCount} photo(s)` : null,
               videoCount > 0 ? `${videoCount} video(s)` : null,
             ]
@@ -493,25 +598,27 @@ export function ProductReturnAdminReceiveWorkflow({
           });
           onUpdated?.();
         } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : "Try again.";
+          if (!countsSaved) {
+            setOptimisticReceived((prev) => {
+              const next = { ...prev };
+              delete next[arrivalSnapshot.id];
+              return next;
+            });
+            toast({
+              variant: "destructive",
+              title: "Count save failed",
+              description: `${arrivalSnapshot.trackingNumber || "Parcel"}: ${message} Scan it again to retry.`,
+            });
+            return;
+          }
           toast({
             variant: "destructive",
             title: "Media upload failed",
-            description:
-              err instanceof Error
-                ? `${err.message} Counts are saved — use Retry media on that arrival.`
-                : "Counts are saved — use Retry media on that arrival to attach photos/video.",
+            description: `${message} Counts are saved — use Retry media on that arrival.`,
           });
         }
-      })();
-    } catch (err: unknown) {
-      toast({
-        variant: "destructive",
-        title: "Open receive failed",
-        description: err instanceof Error ? err.message : "Try again.",
       });
-    } finally {
-      setIsOpening(false);
-    }
   };
 
   const canUse =
