@@ -20,6 +20,7 @@ import type { UserProfile } from "@/types";
 import { EditUserForm } from "./edit-user-form";
 import { RoleFeatureManagement } from "./role-feature-management";
 import { UserAuditTrailPanel } from "./user-audit-trail-panel";
+import { WipeUserDataDialog } from "./wipe-user-data-dialog";
 import { getUserRoles, hasRole, isAccountActivated } from "@/lib/permissions";
 import { formatUserDisplayName } from "@/lib/format-user-display";
 import {
@@ -686,6 +687,11 @@ export function MemberManagement({
                               <span className="font-mono">/dashboard/activate-account</span>.
                             </p>
                           )}
+                          {isAdmin ? (
+                            <div className="pt-1">
+                              <WipeUserDataDialog user={user} />
+                            </div>
+                          ) : null}
                         </div>
                       )}
 
@@ -869,6 +875,7 @@ export function MemberManagement({
                       <p>Disable client account</p>
                     </TooltipContent>
                   </Tooltip>
+                  {isAdmin ? <WipeUserDataDialog user={user} /> : null}
                 </>
               )}
               {(tabKind === "pending" || tabKind === "approved") && (
