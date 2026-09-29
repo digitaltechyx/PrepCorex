@@ -27,7 +27,9 @@ type TrackingCandidate = { tracking: string; carrier: Exclude<DetectedCarrier, n
 function compactTrackingPayload(raw: string): string {
   let v = String(raw ?? "").trim().toUpperCase();
   v = v.replace(/[\u0000-\u001F\u007F]/g, "");
+  // GS1 / AIM prefixes from Code 128 (]C1, ]e0, etc.) and FNC1 leftovers.
   v = v.replace(/\][A-Z0-9]{2}/g, "");
+  v = v.replace(/\u001D/g, "");
   // Drop FedEx form/meter groups like (000 000 0000) and short AIM ids like (01).
   v = v.replace(/\([^)]*\)/g, "");
   v = v.replace(/[()]/g, "");
@@ -112,6 +114,10 @@ function collectCandidates(compact: string): TrackingCandidate[] {
 
   const smartPost = digits.match(/^92\d{18}$/);
   if (smartPost) push(smartPost[0], "FedEx", 80);
+
+  // USPS eVS / retail ground: printed 22-digit tracking starting 92 (also appears inside GS1-128).
+  const uspsEvs22 = digits.match(/92\d{20}/);
+  if (uspsEvs22) push(uspsEvs22[0], "USPS", 86);
 
   // USPS only when not a FedEx 96… payload.
   if (!digits.startsWith("96")) {

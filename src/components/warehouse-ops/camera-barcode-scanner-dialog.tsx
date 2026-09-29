@@ -24,6 +24,27 @@ type Props = {
   shippingBarcode?: boolean;
 };
 
+type BarcodeDetectorLike = {
+  detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
+};
+
+function getNativeBarcodeDetector(): BarcodeDetectorLike | null {
+  if (typeof window === "undefined") return null;
+  const Ctor = (
+    window as unknown as {
+      BarcodeDetector?: new (opts: { formats: string[] }) => BarcodeDetectorLike;
+    }
+  ).BarcodeDetector;
+  if (!Ctor) return null;
+  try {
+    return new Ctor({
+      formats: ["code_128", "code_39", "codabar", "itf", "pdf417", "data_matrix"],
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function CameraBarcodeScannerDialog({
   open,
   onOpenChange,
@@ -35,6 +56,9 @@ export function CameraBarcodeScannerDialog({
   const reactId = useId();
   const regionId = `cam-scan-${reactId.replace(/:/g, "")}`;
   const scannerRef = useRef<Html5QrcodeInstance | null>(null);
+  const nativeDetectorRef = useRef<BarcodeDetectorLike | null>(null);
+  const nativePollRef = useRef<number | null>(null);
+  const handledRef = useRef(false);
   const lastScanRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const [status, setStatus] = useState<"idle" | "starting" | "scanning" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -43,10 +67,19 @@ export function CameraBarcodeScannerDialog({
   const resolvedDescription =
     description ??
     (shippingBarcode
-      ? "Aim at the long shipping barcode (1D / PDF417). Address QR codes are ignored."
+      ? "Aim at the long USPS / carrier tracking barcode. Keep the full bar width in view."
       : "Point your phone at the barcode or QR code. Works best in good light with the back camera.");
 
+  const stopNativePoll = useCallback(() => {
+    if (nativePollRef.current != null) {
+      window.clearInterval(nativePollRef.current);
+      nativePollRef.current = null;
+    }
+    nativeDetectorRef.current = null;
+  }, []);
+
   const stopScanner = useCallback(async () => {
+    stopNativePoll();
     const s = scannerRef.current;
     scannerRef.current = null;
     if (!s) return;
@@ -56,11 +89,69 @@ export function CameraBarcodeScannerDialog({
     } catch {
       // ignore teardown races
     }
-  }, []);
+  }, [stopNativePoll]);
+
+  const acceptDecoded = useCallback(
+    (decodedText: string) => {
+      if (handledRef.current) return;
+      const text = shippingBarcode
+        ? resolveShippingBarcodeScan(decodedText)
+        : decodedText.trim();
+      if (!text) {
+        if (shippingBarcode) {
+          setErrorMsg(
+            "That code is not a shipping tracking barcode. Aim at the USPS TRACKING # barcode (long bars)."
+          );
+        }
+        return;
+      }
+      const now = Date.now();
+      if (lastScanRef.current.text === text && now - lastScanRef.current.at < 2000) {
+        return;
+      }
+      handledRef.current = true;
+      lastScanRef.current = { text, at: now };
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(80);
+      }
+      void stopScanner().then(() => {
+        onScan(text);
+        onOpenChange(false);
+      });
+    },
+    [onOpenChange, onScan, shippingBarcode, stopScanner]
+  );
+
+  const startNativePoll = useCallback(
+    (root: HTMLElement) => {
+      if (!shippingBarcode) return;
+      const detector = getNativeBarcodeDetector();
+      if (!detector) return;
+      nativeDetectorRef.current = detector;
+      nativePollRef.current = window.setInterval(() => {
+        if (handledRef.current) return;
+        const video = root.querySelector("video");
+        if (!video || video.readyState < 2) return;
+        void detector
+          .detect(video)
+          .then((codes) => {
+            for (const code of codes) {
+              const raw = String(code.rawValue || "").trim();
+              if (raw) acceptDecoded(raw);
+            }
+          })
+          .catch(() => {
+            /* frame miss */
+          });
+      }, 250);
+    },
+    [acceptDecoded, shippingBarcode]
+  );
 
   const startScanner = useCallback(async () => {
     setErrorMsg(null);
     setStatus("starting");
+    handledRef.current = false;
     await stopScanner();
 
     const el = document.getElementById(regionId);
@@ -72,8 +163,8 @@ export function CameraBarcodeScannerDialog({
 
     try {
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
-      // Match Tracker shipping mode: prioritize 1D, keep PDF417/DataMatrix for FedEx-style
-      // label payloads. Omit QR so address/product QR does not steal the scan.
+      // USPS eVS / carrier labels: prioritize CODE_128. Keep PDF417/DataMatrix for FedEx.
+      // Omit QR so address QR does not steal the scan.
       const formatsToSupport = shippingBarcode
         ? [
             Html5QrcodeSupportedFormats.CODE_128,
@@ -103,25 +194,27 @@ export function CameraBarcodeScannerDialog({
       const scanner = new Html5Qrcode(regionId, {
         verbose: false,
         formatsToSupport,
-        // Native BarcodeDetector often misses long CODE_128 / PDF417 shipping labels on mobile;
-        // ZXing via html5-qrcode is more reliable for dock tracking scans.
-        useBarCodeDetectorIfSupported: !shippingBarcode,
+        // ZXing path for html5-qrcode; native BarcodeDetector runs in parallel below (Google-like).
+        useBarCodeDetectorIfSupported: false,
       });
 
       await scanner.start(
         { facingMode },
         {
-          fps: shippingBarcode ? 12 : 15,
-          // Wide box for long 1D; taller when shipping so PDF417 stacks still fit.
-          qrbox: (viewfinderWidth, viewfinderHeight) => ({
-            width: Math.floor(viewfinderWidth * 0.98),
-            height: Math.floor(
-              Math.min(
-                viewfinderHeight * (shippingBarcode ? 0.55 : 0.42),
-                shippingBarcode ? 300 : 240
-              )
-            ),
-          }),
+          fps: shippingBarcode ? 20 : 15,
+          // Short, very wide strip — matches short USPS TRACKING # bars better than a tall box.
+          qrbox: (viewfinderWidth, viewfinderHeight) => {
+            if (!shippingBarcode) {
+              return {
+                width: Math.floor(viewfinderWidth * 0.98),
+                height: Math.floor(Math.min(viewfinderHeight * 0.42, 240)),
+              };
+            }
+            return {
+              width: Math.floor(viewfinderWidth * 0.99),
+              height: Math.floor(Math.min(Math.max(viewfinderHeight * 0.22, 96), 160)),
+            };
+          },
           aspectRatio: 1.777,
           disableFlip: false,
           videoConstraints: {
@@ -132,42 +225,16 @@ export function CameraBarcodeScannerDialog({
             focusMode: { ideal: "continuous" },
           },
           experimentalFeatures: {
-            useBarCodeDetectorIfSupported: !shippingBarcode,
+            useBarCodeDetectorIfSupported: false,
           },
         },
-        (decodedText) => {
-          const text = shippingBarcode
-            ? resolveShippingBarcodeScan(decodedText)
-            : decodedText.trim();
-          if (!text) {
-            if (shippingBarcode) {
-              setErrorMsg(
-                "That code is not a shipping tracking barcode. Aim at the long 1D / PDF417 tracking barcode."
-              );
-            }
-            return;
-          }
-          const now = Date.now();
-          if (
-            lastScanRef.current.text === text &&
-            now - lastScanRef.current.at < 2000
-          ) {
-            return;
-          }
-          lastScanRef.current = { text, at: now };
-          if (typeof navigator !== "undefined" && navigator.vibrate) {
-            navigator.vibrate(80);
-          }
-          void stopScanner().then(() => {
-            onScan(text);
-            onOpenChange(false);
-          });
-        },
+        (decodedText) => acceptDecoded(decodedText),
         () => {
           // per-frame miss — expected while aiming
         }
       );
       scannerRef.current = scanner;
+      startNativePoll(el);
       setStatus("scanning");
     } catch (e) {
       setStatus("error");
@@ -182,17 +249,18 @@ export function CameraBarcodeScannerDialog({
         setErrorMsg(msg);
       }
     }
-  }, [facingMode, onOpenChange, onScan, regionId, shippingBarcode, stopScanner]);
+  }, [acceptDecoded, facingMode, regionId, shippingBarcode, startNativePoll, stopScanner]);
 
   useEffect(() => {
     if (!open) {
       void stopScanner();
       setStatus("idle");
       setErrorMsg(null);
+      handledRef.current = false;
       lastScanRef.current = { text: "", at: 0 };
       return;
     }
-    const t = setTimeout(() => void startScanner(), 150);
+    const t = setTimeout(() => void startScanner(), 200);
     return () => {
       clearTimeout(t);
       void stopScanner();
@@ -214,8 +282,16 @@ export function CameraBarcodeScannerDialog({
           <DialogDescription className="text-xs">{resolvedDescription}</DialogDescription>
         </DialogHeader>
 
-        <div className="relative bg-black min-h-[280px]">
-          <div id={regionId} className="w-full [&_video]:!object-cover" />
+        <div className="relative bg-black min-h-[300px]">
+          {/* object-contain keeps the full barcode width visible — object-cover was cropping USPS bars */}
+          <div
+            id={regionId}
+            className={
+              shippingBarcode
+                ? "w-full [&_video]:!h-auto [&_video]:!max-h-[360px] [&_video]:!w-full [&_video]:!object-contain"
+                : "w-full [&_video]:!object-cover"
+            }
+          />
 
           {status === "starting" ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 text-white gap-2">
@@ -237,7 +313,7 @@ export function CameraBarcodeScannerDialog({
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3">
               <p className="text-xs text-white/90 text-center">
                 {shippingBarcode
-                  ? "Hold the long shipping barcode flat in the wide box — scan is automatic"
+                  ? "Fill the thin guide with the full USPS TRACKING # barcode — both ends must be visible"
                   : "Hold the label barcode flat inside the wide box — scan is automatic"}
               </p>
             </div>
