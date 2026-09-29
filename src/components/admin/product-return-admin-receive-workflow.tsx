@@ -24,6 +24,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { ProductReturn, ReturnArrival, ReturnArrivalUnitType } from "@/types";
 import {
   formatReturnArrivalUnitType,
+  attachReturnArrivalReceiveMedia,
   deleteReturnArrival,
   logReturnArrival,
   normalizeReturnArrivals,
@@ -102,12 +103,14 @@ export function ProductReturnAdminReceiveWorkflow({
 
   const [openScan, setOpenScan] = useState("");
   const [openArrival, setOpenArrival] = useState<ReturnArrival | null>(null);
+  const [mediaRetryArrival, setMediaRetryArrival] = useState<ReturnArrival | null>(null);
   const [goodQty, setGoodQty] = useState("");
   const [damagedQty, setDamagedQty] = useState("");
   const [openNotes, setOpenNotes] = useState("");
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [videoFiles, setVideoFiles] = useState<File[]>([]);
   const [isOpening, setIsOpening] = useState(false);
+  const [isAttachingMedia, setIsAttachingMedia] = useState(false);
 
   const arrivals = useMemo(
     () => normalizeReturnArrivals(returnItem.returnArrivals),
@@ -276,6 +279,100 @@ export function ProductReturnAdminReceiveWorkflow({
     });
   };
 
+  const startMediaRetry = (arrival: ReturnArrival) => {
+    setMediaRetryArrival(arrival);
+    setPhotoFiles([]);
+    setVideoFiles([]);
+  };
+
+  const handleAttachMediaRetry = async () => {
+    if (!mediaRetryArrival) return;
+    if (photoFiles.length === 0 && videoFiles.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Media required",
+        description: "Select at least one photo or video to attach.",
+      });
+      return;
+    }
+
+    const arrivalSnapshot = mediaRetryArrival;
+    const photosSnapshot = [...photoFiles];
+    const videosSnapshot = [...videoFiles];
+
+    setIsAttachingMedia(true);
+    try {
+      let receivePhotoUrls: string[] | undefined;
+      if (photosSnapshot.length > 0) {
+        receivePhotoUrls = await uploadProductReturnReceivePhotos({
+          ownerUid: ownerUserId,
+          returnId: returnItem.id,
+          files: photosSnapshot,
+        });
+      }
+
+      let videoSessionIds: string[] | undefined;
+      if (videosSnapshot.length > 0) {
+        if (!user) {
+          throw new Error("Sign in again to upload the receive video to Google Drive.");
+        }
+        const ids: string[] = [];
+        for (let index = 0; index < videosSnapshot.length; index += 1) {
+          const session = await importWarehouseCameraVideoFile(user, {
+            jobType: "return",
+            clientUserId: ownerUserId,
+            clientDisplayName: clientDisplayName?.trim() || ownerUserId,
+            productReturnId: returnItem.id,
+            returnArrivalId: arrivalSnapshot.id,
+            warehouseId: "admin",
+            warehouseLabel: "Admin",
+            clipNumber: index + 1,
+            file: videosSnapshot[index],
+          });
+          ids.push(session.id);
+        }
+        videoSessionIds = ids;
+      }
+
+      const photoCount = receivePhotoUrls?.length ?? 0;
+      const videoCount = videoSessionIds?.length ?? 0;
+      if (photoCount === 0 && videoCount === 0) {
+        throw new Error("Upload did not return any media. Try again.");
+      }
+
+      await attachReturnArrivalReceiveMedia({
+        ownerUserId,
+        returnId: returnItem.id,
+        arrivalId: arrivalSnapshot.id,
+        receivePhotoUrls,
+        videoSessionIds,
+      });
+
+      toast({
+        title: "Media attached",
+        description: [
+          arrivalSnapshot.trackingNumber || "Parcel",
+          photoCount > 0 ? `${photoCount} photo(s)` : null,
+          videoCount > 0 ? `${videoCount} video(s)` : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      });
+      setMediaRetryArrival(null);
+      setPhotoFiles([]);
+      setVideoFiles([]);
+      onUpdated?.();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Could not attach media",
+        description: err instanceof Error ? err.message : "Try again.",
+      });
+    } finally {
+      setIsAttachingMedia(false);
+    }
+  };
+
   const handlePhotoSelect = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files ? [...event.target.files] : [];
     event.target.value = "";
@@ -295,60 +392,117 @@ export function ProductReturnAdminReceiveWorkflow({
       return;
     }
 
+    const arrivalSnapshot = openArrival;
+    const notesSnapshot = openNotes.trim() || undefined;
+    const photosSnapshot = [...photoFiles];
+    const videosSnapshot = [...videoFiles];
+    const hasMedia = photosSnapshot.length > 0 || videosSnapshot.length > 0;
+
     setIsOpening(true);
     try {
-      let receivePhotoUrls: string[] | undefined;
-      if (photoFiles.length > 0) {
-        receivePhotoUrls = await uploadProductReturnReceivePhotos({
-          ownerUid: ownerUserId,
-          returnId: returnItem.id,
-          files: photoFiles,
-        });
-      }
-
-      let videoSessionIds: string[] | undefined;
-      if (videoFiles.length > 0) {
-        if (!user) {
-          throw new Error("Sign in again to upload the receive video to Google Drive.");
-        }
-        const ids: string[] = [];
-        for (let index = 0; index < videoFiles.length; index += 1) {
-          const session = await importWarehouseCameraVideoFile(user, {
-            jobType: "return",
-            clientUserId: ownerUserId,
-            clientDisplayName: clientDisplayName?.trim() || ownerUserId,
-            productReturnId: returnItem.id,
-            returnArrivalId: openArrival.id,
-            warehouseId: "admin",
-            warehouseLabel: "Admin",
-            clipNumber: index + 1,
-            file: videoFiles[index],
-          });
-          ids.push(session.id);
-        }
-        videoSessionIds = ids;
-      }
-
+      // Save counts first so the dock can scan the next parcel immediately.
       await openReceiveReturnArrival({
         ownerUserId,
         returnId: returnItem.id,
-        arrivalId: openArrival.id,
+        arrivalId: arrivalSnapshot.id,
         goodQty: good,
         damagedQty: damaged,
         operatorId,
-        notes: openNotes.trim() || undefined,
-        receivePhotoUrls,
-        videoSessionIds,
+        notes: notesSnapshot,
       });
 
       toast({
-        title: "Receive recorded",
-        description: videoSessionIds?.length
-          ? `Good ${good}, damaged ${damaged} for ${formatReturnArrivalUnitType(openArrival.unitType)}. Video saved to Google Drive.`
-          : `Good ${good}, damaged ${damaged} for ${formatReturnArrivalUnitType(openArrival.unitType)}.`,
+        title: "Counts saved",
+        description: hasMedia
+          ? `Good ${good}, damaged ${damaged}. Photos/video uploading in the background — you can scan the next parcel.`
+          : `Good ${good}, damaged ${damaged} for ${formatReturnArrivalUnitType(arrivalSnapshot.unitType)}.`,
       });
       setOpenArrival(null);
+      setPhotoFiles([]);
+      setVideoFiles([]);
+      setGoodQty("");
+      setDamagedQty("");
+      setOpenNotes("");
       onUpdated?.();
+
+      if (!hasMedia) return;
+
+      // Background media — does not block the next open & count.
+      void (async () => {
+        try {
+          let receivePhotoUrls: string[] | undefined;
+          if (photosSnapshot.length > 0) {
+            receivePhotoUrls = await uploadProductReturnReceivePhotos({
+              ownerUid: ownerUserId,
+              returnId: returnItem.id,
+              files: photosSnapshot,
+            });
+          }
+
+          let videoSessionIds: string[] | undefined;
+          if (videosSnapshot.length > 0) {
+            if (!user) {
+              throw new Error("Sign in again to upload the receive video to Google Drive.");
+            }
+            const ids: string[] = [];
+            for (let index = 0; index < videosSnapshot.length; index += 1) {
+              const session = await importWarehouseCameraVideoFile(user, {
+                jobType: "return",
+                clientUserId: ownerUserId,
+                clientDisplayName: clientDisplayName?.trim() || ownerUserId,
+                productReturnId: returnItem.id,
+                returnArrivalId: arrivalSnapshot.id,
+                warehouseId: "admin",
+                warehouseLabel: "Admin",
+                clipNumber: index + 1,
+                file: videosSnapshot[index],
+              });
+              ids.push(session.id);
+            }
+            videoSessionIds = ids;
+          }
+
+          const photoCount = receivePhotoUrls?.length ?? 0;
+          const videoCount = videoSessionIds?.length ?? 0;
+          if (photoCount === 0 && videoCount === 0) {
+            toast({
+              variant: "destructive",
+              title: "Media upload failed",
+              description: `Counts are saved for ${arrivalSnapshot.trackingNumber || "parcel"}. Use Retry media on that arrival to attach photos/video.`,
+            });
+            return;
+          }
+
+          await attachReturnArrivalReceiveMedia({
+            ownerUserId,
+            returnId: returnItem.id,
+            arrivalId: arrivalSnapshot.id,
+            receivePhotoUrls,
+            videoSessionIds,
+          });
+
+          toast({
+            title: "Media attached",
+            description: [
+              arrivalSnapshot.trackingNumber || "Parcel",
+              photoCount > 0 ? `${photoCount} photo(s)` : null,
+              videoCount > 0 ? `${videoCount} video(s)` : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          });
+          onUpdated?.();
+        } catch (err: unknown) {
+          toast({
+            variant: "destructive",
+            title: "Media upload failed",
+            description:
+              err instanceof Error
+                ? `${err.message} Counts are saved — use Retry media on that arrival.`
+                : "Counts are saved — use Retry media on that arrival to attach photos/video.",
+          });
+        }
+      })();
     } catch (err: unknown) {
       toast({
         variant: "destructive",
@@ -372,7 +526,8 @@ export function ProductReturnAdminReceiveWorkflow({
           <DialogDescription>
             Count good and damaged units for this{" "}
             {openArrival ? formatReturnArrivalUnitType(openArrival.unitType).toLowerCase() : "unit"}.
-            Damaged qty follows the same inbound rules (not sellable).
+            Damaged qty follows the same inbound rules (not sellable). Photos/video upload in the
+            background after Save so you can scan the next parcel right away.
           </DialogDescription>
         </DialogHeader>
         {openArrival ? (
@@ -465,6 +620,89 @@ export function ProductReturnAdminReceiveWorkflow({
     </Dialog>
   );
 
+  const mediaRetryDialog = (
+    <Dialog
+      open={!!mediaRetryArrival}
+      onOpenChange={(open) => {
+        if (!open && !isAttachingMedia) {
+          setMediaRetryArrival(null);
+          setPhotoFiles([]);
+          setVideoFiles([]);
+        }
+      }}
+    >
+      <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Retry / add media</DialogTitle>
+          <DialogDescription>
+            Counts stay as saved. Attach photos or video for{" "}
+            <span className="font-mono">
+              {mediaRetryArrival?.trackingNumber || "this parcel"}
+            </span>
+            .
+          </DialogDescription>
+        </DialogHeader>
+        {mediaRetryArrival ? (
+          <div className="space-y-4">
+            <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
+              <p className="font-mono break-all">{mediaRetryArrival.trackingNumber}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Good {mediaRetryArrival.goodQty ?? 0} · Damaged {mediaRetryArrival.damagedQty ?? 0}
+                {(mediaRetryArrival.receivePhotoUrls?.length ?? 0) > 0
+                  ? ` · ${mediaRetryArrival.receivePhotoUrls!.length} photo(s) already`
+                  : ""}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Photos</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                multiple
+                disabled={isAttachingMedia}
+                onChange={handlePhotoSelect}
+              />
+              {photoFiles.length > 0 ? (
+                <Badge variant="secondary">{photoFiles.length} photo(s) selected</Badge>
+              ) : null}
+            </div>
+            <ProductReturnReceiveVideoField
+              key={`media-retry-${mediaRetryArrival.id}`}
+              files={videoFiles}
+              onChange={setVideoFiles}
+              disabled={isAttachingMedia}
+            />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                className="flex-1"
+                disabled={
+                  isAttachingMedia || (photoFiles.length === 0 && videoFiles.length === 0)
+                }
+                onClick={() => void handleAttachMediaRetry()}
+              >
+                {isAttachingMedia ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Upload media
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isAttachingMedia}
+                onClick={() => {
+                  setMediaRetryArrival(null);
+                  setPhotoFiles([]);
+                  setVideoFiles([]);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+
   if (mode === "open") {
     return (
       <div className="space-y-5">
@@ -502,6 +740,8 @@ export function ProductReturnAdminReceiveWorkflow({
                 : undefined
             }
             editingUnitTypeArrivalId={editingUnitTypeArrivalId}
+            onAttachMedia={canUse ? startMediaRetry : undefined}
+            attachingMediaArrivalId={isAttachingMedia ? mediaRetryArrival?.id ?? null : null}
           />
         ) : null}
 
@@ -630,6 +870,7 @@ export function ProductReturnAdminReceiveWorkflow({
         )}
 
         {openReceiveDialog}
+        {mediaRetryDialog}
       </div>
     );
   }
@@ -655,6 +896,8 @@ export function ProductReturnAdminReceiveWorkflow({
             : undefined
         }
         editingUnitTypeArrivalId={editingUnitTypeArrivalId}
+        onAttachMedia={canUse ? startMediaRetry : undefined}
+        attachingMediaArrivalId={isAttachingMedia ? mediaRetryArrival?.id ?? null : null}
       />
 
       {canUse ? (
@@ -754,6 +997,8 @@ export function ProductReturnAdminReceiveWorkflow({
           Approve this return to log arrivals and open receive.
         </p>
       )}
+
+      {mediaRetryDialog}
     </div>
   );
 }

@@ -15,7 +15,7 @@ import {
   countedReturnUnits,
   summarizeReturnArrivals,
 } from "@/lib/product-return-arrivals";
-import { Package, Truck, Video, Trash2, Loader2 } from "lucide-react";
+import { Package, Truck, Video, Trash2, Loader2, ImagePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PagedRows } from "@/components/product-returns/paged-rows";
 
@@ -29,6 +29,14 @@ function formatTs(value: ReturnArrival["arrivedAt"]): string {
     return format(new Date(value.seconds * 1000), "PPp");
   }
   return "";
+}
+
+function arrivalHasMedia(arrival: ReturnArrival): boolean {
+  return (
+    (arrival.receivePhotoUrls?.length ?? 0) > 0 ||
+    (arrival.videoSessionIds?.length ?? 0) > 0 ||
+    (arrival.videoUrls?.length ?? 0) > 0
+  );
 }
 
 function ReturnDriveVideos({ sessionIds }: { sessionIds: string[] }) {
@@ -98,6 +106,8 @@ export function ProductReturnArrivalsTimeline({
   deletingArrivalId,
   onEditUnitType,
   editingUnitTypeArrivalId,
+  onAttachMedia,
+  attachingMediaArrivalId,
 }: {
   returnItem: Pick<
     ProductReturn,
@@ -114,6 +124,9 @@ export function ProductReturnArrivalsTimeline({
   /** Admin-only: correct package / carton / pallet without re-scanning. */
   onEditUnitType?: (arrival: ReturnArrival, unitType: ReturnArrivalUnitType) => void;
   editingUnitTypeArrivalId?: string | null;
+  /** Admin-only: add / retry photos-video on a counted arrival. */
+  onAttachMedia?: (arrival: ReturnArrival) => void;
+  attachingMediaArrivalId?: string | null;
 }) {
   const arrivals = normalizeReturnArrivals(returnItem.returnArrivals);
   const summary = summarizeReturnArrivals(arrivals);
@@ -192,12 +205,37 @@ export function ProductReturnArrivalsTimeline({
                         Arrived {formatTs(arrival.arrivedAt)}
                       </span>
                     ) : null}
+                    <span className="ml-auto" />
+                    {arrival.status === "received" && onAttachMedia ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2"
+                        disabled={attachingMediaArrivalId === arrival.id}
+                        title={
+                          arrivalHasMedia(arrival)
+                            ? "Add more photos or video"
+                            : "Retry / add photos or video"
+                        }
+                        onClick={() => onAttachMedia(arrival)}
+                      >
+                        {attachingMediaArrivalId === arrival.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ImagePlus className="h-3.5 w-3.5" />
+                        )}
+                        <span className="ml-1 text-xs">
+                          {arrivalHasMedia(arrival) ? "Add media" : "Retry media"}
+                        </span>
+                      </Button>
+                    ) : null}
                     {onDeleteArrival ? (
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="ml-auto h-7 px-2 text-destructive hover:text-destructive"
+                        className="h-7 px-2 text-destructive hover:text-destructive"
                         disabled={deletingArrivalId === arrival.id}
                         title="Remove wrongly scanned tracking"
                         onClick={() => onDeleteArrival(arrival)}

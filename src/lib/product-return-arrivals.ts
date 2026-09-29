@@ -412,6 +412,57 @@ export async function openReceiveReturnArrival(input: {
   await updateDoc(returnRef, patch);
 }
 
+/** Attach photos/video after counts were saved (background upload path). */
+export async function attachReturnArrivalReceiveMedia(input: {
+  ownerUserId: string;
+  returnId: string;
+  arrivalId: string;
+  receivePhotoUrls?: string[];
+  videoUrls?: string[];
+  videoSessionIds?: string[];
+}): Promise<void> {
+  const photoUrls = (input.receivePhotoUrls || []).map((u) => u.trim()).filter(Boolean);
+  const videoUrls = (input.videoUrls || []).map((u) => u.trim()).filter(Boolean);
+  const videoSessionIds = (input.videoSessionIds || []).map((u) => u.trim()).filter(Boolean);
+  if (photoUrls.length === 0 && videoUrls.length === 0 && videoSessionIds.length === 0) {
+    return;
+  }
+
+  const { returnRef, data } = await loadReturnDoc(input.ownerUserId, input.returnId);
+  const arrivals = normalizeReturnArrivals(data.returnArrivals);
+  const index = arrivals.findIndex((a) => a.id === input.arrivalId);
+  if (index < 0) throw new Error("Arrival not found.");
+
+  const target = arrivals[index];
+  const mergedPhotos = [
+    ...new Set([...(target.receivePhotoUrls || []), ...photoUrls].map((u) => String(u).trim()).filter(Boolean)),
+  ];
+  const mergedVideoUrls = [
+    ...new Set([...(target.videoUrls || []), ...videoUrls].map((u) => String(u).trim()).filter(Boolean)),
+  ];
+  const mergedVideoSessions = [
+    ...new Set(
+      [...(target.videoSessionIds || []), ...videoSessionIds].map((u) => String(u).trim()).filter(Boolean)
+    ),
+  ];
+
+  arrivals[index] = {
+    ...target,
+    receivePhotoUrls: mergedPhotos.length > 0 ? mergedPhotos : target.receivePhotoUrls,
+    videoUrls: mergedVideoUrls.length > 0 ? mergedVideoUrls : target.videoUrls,
+    videoSessionIds: mergedVideoSessions.length > 0 ? mergedVideoSessions : target.videoSessionIds,
+  };
+
+  const patch: Record<string, unknown> = {
+    returnArrivals: arrivals.map((row) => firestoreData(row as unknown as Record<string, unknown>)),
+    updatedAt: Timestamp.now(),
+  };
+  if (photoUrls.length > 0) {
+    patch.receivePhotoUrls = mergePhotoUrls(data.receivePhotoUrls, photoUrls);
+  }
+  await updateDoc(returnRef, patch);
+}
+
 /** Fix wrong carton / pallet / package after log or open & count (no re-scan). */
 export async function updateReturnArrivalUnitType(input: {
   ownerUserId: string;
