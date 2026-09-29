@@ -31,8 +31,10 @@ import {
   returnArrivalStatusLabel,
   summarizeReturnArrivals,
   trackingKey,
+  updateReturnArrivalUnitType,
 } from "@/lib/product-return-arrivals";
 import { ProductReturnArrivalsTimeline } from "@/components/product-returns/product-return-arrivals-timeline";
+import { ReturnArrivalUnitTypeSelect } from "@/components/product-returns/return-arrival-unit-type-select";
 import { PagedRows } from "@/components/product-returns/paged-rows";
 import { uploadProductReturnReceivePhotos } from "@/lib/product-return-receive-photos";
 import { importWarehouseCameraVideoFile } from "@/lib/warehouse-camera-client";
@@ -96,6 +98,7 @@ export function ProductReturnAdminReceiveWorkflow({
   const [arrivalNotes, setArrivalNotes] = useState("");
   const [isLogging, setIsLogging] = useState(false);
   const [deletingArrivalId, setDeletingArrivalId] = useState<string | null>(null);
+  const [editingUnitTypeArrivalId, setEditingUnitTypeArrivalId] = useState<string | null>(null);
 
   const [openScan, setOpenScan] = useState("");
   const [openArrival, setOpenArrival] = useState<ReturnArrival | null>(null);
@@ -188,6 +191,38 @@ export function ProductReturnAdminReceiveWorkflow({
       });
     } finally {
       setDeletingArrivalId(null);
+    }
+  };
+
+  const handleUpdateUnitType = async (
+    arrival: ReturnArrival,
+    unitType: ReturnArrivalUnitType
+  ) => {
+    if (arrival.unitType === unitType) return;
+    setEditingUnitTypeArrivalId(arrival.id);
+    try {
+      await updateReturnArrivalUnitType({
+        ownerUserId,
+        returnId: returnItem.id,
+        arrivalId: arrival.id,
+        unitType,
+      });
+      if (openArrival?.id === arrival.id) {
+        setOpenArrival({ ...openArrival, unitType });
+      }
+      toast({
+        title: "Unit type updated",
+        description: `${arrival.trackingNumber || "Parcel"} is now ${formatReturnArrivalUnitType(unitType).toLowerCase()}.`,
+      });
+      onUpdated?.();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Could not update unit type",
+        description: err instanceof Error ? err.message : "Try again.",
+      });
+    } finally {
+      setEditingUnitTypeArrivalId(null);
     }
   };
 
@@ -342,8 +377,19 @@ export function ProductReturnAdminReceiveWorkflow({
         </DialogHeader>
         {openArrival ? (
           <div className="space-y-4">
-            <div className="rounded-md bg-muted/50 px-3 py-2 text-sm font-mono break-all">
-              {openArrival.trackingNumber}
+            <div className="space-y-2">
+              <div className="rounded-md bg-muted/50 px-3 py-2 text-sm font-mono break-all">
+                {openArrival.trackingNumber}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Label className="text-xs text-muted-foreground">Unit type</Label>
+                <ReturnArrivalUnitTypeSelect
+                  value={openArrival.unitType}
+                  saving={editingUnitTypeArrivalId === openArrival.id}
+                  disabled={isOpening}
+                  onChange={(unitType) => void handleUpdateUnitType(openArrival, unitType)}
+                />
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-2 min-w-0">
@@ -428,6 +474,7 @@ export function ProductReturnAdminReceiveWorkflow({
               <h4 className="text-sm font-semibold">Open receive</h4>
               <p className="mt-1 text-xs text-muted-foreground">
                 Scan a parcel to open & count it immediately, or pick from the awaiting-open list.
+                Tap unit type in the timeline to fix package/carton/pallet without re-scanning.
               </p>
             </div>
             <div className="shrink-0 text-right">
@@ -442,6 +489,21 @@ export function ProductReturnAdminReceiveWorkflow({
             </div>
           </div>
         </div>
+
+        {arrivals.length > 0 ? (
+          <ProductReturnArrivalsTimeline
+            returnItem={{ ...returnItem, returnArrivals: arrivals }}
+            compact
+            onDeleteArrival={canUse ? (arrival) => void handleDeleteArrival(arrival) : undefined}
+            deletingArrivalId={deletingArrivalId}
+            onEditUnitType={
+              canUse
+                ? (arrival, unitType) => void handleUpdateUnitType(arrival, unitType)
+                : undefined
+            }
+            editingUnitTypeArrivalId={editingUnitTypeArrivalId}
+          />
+        ) : null}
 
         {canUse ? (
           <>
@@ -469,7 +531,7 @@ export function ProductReturnAdminReceiveWorkflow({
                     disabled: isOpening,
                     scannerTitle: "Scan parcel for open receive",
                     scannerDescription:
-                      "Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box.",
+                      "Aim at the long shipping barcode (same as Trackers). Address QR is ignored. A Bluetooth scanner can still type into the box.",
                     onScan: (value) => {
                       const next = trackingKey(value);
                       setOpenScan(next);
@@ -502,11 +564,15 @@ export function ProductReturnAdminReceiveWorkflow({
                           key={arrival.id}
                           className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border bg-card px-3 py-2.5 shadow-sm"
                         >
-                          <div className="text-sm min-w-0">
+                          <div className="text-sm min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span className="font-mono">{arrival.trackingNumber || "—"}</span>
+                            <ReturnArrivalUnitTypeSelect
+                              value={arrival.unitType}
+                              saving={editingUnitTypeArrivalId === arrival.id}
+                              disabled={Boolean(deletingArrivalId) || isOpening}
+                              onChange={(unitType) => void handleUpdateUnitType(arrival, unitType)}
+                            />
                             <span className="text-muted-foreground">
-                              {" "}
-                              · {formatReturnArrivalUnitType(arrival.unitType)} ·{" "}
                               {returnArrivalStatusLabel(arrival.status)}
                             </span>
                             {arrival.notes?.trim() ? (
@@ -574,7 +640,8 @@ export function ProductReturnAdminReceiveWorkflow({
         <h4 className="text-sm font-semibold">Receive workflow</h4>
         <p className="mt-1 text-xs text-muted-foreground">
           Log each physical parcel once (one tracking = one parcel). Wrong scans can be deleted
-          from the timeline. Use the Open receive tab to scan and count units.
+          from the timeline; tap unit type on any arrival to fix package/carton/pallet. Use Open
+          receive to scan and count units.
         </p>
       </div>
 
@@ -582,6 +649,12 @@ export function ProductReturnAdminReceiveWorkflow({
         returnItem={{ ...returnItem, returnArrivals: arrivals }}
         onDeleteArrival={canUse ? (arrival) => void handleDeleteArrival(arrival) : undefined}
         deletingArrivalId={deletingArrivalId}
+        onEditUnitType={
+          canUse
+            ? (arrival, unitType) => void handleUpdateUnitType(arrival, unitType)
+            : undefined
+        }
+        editingUnitTypeArrivalId={editingUnitTypeArrivalId}
       />
 
       {canUse ? (
@@ -626,7 +699,7 @@ export function ProductReturnAdminReceiveWorkflow({
                   disabled: isLogging,
                   scannerTitle: "Scan return tracking",
                   scannerDescription:
-                    "Point the camera at the shipping barcode. A Bluetooth scanner can still type into the box.",
+                    "Aim at the long shipping barcode (same as Trackers). Address QR is ignored. A Bluetooth scanner can still type into the box.",
                   onScan: (value) => setTrackingNumber(trackingKey(value)),
                 }}
               />

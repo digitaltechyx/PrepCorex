@@ -5,7 +5,8 @@ import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { warehouseCameraPlaybackUrl } from "@/lib/warehouse-camera-client";
-import type { ProductReturn, ReturnArrival } from "@/types";
+import type { ProductReturn, ReturnArrival, ReturnArrivalUnitType } from "@/types";
+import { ReturnArrivalUnitTypeSelect } from "@/components/product-returns/return-arrival-unit-type-select";
 import {
   formatReturnArrivalUnitType,
   groupArrivalsByTracking,
@@ -95,6 +96,8 @@ export function ProductReturnArrivalsTimeline({
   compact = false,
   onDeleteArrival,
   deletingArrivalId,
+  onEditUnitType,
+  editingUnitTypeArrivalId,
 }: {
   returnItem: Pick<
     ProductReturn,
@@ -108,6 +111,9 @@ export function ProductReturnArrivalsTimeline({
   /** Admin-only: remove a wrongly scanned arrival. */
   onDeleteArrival?: (arrival: ReturnArrival) => void;
   deletingArrivalId?: string | null;
+  /** Admin-only: correct package / carton / pallet without re-scanning. */
+  onEditUnitType?: (arrival: ReturnArrival, unitType: ReturnArrivalUnitType) => void;
+  editingUnitTypeArrivalId?: string | null;
 }) {
   const arrivals = normalizeReturnArrivals(returnItem.returnArrivals);
   const summary = summarizeReturnArrivals(arrivals);
@@ -167,8 +173,17 @@ export function ProductReturnArrivalsTimeline({
                   className="rounded-xl border bg-background px-3 py-2.5 text-sm space-y-1"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <Package className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span>{formatReturnArrivalUnitType(arrival.unitType)}</span>
+                    <Package className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    {onEditUnitType ? (
+                      <ReturnArrivalUnitTypeSelect
+                        value={arrival.unitType}
+                        saving={editingUnitTypeArrivalId === arrival.id}
+                        disabled={Boolean(deletingArrivalId)}
+                        onChange={(unitType) => onEditUnitType(arrival, unitType)}
+                      />
+                    ) : (
+                      <span>{formatReturnArrivalUnitType(arrival.unitType)}</span>
+                    )}
                     <Badge variant={statusBadgeVariant(arrival.status)} className="text-xs">
                       {returnArrivalStatusLabel(arrival.status)}
                     </Badge>

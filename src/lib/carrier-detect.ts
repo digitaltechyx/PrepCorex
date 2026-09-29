@@ -155,7 +155,29 @@ export function normalizeTrackingScan(raw: string): string {
   if (/^\d{22,34}$/.test(digits) && /^9[1-5]/.test(digits) && !digits.startsWith("96")) {
     return preferUspsLookupNumber(digits);
   }
+  // Many docks scan bare 18–34 digit 1D labels (not always USPS 91–95 / FedEx 96).
+  if (/^\d{18,34}$/.test(digits) && !digits.startsWith("420") && !digits.startsWith("0")) {
+    return digits;
+  }
 
+  return "";
+}
+
+/**
+ * Camera / Bluetooth shipping-label resolve (Trackers + product returns).
+ * Prefer carrier extraction; if the 1D payload is still a plausible tracking string, keep it
+ * instead of rejecting (native phone scanners often succeed on the same label).
+ */
+export function resolveShippingBarcodeScan(raw: string): string {
+  const normalized = normalizeTrackingScan(raw);
+  if (normalized) return normalized;
+
+  const compact = compactTrackingPayload(raw);
+  if (!compact) return "";
+  if (/^420\d{5}$/.test(compact) || /^420\d{9}$/.test(compact)) return "";
+  // Ignore short product UPC/EAN-ish hits from the same label.
+  if (/^\d{8}$/.test(compact) || /^\d{13}$/.test(compact) || /^\d{14}$/.test(compact)) return "";
+  if (/^[0-9A-Z]{10,48}$/.test(compact)) return compact;
   return "";
 }
 

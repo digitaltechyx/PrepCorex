@@ -46,8 +46,12 @@ export function TrackingScanInput({
             showLabel
             label="Camera"
             disabled={disabled || camera.disabled}
-            scannerTitle={camera.scannerTitle}
-            scannerDescription={camera.scannerDescription}
+            scannerTitle={camera.scannerTitle ?? "Scan shipping barcode"}
+            scannerDescription={
+              camera.scannerDescription ??
+              "Aim at the long shipping barcode (same as Trackers). Address QR is ignored."
+            }
+            shippingBarcode
             onScan={camera.onScan}
           />
         ) : null

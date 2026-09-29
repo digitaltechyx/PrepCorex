@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Camera, Loader2, SwitchCamera } from "lucide-react";
-import { normalizeTrackingScan } from "@/lib/carrier-detect";
+import { resolveShippingBarcodeScan } from "@/lib/carrier-detect";
 
 type Html5QrcodeInstance = import("html5-qrcode").Html5Qrcode;
 
@@ -20,7 +20,7 @@ type Props = {
   onScan: (decodedText: string) => void;
   title?: string;
   description?: string;
-  /** Read only the long 1D shipping barcode and ignore address / product codes. */
+  /** Prefer long shipping barcodes (same path as Trackers). Reject ZIP-only / short product codes. */
   shippingBarcode?: boolean;
 };
 
@@ -29,7 +29,7 @@ export function CameraBarcodeScannerDialog({
   onOpenChange,
   onScan,
   title = "Scan with camera",
-  description = "Point your phone at the barcode or QR code. Works best in good light with the back camera.",
+  description,
   shippingBarcode = false,
 }: Props) {
   const reactId = useId();
@@ -39,6 +39,12 @@ export function CameraBarcodeScannerDialog({
   const [status, setStatus] = useState<"idle" | "starting" | "scanning" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
+
+  const resolvedDescription =
+    description ??
+    (shippingBarcode
+      ? "Aim at the long shipping barcode (1D / PDF417). Address QR codes are ignored."
+      : "Point your phone at the barcode or QR code. Works best in good light with the back camera.");
 
   const stopScanner = useCallback(async () => {
     const s = scannerRef.current;
@@ -66,6 +72,8 @@ export function CameraBarcodeScannerDialog({
 
     try {
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
+      // Match Tracker shipping mode: prioritize 1D, keep PDF417/DataMatrix for FedEx-style
+      // label payloads. Omit QR so address/product QR does not steal the scan.
       const formatsToSupport = shippingBarcode
         ? [
             Html5QrcodeSupportedFormats.CODE_128,
@@ -75,7 +83,6 @@ export function CameraBarcodeScannerDialog({
             Html5QrcodeSupportedFormats.ITF,
             Html5QrcodeSupportedFormats.PDF_417,
             Html5QrcodeSupportedFormats.DATA_MATRIX,
-            Html5QrcodeSupportedFormats.QR_CODE,
           ]
         : [
             Html5QrcodeSupportedFormats.QR_CODE,
@@ -96,38 +103,47 @@ export function CameraBarcodeScannerDialog({
       const scanner = new Html5Qrcode(regionId, {
         verbose: false,
         formatsToSupport,
-        useBarCodeDetectorIfSupported: true,
+        // Native BarcodeDetector often misses long CODE_128 / PDF417 shipping labels on mobile;
+        // ZXing via html5-qrcode is more reliable for dock tracking scans.
+        useBarCodeDetectorIfSupported: !shippingBarcode,
       });
 
       await scanner.start(
         { facingMode },
         {
-          fps: 15,
-          // Wide, shallow scan region — 1D shipping barcodes read better than square QR boxes.
+          fps: shippingBarcode ? 12 : 15,
+          // Wide box for long 1D; taller when shipping so PDF417 stacks still fit.
           qrbox: (viewfinderWidth, viewfinderHeight) => ({
             width: Math.floor(viewfinderWidth * 0.98),
-            height: Math.floor(Math.min(viewfinderHeight * 0.42, 240)),
+            height: Math.floor(
+              Math.min(
+                viewfinderHeight * (shippingBarcode ? 0.55 : 0.42),
+                shippingBarcode ? 300 : 240
+              )
+            ),
           }),
           aspectRatio: 1.777,
           disableFlip: false,
           videoConstraints: {
             facingMode: { ideal: facingMode },
-            width: { min: 640, ideal: 1280 },
-            height: { min: 480, ideal: 720 },
+            width: { min: 640, ideal: 1920 },
+            height: { min: 480, ideal: 1080 },
             // @ts-expect-error focusMode is supported on mobile Chrome/Safari
             focusMode: { ideal: "continuous" },
           },
           experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true,
+            useBarCodeDetectorIfSupported: !shippingBarcode,
           },
         },
         (decodedText) => {
           const text = shippingBarcode
-            ? normalizeTrackingScan(decodedText)
+            ? resolveShippingBarcodeScan(decodedText)
             : decodedText.trim();
           if (!text) {
             if (shippingBarcode) {
-              setErrorMsg("That barcode is not a tracking number. Aim at the long shipping barcode.");
+              setErrorMsg(
+                "That code is not a shipping tracking barcode. Aim at the long 1D / PDF417 tracking barcode."
+              );
             }
             return;
           }
@@ -195,7 +211,7 @@ export function CameraBarcodeScannerDialog({
             <Camera className="h-4 w-4" />
             {title}
           </DialogTitle>
-          <DialogDescription className="text-xs">{description}</DialogDescription>
+          <DialogDescription className="text-xs">{resolvedDescription}</DialogDescription>
         </DialogHeader>
 
         <div className="relative bg-black min-h-[280px]">
@@ -220,7 +236,9 @@ export function CameraBarcodeScannerDialog({
           {status === "scanning" ? (
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3">
               <p className="text-xs text-white/90 text-center">
-                Hold the label barcode flat inside the wide box — scan is automatic
+                {shippingBarcode
+                  ? "Hold the long shipping barcode flat in the wide box — scan is automatic"
+                  : "Hold the label barcode flat inside the wide box — scan is automatic"}
               </p>
             </div>
           ) : null}

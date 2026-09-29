@@ -8,7 +8,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { normalizeTrackingScan } from "@/lib/carrier-detect";
+import { resolveShippingBarcodeScan } from "@/lib/carrier-detect";
 import { normalizeReturnTracking } from "@/lib/return-tracking-client";
 import type {
   ProductReturn,
@@ -17,9 +17,9 @@ import type {
   ReturnArrivalUnitType,
 } from "@/types";
 
-/** Same key used when logging arrivals — carrier parse, else trimmed uppercase. */
+/** Same key used when logging arrivals — shipping resolve, else trimmed uppercase. */
 export function trackingKey(raw: string): string {
-  return normalizeTrackingScan(raw) || normalizeReturnTracking(raw);
+  return resolveShippingBarcodeScan(raw) || normalizeReturnTracking(raw);
 }
 
 export function createReturnArrivalId(): string {
@@ -410,4 +410,40 @@ export async function openReceiveReturnArrival(input: {
   }
 
   await updateDoc(returnRef, patch);
+}
+
+/** Fix wrong carton / pallet / package after log or open & count (no re-scan). */
+export async function updateReturnArrivalUnitType(input: {
+  ownerUserId: string;
+  returnId: string;
+  arrivalId: string;
+  unitType: ReturnArrivalUnitType;
+}): Promise<void> {
+  const nextType =
+    input.unitType === "pallet" || input.unitType === "package"
+      ? input.unitType
+      : "carton";
+  const { returnRef, data } = await loadReturnDoc(input.ownerUserId, input.returnId);
+  const arrivals = normalizeReturnArrivals(data.returnArrivals);
+  const index = arrivals.findIndex((a) => a.id === input.arrivalId);
+  if (index < 0) throw new Error("Arrival not found.");
+  if (arrivals[index].unitType === nextType) return;
+
+  arrivals[index] = { ...arrivals[index], unitType: nextType };
+
+  const currentLog = Array.isArray(data.receivingLog) ? [...data.receivingLog] : [];
+  const nextLog = currentLog.map((entry) => {
+    if (!entry || typeof entry !== "object") return entry;
+    const row = entry as { arrivalId?: string; unitType?: string };
+    if (row.arrivalId !== input.arrivalId) return entry;
+    return { ...row, unitType: nextType };
+  });
+
+  await updateDoc(returnRef, {
+    returnArrivals: arrivals.map((row) =>
+      firestoreData(row as unknown as Record<string, unknown>)
+    ),
+    receivingLog: nextLog,
+    updatedAt: Timestamp.now(),
+  });
 }

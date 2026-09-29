@@ -1275,7 +1275,8 @@ export function WarehouseOpsReturns({ warehouse }: Props) {
               <ScanCameraButton
                 onScan={(text) => applyTrackingScan(text)}
                 scannerTitle="Scan return tracking"
-                scannerDescription="Match product return requests that share this tracking."
+                scannerDescription="Aim at the long shipping barcode (same as Trackers). Address QR is ignored."
+                shippingBarcode
               />
               <Button
                 type="button"

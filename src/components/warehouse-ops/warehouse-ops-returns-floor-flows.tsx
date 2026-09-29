@@ -795,7 +795,8 @@ function ReceiveFlow({
                 <ScanCameraButton
                   onScan={(text) => props.setRecvTracking(text)}
                   scannerTitle="Scan return tracking"
-                  scannerDescription="Attach tracking to this receive."
+                  scannerDescription="Aim at the long shipping barcode (same as Trackers). Address QR is ignored."
+                  shippingBarcode
                 />
               </div>
             </div>

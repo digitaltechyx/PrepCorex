@@ -17,7 +17,7 @@ type Props = {
   disabled?: boolean;
   scannerTitle?: string;
   scannerDescription?: string;
-  /** Tracker scans should read the long 1D shipping barcode, not address codes. */
+  /** Prefer long shipping barcodes (same path as Trackers). Address QR ignored. */
   shippingBarcode?: boolean;
 };
 
