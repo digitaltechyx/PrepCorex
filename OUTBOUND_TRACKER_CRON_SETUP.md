@@ -5,7 +5,7 @@ Admin **Outbound Tracker** polls Shippo for scanned outbound labels and sends on
 ## Architecture
 
 ```
-Cloud Scheduler (every 6h)
+Cloud Scheduler (every 12h)
   → outboundTrackingRefreshCron
     → POST https://YOUR-APP/api/outbound-tracking/cron?secret=CRON_SECRET
 
@@ -56,13 +56,14 @@ firebase use psf-stockflow
 
 # If deploy times out analyzing codebases, set a longer discovery timeout:
 $env:FUNCTIONS_DISCOVERY_TIMEOUT=60000
-firebase deploy --only "functions:inbound-cron:inboundTrackingRefreshCron,functions:inbound-cron:outboundTrackingRefreshCron,functions:inbound-cron:outboundTrackingDigestCron"
+firebase deploy --only "functions:inbound-cron:inboundTrackingRefreshCron,functions:inbound-cron:outboundTrackingRefreshCron,functions:inbound-cron:outboundTrackingDigestCron,functions:inbound-cron:inboundTrackerRefreshCron"
 ```
 
 This deploys/updates:
-- `inboundTrackingRefreshCron` (every 6 hours)
-- `outboundTrackingRefreshCron` (every 6 hours)
+- `inboundTrackingRefreshCron` (every 12 hours)
+- `outboundTrackingRefreshCron` (every 12 hours)
 - `outboundTrackingDigestCron` (daily 7am America/New_York)
+- `inboundTrackerRefreshCron` (every 12 hours)
 
 ## 4. Test
 

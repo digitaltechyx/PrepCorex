@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Scheduled refresh (every 3 hours). Secured with CRON_SECRET or INBOUND_TRACKING_CRON_SECRET.
+ * Scheduled refresh (every 12 hours). Secured with CRON_SECRET or INBOUND_TRACKING_CRON_SECRET.
  */
 export async function POST(request: NextRequest) {
   const secret =
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       refreshed,
-      intervalHours: 6,
+      intervalHours: 12,
     });
   } catch (e) {
     return NextResponse.json(
