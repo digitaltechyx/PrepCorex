@@ -42,14 +42,14 @@ async function postCronPath(path, logPrefix) {
   return null;
 }
 
-/** Refresh inbound Shippo tracking every 12 hours via Next.js API. */
+/** TESTING: every 1 minute — restore to every 12 hours after verifying. */
 exports.inboundTrackingRefreshCron = functions.pubsub
-  .schedule("every 12 hours")
+  .schedule("every 1 minutes")
   .onRun(async () => postCronPath("/api/inbound-tracking/cron", "inboundTrackingRefreshCron"));
 
-/** Poll Shippo for open outbound trackings every 12 hours. */
+/** TESTING: every 1 minute — restore to every 12 hours after verifying. */
 exports.outboundTrackingRefreshCron = functions.pubsub
-  .schedule("every 12 hours")
+  .schedule("every 1 minutes")
   .onRun(async () => postCronPath("/api/outbound-tracking/cron", "outboundTrackingRefreshCron"));
 
 /** Daily outbound digest at 7:00 AM America/New_York (EDT/EST). */
@@ -58,7 +58,7 @@ exports.outboundTrackingDigestCron = functions.pubsub
   .timeZone("America/New_York")
   .onRun(async () => postCronPath("/api/outbound-tracking/digest", "outboundTrackingDigestCron"));
 
-/** Poll Shippo for open inbound tracker entries every 12 hours. */
+/** TESTING: every 1 minute — restore to every 12 hours after verifying. */
 exports.inboundTrackerRefreshCron = functions.pubsub
-  .schedule("every 12 hours")
+  .schedule("every 1 minutes")
   .onRun(async () => postCronPath("/api/inbound-tracker/cron", "inboundTrackerRefreshCron"));

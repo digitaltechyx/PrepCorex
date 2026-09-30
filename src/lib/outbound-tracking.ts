@@ -2,7 +2,8 @@ import type { OutboundTrackerEntry } from "@/types";
 import { normalizeTrackingScan } from "@/lib/carrier-detect";
 
 export const OUTBOUND_TRACKING_COLLECTION = "outboundTracker";
-export const OUTBOUND_TRACKING_REFRESH_MS = 12 * 60 * 60 * 1000;
+/** Testing: 1 minute. Restore to 12 hours after verifying auto-refresh. */
+export const OUTBOUND_TRACKING_REFRESH_MS = 1 * 60 * 1000;
 export const OUTBOUND_TRACKING_STALE_MS = 48 * 60 * 60 * 1000;
 
 export function toMillis(value: unknown): number | null {
@@ -82,17 +83,14 @@ export function isDefaultOutboundTrackerDateRange(from?: Date, to?: Date): boole
   return sameCalendarDay(from, today) && sameCalendarDay(to, today);
 }
 
-/** Default filters: today's date range; admin can change or clear dates. */
+/** Default filters: all open (undelivered) trackings across every day. */
 export function getOutboundTrackerDefaultFilters(): OutboundTrackerFilters {
-  const { addedFrom, addedTo } = getOutboundTodayDateRange();
   return {
     search: "",
     carrier: "all",
-    status: "all",
+    status: "active",
     addedVia: "all",
     addedBy: "all",
-    addedFrom,
-    addedTo,
   };
 }
 
@@ -202,18 +200,15 @@ export function buildOutboundTrackerReport(entries: OutboundTrackerEntry[]): Out
 }
 
 export function outboundTrackerHasActiveFilters(filters: OutboundTrackerFilters): boolean {
-  const dateChanged =
-    !filters.addedFrom ||
-    !filters.addedTo ||
-    !isDefaultOutboundTrackerDateRange(filters.addedFrom, filters.addedTo);
+  const dateFiltered = Boolean(filters.addedFrom || filters.addedTo);
 
   return (
     filters.search.trim() !== "" ||
     filters.carrier !== "all" ||
-    filters.status !== "all" ||
+    filters.status !== "active" ||
     filters.addedVia !== "all" ||
     filters.addedBy !== "all" ||
-    dateChanged
+    dateFiltered
   );
 }
 

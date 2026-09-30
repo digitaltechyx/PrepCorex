@@ -1,7 +1,7 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { getAdminDb, getAdminFieldValue } from "@/lib/firebase-admin";
 import { detectCarrier } from "@/lib/carrier-detect";
-import { INBOUND_TRACKING_REFRESH_MS, isInboundTrackingStale } from "@/lib/inbound-tracking";
+import { INBOUND_TRACKING_REFRESH_MS, isInboundTrackingDelivered, isInboundTrackingStale } from "@/lib/inbound-tracking";
 import { fetchShippoTracking, parseShippoTrackingStatus } from "@/lib/shippo-tracking-server";
 import type { InboundTrackingEntry, InventoryRequest } from "@/types";
 
@@ -190,6 +190,10 @@ export async function refreshInboundTrackingsForRequest(
 
   const updated: InboundTrackingEntry[] = [];
   for (const entry of trackings) {
+    if (isInboundTrackingDelivered(entry)) {
+      updated.push(entry);
+      continue;
+    }
     if (!options?.force && !isInboundTrackingStale(entry)) {
       updated.push(entry);
       continue;
@@ -220,8 +224,8 @@ export async function refreshStaleInboundTrackingsForUser(userId: string): Promi
   return refreshed;
 }
 
-/** Cron: refresh all index entries stale > 3 hours. */
-export async function refreshStaleInboundTrackingIndex(limit = 200): Promise<number> {
+/** Cron: refresh open (not delivered) index entries older than the refresh interval. */
+export async function refreshStaleInboundTrackingIndex(limit = 1000): Promise<number> {
   const db = getAdminDb();
   const cutoff = Date.now() - INBOUND_TRACKING_REFRESH_MS;
   const cutoffDate = new Date(cutoff);
@@ -233,26 +237,40 @@ export async function refreshStaleInboundTrackingIndex(limit = 200): Promise<num
     .get();
 
   let count = 0;
+  const seenRequests = new Set<string>();
+
   for (const doc of snap.docs) {
     const data = doc.data();
+    const statusLabel = String(data.lastStatusLabel || "").toLowerCase();
+    const status = String(data.lastStatus || "").toLowerCase();
+    if (statusLabel === "delivered" || status.includes("delivered")) continue;
+
     const userId = String(data.userId || "");
     const requestId = String(data.requestId || "");
     if (!userId || !requestId) continue;
+    const key = `${userId}__${requestId}`;
+    if (seenRequests.has(key)) continue;
+    seenRequests.add(key);
     await refreshInboundTrackingsForRequest(userId, requestId, { force: false });
     count += 1;
   }
 
   // Also pick up entries never checked (missing lastCheckedAt) — full scan capped
-  if (snap.size < limit) {
-    const remaining = limit - snap.size;
-    const allSnap = await db.collection(INDEX_COLLECTION).limit(500).get();
+  if (count < limit) {
+    const allSnap = await db.collection(INDEX_COLLECTION).limit(1000).get();
     for (const doc of allSnap.docs) {
-      if (count >= remaining) break;
+      if (count >= limit) break;
       const data = doc.data();
       if (data.lastCheckedAt) continue;
+      const statusLabel = String(data.lastStatusLabel || "").toLowerCase();
+      const status = String(data.lastStatus || "").toLowerCase();
+      if (statusLabel === "delivered" || status.includes("delivered")) continue;
       const userId = String(data.userId || "");
       const requestId = String(data.requestId || "");
       if (!userId || !requestId) continue;
+      const key = `${userId}__${requestId}`;
+      if (seenRequests.has(key)) continue;
+      seenRequests.add(key);
       await refreshInboundTrackingsForRequest(userId, requestId, { force: true });
       count += 1;
     }

@@ -16,15 +16,15 @@ function authorizeCron(request: NextRequest): boolean {
   );
 }
 
-/** Poll Shippo for open inbound trackings (every 12 hours). */
+/** Poll Shippo for open inbound trackings (every 1 minute while testing). */
 export async function POST(request: NextRequest) {
   if (!authorizeCron(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    const refreshed = await refreshOpenInboundTrackerEntries(500);
-    return NextResponse.json({ success: true, refreshed });
+    const refreshed = await refreshOpenInboundTrackerEntries(1000);
+    return NextResponse.json({ success: true, refreshed, intervalMinutes: 1 });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Cron refresh failed" },

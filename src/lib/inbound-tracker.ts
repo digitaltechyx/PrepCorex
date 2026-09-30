@@ -2,7 +2,8 @@ import type { InboundTrackerEntry } from "@/types";
 import { normalizeTrackingScan } from "@/lib/carrier-detect";
 
 export const INBOUND_TRACKER_COLLECTION = "inboundTracker";
-export const INBOUND_TRACKER_REFRESH_MS = 12 * 60 * 60 * 1000;
+/** Testing: 1 minute. Restore to 12 hours after verifying auto-refresh. */
+export const INBOUND_TRACKER_REFRESH_MS = 1 * 60 * 1000;
 
 export function toMillis(value: unknown): number | null {
   if (!value) return null;
@@ -81,17 +82,14 @@ export function isDefaultInboundTrackerDateRange(from?: Date, to?: Date): boolea
   return sameCalendarDay(from, today) && sameCalendarDay(to, today);
 }
 
-/** Default filters: today's date range; admin can change or clear dates. */
+/** Default filters: all open (undelivered) trackings across every day. */
 export function getInboundTrackerDefaultFilters(): InboundTrackerFilters {
-  const { addedFrom, addedTo } = getTodayDateRange();
   return {
     search: "",
     carrier: "all",
-    status: "all",
+    status: "active",
     addedVia: "all",
     addedBy: "all",
-    addedFrom,
-    addedTo,
   };
 }
 
@@ -201,18 +199,15 @@ export function buildInboundTrackerReport(entries: InboundTrackerEntry[]): Inbou
 }
 
 export function inboundTrackerHasActiveFilters(filters: InboundTrackerFilters): boolean {
-  const dateChanged =
-    !filters.addedFrom ||
-    !filters.addedTo ||
-    !isDefaultInboundTrackerDateRange(filters.addedFrom, filters.addedTo);
+  const dateFiltered = Boolean(filters.addedFrom || filters.addedTo);
 
   return (
     filters.search.trim() !== "" ||
     filters.carrier !== "all" ||
-    filters.status !== "all" ||
+    filters.status !== "active" ||
     filters.addedVia !== "all" ||
     filters.addedBy !== "all" ||
-    dateChanged
+    dateFiltered
   );
 }
 

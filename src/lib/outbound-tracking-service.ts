@@ -232,7 +232,7 @@ export async function deleteOutboundTrackerEntry(id: string): Promise<boolean> {
   return true;
 }
 
-export async function refreshOpenOutboundTrackerEntries(limit = 200): Promise<number> {
+export async function refreshOpenOutboundTrackerEntries(limit = 1000): Promise<number> {
   const db = getAdminDb();
   const snap = await db
     .collection(OUTBOUND_TRACKING_COLLECTION)

@@ -214,7 +214,7 @@ export async function deleteInboundTrackerEntry(id: string): Promise<boolean> {
   return true;
 }
 
-export async function refreshOpenInboundTrackerEntries(limit = 200): Promise<number> {
+export async function refreshOpenInboundTrackerEntries(limit = 1000): Promise<number> {
   const db = getAdminDb();
   const snap = await db
     .collection(INBOUND_TRACKER_COLLECTION)

@@ -1,7 +1,7 @@
 import type { InboundTrackingEntry } from "@/types";
 
-/** Re-fetch carrier status when older than this (3 hours). */
-export const INBOUND_TRACKING_REFRESH_MS = 12 * 60 * 60 * 1000;
+/** Re-fetch carrier status when older than this (1 minute — testing; restore to hours later). */
+export const INBOUND_TRACKING_REFRESH_MS = 1 * 60 * 1000;
 
 /**
  * Prefer inboundTrackings[]; fall back to legacy flat trackingNumber/carrier on the doc or batch line.
@@ -32,12 +32,21 @@ export function resolveInboundTrackings(
 }
 
 export function isInboundTrackingStale(
-  entry: Pick<InboundTrackingEntry, "lastCheckedAt">,
+  entry: Pick<InboundTrackingEntry, "lastCheckedAt" | "lastStatus" | "lastStatusLabel">,
   now = Date.now()
 ): boolean {
+  if (isInboundTrackingDelivered(entry)) return false;
   const checked = toMillis(entry.lastCheckedAt);
   if (!checked) return true;
   return now - checked >= INBOUND_TRACKING_REFRESH_MS;
+}
+
+export function isInboundTrackingDelivered(
+  entry: Pick<InboundTrackingEntry, "lastStatus" | "lastStatusLabel">
+): boolean {
+  const status = String(entry.lastStatus || "").toLowerCase();
+  const label = String(entry.lastStatusLabel || "").toLowerCase();
+  return status.includes("delivered") || label === "delivered";
 }
 
 export function toMillis(value: unknown): number | null {
