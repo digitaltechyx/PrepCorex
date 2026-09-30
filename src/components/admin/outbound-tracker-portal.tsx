@@ -189,6 +189,38 @@ export function OutboundTrackerPortal({ mode = "admin" }: OutboundTrackerPortalP
     void loadEntries();
   }, [authLoading, isAdmin, isPublic, loadEntries, router, user]);
 
+  // Same pattern as Inventory: refresh stale open trackings when the page loads.
+  useEffect(() => {
+    if (!isPublic) {
+      if (authLoading || !user || !isAdmin) return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const headers = await requestHeaders();
+        const res = await fetch("/api/outbound-tracking/refresh-stale", {
+          method: "POST",
+          headers,
+          credentials: "include",
+        });
+        if (cancelled || !res.ok) return;
+        const data = (await res.json()) as { refreshed?: number; message?: string };
+        if ((data.refreshed ?? 0) > 0) {
+          toast({
+            title: "Tracking updated",
+            description: data.message || `Refreshed ${data.refreshed} tracking(s).`,
+          });
+          await loadEntries();
+        }
+      } catch {
+        /* non-blocking */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, isAdmin, isPublic, loadEntries, requestHeaders, toast, user]);
+
   const filterOptions = useMemo(() => outboundTrackerFilterOptions(entries), [entries]);
 
   const filteredEntries = useMemo(
