@@ -140,10 +140,10 @@ async function pendingDocs(
 }
 
 /**
- * Pending-only count for Notifications types.
- * Fast collectionGroup status==pending queries (no full subcollection scans).
+ * Pending-only count for Notifications types (Pending tab).
+ * Dedupes multi-line inbound/dispose batches to one parent row, matching the Notifications UI.
  */
-async function countPendingRequests(allowedUserIds: Set<string>): Promise<number> {
+export async function countPendingRequests(allowedUserIds: Set<string>): Promise<number> {
   const [
     shipDocs,
     invDocs,
@@ -154,6 +154,8 @@ async function countPendingRequests(allowedUserIds: Set<string>): Promise<number
     inboundBatchDocs,
     disposeBatchDocs,
     quarantineDocs,
+    walletTopupDocs,
+    apiFeeDocs,
   ] = await Promise.all([
     pendingDocs("shipmentRequests", allowedUserIds),
     pendingDocs("inventoryRequests", allowedUserIds),
@@ -164,6 +166,8 @@ async function countPendingRequests(allowedUserIds: Set<string>): Promise<number
     pendingDocs("inboundBatches", allowedUserIds),
     pendingDocs("disposeBatches", allowedUserIds),
     pendingDocs("quarantineRequests", allowedUserIds, { topLevelUserIdField: true }),
+    pendingDocs("labelWalletTopupRequests", allowedUserIds),
+    pendingDocs("labelApiFeePaymentRequests", allowedUserIds),
   ]);
 
   const multiLineInboundBatchIds = new Set(
@@ -179,6 +183,8 @@ async function countPendingRequests(allowedUserIds: Set<string>): Promise<number
   count += deleteDocs.length;
   count += labelDocs.length;
   count += quarantineDocs.length;
+  count += walletTopupDocs.length;
+  count += apiFeeDocs.length;
 
   for (const d of invDocs) {
     const batchId = String(d.data().batchId || "");

@@ -33,7 +33,7 @@ import {
 import { LabelRefundReviewDialog } from "@/components/admin/label-refund-review-dialog";
 import { LabelWalletTopupReviewDialog } from "@/components/admin/label-wallet-topup-review-dialog";
 import { LabelApiFeePaymentReviewDialog } from "@/components/admin/label-api-fee-payment-review-dialog";
-import { summarizeInboundTrackings, resolveInboundTrackings } from "@/lib/inbound-tracking";
+import { summarizeInboundTrackings, resolveInboundTrackings, dedupeInboundTrackings } from "@/lib/inbound-tracking";
 import { db } from "@/lib/firebase";
 import { collection, collectionGroup, getDocs, query } from "firebase/firestore";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,7 +67,6 @@ import {
   pendingReceiveItemFromRequest,
   type PendingReceiveItem,
 } from "@/lib/admin-pending-receive";
-import { AdminPendingReceiveBatchPanel } from "@/components/admin/admin-pending-receive-batch-panel";
 import { InventoryRequestsManagement } from "@/components/admin/inventory-requests-management";
 import { ShipmentRequestsManagement } from "@/components/admin/shipment-requests-management";
 
@@ -84,7 +83,6 @@ type NotificationType =
 type StatusFilter =
   | "all"
   | "pending"
-  | "pending_receive"
   | "paid"
   | "approved"
   | "confirmed"
@@ -105,7 +103,7 @@ type NotificationRow = {
   inboundTrackings?: InboundTrackingEntry[];
   /** Product inbound v2 lifecycle (inventory requests only). */
   inboundDisplayStatus?: AdminInboundRequestDisplayStatus;
-  /** Approved-but-not-received row for batch receive panel. */
+  /** Approved-but-not-received row (receive is handled on approve / Inventory Requests). */
   pendingReceive?: PendingReceiveItem;
   /** Outbound only — dispatched orders are terminal for admin Process button. */
   warehouseDispatchStatus?: string;
@@ -114,7 +112,6 @@ type NotificationRow = {
 const STATUS_TAB_VALUES = [
   "all",
   "pending",
-  "pending_receive",
   "paid",
   "approved",
   "confirmed",
@@ -150,10 +147,10 @@ function enrichInventoryNotificationRow(
   };
 }
 
-/** Tab bucket for a notification row (pending receive is separate from raw approved). */
+/** Tab bucket for a notification row. Pending-receive stays under Approved (receive UI lives on the request). */
 function notificationTabStatus(row: NotificationRow): string {
   if (row.type === "inventory_request" && row.inboundDisplayStatus === "pending_receive") {
-    return "pending_receive";
+    return "approved";
   }
   return normStatus(row.status);
 }
@@ -380,21 +377,21 @@ export default function AdminNotificationsPage() {
 
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
+  const resolvedTabFromUrl =
+    tabFromUrl === "pending_receive"
+      ? "approved"
+      : tabFromUrl && STATUS_TAB_VALUES.includes(tabFromUrl as (typeof STATUS_TAB_VALUES)[number])
+        ? (tabFromUrl as "all" | Exclude<StatusFilter, "all">)
+        : null;
   const [activeTab, setActiveTab] = useState<"all" | Exclude<StatusFilter, "all">>(
-    (tabFromUrl as "all" | Exclude<StatusFilter, "all">) &&
-      STATUS_TAB_VALUES.includes(tabFromUrl as (typeof STATUS_TAB_VALUES)[number])
-      ? (tabFromUrl as "all" | Exclude<StatusFilter, "all">)
-      : "pending"
+    resolvedTabFromUrl ?? "pending"
   );
 
   useEffect(() => {
-    if (
-      tabFromUrl &&
-      STATUS_TAB_VALUES.includes(tabFromUrl as (typeof STATUS_TAB_VALUES)[number])
-    ) {
-      setActiveTab(tabFromUrl as "all" | Exclude<StatusFilter, "all">);
+    if (resolvedTabFromUrl) {
+      setActiveTab(resolvedTabFromUrl);
     }
-  }, [tabFromUrl]);
+  }, [resolvedTabFromUrl]);
 
   const [typeFilter, setTypeFilter] = useState<"all" | NotificationType>("all");
   const [userIdFilter, setUserIdFilter] = useState<string>("all");
@@ -502,19 +499,19 @@ export default function AdminNotificationsPage() {
               const shipTo = (data as any).shipTo || "";
               return enrichShipmentNotificationRow(
                 {
-                  type: "shipment_request",
-                  id: d.id,
-                  userId,
-                  status: String((data as any).status || ""),
-                  createdAtMs: dateMs,
-                  title: `Shipment Request • ${shipTo ? shipTo.substring(0, 40) : "N/A"}`,
-                  subtitle:
-                    String((data as any).status || "").toLowerCase() === "cancelled"
-                      ? cancelReasonSubtitle(
-                          (data as any).cancellationReason,
-                          `Items: ${(data as any).shipments?.length ?? 0}`
-                        )
-                      : `Items: ${(data as any).shipments?.length ?? 0}`,
+                type: "shipment_request",
+                id: d.id,
+                userId,
+                status: String((data as any).status || ""),
+                createdAtMs: dateMs,
+                title: `Shipment Request • ${shipTo ? shipTo.substring(0, 40) : "N/A"}`,
+                subtitle:
+                  String((data as any).status || "").toLowerCase() === "cancelled"
+                    ? cancelReasonSubtitle(
+                        (data as any).cancellationReason,
+                        `Items: ${(data as any).shipments?.length ?? 0}`
+                      )
+                    : `Items: ${(data as any).shipments?.length ?? 0}`,
                 },
                 data
               );
@@ -565,6 +562,21 @@ export default function AdminNotificationsPage() {
             const base = collectionGroup(db, "inventoryRequests");
             const q = query(base);
             const snap = await getDocs(q);
+            const trackingsByBatchId = new Map<string, ReturnType<typeof resolveInboundTrackings>>();
+            for (const d of snap.docs) {
+              const data = d.data() as InventoryRequest & {
+                batchId?: string;
+                trackingNumber?: string;
+                carrier?: string;
+              };
+              const batchId = String(data.batchId || "").trim();
+              if (!batchId) continue;
+              const resolved = resolveInboundTrackings(data);
+              if (!resolved.length) continue;
+              const list = trackingsByBatchId.get(batchId) ?? [];
+              list.push(...resolved);
+              trackingsByBatchId.set(batchId, list);
+            }
             const rows: NotificationRow[] = snap.docs
               .map((d) => {
               const userId = d.ref.path.split("/")[1];
@@ -578,18 +590,18 @@ export default function AdminNotificationsPage() {
               return enrichInventoryNotificationRow(
                 {
                   type: "inventory_request" as const,
-                  id: d.id,
-                  userId,
-                  status: String((data as any).status || ""),
-                  createdAtMs: dateMs,
-                  title: `Inventory Request • ${String(productName).substring(0, 50)}`,
-                  subtitle:
-                    String((data as any).status || "").toLowerCase() === "cancelled"
-                      ? cancelReasonSubtitle(
-                          (data as any).cancellationReason,
-                          `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`
-                        )
-                      : `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
+                id: d.id,
+                userId,
+                status: String((data as any).status || ""),
+                createdAtMs: dateMs,
+                title: `Inventory Request • ${String(productName).substring(0, 50)}`,
+                subtitle:
+                  String((data as any).status || "").toLowerCase() === "cancelled"
+                    ? cancelReasonSubtitle(
+                        (data as any).cancellationReason,
+                        `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`
+                      )
+                    : `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
                   inboundTrackings: resolveInboundTrackings(
                     data as InventoryRequest & { trackingNumber?: string; carrier?: string }
                   ),
@@ -617,6 +629,7 @@ export default function AdminNotificationsPage() {
                   createdAtMs: dateMs,
                   title: `Inbound Batch • ${totalLines.toLocaleString()} items`,
                   subtitle: `${Number((data as any).pendingLines || 0).toLocaleString()} pending · ${Number((data as any).approvedLines || 0).toLocaleString()} approved · ${Number((data as any).rejectedLines || 0).toLocaleString()} rejected`,
+                  inboundTrackings: dedupeInboundTrackings(trackingsByBatchId.get(d.id)),
                 },
               ];
             });
@@ -635,16 +648,35 @@ export default function AdminNotificationsPage() {
               const base = collection(db, `users/${uid}/inventoryRequests`);
               const q = query(base);
               const snap = await getDocs(q);
-              return snap.docs
-                .map((d) => {
-                const data = d.data() as any as InventoryRequest;
-                const batchId = (data as any).batchId as string | undefined;
+              return snap.docs.map((d) => {
+                const data = d.data() as InventoryRequest & {
+                  batchId?: string;
+                  trackingNumber?: string;
+                  carrier?: string;
+                };
+                return { uid, id: d.id, data };
+              });
+            }));
+            const allRequests = results.flat();
+            const trackingsByBatchId = new Map<string, ReturnType<typeof resolveInboundTrackings>>();
+            for (const { data } of allRequests) {
+              const batchId = String(data.batchId || "").trim();
+              if (!batchId) continue;
+              const resolved = resolveInboundTrackings(data);
+              if (!resolved.length) continue;
+              const list = trackingsByBatchId.get(batchId) ?? [];
+              list.push(...resolved);
+              trackingsByBatchId.set(batchId, list);
+            }
+            const requestRows = allRequests
+              .map(({ uid, id, data }) => {
+                const batchId = data.batchId;
                 if (batchId && multiLineBatchIds.has(batchId)) return null;
                 const dateMs = toMs((data as any).requestedAt) || toMs((data as any).addDate) || 0;
                 const productName = (data as any).productName || (data as any).newProductName || "Inventory Request";
                 const row: NotificationRow = {
                   type: "inventory_request",
-                  id: d.id,
+                  id,
                   userId: uid,
                   status: String((data as any).status || ""),
                   createdAtMs: dateMs,
@@ -656,14 +688,11 @@ export default function AdminNotificationsPage() {
                           `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`
                         )
                       : `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
-                  inboundTrackings: resolveInboundTrackings(
-                    data as InventoryRequest & { trackingNumber?: string; carrier?: string }
-                  ),
+                  inboundTrackings: resolveInboundTrackings(data),
                 };
-                return enrichInventoryNotificationRow(row, uid, d.id, data, dateMs);
+                return enrichInventoryNotificationRow(row, uid, id, data, dateMs);
               })
-                .filter((r): r is NotificationRow => r != null);
-            }));
+              .filter((r): r is NotificationRow => r != null);
             const batchRows = allBatches
               .map(({ uid, id, data }) => {
                 const totalLines = Number(data.totalLines || 0);
@@ -677,11 +706,12 @@ export default function AdminNotificationsPage() {
                   createdAtMs: dateMs,
                   title: `Inbound Batch • ${totalLines.toLocaleString()} items`,
                   subtitle: `${Number(data.pendingLines || 0).toLocaleString()} pending · ${Number(data.approvedLines || 0).toLocaleString()} approved · ${Number(data.rejectedLines || 0).toLocaleString()} rejected`,
+                  inboundTrackings: dedupeInboundTrackings(trackingsByBatchId.get(id)),
                 };
                 return row;
               })
               .filter((r): r is NotificationRow => r != null);
-            setInventoryRequests([...results.flat(), ...batchRows]);
+            setInventoryRequests([...requestRows, ...batchRows]);
           }
         })(),
 
@@ -1047,6 +1077,9 @@ export default function AdminNotificationsPage() {
   }, [canSeeAdminNotifications]);
 
   const allRows = useMemo(() => {
+    const managed = new Set(
+      users.map((u: any) => String(u?.uid || u?.id || "")).filter((id) => id.trim() !== "")
+    );
     return [
       ...shipmentRequests,
       ...inventoryRequests,
@@ -1057,8 +1090,11 @@ export default function AdminNotificationsPage() {
       ...labelRefundRequests,
       ...labelWalletTopups,
       ...labelApiFeePayments,
-    ].sort((a, b) => b.createdAtMs - a.createdAtMs);
+    ]
+      .filter((r) => managed.has(String(r.userId || "")))
+      .sort((a, b) => b.createdAtMs - a.createdAtMs);
   }, [
+    users,
     shipmentRequests,
     inventoryRequests,
     productReturns,
@@ -1080,7 +1116,6 @@ export default function AdminNotificationsPage() {
     const counts: Record<string, number> = { all: scoped.length };
     const statuses: Exclude<StatusFilter, "all">[] = [
       "pending",
-      "pending_receive",
       "paid",
       "approved",
       "confirmed",
@@ -1107,20 +1142,6 @@ export default function AdminNotificationsPage() {
 
     return allRows.filter((r) => byTab(r) && byType(r) && byUser(r) && byDate(r));
   }, [activeTab, allRows, fromDate, toDate, typeFilter, userIdFilter]);
-
-  const pendingReceiveItems = useMemo(() => {
-    const byType = (r: NotificationRow) => typeFilter === "all" ? true : r.type === typeFilter;
-    const byUser = (r: NotificationRow) => {
-      if (!userIdFilter || userIdFilter === "all") return true;
-      return r.userId === userIdFilter;
-    };
-    const byDate = (r: NotificationRow) => inRange(r.createdAtMs, fromDate, toDate);
-
-    return allRows
-      .filter((r) => r.pendingReceive && byType(r) && byUser(r) && byDate(r))
-      .map((r) => r.pendingReceive!)
-      .sort((a, b) => b.createdAtMs - a.createdAtMs);
-  }, [allRows, fromDate, toDate, typeFilter, userIdFilter]);
 
   // Reset to page 1 when filters or tab change
   useEffect(() => {
@@ -1255,10 +1276,10 @@ export default function AdminNotificationsPage() {
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:shrink-0">
               {!isProcessComplete(r) ? (
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="w-full sm:w-auto min-h-[44px] sm:min-h-9 shrink-0 gap-1"
+              <Button
+                size="sm"
+                variant="default"
+                className="w-full sm:w-auto min-h-[44px] sm:min-h-9 shrink-0 gap-1"
                   onClick={() => openRequest(r, false)}
                 >
                   {r.inboundDisplayStatus === "pending_receive" ? (
@@ -1273,8 +1294,8 @@ export default function AdminNotificationsPage() {
                     </>
                   ) : (
                     <>
-                      Process
-                      <ChevronRight className="h-4 w-4" />
+                Process
+                <ChevronRight className="h-4 w-4" />
                     </>
                   )}
                 </Button>
@@ -1287,8 +1308,8 @@ export default function AdminNotificationsPage() {
                 >
                   <Eye className="h-4 w-4" />
                   View
-                </Button>
-              )}
+              </Button>
+            )}
             </div>
           </div>
         );
@@ -1450,9 +1471,6 @@ export default function AdminNotificationsPage() {
                 <TabsTrigger value="pending" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-amber-300 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-amber-700 dark:data-[state=active]:bg-amber-900/30 dark:data-[state=active]:text-amber-200">
                   Pending <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.pending ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="pending_receive" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-orange-300 data-[state=active]:bg-orange-100 data-[state=active]:text-orange-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-orange-700 dark:data-[state=active]:bg-orange-900/30 dark:data-[state=active]:text-orange-200">
-                  Pending receive <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.pending_receive ?? 0}</Badge>
-                </TabsTrigger>
                 <TabsTrigger value="approved" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-emerald-300 data-[state=active]:bg-emerald-100 data-[state=active]:text-emerald-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-emerald-700 dark:data-[state=active]:bg-emerald-900/30 dark:data-[state=active]:text-emerald-200">
                   Approved <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.approved ?? 0}</Badge>
                 </TabsTrigger>
@@ -1485,23 +1503,6 @@ export default function AdminNotificationsPage() {
             <TabsContent value="pending" className="mt-4 focus-visible:outline-none">
               {renderList(paginatedResult.paginatedRows)}
               {paginationUI}
-            </TabsContent>
-            <TabsContent value="pending_receive" className="mt-4 focus-visible:outline-none">
-              <AdminPendingReceiveBatchPanel
-                items={pendingReceiveItems}
-                usersById={usersById}
-                onComplete={() => setNotificationsRefreshKey((k) => k + 1)}
-                onReceiveOne={(item) => openInventoryRequest(item.userId, item.requestId)}
-              />
-              {pendingReceiveItems.length > 0 ? (
-                <div className="mt-6 space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">All pending receive requests</h3>
-                  {renderList(paginatedResult.paginatedRows)}
-                  {paginationUI}
-                </div>
-              ) : (
-                renderList(paginatedResult.paginatedRows)
-              )}
             </TabsContent>
             <TabsContent value="approved" className="mt-4 focus-visible:outline-none">
               {renderList(paginatedResult.paginatedRows)}

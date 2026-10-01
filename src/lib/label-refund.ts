@@ -110,10 +110,23 @@ export function canRequestLabelRefund(
     return { ok: false, reason: "A refund request is already pending admin review." };
   }
   if (refundStatus === "refunded") {
-    return { ok: false, reason: "This label refund was already approved." };
+    return {
+      ok: false,
+      reason: isWalletLabelPayment(label)
+        ? "This label was already refunded to your wallet."
+        : "This label was already refunded.",
+    };
   }
   if (refundStatus === "rejected") {
     return { ok: false, reason: "Your refund request was declined." };
+  }
+
+  // Extra guard: auto wallet refunds must never be requested again.
+  if (label.autoRefundedOnFailure === true) {
+    return {
+      ok: false,
+      reason: "This amount was already returned to your label wallet automatically.",
+    };
   }
 
   const paymentOk =

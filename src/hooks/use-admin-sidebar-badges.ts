@@ -10,7 +10,7 @@ import {
   where,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { getUserRoles } from "@/lib/permissions";
 import type { UserProfile } from "@/types";
 
@@ -57,6 +57,8 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
   const [deletePendingCount, setDeletePendingCount] = useState(0);
   const [quarantinePendingCount, setQuarantinePendingCount] = useState(0);
   const [labelRefundPendingCount, setLabelRefundPendingCount] = useState(0);
+  /** Aligned with Notifications Pending tab + dashboard Pending Requests card. */
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   const [pendingDocumentRequestsCount, setPendingDocumentRequestsCount] = useState(0);
   const [pendingInvoicesCount, setPendingInvoicesCount] = useState(0);
   const [pendingLabelsCount, setPendingLabelsCount] = useState(0);
@@ -91,26 +93,8 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
     [managedUsers]
   );
 
-  /** Matches Admin Notifications types (pending only). Documents stay separate. */
-  const pendingRequestsCount = useMemo(
-    () =>
-      shipmentPendingCount +
-      inventoryPendingCount +
-      productReturnsPendingCount +
-      disposePendingCount +
-      deletePendingCount +
-      quarantinePendingCount +
-      labelRefundPendingCount,
-    [
-      shipmentPendingCount,
-      inventoryPendingCount,
-      productReturnsPendingCount,
-      disposePendingCount,
-      deletePendingCount,
-      quarantinePendingCount,
-      labelRefundPendingCount,
-    ]
-  );
+  /** Matches Admin Notifications Pending tab (server count with batch dedupe). */
+  // pendingRequestsCount is loaded via /api/admin/pending-requests-count
 
   const inventoryActionCount = useMemo(
     () => shipmentPendingCount + inventoryPendingCount,
@@ -137,6 +121,31 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
     if (!enabled) return;
 
     let cancelled = false;
+
+    const refreshPendingRequestsCount = async () => {
+      try {
+        let token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        let res = await fetch("/api/admin/pending-requests-count", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (res.status === 401) {
+          token = await auth.currentUser?.getIdToken(true);
+          if (!token) return;
+          res = await fetch("/api/admin/pending-requests-count", {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          });
+        }
+        if (!res.ok) return;
+        const data = (await res.json()) as { pendingRequestsCount?: number };
+        if (cancelled) return;
+        setPendingRequestsCount(Number(data.pendingRequestsCount) || 0);
+      } catch (err) {
+        console.warn("[AdminSidebarBadges] Pending requests count refresh failed.", err);
+      }
+    };
 
     const countStatuses = async (collectionName: string, statuses: string[]) => {
       const counts = await Promise.all(
@@ -172,6 +181,7 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
           countStatuses("documentRequests", ["pending", "Pending"]),
           countStatuses("invoices", ["pending", "Pending"]),
         ]);
+        void refreshPendingRequestsCount();
 
         if (cancelled) return;
         setShipmentPendingCount(shipmentPending);

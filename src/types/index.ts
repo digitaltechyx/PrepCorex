@@ -2177,6 +2177,10 @@ export interface LabelPurchase {
   /** User/admin refund workflow for this purchase. */
   refundStatus?: "none" | "requested" | "refunded" | "rejected";
   refundRequestId?: string | null;
+  /** How the refund was issued (admin approval or automatic wallet credit on failure). */
+  refundMethod?: "stripe" | "wallet" | null;
+  /** True when wallet spend was auto-credited back after label creation failed. */
+  autoRefundedOnFailure?: boolean;
   /** Set when admin declines a refund request. */
   refundRejectionReason?: string | null;
   stripeRefundId?: string | null;

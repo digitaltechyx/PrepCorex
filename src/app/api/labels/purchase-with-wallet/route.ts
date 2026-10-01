@@ -182,6 +182,8 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({ ok: true, labelPurchaseId: docRef.id });
     } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Wallet label purchase failed";
       if (spent) {
         try {
           await creditLabelWalletRefund(adminDb(), {
@@ -189,16 +191,30 @@ export async function POST(request: NextRequest) {
             amountCents: amount,
             labelPurchaseId: docRef.id,
             actorUid: userId,
-            reason: "Wallet refund after label purchase failure",
+            reason: "Automatic wallet refund after label purchase failure",
+          });
+          await docRef.update({
+            status: "label_failed",
+            errorMessage,
+            // Prevent a second client refund request (double credit).
+            refundStatus: "refunded",
+            refundMethod: "wallet",
+            autoRefundedOnFailure: true,
+            refundedAt: adminFieldValue().serverTimestamp(),
           });
         } catch (refundErr) {
           console.error("[purchase-with-wallet] refund failed", refundErr);
+          await docRef.update({
+            status: "label_failed",
+            errorMessage,
+          });
         }
+      } else {
+        await docRef.update({
+          status: "label_failed",
+          errorMessage,
+        });
       }
-      await docRef.update({
-        status: "label_failed",
-        errorMessage: err instanceof Error ? err.message : "Wallet label purchase failed",
-      });
       throw err;
     }
   } catch (error: unknown) {

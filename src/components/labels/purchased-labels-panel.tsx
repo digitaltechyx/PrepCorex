@@ -31,7 +31,7 @@ function getStatusBadge(label: LabelPurchase) {
   const refundDisplay = labelRefundDisplayStatus(refundStatus);
 
   if (refundDisplay === "approved") {
-    return <Badge className="bg-emerald-600 text-white">Refund approved</Badge>;
+    return <Badge className="bg-emerald-600 text-white">Refunded</Badge>;
   }
   if (refundDisplay === "declined") {
     return <Badge variant="destructive">Refund declined</Badge>;
@@ -113,12 +113,18 @@ function getStatusDetail(label: LabelPurchase): {
   }
 
   if (status === "label_failed") {
+    const alreadyRefunded =
+      String(label.refundStatus || "").toLowerCase() === "refunded" ||
+      label.autoRefundedOnFailure === true;
     return {
-      tone: "error",
-      title: "Label not created",
-      message:
-        sanitizedError ||
-        "Payment went through but the carrier could not generate the label. Check phone numbers and addresses, then buy again or contact support for a refund.",
+      tone: alreadyRefunded ? "info" : "error",
+      title: alreadyRefunded ? "Label failed — refunded" : "Label not created",
+      message: alreadyRefunded
+        ? sanitizedError
+          ? `${sanitizedError} This amount was returned to your label wallet.`
+          : "Label creation failed. This amount was returned to your label wallet."
+        : sanitizedError ||
+          "Payment went through but the carrier could not generate the label. Check phone numbers and addresses, then buy again or contact support for a refund.",
     };
   }
 
@@ -498,15 +504,18 @@ export function PurchasedLabelsPanel({
                     const refundDisplay = labelRefundDisplayStatus(label.refundStatus);
                     if (refundDisplay === "approved") {
                       const walletRefund = isWalletLabelPayment(label);
+                      const autoRefund = label.autoRefundedOnFailure === true;
                       return (
                         <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
                           <p className="font-semibold uppercase tracking-wide text-[11px]">
-                            Refund approved
+                            Refunded
                           </p>
                           <p className="mt-1 leading-snug">
-                            {walletRefund
-                              ? "Your refund was approved and credited to your label wallet."
-                              : "Your refund was approved and sent to your original payment method."}
+                            {autoRefund
+                              ? "Label creation failed, so this amount was automatically returned to your label wallet."
+                              : walletRefund
+                                ? "Your refund was approved and credited to your label wallet."
+                                : "Your refund was approved and sent to your original payment method."}
                           </p>
                         </div>
                       );

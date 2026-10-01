@@ -29,7 +29,10 @@ export function WhatsAppFloatingButton() {
   };
 
   // Keep the warehouse mobile bottom navigation and scan action unobstructed.
-  if (!isVisible || pathname?.startsWith("/warehouse-ops")) return null;
+  // Hide on digital business card so only in-card WhatsApp CTA is shown.
+  if (!isVisible || pathname?.startsWith("/warehouse-ops") || pathname?.startsWith("/b-card")) {
+    return null;
+  }
 
   return (
     <div className="group/fab fixed bottom-4 right-4 z-50 sm:bottom-6 sm:right-6">

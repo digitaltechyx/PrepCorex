@@ -31,6 +31,22 @@ export function resolveInboundTrackings(
   ];
 }
 
+/** Unique trackings by tracking number (case-insensitive). Keeps first occurrence. */
+export function dedupeInboundTrackings(
+  entries: InboundTrackingEntry[] | null | undefined
+): InboundTrackingEntry[] {
+  if (!entries?.length) return [];
+  const seen = new Set<string>();
+  const out: InboundTrackingEntry[] = [];
+  for (const entry of entries) {
+    const key = String(entry.trackingNumber || "").trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(entry);
+  }
+  return out;
+}
+
 export function isInboundTrackingStale(
   entry: Pick<InboundTrackingEntry, "lastCheckedAt" | "lastStatus" | "lastStatusLabel">,
   now = Date.now()

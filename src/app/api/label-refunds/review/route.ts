@@ -60,6 +60,20 @@ export async function POST(request: NextRequest) {
 
     const label = { id: labelSnap.id, ...labelSnap.data() } as LabelPurchase;
 
+    if (
+      action === "approve" &&
+      (String(label.refundStatus || "").toLowerCase() === "refunded" ||
+        label.autoRefundedOnFailure === true)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "This label was already refunded (automatic wallet credit after failure). Approving again would double-refund.",
+        },
+        { status: 400 }
+      );
+    }
+
     if (action === "reject") {
       const rejectionReason = String(body.rejectionReason || "").trim();
       if (rejectionReason.length < 3) {
