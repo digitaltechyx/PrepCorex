@@ -667,7 +667,7 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
             <ul className="space-y-2 text-sm">
               {filteredPurchases.map((e) => (
                 <li key={e.id} className="flex justify-between gap-2 rounded-md border px-3 py-2">
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-medium">{ledgerTypeLabel(e.type)}</p>
                     {shouldShowLedgerReason(e.type, e.reason) ? (
                       <p className="text-muted-foreground">{e.reason}</p>
@@ -677,17 +677,24 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
                       {e.labelPurchaseId ? ` · ${e.labelPurchaseId}` : ""}
                     </p>
                   </div>
-                  <span
-                    className={
-                      e.amountCents < 0
-                        ? "text-destructive"
-                        : e.amountCents > 0
-                          ? "text-emerald-700"
-                          : undefined
-                    }
-                  >
-                    {formatSignedLabelBillingMoney(e.amountCents)}
-                  </span>
+                  <div className="shrink-0 text-right">
+                    <p
+                      className={
+                        e.amountCents < 0
+                          ? "font-medium text-destructive"
+                          : e.amountCents > 0
+                            ? "font-medium text-emerald-700"
+                            : "font-medium"
+                      }
+                    >
+                      {formatSignedLabelBillingMoney(e.amountCents)}
+                    </p>
+                    {e.balanceAfterCents != null ? (
+                      <p className="text-xs text-muted-foreground">
+                        Available balance {formatLabelBillingMoney(e.balanceAfterCents)}
+                      </p>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
