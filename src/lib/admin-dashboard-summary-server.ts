@@ -139,9 +139,80 @@ async function pendingDocs(
   return out;
 }
 
+function mapScopedDocs(
+  docs: Array<{ id: string; ref: { path: string }; data: () => Record<string, unknown> }>,
+  allowedUserIds: Set<string>,
+  opts?: { topLevelUserIdField?: boolean }
+): QueryDoc[] {
+  return docs
+    .filter((d) => {
+      if (opts?.topLevelUserIdField) {
+        return allowedUserIds.has(String(d.data().userId || ""));
+      }
+      return allowedUserIds.has(uidFromDocPath(d.ref.path));
+    })
+    .map((d) => ({
+      id: d.id,
+      ref: { path: d.ref.path },
+      data: () => d.data() as Record<string, unknown>,
+    }));
+}
+
+/**
+ * Load all docs in a collectionGroup (or top-level) scoped to allowed users.
+ * Used for inbound/dispose batches so we can hide lines for partial multi-line batches.
+ */
+async function scopedDocs(
+  collectionId: string,
+  allowedUserIds: Set<string>,
+  opts?: { topLevelUserIdField?: boolean }
+): Promise<QueryDoc[]> {
+  const db = adminDb();
+
+  if (opts?.topLevelUserIdField) {
+    try {
+      const snap = await db.collection(collectionId).get();
+      return mapScopedDocs(snap.docs, allowedUserIds, opts);
+    } catch (e) {
+      console.warn(`[dashboard-summary] scoped load failed for ${collectionId}:`, e);
+      return [];
+    }
+  }
+
+  try {
+    const snap = await db.collectionGroup(collectionId).get();
+    return mapScopedDocs(snap.docs, allowedUserIds);
+  } catch (e1) {
+    console.warn(`[dashboard-summary] scoped CG failed for ${collectionId}, trying per-user:`, e1);
+  }
+
+  const out: QueryDoc[] = [];
+  const uids = [...allowedUserIds];
+  const chunkSize = 25;
+  for (let i = 0; i < uids.length; i += chunkSize) {
+    const chunk = uids.slice(i, i + chunkSize);
+    const snaps = await Promise.all(
+      chunk.map(async (uid) => {
+        try {
+          return await db.collection(`users/${uid}/${collectionId}`).get();
+        } catch {
+          return null;
+        }
+      })
+    );
+    for (const snap of snaps) {
+      if (!snap) continue;
+      out.push(...mapScopedDocs(snap.docs, allowedUserIds));
+    }
+  }
+  return out;
+}
+
 /**
  * Pending-only count for Notifications types (Pending tab).
  * Dedupes multi-line inbound/dispose batches to one parent row, matching the Notifications UI.
+ * Multi-line batch membership uses ALL batches (any status) so pending lines under a partial
+ * batch are not double-counted when the parent is no longer "pending".
  */
 export async function countPendingRequests(allowedUserIds: Set<string>): Promise<number> {
   const [
@@ -163,8 +234,8 @@ export async function countPendingRequests(allowedUserIds: Set<string>): Promise
     pendingDocs("disposeRequests", allowedUserIds),
     pendingDocs("deleteRequests", allowedUserIds),
     pendingDocs("labelRefundRequests", allowedUserIds),
-    pendingDocs("inboundBatches", allowedUserIds),
-    pendingDocs("disposeBatches", allowedUserIds),
+    scopedDocs("inboundBatches", allowedUserIds),
+    scopedDocs("disposeBatches", allowedUserIds),
     pendingDocs("quarantineRequests", allowedUserIds, { topLevelUserIdField: true }),
     pendingDocs("labelWalletTopupRequests", allowedUserIds),
     pendingDocs("labelApiFeePaymentRequests", allowedUserIds),
@@ -172,9 +243,6 @@ export async function countPendingRequests(allowedUserIds: Set<string>): Promise
 
   const multiLineInboundBatchIds = new Set(
     inboundBatchDocs.filter((d) => Number(d.data().totalLines || 0) > 1).map((d) => d.id)
-  );
-  const multiLineDisposeBatchIds = new Set(
-    disposeBatchDocs.filter((d) => Number(d.data().totalLines || 0) > 1).map((d) => d.id)
   );
 
   let count = 0;
@@ -192,17 +260,18 @@ export async function countPendingRequests(allowedUserIds: Set<string>): Promise
     count += 1;
   }
   for (const d of inboundBatchDocs) {
+    if (!isPendingStatus(d.data().status)) continue;
     if (Number(d.data().totalLines || 0) <= 1) continue;
     count += 1;
   }
 
+  // Match Notifications: dispose lines with any batchId are represented by the batch row.
   for (const d of disposeDocs) {
-    const batchId = String(d.data().batchId || "");
-    if (batchId && multiLineDisposeBatchIds.has(batchId)) continue;
+    if (String(d.data().batchId || "").trim()) continue;
     count += 1;
   }
   for (const d of disposeBatchDocs) {
-    if (Number(d.data().totalLines || 0) <= 1) continue;
+    if (!isPendingStatus(d.data().status)) continue;
     count += 1;
   }
 

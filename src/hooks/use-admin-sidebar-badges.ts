@@ -63,7 +63,7 @@ function countScopedMarketplaceOrders(
   return count;
 }
 
-/** Same rules as Notifications Pending tab / dashboard Pending Requests card. */
+/** Same rules as Notifications Pending tab. */
 function countPendingNotificationDocs(
   managedUids: Set<string>,
   bags: {
@@ -80,29 +80,12 @@ function countPendingNotificationDocs(
     apiFee: QueryDocumentSnapshot[];
   }
 ): number {
+  // Match Notifications: hide lines belonging to ANY multi-line batch (even if batch is partial/completed).
   const multiLineInbound = new Set(
     bags.inboundBatches
       .filter((d) => {
         const uid = ownerUid(d);
-        return (
-          uid &&
-          managedUids.has(uid) &&
-          isPendingStatus(d.data().status) &&
-          Number(d.data().totalLines || 0) > 1
-        );
-      })
-      .map((d) => d.id)
-  );
-  const multiLineDispose = new Set(
-    bags.disposeBatches
-      .filter((d) => {
-        const uid = ownerUid(d);
-        return (
-          uid &&
-          managedUids.has(uid) &&
-          isPendingStatus(d.data().status) &&
-          Number(d.data().totalLines || 0) > 1
-        );
+        return uid && managedUids.has(uid) && Number(d.data().totalLines || 0) > 1;
       })
       .map((d) => d.id)
   );
@@ -127,10 +110,8 @@ function countPendingNotificationDocs(
     const batchId = String(d.data().batchId || "");
     return Boolean(batchId && multiLineInbound.has(batchId));
   });
-  addOwned(bags.dispose, (d) => {
-    const batchId = String(d.data().batchId || "");
-    return Boolean(batchId && multiLineDispose.has(batchId));
-  });
+  // Match Notifications dispose list: any line with batchId is represented by the batch row.
+  addOwned(bags.dispose, (d) => Boolean(String(d.data().batchId || "").trim()));
 
   for (const d of bags.inboundBatches) {
     const uid = ownerUid(d);
@@ -143,7 +124,6 @@ function countPendingNotificationDocs(
     const uid = ownerUid(d);
     if (!uid || !managedUids.has(uid)) continue;
     if (!isPendingStatus(d.data().status)) continue;
-    if (Number(d.data().totalLines || 0) <= 1) continue;
     count += 1;
   }
   for (const d of bags.quarantine) {
@@ -355,14 +335,8 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       collectionGroup(db, "labelRefundRequests"),
       where("status", "in", ["pending", "Pending"])
     );
-    const inboundBatchesQ = query(
-      collectionGroup(db, "inboundBatches"),
-      where("status", "in", ["pending", "Pending"])
-    );
-    const disposeBatchesQ = query(
-      collectionGroup(db, "disposeBatches"),
-      where("status", "in", ["pending", "Pending"])
-    );
+    const inboundBatchesQ = query(collectionGroup(db, "inboundBatches"));
+    const disposeBatchesQ = query(collectionGroup(db, "disposeBatches"));
     const walletTopupQ = query(
       collectionGroup(db, LABEL_WALLET_TOPUP_COLLECTION),
       where("status", "in", ["pending", "Pending"])
