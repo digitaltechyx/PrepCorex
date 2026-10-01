@@ -11,8 +11,13 @@ import {
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import {
+  LABEL_API_FEE_PAYMENT_COLLECTION,
+  LABEL_WALLET_TOPUP_COLLECTION,
+} from "@/lib/label-billing";
 import { getUserRoles } from "@/lib/permissions";
 import type { UserProfile } from "@/types";
+import { onAuthStateChanged } from "firebase/auth";
 
 /** Matches ShopifyOrdersPanel unfulfilled filter (not partial/cancelled). */
 function isUnfulfilledShopifyOrder(status: unknown): boolean {
@@ -34,6 +39,15 @@ function ownerUid(doc: QueryDocumentSnapshot): string | null {
   return doc.ref.parent.parent?.id ?? null;
 }
 
+function isPendingStatus(status: unknown): boolean {
+  return (
+    String(status || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_") === "pending"
+  );
+}
+
 function countScopedMarketplaceOrders(
   docs: QueryDocumentSnapshot[],
   managedUids: Set<string>,
@@ -46,6 +60,98 @@ function countScopedMarketplaceOrders(
     if (!uid || !managedUids.has(uid) || !connectedUids.has(uid)) continue;
     if (isCountable(docSnap.data())) count++;
   }
+  return count;
+}
+
+/** Same rules as Notifications Pending tab / dashboard Pending Requests card. */
+function countPendingNotificationDocs(
+  managedUids: Set<string>,
+  bags: {
+    ship: QueryDocumentSnapshot[];
+    inv: QueryDocumentSnapshot[];
+    ret: QueryDocumentSnapshot[];
+    dispose: QueryDocumentSnapshot[];
+    del: QueryDocumentSnapshot[];
+    quarantine: QueryDocumentSnapshot[];
+    labelRefund: QueryDocumentSnapshot[];
+    inboundBatches: QueryDocumentSnapshot[];
+    disposeBatches: QueryDocumentSnapshot[];
+    wallet: QueryDocumentSnapshot[];
+    apiFee: QueryDocumentSnapshot[];
+  }
+): number {
+  const multiLineInbound = new Set(
+    bags.inboundBatches
+      .filter((d) => {
+        const uid = ownerUid(d);
+        return (
+          uid &&
+          managedUids.has(uid) &&
+          isPendingStatus(d.data().status) &&
+          Number(d.data().totalLines || 0) > 1
+        );
+      })
+      .map((d) => d.id)
+  );
+  const multiLineDispose = new Set(
+    bags.disposeBatches
+      .filter((d) => {
+        const uid = ownerUid(d);
+        return (
+          uid &&
+          managedUids.has(uid) &&
+          isPendingStatus(d.data().status) &&
+          Number(d.data().totalLines || 0) > 1
+        );
+      })
+      .map((d) => d.id)
+  );
+
+  let count = 0;
+  const addOwned = (docs: QueryDocumentSnapshot[], skip?: (d: QueryDocumentSnapshot) => boolean) => {
+    for (const d of docs) {
+      const uid = ownerUid(d);
+      if (!uid || !managedUids.has(uid)) continue;
+      if (skip?.(d)) continue;
+      count += 1;
+    }
+  };
+
+  addOwned(bags.ship);
+  addOwned(bags.ret);
+  addOwned(bags.del);
+  addOwned(bags.labelRefund);
+  addOwned(bags.wallet);
+  addOwned(bags.apiFee);
+  addOwned(bags.inv, (d) => {
+    const batchId = String(d.data().batchId || "");
+    return Boolean(batchId && multiLineInbound.has(batchId));
+  });
+  addOwned(bags.dispose, (d) => {
+    const batchId = String(d.data().batchId || "");
+    return Boolean(batchId && multiLineDispose.has(batchId));
+  });
+
+  for (const d of bags.inboundBatches) {
+    const uid = ownerUid(d);
+    if (!uid || !managedUids.has(uid)) continue;
+    if (!isPendingStatus(d.data().status)) continue;
+    if (Number(d.data().totalLines || 0) <= 1) continue;
+    count += 1;
+  }
+  for (const d of bags.disposeBatches) {
+    const uid = ownerUid(d);
+    if (!uid || !managedUids.has(uid)) continue;
+    if (!isPendingStatus(d.data().status)) continue;
+    if (Number(d.data().totalLines || 0) <= 1) continue;
+    count += 1;
+  }
+  for (const d of bags.quarantine) {
+    const uid = String(d.data().userId || "");
+    if (!uid || !managedUids.has(uid)) continue;
+    count += 1;
+  }
+
   return count;
 }
 
@@ -79,6 +185,20 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
     ebayConnectedUids: new Set<string>(),
   });
   const recomputeMarketplaceCountsRef = useRef<() => void>(() => {});
+  const pendingDocsRef = useRef({
+    ship: [] as QueryDocumentSnapshot[],
+    inv: [] as QueryDocumentSnapshot[],
+    ret: [] as QueryDocumentSnapshot[],
+    dispose: [] as QueryDocumentSnapshot[],
+    del: [] as QueryDocumentSnapshot[],
+    quarantine: [] as QueryDocumentSnapshot[],
+    labelRefund: [] as QueryDocumentSnapshot[],
+    inboundBatches: [] as QueryDocumentSnapshot[],
+    disposeBatches: [] as QueryDocumentSnapshot[],
+    wallet: [] as QueryDocumentSnapshot[],
+    apiFee: [] as QueryDocumentSnapshot[],
+  });
+  const recomputePendingRequestsCountRef = useRef<() => void>(() => {});
 
   const pendingUsersCount = useMemo(
     () => managedUsers.filter((user) => user.status === "pending").length,
@@ -92,9 +212,6 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       ).length,
     [managedUsers]
   );
-
-  /** Matches Admin Notifications Pending tab (server count with batch dedupe). */
-  // pendingRequestsCount is loaded via /api/admin/pending-requests-count
 
   const inventoryActionCount = useMemo(
     () => shipmentPendingCount + inventoryPendingCount,
@@ -122,7 +239,17 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
 
     let cancelled = false;
 
-    const refreshPendingRequestsCount = async () => {
+    const recomputePendingRequestsCount = () => {
+      if (cancelled) return;
+      // Avoid wiping the badge to 0 before managed users finish loading.
+      if (managedUidSetRef.current.size === 0) return;
+      setPendingRequestsCount(
+        countPendingNotificationDocs(managedUidSetRef.current, pendingDocsRef.current)
+      );
+    };
+    recomputePendingRequestsCountRef.current = recomputePendingRequestsCount;
+
+    const refreshPendingRequestsCountFromApi = async () => {
       try {
         let token = await auth.currentUser?.getIdToken();
         if (!token) return;
@@ -141,9 +268,10 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
         if (!res.ok) return;
         const data = (await res.json()) as { pendingRequestsCount?: number };
         if (cancelled) return;
-        setPendingRequestsCount(Number(data.pendingRequestsCount) || 0);
+        const next = Number(data.pendingRequestsCount);
+        if (Number.isFinite(next)) setPendingRequestsCount(next);
       } catch (err) {
-        console.warn("[AdminSidebarBadges] Pending requests count refresh failed.", err);
+        console.warn("[AdminSidebarBadges] Pending requests API refresh failed.", err);
       }
     };
 
@@ -181,7 +309,7 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
           countStatuses("documentRequests", ["pending", "Pending"]),
           countStatuses("invoices", ["pending", "Pending"]),
         ]);
-        void refreshPendingRequestsCount();
+        void refreshPendingRequestsCountFromApi();
 
         if (cancelled) return;
         setShipmentPendingCount(shipmentPending);
@@ -199,6 +327,9 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
     };
 
     void refreshCounts();
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      if (user) void refreshPendingRequestsCountFromApi();
+    });
 
     const shipmentQ = query(
       collectionGroup(db, "shipmentRequests"),
@@ -222,6 +353,22 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
     );
     const labelRefundQ = query(
       collectionGroup(db, "labelRefundRequests"),
+      where("status", "in", ["pending", "Pending"])
+    );
+    const inboundBatchesQ = query(
+      collectionGroup(db, "inboundBatches"),
+      where("status", "in", ["pending", "Pending"])
+    );
+    const disposeBatchesQ = query(
+      collectionGroup(db, "disposeBatches"),
+      where("status", "in", ["pending", "Pending"])
+    );
+    const walletTopupQ = query(
+      collectionGroup(db, LABEL_WALLET_TOPUP_COLLECTION),
+      where("status", "in", ["pending", "Pending"])
+    );
+    const apiFeeQ = query(
+      collectionGroup(db, LABEL_API_FEE_PAYMENT_COLLECTION),
       where("status", "in", ["pending", "Pending"])
     );
     const documentsQ = query(
@@ -274,51 +421,108 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
     const unsub1 = onSnapshot(
       shipmentQ,
       (snap) => {
-        if (!cancelled) setShipmentPendingCount(snap.size);
+        if (cancelled) return;
+        pendingDocsRef.current.ship = snap.docs;
+        setShipmentPendingCount(snap.size);
+        recomputePendingRequestsCount();
       },
       onListenerError("shipmentRequests")
     );
     const unsub2 = onSnapshot(
       inventoryQ,
       (snap) => {
-        if (!cancelled) setInventoryPendingCount(snap.size);
+        if (cancelled) return;
+        pendingDocsRef.current.inv = snap.docs;
+        setInventoryPendingCount(snap.size);
+        recomputePendingRequestsCount();
       },
       onListenerError("inventoryRequests")
     );
     const unsub3 = onSnapshot(
       returnsQ,
       (snap) => {
-        if (!cancelled) setProductReturnsPendingCount(snap.size);
+        if (cancelled) return;
+        pendingDocsRef.current.ret = snap.docs;
+        setProductReturnsPendingCount(snap.size);
+        recomputePendingRequestsCount();
       },
       onListenerError("productReturns")
     );
     const unsub5 = onSnapshot(
       disposeQ,
       (snap) => {
-        if (!cancelled) setDisposePendingCount(snap.size);
+        if (cancelled) return;
+        pendingDocsRef.current.dispose = snap.docs;
+        setDisposePendingCount(snap.size);
+        recomputePendingRequestsCount();
       },
       onListenerError("disposeRequests")
     );
     const unsubDelete = onSnapshot(
       deleteQ,
       (snap) => {
-        if (!cancelled) setDeletePendingCount(snap.size);
+        if (cancelled) return;
+        pendingDocsRef.current.del = snap.docs;
+        setDeletePendingCount(snap.size);
+        recomputePendingRequestsCount();
       },
       onListenerError("deleteRequests")
     );
     const unsubQuarantine = onSnapshot(
       quarantineQ,
       (snap) => {
-        if (!cancelled) setQuarantinePendingCount(snap.size);
+        if (cancelled) return;
+        pendingDocsRef.current.quarantine = snap.docs;
+        setQuarantinePendingCount(snap.size);
+        recomputePendingRequestsCount();
       },
       onListenerError("quarantineRequests")
     );
     const unsubLabelRefund = onSnapshot(
       labelRefundQ,
       (snap) => {
-        if (!cancelled) setLabelRefundPendingCount(snap.size);
+        if (cancelled) return;
+        pendingDocsRef.current.labelRefund = snap.docs;
+        setLabelRefundPendingCount(snap.size);
+        recomputePendingRequestsCount();
       },
       onListenerError("labelRefundRequests")
+    );
+    const unsubInboundBatches = onSnapshot(
+      inboundBatchesQ,
+      (snap) => {
+        if (cancelled) return;
+        pendingDocsRef.current.inboundBatches = snap.docs;
+        recomputePendingRequestsCount();
+      },
+      onListenerError("inboundBatches")
+    );
+    const unsubDisposeBatches = onSnapshot(
+      disposeBatchesQ,
+      (snap) => {
+        if (cancelled) return;
+        pendingDocsRef.current.disposeBatches = snap.docs;
+        recomputePendingRequestsCount();
+      },
+      onListenerError("disposeBatches")
+    );
+    const unsubWallet = onSnapshot(
+      walletTopupQ,
+      (snap) => {
+        if (cancelled) return;
+        pendingDocsRef.current.wallet = snap.docs;
+        recomputePendingRequestsCount();
+      },
+      onListenerError(LABEL_WALLET_TOPUP_COLLECTION)
+    );
+    const unsubApiFee = onSnapshot(
+      apiFeeQ,
+      (snap) => {
+        if (cancelled) return;
+        pendingDocsRef.current.apiFee = snap.docs;
+        recomputePendingRequestsCount();
+      },
+      onListenerError(LABEL_API_FEE_PAYMENT_COLLECTION)
     );
     const unsub4 = onSnapshot(
       documentsQ,
@@ -401,6 +605,7 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
 
     return () => {
       cancelled = true;
+      unsubAuth();
       document.removeEventListener("visibilitychange", onVis);
       clearInterval(interval);
       unsub1();
@@ -411,6 +616,10 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       unsubDelete();
       unsubQuarantine();
       unsubLabelRefund();
+      unsubInboundBatches();
+      unsubDisposeBatches();
+      unsubWallet();
+      unsubApiFee();
       unsub6();
       unsub7();
       unsubShopifyConnections();
@@ -422,6 +631,7 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
 
   useEffect(() => {
     recomputeMarketplaceCountsRef.current();
+    recomputePendingRequestsCountRef.current();
   }, [managedUidSet]);
 
   return {
