@@ -17,6 +17,12 @@ import { creditReturnInventory } from "@/lib/product-return-ops";
 import type { InventoryRequest, WarehouseCartonDoc, WarehouseCartonLine } from "@/types";
 import type { ShopifyInventoryPushHint } from "@/lib/shopify-inventory-sync";
 import type { EbayInventoryPushHint } from "@/lib/ebay-inventory-sync";
+import {
+  earliestExpiryFromBatches,
+  expiryBatchIso,
+  mergeExpiryBatch,
+  type ExpiryBatch,
+} from "@/lib/inventory-expiry-batches";
 
 export type PutawaySyncAssignment = {
   lineId: string;
@@ -325,6 +331,18 @@ async function syncPutawayLine(input: {
         invPatch.imageUrls = productPhotoUrls;
         invPatch.imageUrl = productPhotoUrls[0];
       }
+      const lineExpiry =
+        expiryBatchIso(input.line.expiry) || expiryBatchIso(requestData?.expiryDate);
+      if (lineExpiry && goodQty > 0) {
+        const batches = mergeExpiryBatch([], {
+          expiry: lineExpiry,
+          quantity: goodQty,
+          lot: input.line.lot ?? null,
+          requestId: requestId || null,
+        });
+        invPatch.expiryBatches = batches;
+        invPatch.expiryDate = lineExpiry;
+      }
       tx.set(inventoryRef, invPatch);
     } else {
       if (remarks) invPatch.remarks = remarks;
@@ -359,6 +377,29 @@ async function syncPutawayLine(input: {
       if (invSnap.data()?.receivingDate) {
         delete invPatch.receivingDate;
       }
+      const lineExpiry =
+        expiryBatchIso(input.line.expiry) || expiryBatchIso(requestData?.expiryDate);
+      if (lineExpiry && goodQty > 0) {
+        const prevBatches = Array.isArray(invSnap.data()?.expiryBatches)
+          ? (invSnap.data()?.expiryBatches as ExpiryBatch[])
+          : (() => {
+              // Seed from legacy single expiryDate so older stock stays visible as a batch.
+              const legacy = expiryBatchIso(invSnap.data()?.expiryDate);
+              const legacyQty = Math.max(0, Number(invSnap.data()?.quantity) || 0);
+              return legacy && legacyQty > 0
+                ? [{ expiry: legacy, quantity: legacyQty, lot: null, requestId: null }]
+                : [];
+            })();
+        const batches = mergeExpiryBatch(prevBatches, {
+          expiry: lineExpiry,
+          quantity: goodQty,
+          lot: input.line.lot ?? null,
+          requestId: requestId || null,
+        });
+        invPatch.expiryBatches = batches;
+        const earliest = earliestExpiryFromBatches(batches);
+        if (earliest) invPatch.expiryDate = earliest;
+      }
       tx.update(inventoryRef, invPatch);
     }
 
@@ -384,6 +425,9 @@ async function syncPutawayLine(input: {
       stagingArea: input.stagingArea ?? input.line.stagingArea ?? input.carton.stagingArea ?? null,
       operatorId: input.operatorId,
       putawayAt: serverTimestamp(),
+      expiry:
+        expiryBatchIso(input.line.expiry) || expiryBatchIso(requestData?.expiryDate) || null,
+      lot: input.line.lot?.trim() || null,
       syncKey,
     });
 

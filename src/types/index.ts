@@ -755,6 +755,16 @@ export interface InventoryItem {
   sku?: string;
   retailIdentifier?: string;
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
+  /**
+   * Per-receive expiry lots for FEFO. Each restock with a different expiry
+   * adds/updates a batch so the Expiry column and FEFO tab can show all dates.
+   */
+  expiryBatches?: Array<{
+    expiry: string;
+    quantity: number;
+    lot?: string | null;
+    requestId?: string | null;
+  }>;
   /** Optional per-unit packaged dimensions (inches) for outbound box suggestions. */
   unitLengthIn?: number;
   unitWidthIn?: number;

@@ -17,7 +17,12 @@ export type RawClientInboundRequestDoc = {
   data: Record<string, unknown>;
 };
 
-function text(value: unknown): string {
+export type RawClientReceiveLogDoc = {
+  id: string;
+  data: Record<string, unknown>;
+};
+
+function text(value: string | unknown): string {
   return String(value ?? "").trim();
 }
 
@@ -27,7 +32,9 @@ export function fefoExpiryIso(value: unknown): string | null {
   if (value instanceof Date) {
     date = value;
   } else if (typeof value === "string") {
-    date = new Date(value);
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    date = new Date(trimmed.includes("T") ? trimmed : `${trimmed}T12:00:00`);
   } else if (typeof value === "object" && value !== null) {
     const timestamp = value as { seconds?: unknown; toDate?: () => Date };
     if (typeof timestamp.toDate === "function") date = timestamp.toDate();
@@ -46,21 +53,29 @@ function todayIso(today: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function addBatchQty(target: Map<string, number>, expiry: string, quantity: number) {
+  const qty = Math.max(0, Math.floor(quantity));
+  if (!expiry || qty <= 0) return;
+  target.set(expiry, (target.get(expiry) || 0) + qty);
+}
+
 /**
- * Reconstructs current FEFO batches from the user's own inventory and approved
- * inbound requests. Current quantity is allocated against the oldest expiry
- * batches first, so shipped stock is removed in FEFO order.
+ * Reconstructs current FEFO batches from the user's own inventory, receive logs,
+ * and approved inbound requests. Current quantity is allocated against the oldest
+ * expiry batches first, so shipped stock is removed in FEFO order.
  */
 export function buildClientFefoStockRows(
   inventoryDocs: RawClientInventoryDoc[],
   requestDocs: RawClientInboundRequestDoc[],
-  today = new Date()
+  today = new Date(),
+  receiveLogDocs: RawClientReceiveLogDoc[] = []
 ): ClientFefoStockRow[] {
   type InventoryGroup = {
     key: string;
     sku: string;
     productTitle: string;
     quantity: number;
+    batchCandidates: Map<string, number>;
     fallbackExpiries: Array<{ expiry: string; quantity: number }>;
     inventoryIds: Set<string>;
   };
@@ -84,6 +99,7 @@ export function buildClientFefoStockRows(
         sku: sku || "—",
         productTitle,
         quantity: 0,
+        batchCandidates: new Map(),
         fallbackExpiries: [],
         inventoryIds: new Set(),
       };
@@ -93,11 +109,44 @@ export function buildClientFefoStockRows(
     group.inventoryIds.add(inventoryDoc.id);
     groupByInventoryId.set(inventoryDoc.id, group);
     groupByProductName.set(productTitle.toLowerCase(), group);
+
+    // Preferred: explicit per-receive batches on the inventory doc.
+    if (Array.isArray(data.expiryBatches)) {
+      for (const raw of data.expiryBatches) {
+        if (!raw || typeof raw !== "object") continue;
+        const batch = raw as { expiry?: unknown; quantity?: unknown };
+        const expiry = fefoExpiryIso(batch.expiry);
+        const batchQty = Math.max(0, Number(batch.quantity) || 0);
+        if (expiry && batchQty > 0) addBatchQty(group.batchCandidates, expiry, batchQty);
+      }
+    }
+
     const expiry = fefoExpiryIso(data.expiryDate);
     if (expiry) group.fallbackExpiries.push({ expiry, quantity });
   }
 
-  const batchesByGroup = new Map<string, Map<string, number>>();
+  // Receive logs are the ground truth for each putaway lot when available.
+  for (const logDoc of receiveLogDocs) {
+    const data = logDoc.data;
+    const goodQty = Math.max(0, Number(data.goodQty) || 0);
+    if (goodQty <= 0) continue;
+    const expiry = fefoExpiryIso(data.expiry);
+    if (!expiry) continue;
+
+    const inventoryId = text(data.inventoryId);
+    const requestSku = text(data.sku);
+    const requestName = text(data.productName);
+    const group =
+      (inventoryId ? groupByInventoryId.get(inventoryId) : undefined) ||
+      (requestSku ? inventoryGroups.get(`sku:${requestSku.toLowerCase()}`) : undefined) ||
+      (requestName ? groupByProductName.get(requestName.toLowerCase()) : undefined);
+    if (!group) continue;
+    // Only add from logs when the inventory doc has no expiryBatches yet
+    // (legacy stock). Otherwise batches already include these receives.
+    if (group.batchCandidates.size > 0) continue;
+    addBatchQty(group.batchCandidates, expiry, goodQty);
+  }
+
   for (const requestDoc of requestDocs) {
     const data = requestDoc.data;
     if (text(data.status).toLowerCase() !== "approved") continue;
@@ -112,9 +161,14 @@ export function buildClientFefoStockRows(
       (requestSku ? inventoryGroups.get(`sku:${requestSku.toLowerCase()}`) : undefined) ||
       (requestName ? groupByProductName.get(requestName.toLowerCase()) : undefined);
     if (!group) continue;
+    // Prefer inventory expiryBatches / receive logs when present.
+    if (group.batchCandidates.size > 0) continue;
 
     const usesWarehouseWorkflow =
-      Number(data.inboundWorkflowVersion) >= 2 || text(data.fulfillmentStatus) === "open";
+      Number(data.inboundWorkflowVersion) >= 2 ||
+      ["open", "closed", "complete", "completed"].includes(
+        text(data.fulfillmentStatus).toLowerCase()
+      );
     const batchQuantity = Math.max(
       0,
       usesWarehouseWorkflow
@@ -122,27 +176,24 @@ export function buildClientFefoStockRows(
         : Number(data.receivedQuantity) || Number(data.quantity) || 0
     );
     if (batchQuantity <= 0) continue;
-    const groupBatches = batchesByGroup.get(group.key) || new Map<string, number>();
-    groupBatches.set(expiry, (groupBatches.get(expiry) || 0) + batchQuantity);
-    batchesByGroup.set(group.key, groupBatches);
+    addBatchQty(group.batchCandidates, expiry, batchQuantity);
   }
 
   const rows: ClientFefoStockRow[] = [];
   for (const group of inventoryGroups.values()) {
     let remaining = group.quantity;
-    const requestBatches = batchesByGroup.get(group.key) || new Map<string, number>();
-    const candidates = new Map(requestBatches);
-    const requestTotal = Array.from(requestBatches.values()).reduce(
+    const candidates = new Map(group.batchCandidates);
+    const candidateTotal = Array.from(candidates.values()).reduce(
       (sum, quantity) => sum + quantity,
       0
     );
-    let fallbackNeeded = Math.max(0, group.quantity - requestTotal);
+    let fallbackNeeded = Math.max(0, group.quantity - candidateTotal);
     for (const fallback of group.fallbackExpiries.sort((a, b) =>
       a.expiry.localeCompare(b.expiry)
     )) {
       if (fallbackNeeded <= 0) break;
       const quantity = Math.min(fallbackNeeded, fallback.quantity);
-      candidates.set(fallback.expiry, (candidates.get(fallback.expiry) || 0) + quantity);
+      addBatchQty(candidates, fallback.expiry, quantity);
       fallbackNeeded -= quantity;
     }
 

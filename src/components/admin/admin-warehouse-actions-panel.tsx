@@ -33,6 +33,7 @@ import { listWarehouseAreas } from "@/lib/warehouse-putaway-disposition";
 import { listActiveWarehouseBins } from "@/lib/warehouse-cycle-count";
 import {
   findBinByPath,
+  firstAvailablePutawayBin,
   inspectBinContents,
   loadOccupiedBinIds,
 } from "@/lib/warehouse-putaway";
@@ -182,13 +183,69 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
       listActiveWarehouseBins(warehouseId),
       loadOccupiedBinIds(warehouseId),
     ])
-      .then(([loadedAreas, loadedBins, occupied]) => {
+      .then(async ([loadedAreas, loadedBins, occupied]) => {
         if (cancelled) return;
         setAreas(loadedAreas);
         setBins(loadedBins);
         setOccupiedBinIds(occupied);
-        setDestinationSlot(emptyPutawayLineSlot());
         setDamagedDestinationSlot(emptyPutawayLineSlot());
+
+        const inboundRequest =
+          props.mode === "inbound" ? props.request : null;
+        const probeLine = {
+          lineId: "admin-default-good",
+          sku: String((inboundRequest as { sku?: string } | null)?.sku ?? "PENDING").trim() || "PENDING",
+          productTitle: inboundRequest?.productName?.trim() || null,
+          quantity: 1,
+          lot: null,
+          expiry: null,
+          condition: "good" as const,
+          binId: null,
+          allocationStatus: "allocated" as const,
+          clientId: props.mode === "inbound" ? props.clientUserId : null,
+          inventoryRequestId: inboundRequest?.id ?? null,
+        };
+        const first = firstAvailablePutawayBin(
+          loadedAreas,
+          loadedBins,
+          probeLine,
+          occupied
+        );
+        if (!first) {
+          setDestinationSlot(emptyPutawayLineSlot());
+          return;
+        }
+        setDestinationSlot({
+          ...emptyPutawayLineSlot(),
+          binPath: first.path,
+          loading: true,
+        });
+        try {
+          const bin = await findBinByPath(warehouseId, first.path);
+          if (cancelled) return;
+          if (!bin) throw new Error("Default bin was not found.");
+          const contents = await inspectBinContents(warehouseId, bin.id);
+          if (cancelled) return;
+          setDestinationSlot({
+            ...emptyPutawayLineSlot(),
+            binPath: bin.path,
+            resolved: { bin, contents },
+            loading: false,
+            error: null,
+          });
+        } catch (error: unknown) {
+          if (cancelled) return;
+          setDestinationSlot({
+            ...emptyPutawayLineSlot(),
+            binPath: first.path,
+            resolved: null,
+            loading: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Could not validate the default storage bin.",
+          });
+        }
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -207,14 +264,73 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   }, [toast, warehouseId]);
 
   useEffect(() => {
-    if (props.mode === "inbound") {
-      setQty(remainingInboundQty(props.request));
-      setDamagedQty(0);
-      setPackageCount(1);
-      setLastInboundResult(null);
+    if (props.mode !== "inbound") return;
+    setQty(remainingInboundQty(props.request));
+    setDamagedQty(0);
+    setPackageCount(1);
+    setLastInboundResult(null);
+    setDamagedDestinationSlot(emptyPutawayLineSlot());
+
+    // Keep / refresh default storage bin when opening a request (admin can still change).
+    if (!warehouseId || bins.length === 0 || destinationsLoading) {
       setDestinationSlot(emptyPutawayLineSlot());
-      setDamagedDestinationSlot(emptyPutawayLineSlot());
+      return;
     }
+    const probeLine = {
+      lineId: "admin-default-good",
+      sku: String((props.request as { sku?: string }).sku ?? "PENDING").trim() || "PENDING",
+      productTitle: props.request.productName?.trim() || null,
+      quantity: 1,
+      lot: null,
+      expiry: null,
+      condition: "good" as const,
+      binId: null,
+      allocationStatus: "allocated" as const,
+      clientId: props.clientUserId,
+      inventoryRequestId: props.request.id,
+    };
+    const first = firstAvailablePutawayBin(areas, bins, probeLine, occupiedBinIds);
+    if (!first) {
+      setDestinationSlot(emptyPutawayLineSlot());
+      return;
+    }
+    let cancelled = false;
+    setDestinationSlot({
+      ...emptyPutawayLineSlot(),
+      binPath: first.path,
+      loading: true,
+    });
+    void (async () => {
+      try {
+        const bin = await findBinByPath(warehouseId, first.path);
+        if (cancelled) return;
+        if (!bin) throw new Error("Default bin was not found.");
+        const contents = await inspectBinContents(warehouseId, bin.id);
+        if (cancelled) return;
+        setDestinationSlot({
+          ...emptyPutawayLineSlot(),
+          binPath: bin.path,
+          resolved: { bin, contents },
+          loading: false,
+          error: null,
+        });
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setDestinationSlot({
+          ...emptyPutawayLineSlot(),
+          binPath: first.path,
+          resolved: null,
+          loading: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not validate the default storage bin.",
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [props]);
 
   if (!canOverride) return null;

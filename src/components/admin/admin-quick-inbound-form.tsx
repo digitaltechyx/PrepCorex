@@ -26,6 +26,7 @@ import { listWarehouseAreas } from "@/lib/warehouse-putaway-disposition";
 import { listActiveWarehouseBins } from "@/lib/warehouse-cycle-count";
 import {
   findBinByPath,
+  firstAvailablePutawayBin,
   inspectBinContents,
   loadOccupiedBinIds,
 } from "@/lib/warehouse-putaway";
@@ -78,7 +79,9 @@ export function AdminQuickInboundForm({ userId, userName }: Props) {
 
   useEffect(() => {
     if (!warehouseId && activeWarehouses.length > 0) {
-      const nj2 = activeWarehouses.find((w) => isDefaultNj2Warehouse(w));
+      const nj2 = activeWarehouses.find(
+        (w) => isDefaultNj2Warehouse(w.name) || isDefaultNj2Warehouse(w.code)
+      );
       setWarehouseId(nj2?.id || activeWarehouses[0]!.id);
     }
   }, [activeWarehouses, warehouseId]);
@@ -88,20 +91,74 @@ export function AdminQuickInboundForm({ userId, userName }: Props) {
       setAreas([]);
       setBins([]);
       setOccupiedBinIds(new Set());
+      setDestinationSlot(emptyPutawayLineSlot());
+      setDamagedDestinationSlot(emptyPutawayLineSlot());
       return;
     }
     let cancelled = false;
     setDestinationsLoading(true);
+    setDestinationSlot(emptyPutawayLineSlot());
+    setDamagedDestinationSlot(emptyPutawayLineSlot());
     Promise.all([
       listWarehouseAreas(warehouseId),
       listActiveWarehouseBins(warehouseId),
       loadOccupiedBinIds(warehouseId),
     ])
-      .then(([nextAreas, nextBins, occupied]) => {
+      .then(async ([nextAreas, nextBins, occupied]) => {
         if (cancelled) return;
         setAreas(nextAreas);
         setBins(nextBins);
         setOccupiedBinIds(occupied);
+
+        // Default storage bin: first empty eligible bin (admin can change).
+        const probeLine = {
+          lineId: "quick-good",
+          sku: "PENDING",
+          productTitle: null,
+          quantity: 1,
+          lot: null,
+          expiry: null,
+          condition: "good" as const,
+          binId: null,
+          allocationStatus: "allocated" as const,
+          clientId: userId,
+          inventoryRequestId: null,
+        };
+        const first = firstAvailablePutawayBin(nextAreas, nextBins, probeLine, occupied);
+        if (!first) return;
+
+        setDestinationSlot((previous) => ({
+          ...previous,
+          binPath: first.path,
+          resolved: null,
+          loading: true,
+          error: null,
+        }));
+        try {
+          const bin = await findBinByPath(warehouseId, first.path);
+          if (cancelled) return;
+          if (!bin) throw new Error("Default bin was not found.");
+          const contents = await inspectBinContents(warehouseId, bin.id);
+          if (cancelled) return;
+          setDestinationSlot((previous) => ({
+            ...previous,
+            binPath: bin.path,
+            resolved: { bin, contents },
+            loading: false,
+            error: null,
+          }));
+        } catch (error: unknown) {
+          if (cancelled) return;
+          setDestinationSlot((previous) => ({
+            ...previous,
+            resolved: null,
+            loading: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Could not validate the default storage bin.",
+          }));
+        }
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -117,7 +174,7 @@ export function AdminQuickInboundForm({ userId, userName }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [toast, warehouseId]);
+  }, [toast, userId, warehouseId]);
 
   const destinationLine = useMemo<WarehouseCartonLine>(
     () => ({
@@ -259,6 +316,9 @@ export function AdminQuickInboundForm({ userId, userName }: Props) {
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label>Good putaway (storage)</Label>
+          <p className="text-xs text-muted-foreground">
+            First available empty bin is selected by default — change it if you need a different location.
+          </p>
           <PutawayDestinationFields
             line={destinationLine}
             slot={destinationSlot}

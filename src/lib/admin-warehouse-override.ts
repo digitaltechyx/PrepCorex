@@ -1,4 +1,4 @@
-import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { hasRole } from "@/lib/permissions";
 import { hasWarehouseOpsAccess } from "@/lib/warehouse-ops-permissions";
@@ -472,11 +472,17 @@ export async function adminCompleteInboundReceiveAndPutaway(
     )
   ).filter((carton): carton is WarehouseCartonDoc => carton !== null);
 
+  const putawayExpiryIso = input.expiry?.trim() || "";
   await updateDoc(requestRef, {
     warehouseProcessedVia: "admin_dashboard",
     warehouseProcessedBy: input.operatorId ?? null,
     warehouseProcessedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    ...(putawayExpiryIso
+      ? {
+          expiryDate: Timestamp.fromDate(new Date(`${putawayExpiryIso}T12:00:00`)),
+        }
+      : {}),
   });
 
   const goodDest = qty > 0 ? destinationBin?.path || stagingArea : "";

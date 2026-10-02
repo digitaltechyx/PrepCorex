@@ -103,6 +103,30 @@ export function binsEligibleForPutawayLine(
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/**
+ * First putaway bin for a line: empty (unoccupied) bins first, then path order.
+ * Admin can still change the selection in the picker.
+ */
+export function firstAvailablePutawayBin(
+  areas: WarehouseAreaDoc[],
+  bins: WarehouseBinDoc[],
+  line: WarehouseCartonLine,
+  occupiedBinIds?: ReadonlySet<string>
+): WarehouseBinDoc | null {
+  const eligible = binsEligibleForPutawayLine(areas, bins, line);
+  if (eligible.length === 0) return null;
+  const sorted = [...eligible].sort((a, b) => {
+    const aOcc = occupiedBinIds?.has(a.id) ? 1 : 0;
+    const bOcc = occupiedBinIds?.has(b.id) ? 1 : 0;
+    if (aOcc !== bOcc) return aOcc - bOcc;
+    return a.path.localeCompare(b.path, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+  return sorted.find((b) => !occupiedBinIds?.has(b.id)) ?? sorted[0] ?? null;
+}
+
 /** True when at least one active bin exists in an area this line may use. */
 export function lineEligibleAreasHaveBins(
   areas: WarehouseAreaDoc[],

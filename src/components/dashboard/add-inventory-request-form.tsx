@@ -35,6 +35,7 @@ import { uploadInventoryProductImage } from "@/lib/inventory-product-images";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { InboundBulkImportDialog } from "@/components/dashboard/inbound-bulk-import-dialog";
 import { InboundBulkRestockDialog } from "@/components/dashboard/inbound-bulk-restock-dialog";
+import { RestockProductCombobox } from "@/components/dashboard/restock-product-combobox";
 import { canUseCsvImport, canUseCsvImportOnBehalf } from "@/lib/csv-import-permissions";
 import { filterRestockEligibleProducts } from "@/lib/inbound-bulk-restock";
 import {
@@ -1391,13 +1392,25 @@ export function AddInventoryRequestForm({
     </div>
   );
 
+  const isInline = mode === "inline";
+
   const formBody = (
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="flex min-h-0 flex-1 flex-col bg-gradient-to-b from-background to-muted/20"
+        className={
+          isInline
+            ? "flex flex-col bg-gradient-to-b from-background to-muted/20"
+            : "flex min-h-0 flex-1 flex-col bg-gradient-to-b from-background to-muted/20"
+        }
       >
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+        <div
+          className={
+            isInline
+              ? "px-6 py-5"
+              : "min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5"
+          }
+        >
           <div className="space-y-5">
             <div className="space-y-2 rounded-xl border bg-card/90 p-4 shadow-sm">
               <Label className="text-[13px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1627,15 +1640,15 @@ export function AddInventoryRequestForm({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Select Product to Restock *</FormLabel>
-                    <Select 
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        // Auto-fill product name and SKU from selected product
-                        const selectedProduct = availableProductsForRestock.find(p => p.id === value);
-                        if (selectedProduct) {
+                    <FormControl>
+                      <RestockProductCombobox
+                        products={availableProductsForRestock}
+                        value={field.value || ""}
+                        onSelect={(selectedProduct) => {
+                          field.onChange(selectedProduct.id);
                           form.setValue("productName", selectedProduct.productName);
-                          form.setValue("sku", (selectedProduct as any).sku || "");
-                          setRestockImageUrls(extractImageUrls(selectedProduct as any));
+                          form.setValue("sku", selectedProduct.sku || "");
+                          setRestockImageUrls(extractImageUrls(selectedProduct));
                           setSingleUnitMeasurements({
                             unitLengthIn:
                               selectedProduct.unitLengthIn != null
@@ -1655,33 +1668,24 @@ export function AddInventoryRequestForm({
                                 : "",
                             weightUnit: "lb",
                           });
-                        }
-                      }}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger className="h-11 rounded-lg">
-                          <SelectValue placeholder="Select a product to restock" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {availableProductsForRestock.length === 0 ? (
-                          <SelectItem value="no-products" disabled>
-                            No products available for restock
-                          </SelectItem>
-                        ) : (
-                          availableProductsForRestock.map((product) => (
-                            <SelectItem key={product.id} value={product.id}>
-                              {product.productName} {product.sku ? `(SKU: ${product.sku})` : ""} - Qty: {product.quantity}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
+                        }}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+            )}
+
+            {inventoryType === "product" && productSubType === "restock" && (
+              <div className="space-y-2">
+                <Label>Expiry date (optional, if applicable)</Label>
+                <DatePicker date={singleExpiryDate} setDate={setSingleExpiryDate} />
+                <p className="text-xs text-muted-foreground">
+                  Use when this restock lot has a different shelf life than earlier stock. FEFO will
+                  keep each expiry separate.
+                </p>
+              </div>
             )}
 
             {inventoryType === "product" && productSubType === "restock" && (
@@ -2262,11 +2266,19 @@ export function AddInventoryRequestForm({
                 Your imported items are listed above. Review them, then submit one inbound batch to admin.
               </p>
             )}
+
+            {extraBeforeSubmit ? (
+              <div className="pt-1">{extraBeforeSubmit}</div>
+            ) : null}
           </div>
         </div>
-        <div className="mt-auto flex shrink-0 flex-col gap-3 border-t bg-background/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85">
-          {extraBeforeSubmit ? <div className="w-full">{extraBeforeSubmit}</div> : null}
-          <div className="flex flex-wrap items-center justify-end gap-2">
+        <div
+          className={
+            isInline
+              ? "flex flex-wrap items-center justify-end gap-2 border-t bg-background px-6 py-4"
+              : "mt-auto flex shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-background/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85"
+          }
+        >
           <Button
             type="button"
             variant="outline"
@@ -2322,7 +2334,6 @@ export function AddInventoryRequestForm({
                 ? "Receive & put away"
                 : "Submit Request"}
           </Button>
-          </div>
         </div>
       </form>
     </Form>
@@ -2331,8 +2342,8 @@ export function AddInventoryRequestForm({
   if (mode === "inline") {
     return (
       <>
-      <div className="flex max-h-[min(85vh,900px)] flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
-        <div className="shrink-0 space-y-1 border-b px-6 py-4">
+      <div className="flex flex-col rounded-xl border bg-card text-card-foreground shadow-sm">
+        <div className="space-y-1 border-b px-6 py-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
           <h2 className="text-lg font-semibold tracking-tight">
@@ -2358,7 +2369,7 @@ export function AddInventoryRequestForm({
               )}
             </div>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col">{formBody}</div>
+        <div className="flex flex-col">{formBody}</div>
       </div>
         {canImportInbound ? (
           <>

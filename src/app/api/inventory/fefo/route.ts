@@ -37,9 +37,10 @@ export async function GET(request: NextRequest) {
 
     const db = adminDb();
     const userRef = db.collection("users").doc(userId);
-    const [inventorySnapshot, requestSnapshot] = await Promise.all([
+    const [inventorySnapshot, requestSnapshot, receiveLogSnapshot] = await Promise.all([
       userRef.collection("inventory").get(),
       userRef.collection("inventoryRequests").get(),
+      userRef.collection("inboundReceiveLogs").get(),
     ]);
     const inventoryDocs: RawClientInventoryDoc[] = inventorySnapshot.docs.map((doc) => ({
       id: doc.id,
@@ -49,7 +50,11 @@ export async function GET(request: NextRequest) {
       id: doc.id,
       data: doc.data(),
     }));
-    const rows = buildClientFefoStockRows(inventoryDocs, requestDocs);
+    const receiveLogDocs = receiveLogSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      data: doc.data(),
+    }));
+    const rows = buildClientFefoStockRows(inventoryDocs, requestDocs, new Date(), receiveLogDocs);
     return NextResponse.json({ rows });
   } catch (error) {
     console.error("[inventory/fefo]", error);

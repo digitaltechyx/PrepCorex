@@ -233,7 +233,10 @@ function getRemarksPhotoAt(...sources: unknown[]): unknown {
 function formatOptionalDate(date: unknown) {
   if (!date) return "N/A";
   if (typeof date === "string") {
-    const d = new Date(date);
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(date.trim())
+      ? `${date.trim()}T12:00:00`
+      : date;
+    const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "N/A";
     return format(d, "MMM d, yyyy");
   }
@@ -243,6 +246,37 @@ function formatOptionalDate(date: unknown) {
     return format(new Date(sec * 1000), "MMM d, yyyy");
   }
   return "N/A";
+}
+
+/** Prefer multi-lot expiryBatches; fall back to single expiryDate. */
+function formatInventoryExpiryLots(item: {
+  expiryDate?: unknown;
+  expiryBatches?: Array<{ expiry?: unknown; quantity?: unknown }>;
+}): { lines: string[]; hasLots: boolean } {
+  const batches = Array.isArray(item.expiryBatches)
+    ? item.expiryBatches
+        .map((b) => {
+          const expiry = typeof b.expiry === "string" ? b.expiry.trim() : "";
+          const quantity = Math.max(0, Math.floor(Number(b.quantity) || 0));
+          if (!expiry || quantity <= 0) return null;
+          return { expiry, quantity };
+        })
+        .filter((b): b is { expiry: string; quantity: number } => Boolean(b))
+        .sort((a, b) => a.expiry.localeCompare(b.expiry))
+    : [];
+
+  if (batches.length > 0) {
+    return {
+      hasLots: true,
+      lines: batches.map(
+        (b) => `${formatOptionalDate(b.expiry)} · ${b.quantity} unit${b.quantity === 1 ? "" : "s"}`
+      ),
+    };
+  }
+  if (item.expiryDate) {
+    return { hasLots: false, lines: [formatOptionalDate(item.expiryDate)] };
+  }
+  return { hasLots: false, lines: [] };
 }
 
 function toDateInputValue(date: unknown): string {
@@ -2021,11 +2055,21 @@ export function InventoryTable({
                         Identifier: {(item as any).retailIdentifier}
                       </div>
                     )}
-                    {(item as any).expiryDate && (
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        Expiry: {formatOptionalDate((item as any).expiryDate)}
+                    {(() => {
+                      const lots = formatInventoryExpiryLots(item as any);
+                      if (lots.lines.length === 0) return null;
+                      return (
+                      <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+                        {lots.hasLots ? (
+                          lots.lines.map((line) => (
+                            <div key={line}>Expiry: {line}</div>
+                          ))
+                        ) : (
+                          <div>Expiry: {lots.lines[0]}</div>
+                        )}
                       </div>
-                    )}
+                      );
+                    })()}
                     {(formatUnitDimensions(item as any) || formatUnitWeight(item as any)) && (
                       <div className="text-xs text-muted-foreground mt-0.5">
                         Unit: {[formatUnitDimensions(item as any), formatUnitWeight(item as any)]
@@ -2309,12 +2353,22 @@ export function InventoryTable({
                       {(item as any).retailIdentifier || "N/A"}
                     </TableCell>
                     <TableCell className="hidden xl:table-cell whitespace-nowrap">
-                      <div className="flex items-center gap-1">
-                        <span>
-                          {(item as any).expiryDate
-                            ? formatOptionalDate((item as any).expiryDate)
-                            : "N/A"}
-                        </span>
+                      <div className="flex items-start gap-1">
+                        {(() => {
+                          const lots = formatInventoryExpiryLots(item as any);
+                          if (lots.lines.length === 0) {
+                            return <span>N/A</span>;
+                          }
+                          return (
+                            <div className="min-w-0 space-y-0.5">
+                              {lots.lines.map((line) => (
+                                <div key={line} className="text-sm leading-snug">
+                                  {line}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                         {!hasAdminActions &&
                           !(item as any).isRequest &&
                           !(item as any).isBatch &&
@@ -2322,7 +2376,7 @@ export function InventoryTable({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-6 w-6"
+                              className="h-6 w-6 shrink-0"
                               onClick={() =>
                                 handleInventoryMetadataEdit(item as InventoryItem, "expiry")
                               }
@@ -2338,7 +2392,7 @@ export function InventoryTable({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-6 w-6"
+                              className="h-6 w-6 shrink-0"
                               onClick={() => adminActions.onEdit?.(item as InventoryItem)}
                               title="Edit product details"
                             >

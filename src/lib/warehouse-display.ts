@@ -1,13 +1,14 @@
 /** Normalize e.g. "NJ 1", "nj1" → "nj1" for matching. */
-export function normalizeWarehouseKey(name: string): string {
+export function normalizeWarehouseKey(name: string | undefined | null): string {
   // Keep only letters/numbers so variants like "NJ-2", "NJ 2", "nj_2" all match "nj2".
-  return name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const raw = typeof name === "string" ? name : name == null ? "" : String(name);
+  return raw.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 /** Default inbound warehouse: any active location whose name normalizes to `nj2`. */
 export function isDefaultNj2Warehouse(name: string | undefined | null): boolean {
   // Accept NJ2 variants like NJ-2, NJ 2, NJ02, NJ-02.
-  return /^nj0*2$/.test(normalizeWarehouseKey(name ?? ""));
+  return /^nj0*2$/.test(normalizeWarehouseKey(name));
 }
 
 /**
