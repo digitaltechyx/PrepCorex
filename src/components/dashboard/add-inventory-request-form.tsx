@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { addDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { useState, useEffect, useMemo, type ChangeEvent } from "react";
+import { useState, useEffect, useMemo, type ChangeEvent, type ReactNode } from "react";
 import { Timestamp } from "firebase/firestore";
 
 import { Button } from "@/components/ui/button";
@@ -192,6 +192,10 @@ export function AddInventoryRequestForm({
   targetUserName,
   mode = "dialog",
   openSignal = 0,
+  submitMode = "request",
+  extraBeforeSubmit,
+  validateBeforeSubmit,
+  afterRequestsCreated,
 }: {
   /**
    * When provided, creates the inventory request under this user
@@ -206,7 +210,23 @@ export function AddInventoryRequestForm({
   mode?: "dialog" | "inline";
   /** Increase this number to programmatically open the dialog mode. */
   openSignal?: number;
+  /**
+   * - `request` (default): create pending inbound for approval
+   * - `adminQuickStock`: full inbound + putaway; stock client inventory immediately
+   */
+  submitMode?: "request" | "adminQuickStock";
+  /** Extra fields rendered above the submit footer (e.g. putaway). */
+  extraBeforeSubmit?: ReactNode;
+  /** Return an error message to block submit, or null when OK. */
+  validateBeforeSubmit?: () => string | null;
+  /** Runs after pending request docs are created (Quick Add approve+putaway). */
+  afterRequestsCreated?: (ctx: {
+    requestIds: string[];
+    ownerId: string;
+    ownerName: string;
+  }) => Promise<{ successDescription?: string } | void>;
 } = {}) {
+  const isQuickStock = submitMode === "adminQuickStock";
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
@@ -245,6 +265,10 @@ export function AddInventoryRequestForm({
     },
   });
 
+  useEffect(() => {
+    if (!isQuickStock) return;
+    form.setValue("inventoryType", "product");
+  }, [isQuickStock, form]);
   const inventoryType = form.watch("inventoryType");
   const productSubType = form.watch("productSubType");
   const productEntryMode = form.watch("productEntryMode");
@@ -720,10 +744,31 @@ export function AddInventoryRequestForm({
 
   async function submitDraftBatch() {
     if (!user || !ownerId || draftLines.length === 0) return;
+    if (isQuickStock) {
+      const extraError = validateBeforeSubmit?.();
+      if (extraError) {
+        toast({ variant: "destructive", title: "Putaway required", description: extraError });
+        return;
+      }
+      const nonProduct = draftLines.some((l) => l.inventoryType !== "product");
+      if (nonProduct) {
+        toast({
+          variant: "destructive",
+          title: "Product only",
+          description: "Quick Add with putaway supports product lines only. Remove carton/pallet/container rows.",
+        });
+        return;
+      }
+    }
     setIsLoading(true);
     try {
       const lines = draftLines.map(({ draftId: _draftId, ...line }) => line);
       if (lines.length >= INBOUND_BACKGROUND_IMPORT_THRESHOLD) {
+        if (isQuickStock) {
+          throw new Error(
+            "Quick Add putaway does not support background import size. Submit fewer rows, or use Create Request."
+          );
+        }
         const idToken = await user.getIdToken();
         const jobId = await startInboundImportJob({
           userId: ownerId,
@@ -764,12 +809,27 @@ export function AddInventoryRequestForm({
             console.warn("Inbound tracking attach failed after draft submit", trackingErr);
           }
         }
+        let successDescription =
+          draftLines.length > 1
+            ? `Inbound batch submitted (${draftLines.length} items). Waiting for admin approval.`
+            : "Inventory request submitted. Waiting for admin approval.";
+        if (isQuickStock && afterRequestsCreated && submitted.requestIds.length > 0) {
+          const after = await afterRequestsCreated({
+            requestIds: submitted.requestIds,
+            ownerId,
+            ownerName,
+          });
+          if (after?.successDescription) successDescription = after.successDescription;
+          else {
+            successDescription =
+              draftLines.length > 1
+                ? `Added ${draftLines.length} products to inventory with putaway.`
+                : "Product added to inventory with putaway.";
+          }
+        }
         toast({
           title: "Success",
-          description:
-            draftLines.length > 1
-              ? `Inbound batch submitted (${draftLines.length} items). Waiting for admin approval.`
-              : "Inventory request submitted. Waiting for admin approval.",
+          description: successDescription,
         });
       }
       setDraftLines([]);
@@ -797,6 +857,21 @@ export function AddInventoryRequestForm({
         description: "You must be logged in to add inventory.",
       });
       return;
+    }
+    if (isQuickStock) {
+      if (values.inventoryType !== "product") {
+        toast({
+          variant: "destructive",
+          title: "Product only",
+          description: "Quick Add with putaway supports product inbound only.",
+        });
+        return;
+      }
+      const extraError = validateBeforeSubmit?.();
+      if (extraError) {
+        toast({ variant: "destructive", title: "Putaway required", description: extraError });
+        return;
+      }
     }
 
     setIsLoading(true);
@@ -1129,12 +1204,30 @@ export function AddInventoryRequestForm({
 
       const submittedCount = batchLines.length;
 
+      let successDescription =
+        submittedCount > 1
+          ? `Inbound batch submitted (${submittedCount} items). Waiting for admin approval.`
+          : "Inventory request submitted. Waiting for admin approval.";
+
+      if (isQuickStock && afterRequestsCreated && submitted.requestIds.length > 0) {
+        const after = await afterRequestsCreated({
+          requestIds: submitted.requestIds,
+          ownerId,
+          ownerName,
+        });
+        if (after?.successDescription) {
+          successDescription = after.successDescription;
+        } else {
+          successDescription =
+            submittedCount > 1
+              ? `Added ${submittedCount} products to inventory with putaway.`
+              : "Product added to inventory with putaway.";
+        }
+      }
+
       toast({
         title: "Success",
-        description:
-          submittedCount > 1
-            ? `Inbound batch submitted (${submittedCount} items). Waiting for admin approval.`
-            : "Inventory request submitted. Waiting for admin approval.",
+        description: successDescription,
       });
 
       form.reset({
@@ -1363,6 +1456,8 @@ export function AddInventoryRequestForm({
                           Product
                         </FormLabel>
                       </FormItem>
+                      {!isQuickStock ? (
+                        <>
                       <FormItem className="flex items-center rounded-lg border bg-background px-3 py-2 space-x-3 space-y-0">
                         <FormControl>
                           <RadioGroupItem value="box" />
@@ -1390,6 +1485,8 @@ export function AddInventoryRequestForm({
                           Container handling (receiving)
                         </FormLabel>
                       </FormItem>
+                        </>
+                      ) : null}
                     </RadioGroup>
                   </FormControl>
                   <FormMessage />
@@ -1712,12 +1809,12 @@ export function AddInventoryRequestForm({
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">SKU *</Label>
-                          <Input
-                            placeholder="Enter SKU"
+                      <Input
+                        placeholder="Enter SKU"
                             value={row.sku}
                             onChange={(e) => updateNewProductRow(row.id, { sku: e.target.value })}
-                            className="h-11 rounded-lg"
-                          />
+                        className="h-11 rounded-lg"
+                      />
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Quantity *</Label>
@@ -2096,7 +2193,7 @@ export function AddInventoryRequestForm({
                   Inbound shipment tracking (optional)
                 </Label>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Uses the same tracking as the inventory table. Carrier status refreshes every 6 hours.
+                  Uses the same tracking as the inventory table. Carrier status refreshes every 3 hours.
                 </p>
               </div>
 
@@ -2141,23 +2238,23 @@ export function AddInventoryRequestForm({
               productSubType === "new" &&
               productEntryMode === "single"
             ) && (
-              <FormField
-                control={form.control}
-                name="remarks"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Remarks (Optional)</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Add any additional notes or remarks about this inventory request..."
-                        className="min-h-[110px] rounded-lg"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <FormField
+              control={form.control}
+              name="remarks"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Remarks (Optional)</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Add any additional notes or remarks about this inventory request..."
+                      className="min-h-[110px] rounded-lg"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             )}
             </>
             ) : (
@@ -2167,7 +2264,9 @@ export function AddInventoryRequestForm({
             )}
           </div>
         </div>
-        <div className="mt-auto flex shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-background/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+        <div className="mt-auto flex shrink-0 flex-col gap-3 border-t bg-background/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+          {extraBeforeSubmit ? <div className="w-full">{extraBeforeSubmit}</div> : null}
+          <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             type="button"
             variant="outline"
@@ -2216,9 +2315,14 @@ export function AddInventoryRequestForm({
           >
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {draftLines.length > 0
-              ? `Submit batch (${draftLines.length})`
-              : "Submit Request"}
+              ? isQuickStock
+                ? `Receive & put away (${draftLines.length})`
+                : `Submit batch (${draftLines.length})`
+              : isQuickStock
+                ? "Receive & put away"
+                : "Submit Request"}
           </Button>
+          </div>
         </div>
       </form>
     </Form>
@@ -2227,14 +2331,18 @@ export function AddInventoryRequestForm({
   if (mode === "inline") {
     return (
       <>
-        <div className="flex max-h-[min(85vh,900px)] flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
-          <div className="shrink-0 space-y-1 border-b px-6 py-4">
+      <div className="flex max-h-[min(85vh,900px)] flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
+        <div className="shrink-0 space-y-1 border-b px-6 py-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="text-lg font-semibold tracking-tight">Add Inventory Request</h2>
-                <p className="text-sm text-muted-foreground">
-                  Submit an inventory request. Admin will review and approve it.
-                </p>
+          <h2 className="text-lg font-semibold tracking-tight">
+            {isQuickStock ? "Quick Add — full inbound + putaway" : "Add Inventory Request"}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {isQuickStock
+              ? "Enter full inbound product details and putaway destination. Stock is added to the client immediately."
+              : "Submit an inventory request. Admin will review and approve it."}
+          </p>
               </div>
               {canImportInbound && !(inventoryType === "product" && productSubType === "restock") && (
                 <Button
@@ -2249,9 +2357,9 @@ export function AddInventoryRequestForm({
                 </Button>
               )}
             </div>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col">{formBody}</div>
         </div>
+        <div className="flex min-h-0 flex-1 flex-col">{formBody}</div>
+      </div>
         {canImportInbound ? (
           <>
             <InboundBulkImportDialog
@@ -2275,7 +2383,7 @@ export function AddInventoryRequestForm({
 
   return (
     <>
-      <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
@@ -2288,9 +2396,9 @@ export function AddInventoryRequestForm({
       >
         <SheetHeader className="space-y-2 border-b bg-gradient-to-r from-background via-background to-primary/5 px-6 pb-4 pt-6 pr-14 text-left">
           <div className="flex items-start justify-between gap-3 pr-2">
-            <p className="inline-flex w-fit items-center rounded-full border border-primary/15 bg-primary/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-primary">
-              Request Workspace
-            </p>
+          <p className="inline-flex w-fit items-center rounded-full border border-primary/15 bg-primary/5 px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-primary">
+            Request Workspace
+          </p>
             {canImportInbound && !(inventoryType === "product" && productSubType === "restock") && (
               <Button
                 type="button"
