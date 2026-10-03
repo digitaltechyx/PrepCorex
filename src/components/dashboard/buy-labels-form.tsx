@@ -417,17 +417,22 @@ export function BuyLabelsForm({
     hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
   const trialActive = labelBilling ? isLabelTrialActive(labelBilling) : false;
   const limitMode = labelBilling?.mode === "limit";
-  const canPayByCard = Boolean(labelBilling) && (limitMode || trialActive);
-  const showPaymentPicker = !isBillingExempt && canPayByCard;
+  const walletMode = labelBilling?.mode === "wallet";
+  // Dual card/wallet picker only during wallet-mode trial. Limit mode is card-only.
+  const showPaymentPicker = !isBillingExempt && walletMode && trialActive;
   const cardPaymentSource: LabelPaymentSource = limitMode ? "limit" : "trial";
 
   useEffect(() => {
     if (!labelBilling || isBillingExempt) return;
-    if (limitMode || (trialActive && labelBillingRemainingCents(labelBilling) > 0)) {
-      setPaymentSource(limitMode ? "limit" : "trial");
-    } else {
-      setPaymentSource("wallet");
+    if (limitMode) {
+      setPaymentSource("limit");
+      return;
     }
+    if (trialActive && labelBillingRemainingCents(labelBilling) > 0) {
+      setPaymentSource("trial");
+      return;
+    }
+    setPaymentSource("wallet");
   }, [labelBilling, trialActive, limitMode, isBillingExempt]);
 
   const payWithWallet = !isBillingExempt && paymentSource === "wallet";
@@ -444,9 +449,7 @@ export function BuyLabelsForm({
           <label className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
             <RadioGroupItem value={cardPaymentSource} className="mt-0.5" />
             <div>
-              <p className="text-sm font-medium">
-                {limitMode ? "Card (purchase limit)" : "Buy Label Trial (card)"}
-              </p>
+              <p className="text-sm font-medium">Buy Label Trial (card)</p>
               <p className="text-xs text-muted-foreground">
                 {formatLabelBillingMoney(labelBillingRemainingCents(labelBilling))} remaining this{" "}
                 {labelBilling.period === "daily"

@@ -1,6 +1,7 @@
 import type {
   LabelApiFeeCadence,
   LabelApiFeeSettings,
+  LabelBillingMode,
   LabelBillingPeriod,
   LabelBillingSettings,
 } from "@/types";
@@ -416,10 +417,10 @@ export function resolveLabelPaymentSource(
   preferWallet: boolean,
   now = new Date()
 ): LabelPaymentSource {
-  if (preferWallet) return "wallet";
-  // Admin-selected limit mode: card purchases against the period purchase limit.
+  // Admin assigns exactly one path: card purchase limit OR wallet.
   if (settings.mode === "limit") return "limit";
-  // Legacy: wallet mode may still allow card during an active 30-day trial.
+  // Wallet mode: optional short trial may still pay by card; otherwise wallet only.
+  if (preferWallet) return "wallet";
   if (isLabelTrialActive(settings, now)) return "trial";
   return "wallet";
 }
@@ -483,11 +484,20 @@ export function canSpendLabelBilling(
       const left = labelBillingRemainingCents(settings);
       return {
         ok: false,
-        error: `Label purchase limit reached. Remaining this ${formatLabelBillingPeriod(settings.period)}: ${formatLabelBillingMoney(left)}. Use your wallet or contact an administrator.`,
+        error: `Label purchase limit reached. Remaining this ${formatLabelBillingPeriod(settings.period)}: ${formatLabelBillingMoney(left)}. Contact an administrator.`,
         code: "LIMIT_EXCEEDED",
       };
     }
     return { ok: true, settings };
+  }
+
+  // Wallet spend is only for wallet-mode accounts.
+  if (settings.mode === "limit") {
+    return {
+      ok: false,
+      error: "Wallet purchases are not enabled for this account. Pay by card within your purchase limit.",
+      code: "WRONG_MODE",
+    };
   }
 
   if ((settings.walletBalanceCents || 0) < amount) {
@@ -523,7 +533,7 @@ export function labelBillingSummaryLine(
   const trialActive = isLabelTrialActive(settings, now);
 
   if (settings.mode === "limit") {
-    return `Card purchase limit · ${limit}/${period} · Used ${used} · Left ${left} · Wallet ${walletBal}`;
+    return `Card purchase limit · ${limit}/${period} · Used ${used} · Left ${left}`;
   }
   if (trialActive) {
     const ends = labelTrialEndsAt(settings, now);

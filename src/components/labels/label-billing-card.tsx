@@ -440,84 +440,94 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
               {formatLabelBillingMoney(settings.limitAmountCents)}
             </CardContent>
           </Card>
-        ) : trialActive ? (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Buy Label Trial</CardTitle>
-              <CardDescription>
-                {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"} left in your 30-day trial
-                {trialEnds ? ` · Ends ${format(trialEnds, "PP")}` : null}
-                {ends ? ` · Trial limit resets ${format(ends, "PPp")}` : null}
-              </CardDescription>
+        ) : (
+          <>
+            {trialActive ? (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Buy Label Trial</CardTitle>
+                  <CardDescription>
+                    {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"} left in your 30-day trial
+                    {trialEnds ? ` · Ends ${format(trialEnds, "PP")}` : null}
+                    {ends ? ` · Trial limit resets ${format(ends, "PPp")}` : null}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground">
+                  Pay per label with card during your trial. After 30 days, only your wallet remains.
+                  Remaining this {formatLabelBillingPeriod(settings.period)}:{" "}
+                  <span className="font-medium text-foreground">
+                    {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
+                  </span>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            <Card>
+            <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Wallet className="h-5 w-5" />
+                  Label Wallet
+                </CardTitle>
+                <CardDescription className="mt-1">{labelBillingSummaryLine(settings)}</CardDescription>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => setTopupOpen(true)}>Top up</Button>
+                <Button type="button" variant="outline" onClick={() => setHistoryKind("topups")}>
+                  <History className="mr-2 h-4 w-4" />
+                  Top-up History
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setHistoryKind("purchases")}>
+                  <ShoppingBag className="mr-2 h-4 w-4" />
+                  Purchase History
+                </Button>
+              </div>
             </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              Pay per label with card during your trial. After 30 days, only your wallet remains.
-              Remaining this {formatLabelBillingPeriod(settings.period)}:{" "}
-              <span className="font-medium text-foreground">
-                {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
-              </span>
+            <CardContent>
+              {apiFeeBanner}
+              <div className="grid gap-3 sm:grid-cols-3 text-sm">
+                <div className="rounded-md border px-3 py-2">
+                  <p className="text-muted-foreground">Available Balance</p>
+                  <p className="text-xl font-semibold">
+                    {formatLabelBillingMoney(settings.walletBalanceCents || 0)}
+                  </p>
+                </div>
+                <div className="rounded-md border px-3 py-2">
+                  <p className="text-muted-foreground">
+                    {formatLabelBillingPeriodAdjective(settings.period)} Spending Limit
+                  </p>
+                  <p className="text-xl font-semibold">
+                    {formatLabelBillingMoney(labelWalletSpendLimitCents(settings))}
+                  </p>
+                </div>
+                <div className="rounded-md border px-3 py-2">
+                  <p className="text-muted-foreground">
+                    Remaining Limit for this {formatLabelBillingPeriodNoun(settings.period)}
+                  </p>
+                  <p className="text-xl font-semibold">
+                    {formatLabelBillingMoney(labelWalletRemainingCents(settings))}
+                  </p>
+                </div>
+              </div>
+              {!trialActive ? (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Your 30-day Buy Label trial has ended. Top up your wallet to purchase labels.
+                </p>
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  You can top up anytime and pay from your wallet instead of using trial card checkout.
+                </p>
+              )}
             </CardContent>
+            </Card>
+          </>
+        )}
+
+        {limitMode && apiFeeBanner ? (
+          <Card>
+            <CardContent className="pt-6">{apiFeeBanner}</CardContent>
           </Card>
         ) : null}
-
-        <Card>
-        <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Wallet className="h-5 w-5" />
-              Label Wallet
-            </CardTitle>
-            <CardDescription className="mt-1">{labelBillingSummaryLine(settings)}</CardDescription>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => setTopupOpen(true)}>Top up</Button>
-            <Button type="button" variant="outline" onClick={() => setHistoryKind("topups")}>
-              <History className="mr-2 h-4 w-4" />
-              Top-up History
-            </Button>
-            <Button type="button" variant="outline" onClick={() => setHistoryKind("purchases")}>
-              <ShoppingBag className="mr-2 h-4 w-4" />
-              Purchase History
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {apiFeeBanner}
-          <div className="grid gap-3 sm:grid-cols-3 text-sm">
-            <div className="rounded-md border px-3 py-2">
-              <p className="text-muted-foreground">Available Balance</p>
-              <p className="text-xl font-semibold">
-                {formatLabelBillingMoney(settings.walletBalanceCents || 0)}
-              </p>
-            </div>
-            <div className="rounded-md border px-3 py-2">
-              <p className="text-muted-foreground">
-                {formatLabelBillingPeriodAdjective(settings.period)} Spending Limit
-              </p>
-              <p className="text-xl font-semibold">
-                {formatLabelBillingMoney(labelWalletSpendLimitCents(settings))}
-              </p>
-            </div>
-            <div className="rounded-md border px-3 py-2">
-              <p className="text-muted-foreground">
-                Remaining Limit for this {formatLabelBillingPeriodNoun(settings.period)}
-              </p>
-              <p className="text-xl font-semibold">
-                {formatLabelBillingMoney(labelWalletRemainingCents(settings))}
-              </p>
-            </div>
-          </div>
-          {!trialActive ? (
-            <p className="mt-3 text-sm text-muted-foreground">
-              Your 30-day Buy Label trial has ended. Top up your wallet to purchase labels.
-            </p>
-          ) : (
-            <p className="mt-3 text-sm text-muted-foreground">
-              You can top up anytime and pay from your wallet instead of using trial card checkout.
-            </p>
-          )}
-        </CardContent>
-      </Card>
       </div>
 
       <Dialog open={historyKind != null} onOpenChange={(open) => !open && setHistoryKind(null)}>
@@ -723,14 +733,16 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
         </DialogContent>
       </Dialog>
 
-      <LabelWalletTopupDialog
-        open={topupOpen}
-        onOpenChange={setTopupOpen}
-        onSubmitted={() => {
-          void loadBilling();
-          void loadHistory();
-        }}
-      />
+      {!limitMode ? (
+        <LabelWalletTopupDialog
+          open={topupOpen}
+          onOpenChange={setTopupOpen}
+          onSubmitted={() => {
+            void loadBilling();
+            void loadHistory();
+          }}
+        />
+      ) : null}
       <LabelApiFeePayDialog
         open={apiFeeOpen}
         onOpenChange={setApiFeeOpen}
