@@ -173,20 +173,22 @@ const softwareModules: Array<{
   proof: string;
   icon: LucideIcon;
   href: string;
+  featured?: boolean;
 }> = [
   {
-    title: "Inventory truth",
-    copy: "Live stock by client, SKU, carton, pallet, bin, and condition—without spreadsheet rebuilds.",
-    proof: "Client + admin visibility",
-    icon: Boxes,
-    href: "#capabilities",
-  },
-  {
     title: "Live receiving video",
-    copy: "Authorized clients watch inbound inspection live, then replay privately inside PrepCorex.",
-    proof: "Rare trust differentiator",
+    copy: "Clients watch inbound inspection live from their account, then return for private playback—matched to their request, product, and SKU.",
+    proof: "Trust differentiator",
     icon: Video,
     href: "#live-video",
+    featured: true,
+  },
+  {
+    title: "Inventory truth",
+    copy: "Live stock by client, SKU, carton, pallet, bin, and condition—without rebuilding the story in spreadsheets.",
+    proof: "Client + admin visibility",
+    icon: Boxes,
+    href: "#product",
   },
   {
     title: "Outbound & multi-channel",
@@ -242,47 +244,6 @@ const trustProof = [
   { value: "$0", label: "Setup & portal retainer" },
   { value: "4 portals", label: "Client · Ops · Admin · Affiliate" },
   { value: "Scan-first", label: "Warehouse floor workflows" },
-];
-
-const featureCards: Array<{
-  title: string;
-  copy: string;
-  icon: LucideIcon;
-  tone: string;
-  className?: string;
-}> = [
-  {
-    title: "A live inventory truth",
-    copy: "Track quantities by client, SKU, carton, pallet, warehouse, bin, area, condition, and workflow stage—without rebuilding the story in spreadsheets.",
-    icon: Boxes,
-    tone: "bg-blue-50 text-blue-700",
-    className: "lg:col-span-2",
-  },
-  {
-    title: "Receiving clients can see",
-    copy: "Record inspection evidence, photos, and private receiving video while the client follows progress from their own account.",
-    icon: Camera,
-    tone: "bg-orange-50 text-orange-700",
-  },
-  {
-    title: "Returns and quality control",
-    copy: "Receive returns, quarantine damaged units, document decisions, put stock away, ship it out, or dispose with a complete trail.",
-    icon: RotateCcw,
-    tone: "bg-rose-50 text-rose-700",
-  },
-  {
-    title: "Savings clients understand",
-    copy: "Show estimated shipping and prep savings beside what the client actually paid, with downloadable reports and clear comparisons.",
-    icon: CircleDollarSign,
-    tone: "bg-emerald-50 text-emerald-700",
-  },
-  {
-    title: "Billing connected to the work",
-    copy: "Turn completed operational activity into transparent invoices, discounts, pricing profiles, and client-visible billing history.",
-    icon: FileText,
-    tone: "bg-violet-50 text-violet-700",
-    className: "lg:col-span-2",
-  },
 ];
 
 function useLandingMotion() {
@@ -1222,7 +1183,7 @@ export function MarketingLandingPage() {
             <div className="relative z-10">
               <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 shadow-sm">
                 <Sparkles className="h-3.5 w-3.5" />
-                PrepCorex · warehouse OS for modern prep centers
+                Built to Scale. Backed by Prep.
               </div>
               <h1 className="mt-7 max-w-[560px] font-headline text-[clamp(2.35rem,4.1vw,3.85rem)] font-bold leading-[0.98] tracking-[-0.052em] text-[#071a3d] sm:max-w-[600px] lg:max-w-[640px]">
                 See every unit
@@ -1357,56 +1318,109 @@ export function MarketingLandingPage() {
           </div>
         </section>
 
-        <section id="product" className="py-24 sm:py-32">
+        <section id="product" className="relative overflow-hidden bg-slate-50 py-24 sm:py-32">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-200 to-transparent" />
           <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
-            <div
-              data-reveal
-              className={cn(styles.reveal, "flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between")}
-            >
-              <div className="max-w-3xl">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-600">
-                  Meet PrepCorex
-                </p>
-                <h2 className="mt-4 font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
-                  Software modules buyers can understand in seconds.
-                </h2>
-              </div>
-              <p className="max-w-md text-sm leading-6 text-slate-600">
-                Named capabilities—not a buried feature checklist. Each module ties warehouse work to
-                client visibility.
+            <div data-reveal className={cn(styles.reveal, "mx-auto max-w-3xl text-center")}>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-600">
+                Meet PrepCorex
+              </p>
+              <h2 className="mt-4 font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
+                Everything your warehouse and clients need—in one system.
+              </h2>
+              <p className="mx-auto mt-5 max-w-2xl leading-7 text-slate-600">
+                Clear modules for visibility, operations, and billing. Each one connects floor work
+                to the client portal so nothing lives in spreadsheets or status emails.
               </p>
             </div>
 
-            <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {softwareModules.map((mod, index) => {
-                const Icon = mod.icon;
-                return (
+            {(() => {
+              const featured = softwareModules.find((m) => m.featured) ?? softwareModules[0];
+              const rest = softwareModules.filter((m) => m !== featured);
+              const FeaturedIcon = featured.icon;
+              return (
+                <>
                   <a
-                    key={mod.title}
-                    href={mod.href}
+                    href={featured.href}
                     data-reveal
-                    style={{ transitionDelay: `${(index % 3) * 70}ms` }}
                     className={cn(
                       styles.reveal,
-                      index === 0 || index === 4 ? "lg:col-span-2" : "",
-                      "group rounded-[26px] border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-orange-300 hover:shadow-xl sm:p-8"
+                      "group mt-14 grid gap-8 overflow-hidden rounded-[28px] border border-orange-100 bg-white p-6 shadow-sm transition hover:border-orange-300 hover:shadow-xl sm:p-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:p-10"
                     )}
                   >
-                    <span className="inline-flex rounded-2xl bg-orange-50 p-3 text-orange-700">
-                      <Icon className="h-6 w-6" />
-                    </span>
-                    <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.14em] text-orange-600">
-                      {mod.proof}
-                    </p>
-                    <h3 className="mt-2 text-xl font-bold tracking-tight text-[#071a3d]">{mod.title}</h3>
-                    <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">{mod.copy}</p>
-                    <span className="mt-6 inline-flex items-center gap-1 text-xs font-bold text-orange-600">
-                      Explore <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
-                    </span>
+                    <div>
+                      <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-orange-700">
+                        <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+                        {featured.proof}
+                      </div>
+                      <h3 className="mt-5 font-headline text-3xl font-bold tracking-tight text-[#071a3d] sm:text-4xl">
+                        {featured.title}
+                      </h3>
+                      <p className="mt-4 max-w-xl text-base leading-7 text-slate-600">{featured.copy}</p>
+                      <span className="mt-7 inline-flex items-center gap-2 text-sm font-bold text-orange-600">
+                        See live receiving
+                        <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                      </span>
+                    </div>
+                    <div className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-[#071a3d] p-5 text-white shadow-inner sm:p-6">
+                      <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-orange-500/20 blur-3xl" />
+                      <div className="relative flex items-start justify-between gap-4">
+                        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-300">
+                          <FeaturedIcon className="h-6 w-6" />
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/15 px-2.5 py-1 text-[10px] font-bold text-red-300">
+                          <span className="h-1.5 w-1.5 rounded-full bg-red-500" /> LIVE
+                        </span>
+                      </div>
+                      <p className="relative mt-8 text-sm font-semibold text-slate-200">
+                        Matched client access · Private playback · Product + SKU context
+                      </p>
+                      <div className="relative mt-5 grid grid-cols-3 gap-2">
+                        {["Receive", "Inspect", "Confirm"].map((label) => (
+                          <div
+                            key={label}
+                            className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-3 text-center text-[11px] font-semibold text-slate-300"
+                          >
+                            {label}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </a>
-                );
-              })}
-            </div>
+
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    {rest.map((mod, index) => {
+                      const Icon = mod.icon;
+                      return (
+                        <a
+                          key={mod.title}
+                          href={mod.href}
+                          data-reveal
+                          style={{ transitionDelay: `${index * 60}ms` }}
+                          className={cn(
+                            styles.reveal,
+                            "group flex gap-4 rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-lg sm:p-6"
+                          )}
+                        >
+                          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#071a3d] text-orange-300 transition group-hover:bg-orange-600 group-hover:text-white">
+                            <Icon className="h-5 w-5" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-orange-600">
+                              {mod.proof}
+                            </p>
+                            <h3 className="mt-1.5 text-lg font-bold tracking-tight text-[#071a3d]">
+                              {mod.title}
+                            </h3>
+                            <p className="mt-2 text-sm leading-6 text-slate-600">{mod.copy}</p>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </section>
 
@@ -1542,57 +1556,6 @@ export function MarketingLandingPage() {
         </section>
 
         <LiveReceivingSection />
-
-        <section id="capabilities" className="bg-slate-50 py-24 sm:py-32">
-          <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
-            <div
-              data-reveal
-              className={cn(styles.reveal, "flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between")}
-            >
-              <div className="max-w-3xl">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-600">
-                  Operational depth, without the clutter
-                </p>
-                <h2 className="mt-4 font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
-                  The details are connected. The experience stays clear.
-                </h2>
-              </div>
-              <p className="max-w-md text-sm leading-6 text-slate-600">
-                PrepCorex is designed around the real work of prep centers and fulfillment
-                warehouses—not a generic order screen with warehouse terminology added later.
-              </p>
-            </div>
-
-            <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {featureCards.map((feature, index) => {
-                const Icon = feature.icon;
-                return (
-                  <article
-                    key={feature.title}
-                    data-reveal
-                    style={{ transitionDelay: `${(index % 3) * 80}ms` }}
-                    className={cn(
-                      styles.reveal,
-                      feature.className,
-                      "group min-h-[250px] rounded-[26px] border bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-xl sm:p-8"
-                    )}
-                  >
-                    <span className={cn("inline-flex rounded-2xl p-3", feature.tone)}>
-                      <Icon className="h-6 w-6" />
-                    </span>
-                    <h3 className="mt-8 text-xl font-bold tracking-tight text-[#071a3d]">
-                      {feature.title}
-                    </h3>
-                    <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">{feature.copy}</p>
-                    <span className="mt-7 inline-flex items-center gap-1 text-xs font-bold text-orange-600 opacity-0 transition group-hover:opacity-100">
-                      Built into the workflow <ArrowRight className="h-3.5 w-3.5" />
-                    </span>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
-        </section>
 
         <section className={cn(styles.parallaxBand, "relative overflow-hidden py-24 text-white sm:py-32")}>
           <div className={styles.noise} />
