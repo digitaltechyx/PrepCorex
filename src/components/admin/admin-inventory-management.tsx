@@ -60,6 +60,12 @@ import {
   expandShippedItemsForDisplay,
   normalizeShipmentItems,
 } from "@/lib/shipment-utils";
+import {
+  earliestExpiryFromBatches,
+  expiryBatchIso,
+  mergeExpiryBatch,
+  type ExpiryBatch,
+} from "@/lib/inventory-expiry-batches";
 
 interface AdminInventoryManagementProps {
   selectedUser: UserProfile | null;
@@ -101,6 +107,14 @@ const restockSchema = z.object({
   quantity: z.number().min(1, "Quantity must be at least 1"),
   restockDate: z.date({ required_error: "A restock date is required." }),
   remarks: z.string().max(1000, "Remarks too long").optional(),
+  /** Optional calendar expiry (YYYY-MM-DD) for this restock lot — FEFO batches. */
+  expiryDate: z
+    .string()
+    .optional()
+    .refine(
+      (v) => !v || /^\d{4}-\d{2}-\d{2}$/.test(v),
+      "Use a valid expiry date"
+    ),
 });
 
 const recycleSchema = z.object({
@@ -582,6 +596,7 @@ export function AdminInventoryManagement({
       quantity: 1,
       restockDate: new Date(),
       remarks: "",
+      expiryDate: "",
     },
   });
 
@@ -617,7 +632,7 @@ export function AdminInventoryManagement({
 
   const handleRestockProduct = (product: InventoryItem) => {
     setRestockingProduct(product);
-    restockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "" });
+    restockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "", expiryDate: "" });
     setRestockSelectedImages([]);
     setRestockImagePreviews([]);
   };
@@ -950,14 +965,44 @@ export function AdminInventoryManagement({
       const uploadedImageUrls = await uploadRestockImages(selectedUser.uid);
 
       const productRef = doc(db, `users/${selectedUser.uid}/inventory`, restockingProduct.id);
-      const previousQuantity = restockingProduct.quantity;
+      const productSnap = await getDoc(productRef);
+      if (!productSnap.exists()) {
+        throw new Error("Product not found");
+      }
+      const currentData = productSnap.data() as InventoryItem;
+      const previousQuantity = Number(currentData.quantity) || 0;
       const newQuantity = previousQuantity + values.quantity;
-      
-      // Update the product quantity
-      await updateDoc(productRef, {
+      const lotExpiry = expiryBatchIso(values.expiryDate?.trim() || null);
+
+      const inventoryPatch: Record<string, unknown> = {
         quantity: newQuantity,
         status: "In Stock",
-      });
+      };
+
+      // FEFO: when admin sets an expiry on this restock, merge a dated batch.
+      if (lotExpiry && values.quantity > 0) {
+        const prevBatches: ExpiryBatch[] = Array.isArray(currentData.expiryBatches)
+          ? (currentData.expiryBatches as ExpiryBatch[])
+          : (() => {
+              const legacy = expiryBatchIso(currentData.expiryDate);
+              return legacy && previousQuantity > 0
+                ? [{ expiry: legacy, quantity: previousQuantity, lot: null, requestId: null }]
+                : [];
+            })();
+        const batches = mergeExpiryBatch(prevBatches, {
+          expiry: lotExpiry,
+          quantity: values.quantity,
+          lot: null,
+          requestId: null,
+        });
+        inventoryPatch.expiryBatches = batches;
+        const earliest = earliestExpiryFromBatches(batches);
+        inventoryPatch.expiryDate = earliest
+          ? Timestamp.fromDate(new Date(`${earliest}T12:00:00`))
+          : null;
+      }
+
+      await updateDoc(productRef, inventoryPatch);
       await syncExternalInventoryIfNeeded(restockingProduct as any, newQuantity, selectedUser.uid);
       await syncEbayInventoryIfNeeded(restockingProduct as any, newQuantity, selectedUser.uid);
 
@@ -974,14 +1019,17 @@ export function AdminInventoryManagement({
       };
       if (remarksTrimmed.length > 0) historyPayload.remarks = remarksTrimmed;
       if (uploadedImageUrls.length > 0) historyPayload.imageUrls = uploadedImageUrls;
+      if (lotExpiry) historyPayload.expiryDate = lotExpiry;
       await addDoc(restockHistoryRef, historyPayload);
 
       toast({
         title: "Success",
-        description: `Product restocked! Previous: ${previousQuantity}, Added: ${values.quantity}, New Total: ${newQuantity}`,
+        description: lotExpiry
+          ? `Restocked ${values.quantity} (expiry ${lotExpiry}). New total: ${newQuantity}`
+          : `Product restocked! Previous: ${previousQuantity}, Added: ${values.quantity}, New Total: ${newQuantity}`,
       });
       setRestockingProduct(null);
-      restockForm.reset();
+      restockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "", expiryDate: "" });
       setRestockSelectedImages([]);
       setRestockImagePreviews([]);
     } catch (error: any) {
@@ -3562,7 +3610,7 @@ export function AdminInventoryManagement({
             setRestockingProduct(null);
             setRestockSelectedImages([]);
             setRestockImagePreviews([]);
-            restockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "" });
+            restockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "", expiryDate: "" });
           }
         }}
       >
@@ -3606,6 +3654,22 @@ export function AdminInventoryManagement({
                   <FormItem className="flex flex-col">
                     <FormLabel>Restock Date</FormLabel>
                     <DatePicker date={field.value} setDate={field.onChange} />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={restockForm.control}
+                name="expiryDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Expiry date (optional)</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} value={field.value || ""} />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Set when this lot has an expiry so FEFO can track separate dates on the same SKU.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -3695,7 +3759,7 @@ export function AdminInventoryManagement({
                     setRestockingProduct(null);
                     setRestockSelectedImages([]);
                     setRestockImagePreviews([]);
-                    restockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "" });
+                    restockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "", expiryDate: "" });
                   }}
                   disabled={isUploadingRestockImages}
                 >

@@ -1462,6 +1462,8 @@ export interface RestockHistory {
   remarks?: string;
   /** Optional photos uploaded by admin during restock (e.g. carton/dock photos). Visible to user. */
   imageUrls?: string[];
+  /** Optional lot expiry (YYYY-MM-DD) when admin restocked with FEFO dating. */
+  expiryDate?: string | null;
 }
 
 export interface RecycledShippedItem {

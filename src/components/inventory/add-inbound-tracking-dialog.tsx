@@ -23,13 +23,17 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { detectCarrier } from "@/lib/carrier-detect";
 import { shippoCarrierSelectValue } from "@/lib/inbound-tracking";
+import { addInboundTrackingToRequests } from "@/lib/inbound-tracking-client";
 import { Loader2 } from "lucide-react";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: string;
-  requestId: string;
+  /** Single inventory request (legacy / common). */
+  requestId?: string;
+  /** Multiple inventory request IDs (e.g. multi-line inbound batch). */
+  requestIds?: string[];
   productName: string;
   onAdded?: () => void;
 };
@@ -39,6 +43,7 @@ export function AddInboundTrackingDialog({
   onOpenChange,
   userId,
   requestId,
+  requestIds,
   productName,
   onAdded,
 }: Props) {
@@ -48,6 +53,14 @@ export function AddInboundTrackingDialog({
   const [carrier, setCarrier] = useState("usps");
   const [carrierAuto, setCarrierAuto] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const targetRequestIds = Array.from(
+    new Set(
+      [...(requestIds || []), ...(requestId ? [requestId] : [])]
+        .map((id) => String(id || "").trim())
+        .filter(Boolean)
+    )
+  );
 
   function handleTrackingChange(value: string) {
     setTrackingNumber(value);
@@ -68,27 +81,31 @@ export function AddInboundTrackingDialog({
       toast({ title: "Tracking number required", variant: "destructive" });
       return;
     }
+    if (targetRequestIds.length === 0) {
+      toast({
+        title: "No request selected",
+        description: "Could not find an inbound request to attach tracking to.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSaving(true);
     try {
-      const token = await user.getIdToken();
-      const res = await fetch("/api/inbound-tracking/add", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          userId,
-          requestId,
+      await addInboundTrackingToRequests(
+        user,
+        userId,
+        targetRequestIds.map((id) => ({
+          requestId: id,
           trackingNumber: tn,
           carrier,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to add tracking");
+        }))
+      );
       toast({
         title: "Tracking added",
-        description: "Status will refresh automatically every 3 hours.",
+        description:
+          targetRequestIds.length > 1
+            ? `Attached to ${targetRequestIds.length} inbound lines. Status refreshes every 3 hours.`
+            : "Status will refresh automatically every 3 hours.",
       });
       setTrackingNumber("");
       setCarrier("usps");

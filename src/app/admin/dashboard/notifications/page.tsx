@@ -56,7 +56,7 @@ import {
 import { hasRole } from "@/lib/permissions";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, Truck, Package, RotateCcw, Trash2, Eraser, ShieldAlert, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye, Tag, Wallet, PackageCheck } from "lucide-react";
+import { Bell, Truck, Package, RotateCcw, Trash2, Eraser, ShieldAlert, User, Calendar, ChevronRight, ChevronLeft, Loader2, Eye, Tag, Wallet, PackageCheck, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   adminInboundRequestDisplayStatus,
@@ -69,6 +69,7 @@ import {
 } from "@/lib/admin-pending-receive";
 import { InventoryRequestsManagement } from "@/components/admin/inventory-requests-management";
 import { ShipmentRequestsManagement } from "@/components/admin/shipment-requests-management";
+import { AddInboundTrackingDialog } from "@/components/inventory/add-inbound-tracking-dialog";
 
 type NotificationType =
   | "shipment_request"
@@ -101,6 +102,11 @@ type NotificationRow = {
   subtitle?: string;
   /** Inventory requests only — inbound carrier tracking from client inventory. */
   inboundTrackings?: InboundTrackingEntry[];
+  /**
+   * Inventory request doc IDs to attach tracking to.
+   * Single-line: [requestId]. Multi-line batch notification: all line request IDs.
+   */
+  inboundLineRequestIds?: string[];
   /** Product inbound v2 lifecycle (inventory requests only). */
   inboundDisplayStatus?: AdminInboundRequestDisplayStatus;
   /** Approved-but-not-received row (receive is handled on approve / Inventory Requests). */
@@ -325,6 +331,15 @@ function shipmentNeedsFulfillment(row: NotificationRow): boolean {
   return normStatus(row.warehouseDispatchStatus) !== "dispatched";
 }
 
+/** Admin can attach Shippo tracking on pending/approved inbound notifications. */
+function canAddInboundTrackingFromNotification(row: NotificationRow): boolean {
+  if (row.type !== "inventory_request") return false;
+  const ids = row.inboundLineRequestIds?.filter(Boolean) ?? [];
+  if (ids.length === 0) return false;
+  const s = normStatus(row.status);
+  return s === "pending" || s === "approved";
+}
+
 /** True when this request type is in a terminal/completed state (hide Process button). */
 function isProcessComplete(row: NotificationRow): boolean {
   const s = normStatus(row.status);
@@ -435,6 +450,11 @@ export default function AdminNotificationsPage() {
   const [notificationPage, setNotificationPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [notificationsRefreshKey, setNotificationsRefreshKey] = useState(0);
+  const [addTrackingTarget, setAddTrackingTarget] = useState<{
+    userId: string;
+    requestIds: string[];
+    productName: string;
+  } | null>(null);
 
   const [shipmentRequests, setShipmentRequests] = useState<NotificationRow[]>([]);
   const [inventoryRequests, setInventoryRequests] = useState<NotificationRow[]>([]);
@@ -563,6 +583,7 @@ export default function AdminNotificationsPage() {
             const q = query(base);
             const snap = await getDocs(q);
             const trackingsByBatchId = new Map<string, ReturnType<typeof resolveInboundTrackings>>();
+            const requestIdsByBatchId = new Map<string, string[]>();
             for (const d of snap.docs) {
               const data = d.data() as InventoryRequest & {
                 batchId?: string;
@@ -571,6 +592,9 @@ export default function AdminNotificationsPage() {
               };
               const batchId = String(data.batchId || "").trim();
               if (!batchId) continue;
+              const ids = requestIdsByBatchId.get(batchId) ?? [];
+              ids.push(d.id);
+              requestIdsByBatchId.set(batchId, ids);
               const resolved = resolveInboundTrackings(data);
               if (!resolved.length) continue;
               const list = trackingsByBatchId.get(batchId) ?? [];
@@ -605,6 +629,7 @@ export default function AdminNotificationsPage() {
                   inboundTrackings: resolveInboundTrackings(
                     data as InventoryRequest & { trackingNumber?: string; carrier?: string }
                   ),
+                  inboundLineRequestIds: [d.id],
                 },
                 userId,
                 d.id,
@@ -630,6 +655,7 @@ export default function AdminNotificationsPage() {
                   title: `Inbound Batch • ${totalLines.toLocaleString()} items`,
                   subtitle: `${Number((data as any).pendingLines || 0).toLocaleString()} pending · ${Number((data as any).approvedLines || 0).toLocaleString()} approved · ${Number((data as any).rejectedLines || 0).toLocaleString()} rejected`,
                   inboundTrackings: dedupeInboundTrackings(trackingsByBatchId.get(d.id)),
+                  inboundLineRequestIds: requestIdsByBatchId.get(d.id) ?? [],
                 },
               ];
             });
@@ -659,9 +685,13 @@ export default function AdminNotificationsPage() {
             }));
             const allRequests = results.flat();
             const trackingsByBatchId = new Map<string, ReturnType<typeof resolveInboundTrackings>>();
-            for (const { data } of allRequests) {
+            const requestIdsByBatchId = new Map<string, string[]>();
+            for (const { id, data } of allRequests) {
               const batchId = String(data.batchId || "").trim();
               if (!batchId) continue;
+              const ids = requestIdsByBatchId.get(batchId) ?? [];
+              ids.push(id);
+              requestIdsByBatchId.set(batchId, ids);
               const resolved = resolveInboundTrackings(data);
               if (!resolved.length) continue;
               const list = trackingsByBatchId.get(batchId) ?? [];
@@ -689,6 +719,7 @@ export default function AdminNotificationsPage() {
                         )
                       : `Qty: ${(data as any).quantity ?? (data as any).requestedQty ?? "N/A"}`,
                   inboundTrackings: resolveInboundTrackings(data),
+                  inboundLineRequestIds: [id],
                 };
                 return enrichInventoryNotificationRow(row, uid, id, data, dateMs);
               })
@@ -707,6 +738,7 @@ export default function AdminNotificationsPage() {
                   title: `Inbound Batch • ${totalLines.toLocaleString()} items`,
                   subtitle: `${Number(data.pendingLines || 0).toLocaleString()} pending · ${Number(data.approvedLines || 0).toLocaleString()} approved · ${Number(data.rejectedLines || 0).toLocaleString()} rejected`,
                   inboundTrackings: dedupeInboundTrackings(trackingsByBatchId.get(id)),
+                  inboundLineRequestIds: requestIdsByBatchId.get(id) ?? [],
                 };
                 return row;
               })
@@ -1275,6 +1307,23 @@ export default function AdminNotificationsPage() {
               ) : null}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:shrink-0">
+              {canAddInboundTrackingFromNotification(r) ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full sm:w-auto min-h-[44px] sm:min-h-9 shrink-0 gap-1"
+                  onClick={() =>
+                    setAddTrackingTarget({
+                      userId: r.userId,
+                      requestIds: r.inboundLineRequestIds || [],
+                      productName: r.title.replace(/^Inventory Request •\s*/i, "").replace(/^Inbound Batch •\s*/i, "Batch: "),
+                    })
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  Add tracking
+                </Button>
+              ) : null}
               {!isProcessComplete(r) ? (
               <Button
                 size="sm"
@@ -1555,6 +1604,22 @@ export default function AdminNotificationsPage() {
           standaloneMode
           onStandaloneClose={() => setShipmentReview(null)}
           onStandaloneResolved={() => setNotificationsRefreshKey((k) => k + 1)}
+        />
+      ) : null}
+
+      {addTrackingTarget ? (
+        <AddInboundTrackingDialog
+          open={Boolean(addTrackingTarget)}
+          onOpenChange={(open) => {
+            if (!open) setAddTrackingTarget(null);
+          }}
+          userId={addTrackingTarget.userId}
+          requestIds={addTrackingTarget.requestIds}
+          productName={addTrackingTarget.productName}
+          onAdded={() => {
+            setAddTrackingTarget(null);
+            setNotificationsRefreshKey((k) => k + 1);
+          }}
         />
       ) : null}
 
