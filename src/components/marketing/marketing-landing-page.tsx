@@ -166,6 +166,84 @@ const integrations = [
   { id: "shipstation", label: "ShipStation" },
 ];
 
+/** Productized software modules — competitor-style “named capability” blocks. */
+const softwareModules: Array<{
+  title: string;
+  copy: string;
+  proof: string;
+  icon: LucideIcon;
+  href: string;
+}> = [
+  {
+    title: "Inventory truth",
+    copy: "Live stock by client, SKU, carton, pallet, bin, and condition—without spreadsheet rebuilds.",
+    proof: "Client + admin visibility",
+    icon: Boxes,
+    href: "#capabilities",
+  },
+  {
+    title: "Live receiving video",
+    copy: "Authorized clients watch inbound inspection live, then replay privately inside PrepCorex.",
+    proof: "Rare trust differentiator",
+    icon: Video,
+    href: "#live-video",
+  },
+  {
+    title: "Outbound & multi-channel",
+    copy: "Pick, pack, dispatch, and channel orders stay on one operational record from request to tracking.",
+    proof: "Scan-first warehouse ops",
+    icon: Truck,
+    href: "#workflow",
+  },
+  {
+    title: "Reports & savings",
+    copy: "Client-ready reporting with prep and label savings context they can actually understand.",
+    proof: "Downloadable reports",
+    icon: BarChart3,
+    href: "#label-savings",
+  },
+  {
+    title: "Labels & billing",
+    copy: "Buy labels in-portal and turn completed warehouse work into clear invoices and pricing profiles.",
+    proof: "Work connected to money",
+    icon: FileText,
+    href: "#platform",
+  },
+];
+
+const connectSteps: Array<{
+  step: string;
+  title: string;
+  copy: string;
+  icon: LucideIcon;
+}> = [
+  {
+    step: "01",
+    title: "Connect your channels",
+    copy: "Link Shopify, Amazon, TikTok Shop, and more so orders and inventory sync into PrepCorex.",
+    icon: Cloud,
+  },
+  {
+    step: "02",
+    title: "Send inventory to the warehouse",
+    copy: "Ship to Prep Services FBA in New Jersey. Receiving, inspection, and putaway update the same record.",
+    icon: PackageOpen,
+  },
+  {
+    step: "03",
+    title: "Track everything in PrepCorex",
+    copy: "Watch receiving live, manage stock and shipments, buy labels, and review reports from one portal.",
+    icon: Eye,
+  },
+];
+
+const trustProof = [
+  { value: "Live video", label: "Inbound clients can watch" },
+  { value: "$0", label: "Setup & portal retainer" },
+  { value: "4 portals", label: "Client · Ops · Admin · Affiliate" },
+  { value: "Scan-first", label: "Warehouse floor workflows" },
+];
+
 const featureCards: Array<{
   title: string;
   copy: string;
@@ -244,11 +322,11 @@ function MarketingHeader() {
   }, []);
 
   const links = [
-    ["Product", "#capabilities"],
-    ["Warehouse Ops", "#workflow"],
-    ["Client Portal", "#platform"],
-    ["Savings", "#label-savings"],
+    ["Product", "#product"],
+    ["How it works", "#get-started"],
+    ["Live video", "#live-video"],
     ["Integrations", "#integrations"],
+    ["Portals", "#platform"],
   ];
 
   return (
@@ -1140,47 +1218,47 @@ export function MarketingLandingPage() {
             <div className="relative z-10">
               <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 shadow-sm">
                 <Sparkles className="h-3.5 w-3.5" />
-                Built to Scale. Backed by Prep.
+                PrepCorex · warehouse OS for modern prep centers
               </div>
-              <h1 className="mt-7 max-w-[520px] font-headline text-[clamp(2.35rem,4.1vw,3.85rem)] font-bold leading-[0.98] tracking-[-0.052em] text-[#071a3d] sm:max-w-[560px] lg:max-w-[580px]">
-                From inbound to
+              <h1 className="mt-7 max-w-[560px] font-headline text-[clamp(2.35rem,4.1vw,3.85rem)] font-bold leading-[0.98] tracking-[-0.052em] text-[#071a3d] sm:max-w-[600px] lg:max-w-[640px]">
+                See every unit
                 <br />
-                dispatched. Every
+                from inbound to
                 <br />
-                unit{" "}
                 <span className="bg-gradient-to-r from-orange-600 to-orange-400 bg-clip-text text-transparent">
-                  under control.
+                  dispatch.
                 </span>
               </h1>
               <p className="mt-7 max-w-xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
-                One connected platform for receiving, inventory, prep, shipping, returns, live
-                receiving video, lower-cost labels, and real-time client reporting.
+                PrepCorex is the client and warehouse operating system behind Prep Services FBA—
+                live inventory, scan-first ops, receiving video clients can watch, labels, billing,
+                and reporting in one connected portal.
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <a
-                  href="#platform"
+                  href="https://wa.link/771ry0"
+                  target="_blank"
+                  rel="noreferrer"
                   className={cn(
                     styles.shine,
                     "inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-orange-600 px-6 text-sm font-bold text-white shadow-xl shadow-orange-600/20 transition hover:-translate-y-1 hover:bg-orange-700"
                   )}
                 >
-                  <Play className="h-4 w-4 fill-current" />
-                  See PrepCorex in action
+                  Book a demo
                   <ArrowRight className="h-4 w-4" />
                 </a>
                 <a
-                  href="https://wa.link/771ry0"
-                  target="_blank"
-                  rel="noreferrer"
+                  href="#product"
                   className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-slate-300 bg-white/80 px-6 text-sm font-bold text-slate-800 shadow-sm backdrop-blur transition hover:-translate-y-1 hover:border-orange-300"
                 >
-                  Talk to us
+                  <Play className="h-4 w-4 fill-current text-orange-600" />
+                  See the product
                 </a>
               </div>
 
               <div className="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-xs font-medium text-slate-600">
-                {["No fragmented handoffs", "Real-time visibility", "Client-ready reporting"].map((item) => (
+                {["$0 setup / $0 portal fee", "Live receiving video", "Client-ready reporting"].map((item) => (
                   <span key={item} className="inline-flex items-center gap-1.5">
                     <Check className="h-3.5 w-3.5 text-emerald-600" />
                     {item}
@@ -1215,6 +1293,115 @@ export function MarketingLandingPage() {
                   ))
                 )}
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-b border-slate-200 bg-white py-10">
+          <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-5 sm:grid-cols-4 sm:px-7 lg:px-10">
+            {trustProof.map((item) => (
+              <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-4 text-center">
+                <p className="font-headline text-xl font-bold tracking-tight text-[#071a3d] sm:text-2xl">
+                  {item.value}
+                </p>
+                <p className="mt-1 text-[11px] font-medium text-slate-500">{item.label}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section id="get-started" className="bg-[#fffaf5] py-24 sm:py-32">
+          <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
+            <div data-reveal className={cn(styles.reveal, "mx-auto max-w-3xl text-center")}>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-600">
+                How it works
+              </p>
+              <h2 className="mt-4 font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
+                Connect. Send. Track.
+              </h2>
+              <p className="mx-auto mt-5 max-w-2xl leading-7 text-slate-600">
+                The same simple path competitors market — with PrepCorex as the operating system and
+                Prep Services FBA as the East Coast warehouse partner.
+              </p>
+            </div>
+
+            <div className="mt-14 grid gap-4 md:grid-cols-3">
+              {connectSteps.map((step, index) => {
+                const Icon = step.icon;
+                return (
+                  <div
+                    key={step.title}
+                    data-reveal
+                    style={{ transitionDelay: `${index * 80}ms` }}
+                    className={cn(
+                      styles.reveal,
+                      "rounded-[26px] border border-orange-100 bg-white p-6 shadow-sm sm:p-8"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#071a3d] text-white">
+                        <Icon className="h-5 w-5" />
+                      </span>
+                      <span className="text-xs font-bold text-orange-500">{step.step}</span>
+                    </div>
+                    <h3 className="mt-6 text-xl font-bold tracking-tight text-[#071a3d]">{step.title}</h3>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">{step.copy}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section id="product" className="py-24 sm:py-32">
+          <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
+            <div
+              data-reveal
+              className={cn(styles.reveal, "flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between")}
+            >
+              <div className="max-w-3xl">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-600">
+                  Meet PrepCorex
+                </p>
+                <h2 className="mt-4 font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
+                  Software modules buyers can understand in seconds.
+                </h2>
+              </div>
+              <p className="max-w-md text-sm leading-6 text-slate-600">
+                Named capabilities—not a buried feature checklist. Each module ties warehouse work to
+                client visibility.
+              </p>
+            </div>
+
+            <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {softwareModules.map((mod, index) => {
+                const Icon = mod.icon;
+                return (
+                  <a
+                    key={mod.title}
+                    href={mod.href}
+                    data-reveal
+                    style={{ transitionDelay: `${(index % 3) * 70}ms` }}
+                    className={cn(
+                      styles.reveal,
+                      index === 0 || index === 4 ? "lg:col-span-2" : "",
+                      "group rounded-[26px] border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-orange-300 hover:shadow-xl sm:p-8"
+                    )}
+                  >
+                    <span className="inline-flex rounded-2xl bg-orange-50 p-3 text-orange-700">
+                      <Icon className="h-6 w-6" />
+                    </span>
+                    <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.14em] text-orange-600">
+                      {mod.proof}
+                    </p>
+                    <h3 className="mt-2 text-xl font-bold tracking-tight text-[#071a3d]">{mod.title}</h3>
+                    <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">{mod.copy}</p>
+                    <span className="mt-6 inline-flex items-center gap-1 text-xs font-bold text-orange-600">
+                      Explore <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
+                    </span>
+                  </a>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -1463,14 +1650,14 @@ export function MarketingLandingPage() {
           <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
             <div data-reveal className={cn(styles.reveal, "mx-auto max-w-3xl text-center")}>
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-600">
-                Connected commerce
+                Integrations
               </p>
               <h2 className="mt-4 font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
-                Bring orders and inventory into one operational flow.
+                Connect channels in minutes. Fulfill from one flow.
               </h2>
               <p className="mx-auto mt-5 max-w-2xl leading-7 text-slate-600">
-                Connect the channels your clients sell through, then manage fulfillment from one
-                consistent warehouse process.
+                Bring the marketplaces your clients sell on into PrepCorex, then run receiving,
+                inventory, and dispatch without switching tools.
               </p>
             </div>
 
@@ -1488,7 +1675,26 @@ export function MarketingLandingPage() {
               ))}
             </div>
 
-            <div className="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-xs text-slate-500">
+            <div
+              data-reveal
+              className={cn(
+                styles.reveal,
+                "mt-10 grid gap-3 rounded-[26px] border border-orange-100 bg-[#fffaf5] p-5 sm:grid-cols-3 sm:p-6"
+              )}
+            >
+              {[
+                ["1. Connect", "Authorize the sales channel from the client portal."],
+                ["2. Sync", "Orders and inventory updates flow into PrepCorex."],
+                ["3. Fulfill", "Warehouse Ops executes; clients track status live."],
+              ].map(([title, copy]) => (
+                <div key={title} className="rounded-2xl border border-white bg-white px-4 py-4">
+                  <p className="text-sm font-bold text-[#071a3d]">{title}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">{copy}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-xs text-slate-500">
               {["Order sync", "Inventory updates", "Fulfillment status", "Tracking visibility"].map(
                 (item) => (
                   <span key={item} className="inline-flex items-center gap-2">
@@ -1588,20 +1794,24 @@ export function MarketingLandingPage() {
             <div className="mt-12 grid gap-3">
               {[
                 [
+                  "What is PrepCorex vs Prep Services FBA?",
+                  "Prep Services FBA is the New Jersey warehouse and fulfillment partner. PrepCorex is the included operating system—client portal, warehouse ops, admin controls, and affiliate tools—so everyone works from the same live record.",
+                ],
+                [
                   "Who is PrepCorex for?",
                   "Prep centers, 3PLs, fulfillment warehouses, operators, managers, and the clients they serve. Each role gets a focused portal instead of sharing one overloaded interface.",
+                ],
+                [
+                  "Can clients watch receiving live?",
+                  "Yes. When enabled, operators can publish a live receiving session tied to the client and inbound request. Playback stays private inside PrepCorex—no raw Drive links.",
                 ],
                 [
                   "Does it cover the full warehouse workflow?",
                   "Yes. Expected inbound, receiving, inspection, putaway, storage, internal moves, inventory, picking, packing, dispatch, returns, quarantine, cycle counts, billing, and reporting are connected.",
                 ],
                 [
-                  "Can clients see their own operation?",
-                  "Yes. Clients can view and request work, monitor inventory and shipments, connect channels, buy labels, review invoices, watch receiving video, and download reports without seeing another client's data.",
-                ],
-                [
-                  "Does it work on the warehouse floor?",
-                  "Warehouse Ops is scan-first and mobile-friendly, with dedicated queues and permissions for receiving, putaway, picking, packing, dispatch, quality, and supervisor work.",
+                  "Is there a software fee?",
+                  "PrepCorex access is included for Prep Services FBA fulfillment partners—$0 setup and $0 monthly portal retainer. You pay for warehouse activity, not a software subscription.",
                 ],
               ].map(([question, answer]) => (
                 <details
@@ -1634,27 +1844,29 @@ export function MarketingLandingPage() {
             <div className="relative">
               <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-orange-300">
                 <Globe2 className="h-3.5 w-3.5" />
-                Your operation deserves one clear system
+                Ready to see PrepCorex?
               </span>
               <h2 className="mx-auto mt-6 max-w-4xl font-headline text-4xl font-bold tracking-tight sm:text-6xl">
-                Move faster. Make fewer mistakes. Give every client confidence.
+                Book a demo—or create your account today.
               </h2>
               <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-slate-300">
-                Bring your warehouse team, client experience, integrations, and operational records
-                into one connected PrepCorex workflow.
+                See live receiving, client portals, and scan-first warehouse workflows on your
+                operation. PrepCorex is included with Prep Services FBA fulfillment.
               </p>
               <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
-                <Link
-                  href="/register"
+                <a
+                  href="https://wa.link/771ry0"
+                  target="_blank"
+                  rel="noreferrer"
                   className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-orange-600 px-7 text-sm font-bold text-white shadow-xl shadow-orange-950/40 transition hover:-translate-y-1 hover:bg-orange-500"
                 >
-                  Create your account <ArrowRight className="h-4 w-4" />
-                </Link>
+                  Book a demo <ArrowRight className="h-4 w-4" />
+                </a>
                 <Link
-                  href="/login"
+                  href="/register"
                   className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/20 bg-white/5 px-7 text-sm font-bold text-white backdrop-blur transition hover:bg-white/10"
                 >
-                  Sign in to PrepCorex
+                  Create your account
                 </Link>
               </div>
             </div>
@@ -1679,11 +1891,11 @@ export function MarketingLandingPage() {
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-slate-900">Platform</p>
               <div className="mt-4 grid gap-3 text-sm text-slate-600">
+                <a href="#product" className="hover:text-orange-600">Product modules</a>
+                <a href="#get-started" className="hover:text-orange-600">How it works</a>
                 <a href="#workflow" className="hover:text-orange-600">Workflow</a>
                 <a href="#platform" className="hover:text-orange-600">Portals</a>
                 <a href="#live-video" className="hover:text-orange-600">Live receiving video</a>
-                <a href="#label-savings" className="hover:text-orange-600">Label savings</a>
-                <a href="#capabilities" className="hover:text-orange-600">Capabilities</a>
                 <a href="#integrations" className="hover:text-orange-600">Integrations</a>
               </div>
             </div>

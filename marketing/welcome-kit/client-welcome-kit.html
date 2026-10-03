@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prep Services FBA · Client Welcome Kit</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 0.5in 0.58in 0.48in 0.58in;
+    }
+    :root {
+      --ink: #101828;
+      --navy: #071a3d;
+      --muted: #5b6472;
+      --line: #e5e1db;
+      --orange: #ff4d12;
+      --soft: #fff6f1;
+      --panel: #f7f5f2;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      color: var(--ink);
+      background: #fff;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.38;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .sheet { page-break-after: always; break-after: page; }
+    .sheet:last-child { page-break-after: auto; break-after: auto; }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      border-bottom: 2.5px solid var(--orange);
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+    .brand {
+      font-size: 9pt;
+      font-weight: 750;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--orange);
+    }
+    .doc-meta {
+      font-size: 9pt;
+      color: var(--muted);
+      text-align: right;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 18pt;
+      line-height: 1.1;
+      color: var(--navy);
+      letter-spacing: -0.02em;
+    }
+    h2 {
+      margin: 12px 0 6px;
+      font-size: 12pt;
+      color: var(--navy);
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 3px;
+    }
+    h3 {
+      margin: 0 0 3px;
+      font-size: 10.5pt;
+      color: var(--navy);
+    }
+    p { margin: 0 0 8px; }
+    ul, ol { margin: 0 0 8px; padding-left: 18px; }
+    li { margin-bottom: 4px; }
+    a { color: var(--orange); text-decoration: none; }
+
+    .hero {
+      background: linear-gradient(135deg, #071a3d 0%, #12325f 100%);
+      color: #fff;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+    }
+    .hero p { margin: 0; color: rgba(255,255,255,0.9); font-size: 10.5pt; }
+    .hero .eyebrow {
+      display: block;
+      margin-bottom: 4px;
+      color: #ffb089;
+      font-size: 8pt;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .hero h1 { color: #fff; font-size: 17pt; margin-bottom: 5px; }
+
+    .callout {
+      background: var(--soft);
+      border-left: 3px solid var(--orange);
+      padding: 9px 11px;
+      margin: 8px 0 10px;
+      font-size: 10pt;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 8px 0;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin: 8px 0 10px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+    }
+    .card p { margin: 0; font-size: 9.5pt; color: var(--muted); }
+    .stat {
+      text-align: center;
+      border: 1px solid var(--line);
+      padding: 9px 6px;
+    }
+    .stat b {
+      display: block;
+      color: var(--orange);
+      font-size: 15pt;
+      line-height: 1.1;
+    }
+    .stat span {
+      display: block;
+      margin-top: 2px;
+      font-size: 8.5pt;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9.5pt;
+      margin: 6px 0 8px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 6px 7px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #f2ece6;
+      font-weight: 650;
+      font-size: 9pt;
+    }
+    tr.hi td { background: #fff7f2; font-weight: 600; }
+    .muted { color: var(--muted); font-size: 9pt; }
+    .footer {
+      margin-top: 10px;
+      padding-top: 6px;
+      border-top: 1px solid var(--line);
+      font-size: 8pt;
+      color: var(--muted);
+    }
+    .big-num {
+      display: inline-block;
+      min-width: 22px;
+      height: 22px;
+      line-height: 22px;
+      text-align: center;
+      border-radius: 50%;
+      background: var(--navy);
+      color: #fff;
+      font-size: 10pt;
+      font-weight: 700;
+      margin-right: 6px;
+    }
+    .simple-step {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      margin-bottom: 7px;
+      padding: 7px 9px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+    .simple-step p { margin: 0; font-size: 10pt; }
+  </style>
+</head>
+<body>
+
+  <!-- PAGE 1 -->
+  <section class="sheet">
+    <div class="topbar">
+      <div class="brand">Prep Services FBA · PrepCorex</div>
+      <div class="doc-meta">Welcome Kit · Page 1 of 3</div>
+    </div>
+
+    <div class="hero">
+      <span class="eyebrow">Welcome</span>
+      <h1>Welcome to Prep Services FBA</h1>
+      <p>
+        We prepare and ship your products for Amazon and other online stores.
+        You also get a free online portal (PrepCorex) to track everything.
+      </p>
+    </div>
+
+    <div class="callout">
+      <strong>In simple terms:</strong>
+      Send us your inventory. We label, pack, store, and ship it.
+      You can see progress online — no setup fee, and no monthly software fee.
+    </div>
+
+    <h2>Two names. One team.</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Prep Services FBA</h3>
+        <p>The warehouse team in New Jersey that receives, preps, stores, and ships your products.</p>
+      </div>
+      <div class="card">
+        <h3>PrepCorex</h3>
+        <p>Your free online portal to track inventory, shipments, and reports. Included with your account.</p>
+      </div>
+    </div>
+
+    <h2>How to reach us</h2>
+    <table>
+      <tr>
+        <th style="width:26%">Contact</th>
+        <td>Arshad Iqbal · arshad@prepservicesfba.com · +1 347 661 3010</td>
+      </tr>
+      <tr>
+        <th>General email</th>
+        <td>info@prepservicesfba.com</td>
+      </tr>
+      <tr>
+        <th>Ship inventory to</th>
+        <td>Prep Services FBA · 7000 Atrium Way C03 · Mount Laurel, NJ 08054 · USA</td>
+      </tr>
+      <tr>
+        <th>Website</th>
+        <td>www.prepservicesfba.com</td>
+      </tr>
+    </table>
+
+    <h2>Getting started (easy steps)</h2>
+    <div class="simple-step">
+      <span class="big-num">1</span>
+      <p><strong>Quick call</strong> — we learn what you sell and how you want products prepared.</p>
+    </div>
+    <div class="simple-step">
+      <span class="big-num">2</span>
+      <p><strong>Portal login</strong> — we give you PrepCorex access (free).</p>
+    </div>
+    <div class="simple-step">
+      <span class="big-num">3</span>
+      <p><strong>Your price</strong> — we send a clear quote for your products.</p>
+    </div>
+    <div class="simple-step">
+      <span class="big-num">4</span>
+      <p><strong>Send inventory</strong> — we receive it, prep it, and keep you updated online.</p>
+    </div>
+
+    <h2>Please send us these 4 things</h2>
+    <ol>
+      <li><strong>Product list</strong> — names, SKUs / barcodes, and how many units per box</li>
+      <li><strong>Prep needs</strong> — labels, poly bags, bundles, or special packaging</li>
+      <li><strong>Where you sell</strong> — Amazon FBA, your website, Walmart, TikTok, etc.</li>
+      <li><strong>When inventory arrives</strong> — expected date and number of boxes or pallets</li>
+    </ol>
+
+    <div class="callout">
+      <strong>Next step:</strong>
+      Email your product list and arrival date to
+      arshad@prepservicesfba.com or info@prepservicesfba.com.
+    </div>
+
+    <div class="footer">
+      Prep Services FBA LLC · Mount Laurel, New Jersey · +1 347 661 3010
+    </div>
+  </section>
+
+  <!-- PAGE 2 -->
+  <section class="sheet">
+    <div class="topbar">
+      <div class="brand">Prep Services FBA · PrepCorex</div>
+      <div class="doc-meta">What We Do · Page 2 of 3</div>
+    </div>
+
+    <h1>What we do for your business</h1>
+    <p>
+      We help online sellers prepare products for Amazon and ship orders to customers —
+      from our warehouse in New Jersey.
+    </p>
+
+    <div class="grid-3">
+      <div class="stat"><b>1M+</b><span>Units processed</span></div>
+      <div class="stat"><b>99.9%</b><span>Accuracy focus</span></div>
+      <div class="stat"><b>24–72h</b><span>Typical turnaround</span></div>
+    </div>
+
+    <h2>Our main services</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Amazon FBA prep</h3>
+        <p>We label products, pack them the Amazon way, and help ship them to Amazon warehouses.</p>
+      </div>
+      <div class="card">
+        <h3>Order fulfillment</h3>
+        <p>We pick, pack, and ship orders for Amazon FBM, Shopify, TikTok Shop, and similar stores.</p>
+      </div>
+      <div class="card">
+        <h3>Walmart prep</h3>
+        <p>We prepare inventory for Walmart WFS with the correct labels and packing.</p>
+      </div>
+      <div class="card">
+        <h3>Storage</h3>
+        <p>We store your inventory safely until it’s ready to prep or ship.</p>
+      </div>
+      <div class="card">
+        <h3>Returns</h3>
+        <p>We receive returns, check them, and update you in the portal.</p>
+      </div>
+      <div class="card">
+        <h3>Freight receiving</h3>
+        <p>We can receive boxes, pallets, trucks, and containers near Port Newark.</p>
+      </div>
+    </div>
+
+    <h2>Why sellers choose us</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Good location</h3>
+        <p>New Jersey warehouse — close to Port Newark and many Amazon centers on the East Coast.</p>
+      </div>
+      <div class="card">
+        <h3>Easy tracking</h3>
+        <p>PrepCorex shows your inventory and shipments online, so you don’t wait on email updates.</p>
+      </div>
+      <div class="card">
+        <h3>Simple pricing</h3>
+        <p>$0 setup. $0 monthly portal fee. You only pay for the warehouse work we do.</p>
+      </div>
+      <div class="card">
+        <h3>Flexible</h3>
+        <p>No long contract required for standard onboarding. Pricing is based on your products and volume.</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>Best fit:</strong>
+      Sellers shipping about 500+ units per month who want a reliable East Coast prep partner
+      with online visibility.
+    </div>
+
+    <div class="footer">
+      Serving Amazon, Walmart, Shopify, TikTok Shop, wholesale, and multi-channel sellers
+    </div>
+  </section>
+
+  <!-- PAGE 3 -->
+  <section class="sheet">
+    <div class="topbar">
+      <div class="brand">Prep Services FBA · PrepCorex</div>
+      <div class="doc-meta">Pricing Guide · Page 3 of 3</div>
+    </div>
+
+    <h1>Pricing — kept simple</h1>
+    <p>
+      Every seller’s products are different, so we give you a <strong>custom quote</strong>.
+      To keep pricing fair and clear, here is how the US market usually looks.
+    </p>
+
+    <div class="callout">
+      <strong>Quick market number:</strong>
+      Most US prep centers charge around <strong>$1.00 – $1.65 per unit</strong> for standard FBA prep.
+      The middle of the market is about <strong>$1.30 – $1.35 per unit</strong>.
+      Your Prep Services FBA quote is made for your products — not a generic “from $X” ad price.
+    </div>
+
+    <h2>What other companies often charge</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Company</th>
+          <th>What their website shows</th>
+          <th>What to watch for</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>MyFBAPrep</td>
+          <td>About $0.95–$1.00 per unit</td>
+          <td>Often billed as if you send ~5,000 units every month</td>
+        </tr>
+        <tr>
+          <td>AMZ Prep</td>
+          <td>Ads say “from $0.40”</td>
+          <td>Real price is often higher; bags/bundles may cost extra</td>
+        </tr>
+        <tr>
+          <td>Typical US market</td>
+          <td>About $1.30 per unit (middle)</td>
+          <td>Very low prices usually need very high volume</td>
+        </tr>
+        <tr class="hi">
+          <td>Prep Services FBA</td>
+          <td><strong>Custom quote</strong> for your products</td>
+          <td>No big monthly unit minimum · Free PrepCorex portal · $0 setup</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Example: what “market price” can look like</h2>
+    <p class="muted">Using ~$1.35 per unit (common market mid-point for standard prep):</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Units you prep each month</th>
+          <th>Approx. market cost</th>
+          <th>If a company forces a 5,000-unit minimum</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>1,000</td><td>About $1,350</td><td>You may still be billed near $5,000</td></tr>
+        <tr><td>2,500</td><td>About $3,375</td><td>You may still be billed near $5,000</td></tr>
+        <tr><td>5,000</td><td>About $6,750</td><td>About $5,000 before extras</td></tr>
+      </tbody>
+    </table>
+
+    <h2>3 things that make “cheap” prices expensive</h2>
+    <ol>
+      <li><strong>Monthly minimums</strong> — you pay for units you didn’t send</li>
+      <li><strong>Extra fees</strong> — bags, bundles, returns, or storage added later</li>
+      <li><strong>Software / account fees</strong> — portal charges hidden outside the per-unit price</li>
+    </ol>
+
+    <div class="callout">
+      <strong>Want your clear quote?</strong><br />
+      Arshad Iqbal · arshad@prepservicesfba.com · +1 347 661 3010 · www.prepservicesfba.com
+    </div>
+
+    <div class="footer">
+      Market numbers are from public websites and industry lists (2026). They can change.
+      Your Prep Services FBA price is confirmed in your personal quote.
+    </div>
+  </section>
+
+</body>
+</html>
