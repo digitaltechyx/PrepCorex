@@ -353,7 +353,7 @@ export function BuyLabelsForm({
   const [cartItems, setCartItems] = useState<LabelCartItem[]>([]);
   const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
   const [labelBilling, setLabelBilling] = useState<LabelBillingSettings | null>(null);
-  const [paymentSource, setPaymentSource] = useState<LabelPaymentSource>("wallet");
+  const [paymentSource, setPaymentSource] = useState<LabelPaymentSource>("limit");
   const [selectedFromLocationId, setSelectedFromLocationId] = useState("");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [selectedInventoryProductId, setSelectedInventoryProductId] = useState<string>("");
@@ -416,16 +416,19 @@ export function BuyLabelsForm({
   const isBillingExempt =
     hasRole(userProfile, "admin") || hasRole(userProfile, "sub_admin");
   const trialActive = labelBilling ? isLabelTrialActive(labelBilling) : false;
-  const showPaymentPicker = !isBillingExempt && Boolean(labelBilling) && trialActive;
+  const limitMode = labelBilling?.mode === "limit";
+  const canPayByCard = Boolean(labelBilling) && (limitMode || trialActive);
+  const showPaymentPicker = !isBillingExempt && canPayByCard;
+  const cardPaymentSource: LabelPaymentSource = limitMode ? "limit" : "trial";
 
   useEffect(() => {
     if (!labelBilling || isBillingExempt) return;
-    if (trialActive && labelBillingRemainingCents(labelBilling) > 0) {
-      setPaymentSource("trial");
+    if (limitMode || (trialActive && labelBillingRemainingCents(labelBilling) > 0)) {
+      setPaymentSource(limitMode ? "limit" : "trial");
     } else {
       setPaymentSource("wallet");
     }
-  }, [labelBilling, trialActive, isBillingExempt]);
+  }, [labelBilling, trialActive, limitMode, isBillingExempt]);
 
   const payWithWallet = !isBillingExempt && paymentSource === "wallet";
 
@@ -434,14 +437,16 @@ export function BuyLabelsForm({
       <div className="rounded-md border p-3 space-y-2">
         <p className="text-sm font-medium">Payment method</p>
         <RadioGroup
-          value={paymentSource}
+          value={paymentSource === "wallet" ? "wallet" : cardPaymentSource}
           onValueChange={(value) => setPaymentSource(value as LabelPaymentSource)}
           className="gap-3"
         >
           <label className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
-            <RadioGroupItem value="trial" className="mt-0.5" />
+            <RadioGroupItem value={cardPaymentSource} className="mt-0.5" />
             <div>
-              <p className="text-sm font-medium">Buy Label Trial (card)</p>
+              <p className="text-sm font-medium">
+                {limitMode ? "Card (purchase limit)" : "Buy Label Trial (card)"}
+              </p>
               <p className="text-xs text-muted-foreground">
                 {formatLabelBillingMoney(labelBillingRemainingCents(labelBilling))} remaining this{" "}
                 {labelBilling.period === "daily"

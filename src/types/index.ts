@@ -583,13 +583,13 @@ export interface LabelApiFeeSettings {
 
 /** Per-user Buy Labels billing (stored on `users/{uid}.labelBilling`). */
 export interface LabelBillingSettings {
-  /** @deprecated Derived from trial/wallet availability; kept for legacy reads. */
+  /** Buy Labels: `limit` = card + period purchase cap; `wallet` = prepaid wallet. */
   mode: LabelBillingMode;
-  /** ISO instant when the 30-day Buy Label trial window started. */
+  /** ISO instant when the optional 30-day Buy Label trial window started (legacy wallet+trial). */
   trialStartedAtIso?: string | null;
-  /** When true, trial is hidden even if within 30 days (admin override). */
+  /** When true, trial card path is hidden (typical for wallet-only accounts). */
   trialDisabled?: boolean;
-  /** Cap for trial purchases in the current calendar period. Cents. */
+  /** Cap for card / trial purchases in the current calendar period. Cents. */
   limitAmountCents: number;
   period: LabelBillingPeriod;
   /** Trial spend counted in the current `periodKey`. */

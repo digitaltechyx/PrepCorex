@@ -14,7 +14,7 @@ export const LABEL_API_FEE_MONTHLY_MS = 30 * 24 * 60 * 60 * 1000;
 /** Buy Label trial window (30 days from `trialStartedAtIso`). */
 export const LABEL_TRIAL_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
-export type LabelPaymentSource = "trial" | "wallet";
+export type LabelPaymentSource = "limit" | "trial" | "wallet";
 
 export const LABEL_WALLET_TOPUP_COLLECTION = "labelWalletTopupRequests";
 export const LABEL_WALLET_LEDGER_COLLECTION = "labelWalletLedger";
@@ -257,7 +257,8 @@ export function normalizeLabelBillingSettings(
   raw: Partial<LabelBillingSettings> | null | undefined,
   now = new Date()
 ): LabelBillingSettings {
-  const legacyMode = raw?.mode === "wallet" ? "wallet" : "limit";
+  /** Explicit admin mode: limit = card + period cap; wallet = prepaid wallet. */
+  const mode: LabelBillingMode = raw?.mode === "wallet" ? "wallet" : "limit";
   const period: LabelBillingPeriod =
     raw?.period === "daily" ||
     raw?.period === "weekly" ||
@@ -292,7 +293,7 @@ export function normalizeLabelBillingSettings(
   // Legacy wallet-only accounts tracked wallet spend in periodUsedCents.
   if (
     raw?.walletPeriodUsedCents == null &&
-    legacyMode === "wallet" &&
+    mode === "wallet" &&
     !rolled &&
     periodUsedCents > 0
   ) {
@@ -317,16 +318,15 @@ export function normalizeLabelBillingSettings(
 
   let trialStartedAtIso = raw?.trialStartedAtIso ? String(raw.trialStartedAtIso) : null;
   let trialDisabled = raw?.trialDisabled === true;
-  if (!trialStartedAtIso && legacyMode === "wallet") {
-    // Legacy wallet-only: no trial window.
+  if (!trialStartedAtIso && mode === "wallet") {
+    // Wallet-only accounts typically skip the 30-day card trial window.
     trialDisabled = true;
   } else if (!trialStartedAtIso) {
-    // New or legacy limit-only: start the 30-day trial now.
     trialStartedAtIso = now.toISOString();
   }
 
-  const draft: LabelBillingSettings = {
-    mode: legacyMode,
+  return {
+    mode,
     trialStartedAtIso,
     trialDisabled,
     limitAmountCents: resolvedLimitCents,
@@ -341,8 +341,6 @@ export function normalizeLabelBillingSettings(
     allowShipbest,
     apiFee: normalizeLabelApiFeeSettings(raw?.apiFee, now),
   };
-  draft.mode = isLabelTrialActive(draft, now) ? "limit" : "wallet";
-  return draft;
 }
 
 export function labelBillingRemainingCents(settings: LabelBillingSettings): number {
@@ -419,6 +417,9 @@ export function resolveLabelPaymentSource(
   now = new Date()
 ): LabelPaymentSource {
   if (preferWallet) return "wallet";
+  // Admin-selected limit mode: card purchases against the period purchase limit.
+  if (settings.mode === "limit") return "limit";
+  // Legacy: wallet mode may still allow card during an active 30-day trial.
   if (isLabelTrialActive(settings, now)) return "trial";
   return "wallet";
 }
@@ -462,8 +463,8 @@ export function canSpendLabelBilling(
     opts?.paymentSource ??
     resolveLabelPaymentSource(settings, opts?.preferWallet === true, now);
 
-  if (source === "trial") {
-    if (!isLabelTrialActive(settings, now)) {
+  if (source === "limit" || source === "trial") {
+    if (source === "trial" && !isLabelTrialActive(settings, now)) {
       return {
         ok: false,
         error:
@@ -471,11 +472,18 @@ export function canSpendLabelBilling(
         code: "TRIAL_EXPIRED",
       };
     }
+    if (settings.mode === "wallet" && source === "limit") {
+      return {
+        ok: false,
+        error: "Card purchases are not enabled for this account. Use your label wallet.",
+        code: "WRONG_MODE",
+      };
+    }
     if (settings.periodUsedCents + amount > settings.limitAmountCents) {
       const left = labelBillingRemainingCents(settings);
       return {
         ok: false,
-        error: `Trial label purchase limit reached. Remaining this ${formatLabelBillingPeriod(settings.period)}: ${formatLabelBillingMoney(left)}. Use your wallet or contact an administrator.`,
+        error: `Label purchase limit reached. Remaining this ${formatLabelBillingPeriod(settings.period)}: ${formatLabelBillingMoney(left)}. Use your wallet or contact an administrator.`,
         code: "LIMIT_EXCEEDED",
       };
     }
@@ -509,11 +517,15 @@ export function labelBillingSummaryLine(
   const period = formatLabelBillingPeriod(settings.period);
   const walletBal = formatLabelBillingMoney(settings.walletBalanceCents || 0);
   const walletLeft = formatLabelBillingMoney(labelWalletRemainingCents(settings));
+  const limit = formatLabelBillingMoney(settings.limitAmountCents);
+  const used = formatLabelBillingMoney(settings.periodUsedCents);
+  const left = formatLabelBillingMoney(labelBillingRemainingCents(settings));
   const trialActive = isLabelTrialActive(settings, now);
+
+  if (settings.mode === "limit") {
+    return `Card purchase limit · ${limit}/${period} · Used ${used} · Left ${left} · Wallet ${walletBal}`;
+  }
   if (trialActive) {
-    const limit = formatLabelBillingMoney(settings.limitAmountCents);
-    const used = formatLabelBillingMoney(settings.periodUsedCents);
-    const left = formatLabelBillingMoney(labelBillingRemainingCents(settings));
     const ends = labelTrialEndsAt(settings, now);
     const daysLeft = ends
       ? Math.max(1, Math.ceil((ends.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))

@@ -415,11 +415,32 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
   const trialDaysLeft = trialActive
     ? Math.max(1, Math.ceil(labelTrialRemainingMs(settings) / (24 * 60 * 60 * 1000)))
     : 0;
+  const limitMode = settings.mode === "limit";
 
   return (
     <>
       <div className="space-y-4">
-        {trialActive ? (
+        {limitMode ? (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">Card purchase limit</CardTitle>
+              <CardDescription>
+                Pay per label with your card up to the limit each{" "}
+                {formatLabelBillingPeriod(settings.period)}
+                {ends ? ` · Resets ${format(ends, "PPp")}` : null}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              Remaining this {formatLabelBillingPeriod(settings.period)}:{" "}
+              <span className="font-medium text-foreground">
+                {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
+              </span>
+              {" · "}
+              Used {formatLabelBillingMoney(settings.periodUsedCents)} of{" "}
+              {formatLabelBillingMoney(settings.limitAmountCents)}
+            </CardContent>
+          </Card>
+        ) : trialActive ? (
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-lg">Buy Label Trial</CardTitle>

@@ -4,7 +4,6 @@ import {
   applyLabelApiFeePaid,
   canSpendLabelBilling,
   isLabelApiFeeBlocking,
-  isLabelTrialActive,
   LABEL_BILLING_DEFAULT_MARKUP_CENTS,
   labelApiFeeBlockMessage,
   labelBillingPeriodKey,
@@ -220,7 +219,7 @@ export async function applyLabelBillingSpend(
         walletBalanceCents: nextBalance,
         walletPeriodUsedCents: nextWalletUsed,
         periodKey: labelBillingPeriodKey(settings.period),
-        mode: isLabelTrialActive(settings) ? "limit" : "wallet",
+        mode: settings.mode,
       };
       tx.set(
         userRef,
@@ -239,7 +238,7 @@ export async function applyLabelBillingSpend(
       ...settings,
       periodUsedCents: nextUsed,
       periodKey: labelBillingPeriodKey(settings.period),
-      mode: "limit",
+      mode: settings.mode === "wallet" ? "wallet" : "limit",
     };
     tx.set(
       userRef,
@@ -317,7 +316,8 @@ export async function adminUpdateLabelBilling(
       settings = {
         ...settings,
         mode: opts.mode,
-        trialDisabled: opts.mode === "wallet" ? true : settings.trialDisabled,
+        // Wallet-only: hide trial/card path. Limit mode: enable ongoing card purchases.
+        trialDisabled: opts.mode === "wallet" ? true : false,
       };
     }
     if (opts.resetTrial) {

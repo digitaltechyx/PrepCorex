@@ -17,7 +17,7 @@ import {
   labelWalletRemainingCents,
   labelWalletSpendLimitCents,
 } from "@/lib/label-billing";
-import type { LabelBillingPeriod, LabelBillingSettings } from "@/types";
+import type { LabelBillingMode, LabelBillingPeriod, LabelBillingSettings } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,7 @@ export function AdminLabelBillingPanel() {
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<LabelBillingSettings | null>(null);
   const [period, setPeriod] = useState<LabelBillingPeriod>("monthly");
+  const [billingMode, setBillingMode] = useState<LabelBillingMode>("limit");
   const [limitDollars, setLimitDollars] = useState("50");
   const [walletSpendLimitDollars, setWalletSpendLimitDollars] = useState("50");
   const [walletDollars, setWalletDollars] = useState("0");
@@ -114,6 +115,7 @@ export function AdminLabelBillingPanel() {
       const s = data.settings as LabelBillingSettings;
       setSettings(s);
       setPeriod(s.period);
+      setBillingMode(s.mode === "wallet" ? "wallet" : "limit");
       setLimitDollars((s.limitAmountCents / 100).toFixed(2));
       setWalletSpendLimitDollars((labelWalletSpendLimitCents(s) / 100).toFixed(2));
       setWalletDollars(((s.walletBalanceCents || 0) / 100).toFixed(2));
@@ -176,8 +178,9 @@ export function AdminLabelBillingPanel() {
       <CardHeader>
         <CardTitle>Label billing settings</CardTitle>
         <CardDescription>
-          Clients get a 30-day Buy Label trial plus a wallet. After 30 days the trial hides and only
-          the wallet remains. Default trial cap is $20/month with $0.15 markup.
+          Choose how the client pays for Buy Labels: <strong>Limit (card)</strong> uses a period
+          purchase cap paid by card, or <strong>Wallet</strong> uses prepaid balance. Optional
+          30-day trial still applies on wallet accounts unless disabled.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 overflow-visible">
@@ -275,12 +278,29 @@ export function AdminLabelBillingPanel() {
               </span>
             </p>
             <p className="text-sm text-muted-foreground">
-              {isLabelTrialActive(settings)
-                ? `Trial active until ${labelTrialEndsAt(settings)?.toLocaleString() || "—"}`
-                : "Trial ended or disabled — wallet only"}
+              {billingMode === "limit"
+                ? "Limit mode — client buys labels with card up to the purchase limit each period."
+                : isLabelTrialActive(settings)
+                  ? `Wallet mode · trial active until ${labelTrialEndsAt(settings)?.toLocaleString() || "—"}`
+                  : "Wallet mode — prepaid wallet only (trial ended or disabled)."}
             </p>
 
             <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Billing mode</Label>
+                <Select
+                  value={billingMode}
+                  onValueChange={(v) => setBillingMode(v as LabelBillingMode)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="limit">Limit (card purchase)</SelectItem>
+                    <SelectItem value="wallet">Wallet (prepaid)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2">
                 <Label>Period</Label>
                 <Select value={period} onValueChange={(v) => setPeriod(v as LabelBillingPeriod)}>
@@ -296,7 +316,10 @@ export function AdminLabelBillingPanel() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Trial purchase limit (USD) / {formatLabelBillingPeriod(period)}</Label>
+                <Label>
+                  {billingMode === "limit" ? "Card purchase limit" : "Trial purchase limit"} (USD) /{" "}
+                  {formatLabelBillingPeriod(period)}
+                </Label>
                 <Input
                   type="number"
                   min="0"
@@ -330,8 +353,12 @@ export function AdminLabelBillingPanel() {
                   <Checkbox
                     checked={trialDisabled}
                     onCheckedChange={(v) => setTrialDisabled(v === true)}
+                    disabled={billingMode === "wallet"}
                   />
-                  Disable Buy Label trial (wallet only)
+                  Disable Buy Label trial
+                  {billingMode === "wallet"
+                    ? " (auto when wallet mode is saved)"
+                    : " (optional; limit mode already uses card + purchase limit)"}
                 </label>
               </div>
               <div className="space-y-2">
@@ -446,10 +473,11 @@ export function AdminLabelBillingPanel() {
                 onClick={() =>
                   void patch(
                     {
+                      mode: billingMode,
                       period,
                       limitAmountDollars: Number(limitDollars),
                       walletSpendLimitDollars: Number(walletSpendLimitDollars),
-                      trialDisabled,
+                      trialDisabled: billingMode === "wallet" ? true : trialDisabled,
                       markupDollars: Number(markupDollars),
                       allowShippo,
                       allowShipbest,

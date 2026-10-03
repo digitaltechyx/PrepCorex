@@ -893,13 +893,17 @@ function LiveReceivingSection() {
             <div className="grid items-center gap-5 sm:grid-cols-[0.72fr_auto_1.28fr]">
               <div className={cn(styles.floatCardB, "relative mx-auto w-[210px] rounded-[34px] border-[7px] border-slate-800 bg-slate-950 p-2 shadow-2xl")}>
                 <div className="relative aspect-[9/16] overflow-hidden rounded-[23px] bg-slate-900">
-                  <div
-                    className="absolute inset-0 bg-cover bg-center opacity-70"
-                    style={{
-                      backgroundImage:
-                        "linear-gradient(to top, rgba(2,10,25,.86), transparent 60%), url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=500&h=900&fit=crop')",
-                    }}
+                  <video
+                    className="absolute inset-0 h-full w-full object-cover"
+                    src="/wr1.mp4"
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="metadata"
+                    aria-label="Warehouse receiving camera preview"
                   />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#020a19]/[0.86] via-transparent to-transparent" />
                   <div className={styles.videoScan} />
                   <div className="absolute inset-x-3 top-3 flex items-center justify-between">
                     <span className="rounded-full bg-red-600 px-2 py-1 text-[8px] font-bold">
