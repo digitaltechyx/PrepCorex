@@ -363,8 +363,8 @@ export function OutboundTrackerPortal({ mode = "admin" }: OutboundTrackerPortalP
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Filters</CardTitle>
           <CardDescription>
-            Defaults to today&apos;s date. All dashboard stats and the table below reflect your
-            current filters.
+            Dates and times use Eastern Time (America/New_York). All dashboard stats and the table
+            below reflect your current filters.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

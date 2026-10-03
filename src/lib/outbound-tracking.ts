@@ -1,5 +1,11 @@
 import type { OutboundTrackerEntry } from "@/types";
 import { normalizeTrackingScan } from "@/lib/carrier-detect";
+import {
+  formatDateTimeInNJ,
+  getNjDayBoundsUtc,
+  getNjTodayPickerDate,
+  getPickerCalendarParts,
+} from "@/lib/nj-date";
 
 export const OUTBOUND_TRACKING_COLLECTION = "outboundTracker";
 /** Testing: 1 minute. Restore to 12 hours after verifying auto-refresh. */
@@ -59,28 +65,26 @@ export type OutboundTrackerFilters = {
   addedTo?: Date;
 };
 
-function sameCalendarDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-/** Start/end of today for default date-range filter. */
+/** Start/end of today (America/New_York) for default date-range filter. */
 export function getOutboundTodayDateRange(): { addedFrom: Date; addedTo: Date } {
-  const today = new Date();
-  const addedFrom = new Date(today);
-  addedFrom.setHours(0, 0, 0, 0);
-  const addedTo = new Date(today);
-  addedTo.setHours(23, 59, 59, 999);
-  return { addedFrom, addedTo };
+  const today = getNjTodayPickerDate();
+  return { addedFrom: today, addedTo: today };
 }
 
 export function isDefaultOutboundTrackerDateRange(from?: Date, to?: Date): boolean {
   if (!from || !to) return false;
-  const today = new Date();
-  return sameCalendarDay(from, today) && sameCalendarDay(to, today);
+  const today = getNjTodayPickerDate();
+  const fromParts = getPickerCalendarParts(from);
+  const toParts = getPickerCalendarParts(to);
+  const todayParts = getPickerCalendarParts(today);
+  return (
+    fromParts.year === todayParts.year &&
+    fromParts.month === todayParts.month &&
+    fromParts.day === todayParts.day &&
+    toParts.year === todayParts.year &&
+    toParts.month === todayParts.month &&
+    toParts.day === todayParts.day
+  );
 }
 
 /** Default filters: all open (undelivered) trackings across every day. */
@@ -123,14 +127,14 @@ export function matchesAddedDateRange(
   const ms = toMillis(addedAt);
   if (ms == null) return false;
   if (from) {
-    const start = new Date(from);
-    start.setHours(0, 0, 0, 0);
-    if (ms < start.getTime()) return false;
+    const { year, month, day } = getPickerCalendarParts(from);
+    const { startMs } = getNjDayBoundsUtc(year, month, day);
+    if (ms < startMs) return false;
   }
   if (to) {
-    const end = new Date(to);
-    end.setHours(23, 59, 59, 999);
-    if (ms > end.getTime()) return false;
+    const { year, month, day } = getPickerCalendarParts(to);
+    const { endMs } = getNjDayBoundsUtc(year, month, day);
+    if (ms > endMs) return false;
   }
   return true;
 }
@@ -329,11 +333,5 @@ export function statusBadgeVariant(
 export function formatOutboundTrackerDate(value: unknown): string {
   const ms = toMillis(value);
   if (!ms) return "—";
-  return new Date(ms).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatDateTimeInNJ(ms);
 }
