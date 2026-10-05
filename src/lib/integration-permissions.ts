@@ -8,7 +8,8 @@ export type IntegrationPlatformId =
   | "amazon"
   | "tiktok"
   | "woocommerce"
-  | "shipstation";
+  | "shipstation"
+  | "veeqo";
 
 export type IntegrationPlatformConfig = {
   id: IntegrationPlatformId;
@@ -61,6 +62,13 @@ export const INTEGRATION_PLATFORMS: IntegrationPlatformConfig[] = [
     integrationFeature: "integration_shipstation",
     ordersFeature: "view_shipstation_orders",
   },
+  {
+    id: "veeqo",
+    label: "Veeqo",
+    description: "Connect Veeqo to sync orders and buy shipping labels",
+    integrationFeature: "integration_veeqo",
+    ordersFeature: "view_veeqo_orders",
+  },
 ];
 
 export const INTEGRATION_FEATURES_CONFIG = INTEGRATION_PLATFORMS.map((p) => ({
@@ -79,6 +87,7 @@ const ORDER_PATH_TO_PLATFORM: Record<string, IntegrationPlatformId> = {
   "/dashboard/tiktok-orders": "tiktok",
   "/dashboard/amazon-orders": "amazon",
   "/dashboard/shipstation-orders": "shipstation",
+  "/dashboard/veeqo-orders": "veeqo",
   "/dashboard/woocommerce-orders": "woocommerce",
 };
 
@@ -89,6 +98,7 @@ const INTEGRATION_SUBPATH_TO_PLATFORM: Record<string, IntegrationPlatformId> = {
   tiktok: "tiktok",
   woocommerce: "woocommerce",
   shipstation: "shipstation",
+  veeqo: "veeqo",
   connect: "ebay",
 };
 

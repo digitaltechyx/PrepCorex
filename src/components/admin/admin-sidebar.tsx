@@ -100,6 +100,7 @@ const MARKETPLACE_ORDER_CHILD_PATHS = [
   "/admin/dashboard/amazon-orders",
   "/admin/dashboard/ebay-orders",
   "/admin/dashboard/shipstation-orders",
+  "/admin/dashboard/veeqo-orders",
   "/admin/dashboard/woocommerce-orders",
 ];
 
@@ -407,7 +408,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/integrations",
       icon: Plug,
       color: "text-green-600",
-      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders", "manage_woocommerce_orders", "manage_tiktok_orders", "manage_amazon_orders"] as const satisfies readonly UserFeature[],
+      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders", "manage_veeqo_orders", "manage_woocommerce_orders", "manage_tiktok_orders", "manage_amazon_orders"] as const satisfies readonly UserFeature[],
     },
     {
       title: "Shopify Orders",
@@ -448,6 +449,14 @@ export function AdminSidebar() {
       color: "text-indigo-600",
       badge: null,
       requiredFeature: "manage_shipstation_orders" as const,
+    },
+    {
+      title: "Veeqo Orders",
+      url: "/admin/dashboard/veeqo-orders",
+      icon: Ship,
+      color: "text-teal-600",
+      badge: null,
+      requiredFeature: "manage_veeqo_orders" as const,
     },
     {
       title: "WooCommerce Orders",

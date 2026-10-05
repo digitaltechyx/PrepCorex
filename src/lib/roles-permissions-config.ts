@@ -76,6 +76,7 @@ export const ADMIN_FEATURES_CONFIG: { value: UserFeature; label: string; descrip
   { value: "manage_shopify_orders", label: "Shopify Orders", description: "Access to Shopify orders" },
   { value: "manage_ebay_orders", label: "eBay Orders", description: "Access to eBay orders" },
   { value: "manage_shipstation_orders", label: "ShipStation Orders", description: "Access to ShipStation orders and labels" },
+  { value: "manage_veeqo_orders", label: "Veeqo Orders", description: "Access to Veeqo orders and label purchase" },
   { value: "manage_woocommerce_orders", label: "WooCommerce Orders", description: "Access to WooCommerce orders and fulfillment" },
   { value: "manage_tiktok_orders", label: "TikTok Shop Orders", description: "Access to TikTok Shop orders and fulfillment" },
   { value: "manage_amazon_orders", label: "Amazon Orders", description: "Access to Amazon FBM/FBA orders and fulfillment" },

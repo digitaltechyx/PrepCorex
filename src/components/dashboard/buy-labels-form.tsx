@@ -860,13 +860,19 @@ export function BuyLabelsForm({
       setSelectedRate(null);
       setShipmentId(shippoShipmentId);
 
-      const failedProviders = providerResults.filter((result) => result.error);
+      // Expected when a courier is disabled for the account — never surface these to the client.
+      const isCourierDisabledError = (message: string | null | undefined) =>
+        /not enabled for this account/i.test(String(message || ""));
+
+      const failedProviders = providerResults.filter(
+        (result) => result.error && !isCourierDisabledError(result.error)
+      );
       if (combinedRates.length === 0 && failedProviders.length > 0) {
         throw new Error(
           failedProviders.map((result) => `${result.name}: ${result.error}`).join(" | ")
         );
       }
-      
+
       if (combinedRates.length > 0) {
         toast({
           title: "Rates Retrieved",
@@ -878,6 +884,7 @@ export function BuyLabelsForm({
             description: "Add the recipient phone number to view PrepCorex GOFO rates.",
           });
         }
+        // Only warn about unexpected provider failures — never "courier not enabled".
         if (failedProviders.length > 0) {
           toast({
             title: "Some rates unavailable",
@@ -2351,7 +2358,7 @@ export function BuyLabelsForm({
                       ) : (
                         <>
                           <CreditCard className="mr-2 h-4 w-4" />
-                          Buy with trial - ${parseFloat(selectedRate.amount).toFixed(2)}
+                          Buy label - ${parseFloat(selectedRate.amount).toFixed(2)}
                         </>
                       )}
                     </Button>
@@ -2413,7 +2420,7 @@ export function BuyLabelsForm({
                 ) : (
                   <>
                     <CreditCard className="mr-2 h-4 w-4" />
-                    Checkout cart with trial ({cartItems.length} labels)
+                    Buy labels ({cartItems.length})
                   </>
                 )}
               </Button>

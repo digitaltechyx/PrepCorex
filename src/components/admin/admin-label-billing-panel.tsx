@@ -57,8 +57,8 @@ export function AdminLabelBillingPanel() {
   const [limitDollars, setLimitDollars] = useState("50");
   const [walletSpendLimitDollars, setWalletSpendLimitDollars] = useState("50");
   const [walletDollars, setWalletDollars] = useState("0");
+  const [addBalanceDollars, setAddBalanceDollars] = useState("");
   const [trialDisabled, setTrialDisabled] = useState(false);
-  const [reissueDollars, setReissueDollars] = useState("");
   const [markupDollars, setMarkupDollars] = useState("0.15");
   const [allowShippo, setAllowShippo] = useState(true);
   const [allowShipbest, setAllowShipbest] = useState(true);
@@ -127,6 +127,7 @@ export function AdminLabelBillingPanel() {
       setLimitDollars((s.limitAmountCents / 100).toFixed(2));
       setWalletSpendLimitDollars((labelWalletSpendLimitCents(s) / 100).toFixed(2));
       setWalletDollars(((s.walletBalanceCents || 0) / 100).toFixed(2));
+      setAddBalanceDollars("");
       setTrialDisabled(s.trialDisabled === true);
       setMarkupDollars(((s.markupCents ?? 15) / 100).toFixed(2));
       setAllowShippo(s.allowShippo !== false);
@@ -168,7 +169,7 @@ export function AdminLabelBillingPanel() {
       if (!res.ok) throw new Error(data.error || "Update failed");
       toast({ title: okTitle });
       setReason("");
-      setReissueDollars("");
+      setAddBalanceDollars("");
       await load();
     } catch (error: unknown) {
       toast({
@@ -417,10 +418,26 @@ export function AdminLabelBillingPanel() {
                       min="0"
                       step="0.01"
                       value={walletDollars}
-                      onChange={(e) => setWalletDollars(e.target.value)}
+                      readOnly
+                      disabled
+                      className="bg-muted"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Use “Set wallet balance” below to apply balance changes with a ledger entry.
+                      Current prepaid balance. Use Add balance below to credit more.
+                    </p>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2 max-w-xs">
+                    <Label>Add balance (USD)</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={addBalanceDollars}
+                      onChange={(e) => setAddBalanceDollars(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Amount to add on Save. Leave blank to keep the current balance.
                     </p>
                   </div>
                 </div>
@@ -546,7 +563,14 @@ export function AdminLabelBillingPanel() {
             <div className="flex flex-wrap gap-2">
               <Button
                 disabled={saving || (!allowShippo && !allowShipbest)}
-                onClick={() =>
+                onClick={() => {
+                  const addAmount = Number(addBalanceDollars);
+                  const shouldAddBalance =
+                    billingMode === "wallet" &&
+                    addBalanceDollars.trim() !== "" &&
+                    Number.isFinite(addAmount) &&
+                    addAmount > 0;
+
                   void patch(
                     billingMode === "limit"
                       ? {
@@ -573,14 +597,23 @@ export function AdminLabelBillingPanel() {
                           apiFeeEnabled,
                           apiFeeCadence,
                           apiFeeAmountDollars: Number(apiFeeDollars),
-                          reason: reason || undefined,
+                          ...(shouldAddBalance
+                            ? {
+                                reissueCreditDollars: addAmount,
+                                reason:
+                                  reason ||
+                                  `Admin added $${addAmount.toFixed(2)} to wallet balance`,
+                              }
+                            : { reason: reason || undefined }),
                         },
-                    "Billing settings saved"
-                  )
-                }
+                    shouldAddBalance
+                      ? "Saved — billing settings updated and balance added"
+                      : "Saved"
+                  );
+                }}
               >
                 {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Save billing settings
+                Save
               </Button>
               <Button
                 variant="outline"
@@ -606,48 +639,6 @@ export function AdminLabelBillingPanel() {
               >
                 Restart 30-day trial
               </Button>
-              <Button
-                variant="secondary"
-                disabled={saving || billingMode !== "wallet"}
-                onClick={() =>
-                  void patch(
-                    {
-                      walletBalanceDollars: Number(walletDollars),
-                      reason: reason || "Wallet balance adjusted by admin",
-                    },
-                    "Wallet balance updated"
-                  )
-                }
-              >
-                Set wallet balance
-              </Button>
-              <div className="flex items-center gap-2">
-                <Input
-                  className="w-28"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="Credit $"
-                  value={reissueDollars}
-                  onChange={(e) => setReissueDollars(e.target.value)}
-                  disabled={billingMode !== "wallet"}
-                />
-                <Button
-                  variant="secondary"
-                  disabled={saving || !reissueDollars || billingMode !== "wallet"}
-                  onClick={() =>
-                    void patch(
-                      {
-                        reissueCreditDollars: Number(reissueDollars),
-                        reason: reason || "Reissue credit",
-                      },
-                      "Credit reissued"
-                    )
-                  }
-                >
-                  Reissue credit
-                </Button>
-              </div>
             </div>
           </>
         ) : (

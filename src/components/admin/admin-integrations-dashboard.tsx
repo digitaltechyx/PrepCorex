@@ -558,6 +558,7 @@ export function AdminIntegrationsDashboard() {
                 <TableHead className="hidden text-center md:table-cell">TikTok</TableHead>
                 <TableHead className="hidden text-center lg:table-cell">Woo</TableHead>
                 <TableHead className="hidden text-center lg:table-cell">ShipStation</TableHead>
+                <TableHead className="hidden text-center xl:table-cell">Veeqo</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -582,6 +583,9 @@ export function AdminIntegrationsDashboard() {
                   </TableCell>
                   <TableCell className="hidden text-center lg:table-cell">
                     {u.counts.shipstation || "—"}
+                  </TableCell>
+                  <TableCell className="hidden text-center xl:table-cell">
+                    {u.counts.veeqo || "—"}
                   </TableCell>
                 </TableRow>
               ))}

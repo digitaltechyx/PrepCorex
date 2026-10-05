@@ -787,18 +787,18 @@ export function InventoryRequestsManagement({
       }
       if (!opts?.quiet) {
         const warehouseInboundV2 = request.inventoryType === "product";
-        toast({
-          title: "Success",
-          description: isRestock
+      toast({
+        title: "Success",
+        description: isRestock 
             ? warehouseInboundV2
               ? "Restock approved — complete receiving below or close to finish later from Pending receive."
-              : "Restock request approved. Quantity added to existing product."
-            : request.inventoryType === "container"
-              ? "Container handling request approved and invoice generated."
+            : "Restock request approved. Quantity added to existing product."
+          : request.inventoryType === "container"
+          ? "Container handling request approved and invoice generated."
               : warehouseInboundV2
                 ? "Approved — complete receiving below or close for Pending receive."
-                : "Inventory request approved and added to inventory.",
-        });
+          : "Inventory request approved and added to inventory.",
+      });
         if (warehouseInboundV2) {
           setSelectedRequest({
             ...request,
@@ -1415,16 +1415,16 @@ export function InventoryRequestsManagement({
                             </span>
                             <div className="flex flex-wrap gap-1">
                               {adminInboundRequestDisplayStatus(request) === "pending_receive" ? (
-                                <Button
+                              <Button
                                   variant="default"
-                                  size="sm"
+                                size="sm"
                                   className="h-7 w-fit px-2 text-xs"
                                   onClick={() => setSelectedRequest(request)}
-                                >
+                              >
                                   <PackageCheck className="h-3.5 w-3.5 mr-1" />
                                   Receive
-                                </Button>
-                              ) : null}
+                              </Button>
+                            ) : null}
                               <Button
                                 variant="ghost"
                                 size="sm"

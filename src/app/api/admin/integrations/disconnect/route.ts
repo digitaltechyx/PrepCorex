@@ -244,6 +244,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, platform, removedOrders: ordersSnap.size });
     }
 
+    if (platform === "veeqo") {
+      const ordersSnap = await db
+        .collection("users")
+        .doc(uid)
+        .collection("veeqoOrders")
+        .where("connectionId", "==", id)
+        .get();
+
+      const batchSize = 400;
+      let batch = db.batch();
+      let count = 0;
+      for (const doc of ordersSnap.docs) {
+        batch.delete(doc.ref);
+        count += 1;
+        if (count % batchSize === 0) {
+          await batch.commit();
+          batch = db.batch();
+        }
+      }
+      batch.delete(ref);
+      await batch.commit();
+
+      return NextResponse.json({ ok: true, platform, removedOrders: ordersSnap.size });
+    }
+
     await ref.delete();
     return NextResponse.json({ ok: true, platform });
   } catch (err: unknown) {

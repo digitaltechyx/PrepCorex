@@ -68,6 +68,16 @@ type ShipStationConnectionSummary = {
   apiKeyHint?: string | null;
 };
 
+type VeeqoConnectionSummary = {
+  id: string;
+  accountLabel?: string;
+  connectedAt: { seconds: number; nanoseconds: number } | string;
+  lastSyncedAt?: { seconds: number; nanoseconds: number } | string | null;
+  lastSyncOrderCount?: number | null;
+  lastSyncLabeledCount?: number | null;
+  apiKeyHint?: string | null;
+};
+
 type WooCommerceConnectionSummary = {
   id: string;
   accountLabel?: string;
@@ -214,6 +224,17 @@ const PLATFORMS: PlatformDef[] = [
     accent: "from-indigo-500/85 to-violet-600/85",
     ring: "ring-indigo-500/15",
   },
+  {
+    id: "veeqo",
+    name: "Veeqo",
+    shortName: "VQ",
+    category: "shipping",
+    categoryLabel: "Shipping",
+    status: "live",
+    description: "Connect your Veeqo API key to sync orders and buy shipping labels from PrepCorex.",
+    accent: "from-emerald-500/85 to-teal-700/85",
+    ring: "ring-emerald-500/15",
+  },
 ];
 
 const LIVE_INTEGRATION_IDS = new Set(INTEGRATION_PLATFORMS.map((p) => p.id));
@@ -234,6 +255,7 @@ function connectionCountFor(
   shopify: ShopifyConnectionSummary[],
   ebay: EbayConnectionSummary[],
   shipstation: ShipStationConnectionSummary[],
+  veeqo: VeeqoConnectionSummary[],
   woocommerce: WooCommerceConnectionSummary[],
   tiktok: TikTokConnectionSummary[],
   amazon: AmazonConnectionSummary[]
@@ -241,6 +263,7 @@ function connectionCountFor(
   if (platformId === "shopify") return shopify.length;
   if (platformId === "ebay") return ebay.length;
   if (platformId === "shipstation") return shipstation.length;
+  if (platformId === "veeqo") return veeqo.length;
   if (platformId === "woocommerce") return woocommerce.length;
   if (platformId === "tiktok") return tiktok.length;
   if (platformId === "amazon") return amazon.length;
@@ -253,6 +276,7 @@ export default function IntegrationsPage() {
   const [shopifyConnections, setShopifyConnections] = useState<ShopifyConnectionSummary[]>([]);
   const [ebayConnections, setEbayConnections] = useState<EbayConnectionSummary[]>([]);
   const [shipstationConnections, setShipstationConnections] = useState<ShipStationConnectionSummary[]>([]);
+  const [veeqoConnections, setVeeqoConnections] = useState<VeeqoConnectionSummary[]>([]);
   const [woocommerceConnections, setWoocommerceConnections] = useState<WooCommerceConnectionSummary[]>([]);
   const [tiktokConnections, setTiktokConnections] = useState<TikTokConnectionSummary[]>([]);
   const [amazonConnections, setAmazonConnections] = useState<AmazonConnectionSummary[]>([]);
@@ -279,6 +303,11 @@ export default function IntegrationsPage() {
   const [shipstationLabel, setShipstationLabel] = useState("");
   const [shipstationConnecting, setShipstationConnecting] = useState(false);
   const [shipstationDisconnectId, setShipstationDisconnectId] = useState<string | null>(null);
+  const [veeqoDialogOpen, setVeeqoDialogOpen] = useState(false);
+  const [veeqoApiKey, setVeeqoApiKey] = useState("");
+  const [veeqoLabel, setVeeqoLabel] = useState("");
+  const [veeqoConnecting, setVeeqoConnecting] = useState(false);
+  const [veeqoDisconnectId, setVeeqoDisconnectId] = useState<string | null>(null);
   const [woocommerceDialogOpen, setWoocommerceDialogOpen] = useState(false);
   const [woocommerceStoreUrl, setWoocommerceStoreUrl] = useState("");
   const [woocommerceConsumerKey, setWoocommerceConsumerKey] = useState("");
@@ -295,10 +324,11 @@ export default function IntegrationsPage() {
     setLoading(true);
     try {
       const token = await user.getIdToken();
-      const [shopifyRes, ebayRes, shipstationRes, woocommerceRes, tiktokRes, amazonRes] = await Promise.all([
+      const [shopifyRes, ebayRes, shipstationRes, veeqoRes, woocommerceRes, tiktokRes, amazonRes] = await Promise.all([
         fetch("/api/integrations/shopify-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/ebay-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/shipstation-connections", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/integrations/veeqo-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/woocommerce-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/tiktok-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/amazon-connections", { headers: { Authorization: `Bearer ${token}` } }),
@@ -314,6 +344,10 @@ export default function IntegrationsPage() {
       if (shipstationRes.ok) {
         const data = await shipstationRes.json();
         setShipstationConnections(data.connections ?? []);
+      }
+      if (veeqoRes.ok) {
+        const data = await veeqoRes.json();
+        setVeeqoConnections(data.connections ?? []);
       }
       if (woocommerceRes.ok) {
         const data = await woocommerceRes.json();
@@ -331,6 +365,7 @@ export default function IntegrationsPage() {
       setShopifyConnections([]);
       setEbayConnections([]);
       setShipstationConnections([]);
+      setVeeqoConnections([]);
       setWoocommerceConnections([]);
       setTiktokConnections([]);
       setAmazonConnections([]);
@@ -347,6 +382,7 @@ export default function IntegrationsPage() {
     shopifyConnections.length +
     ebayConnections.length +
     shipstationConnections.length +
+    veeqoConnections.length +
     woocommerceConnections.length +
     tiktokConnections.length +
     amazonConnections.length;
@@ -355,6 +391,7 @@ export default function IntegrationsPage() {
     shopifyConnections.length > 0,
     ebayConnections.length > 0,
     shipstationConnections.length > 0,
+    veeqoConnections.length > 0,
     woocommerceConnections.length > 0,
     tiktokConnections.length > 0,
     amazonConnections.length > 0,
@@ -378,6 +415,7 @@ export default function IntegrationsPage() {
         shopifyConnections,
         ebayConnections,
         shipstationConnections,
+        veeqoConnections,
         woocommerceConnections,
         tiktokConnections,
         amazonConnections
@@ -394,6 +432,7 @@ export default function IntegrationsPage() {
     shopifyConnections,
     ebayConnections,
     shipstationConnections,
+    veeqoConnections,
     woocommerceConnections,
     tiktokConnections,
     amazonConnections,
@@ -698,6 +737,79 @@ export default function IntegrationsPage() {
     }
   };
 
+  const handleConnectVeeqo = async () => {
+    if (!user) return;
+    if (!veeqoApiKey.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Missing API key",
+        description: "Enter your Veeqo private API key from Veeqo Settings → API.",
+      });
+      return;
+    }
+    setVeeqoConnecting(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch("/api/integrations/veeqo/connect", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          apiKey: veeqoApiKey.trim(),
+          accountLabel: veeqoLabel.trim() || "Veeqo",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to connect Veeqo");
+      toast({
+        title: "Veeqo connected",
+        description: `Synced ${data.synced ?? 0} orders${
+          data.withLabels != null ? ` (${data.withLabels} with labels)` : ""
+        }.`,
+      });
+      setVeeqoDialogOpen(false);
+      setVeeqoApiKey("");
+      setVeeqoLabel("");
+      fetchConnections();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Veeqo",
+        description: err instanceof Error ? err.message : "Could not connect.",
+      });
+    } finally {
+      setVeeqoConnecting(false);
+    }
+  };
+
+  const handleDisconnectVeeqo = async (id: string) => {
+    if (!user) return;
+    setVeeqoDisconnectId(id);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/integrations/veeqo-connections?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to disconnect");
+      }
+      toast({ title: "Disconnected", description: "Veeqo account removed." });
+      fetchConnections();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err instanceof Error ? err.message : "Could not disconnect.",
+      });
+    } finally {
+      setVeeqoDisconnectId(null);
+    }
+  };
+
   const handleConnectWooCommerce = async () => {
     if (!user) return;
     if (!woocommerceStoreUrl.trim() || !woocommerceConsumerKey.trim() || !woocommerceConsumerSecret.trim()) {
@@ -949,6 +1061,7 @@ export default function IntegrationsPage() {
               shopifyConnections,
               ebayConnections,
               shipstationConnections,
+              veeqoConnections,
               woocommerceConnections,
               tiktokConnections,
               amazonConnections
@@ -1038,6 +1151,16 @@ export default function IntegrationsPage() {
                         size="sm"
                         className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
                         onClick={() => setShipstationDialogOpen(true)}
+                      >
+                        <Plus className="h-4 w-4 sm:mr-1" />
+                        {count > 0 ? "Add account" : "Connect"}
+                      </Button>
+                    )}
+                    {isLive && p.id === "veeqo" && (
+                      <Button
+                        size="sm"
+                        className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
+                        onClick={() => setVeeqoDialogOpen(true)}
                       >
                         <Plus className="h-4 w-4 sm:mr-1" />
                         {count > 0 ? "Add account" : "Connect"}
@@ -1143,6 +1266,61 @@ export default function IntegrationsPage() {
                                   onClick={() => void handleDisconnectShipStation(conn.id)}
                                 >
                                   {shipstationDisconnectId === conn.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {p.id === "veeqo" && isLive && (
+                    <>
+                      {veeqoConnections.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          No Veeqo account linked. Use <strong className="text-foreground">Connect</strong> with
+                          your private API key from Veeqo Settings → API. After connect, sync orders and buy labels
+                          from PrepCorex.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {veeqoConnections.map((conn) => (
+                            <div
+                              key={conn.id}
+                              className="flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{conn.accountLabel || "Veeqo"}</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  Since {formatConnectedAt(conn.connectedAt)}
+                                  {conn.apiKeyHint ? ` · Key ${conn.apiKeyHint}` : ""}
+                                  {conn.lastSyncOrderCount != null
+                                    ? ` · ${conn.lastSyncOrderCount} synced`
+                                    : ""}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button variant="outline" size="sm" className="h-8" asChild>
+                                  <Link
+                                    href={`/dashboard/veeqo-orders?connectionId=${encodeURIComponent(conn.id)}`}
+                                  >
+                                    <Package className="mr-1 h-3.5 w-3.5" />
+                                    Orders
+                                  </Link>
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 text-destructive"
+                                  disabled={veeqoDisconnectId === conn.id}
+                                  onClick={() => void handleDisconnectVeeqo(conn.id)}
+                                >
+                                  {veeqoDisconnectId === conn.id ? (
                                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                   ) : (
                                     <Trash2 className="h-3.5 w-3.5" />
@@ -1571,6 +1749,51 @@ export default function IntegrationsPage() {
               </Button>
               <Button onClick={() => void handleConnectShipStation()} disabled={shipstationConnecting}>
                 {shipstationConnecting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 h-4 w-4" />
+                )}
+                Connect & sync
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={veeqoDialogOpen} onOpenChange={setVeeqoDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Connect Veeqo</DialogTitle>
+            <DialogDescription>
+              Paste your private API key from Veeqo → Settings → API. We sync recent orders into PrepCorex so you can
+              buy shipping labels.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Account label (optional)</Label>
+              <Input
+                placeholder="e.g. Main Veeqo"
+                value={veeqoLabel}
+                onChange={(e) => setVeeqoLabel(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>API Key</Label>
+              <Input
+                type="password"
+                placeholder="Veeqo private API key"
+                value={veeqoApiKey}
+                onChange={(e) => setVeeqoApiKey(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setVeeqoDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void handleConnectVeeqo()} disabled={veeqoConnecting}>
+                {veeqoConnecting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Plus className="mr-2 h-4 w-4" />

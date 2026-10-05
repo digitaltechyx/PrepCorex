@@ -1,0 +1,27 @@
+---
+description: When user says CRM, use CRM-PrepCorex (not StockFlow/PrepCorex warehouse)
+alwaysApply: true
+---
+
+# CRM = CRM-PrepCorex
+
+When the user mentions **CRM**, **PrepCorex CRM**, or **crm prepcorex**, they mean the **standalone CRM app**, not PSF StockFlow / PrepCorex warehouse.
+
+## Canonical project
+
+- **GitHub:** https://github.com/digitaltechyx/CRM-PrepCorex
+- **Local path (typical):** `C:\Users\zains\Desktop\Sir Arhsad Iqbal\PSF StockFlow\CRM-PrepCorex`
+- **Hosts:** `https://crm.prepservicesfba.com`, `https://crm-prep-corex.vercel.app`
+- **Data:** same Firebase as StockFlow; leads live in Firestore `crmLeads` (+ `timeline` subcollection)
+
+## Do not confuse with
+
+- PrepCorex warehouse / StockFlow (`PSF-StockFlow-main`, remotes `PrepCorex` / `Dev.PrepCorex`)
+- Marketing / Buy Labels / warehouse ops features in StockFlow
+- StockFlow’s thin `crmAddressBook` / b-card capture unless bridging into CRM
+
+## When implementing CRM work
+
+- Edit and push in the **CRM-PrepCorex** repo (`origin` → `digitaltechyx/CRM-PrepCorex`)
+- Lead fields: `leadName`, `status`, `nextFollowUpAt`, timeline `text` / `type` / `at`
+- ChatGPT automation API lives under `src/app/api/crm/` in CRM-PrepCorex; auth via `CRM_AUTOMATION_API_KEY`

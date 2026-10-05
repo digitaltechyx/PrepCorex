@@ -39,6 +39,7 @@ export function getDefaultFeaturesForRole(role: UserRole): UserFeature[] {
       "manage_shopify_orders",
       "manage_ebay_orders",
       "manage_shipstation_orders",
+      "manage_veeqo_orders",
       "manage_woocommerce_orders",
       "manage_tiktok_orders",
       "manage_amazon_orders",

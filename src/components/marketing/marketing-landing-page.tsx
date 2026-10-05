@@ -115,7 +115,7 @@ const portals: Record<
     bullets: [
       "Live inventory, shipment, return, and quarantine status",
       "Invoices, pricing, reports, prep savings, and shipping savings",
-      "Shopify, eBay, TikTok, WooCommerce, Amazon, and ShipStation connections",
+      "Shopify, eBay, TikTok, WooCommerce, Amazon, ShipStation, and Veeqo connections",
     ],
     icon: Users,
   },
@@ -164,6 +164,7 @@ const integrations = [
   { id: "tiktok", label: "TikTok Shop" },
   { id: "woocommerce", label: "WooCommerce" },
   { id: "shipstation", label: "ShipStation" },
+  { id: "veeqo", label: "Veeqo" },
 ];
 
 /** Productized software modules — competitor-style “named capability” blocks. */

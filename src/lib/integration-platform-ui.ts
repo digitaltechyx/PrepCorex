@@ -107,6 +107,17 @@ export const INTEGRATION_PLATFORM_CARDS: IntegrationPlatformCardDef[] = [
     accent: "from-indigo-500/85 to-violet-600/85",
     ring: "ring-indigo-500/15",
   },
+  {
+    id: "veeqo",
+    name: "Veeqo",
+    shortName: "VQ",
+    category: "shipping",
+    categoryLabel: "Shipping",
+    status: "live",
+    description: "Veeqo accounts for order sync and buying shipping labels.",
+    accent: "from-emerald-500/85 to-teal-700/85",
+    ring: "ring-emerald-500/15",
+  },
 ];
 
 export const INTEGRATION_CATEGORY_OPTIONS: { id: "all" | PlatformCategory; label: string }[] = [

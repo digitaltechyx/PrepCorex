@@ -37,21 +37,17 @@ export function isPrepCorexGofoRate(rate: RateDisplayInput): boolean {
   return /gofo/i.test(rateIdentityBlob(rate));
 }
 
-/** ShipBest USPS / other non-GOFO courier rows — hidden from Buy Labels. */
-export function isHiddenShipBestCourierRate(rate: RateDisplayInput): boolean {
-  return isShipBestRate(rate) && !isPrepCorexGofoRate(rate);
+/** All ShipBest logistics products are available in Buy Labels (GOFO, USPS, etc.). */
+export function isHiddenShipBestCourierRate(_rate: RateDisplayInput): boolean {
+  return false;
 }
 
 export function filterVisibleBuyLabelRates<T extends RateDisplayInput>(rates: T[]): T[] {
-  return rates.filter((rate) => !isHiddenShipBestCourierRate(rate));
+  return rates;
 }
 
-export function assertAllowlistedBuyLabelRate(rate: RateDisplayInput): void {
-  if (isHiddenShipBestCourierRate(rate)) {
-    throw new Error(
-      "This ShipBest courier rate is not available. Choose PrepCorex GOFO or a Shippo rate."
-    );
-  }
+export function assertAllowlistedBuyLabelRate(_rate: RateDisplayInput): void {
+  // No ShipBest product blocklist — any returned ShipBest rate may be purchased.
 }
 
 export function getBuyLabelRateDisplay(rate: RateDisplayInput): {

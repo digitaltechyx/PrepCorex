@@ -86,6 +86,7 @@ const ORDER_CHILD_PATHS = [
   "/dashboard/tiktok-orders",
   "/dashboard/amazon-orders",
   "/dashboard/shipstation-orders",
+  "/dashboard/veeqo-orders",
   "/dashboard/woocommerce-orders",
 ];
 
@@ -468,6 +469,15 @@ export function DashboardSidebar() {
       requiredFeature: "view_shipstation_orders" as const,
     },
     {
+      title: "Veeqo Orders",
+      url: "/dashboard/veeqo-orders",
+      icon: Ship,
+      color: "text-teal-600",
+      badge: null,
+      requiredRole: "user" as const,
+      requiredFeature: "view_veeqo_orders" as const,
+    },
+    {
       title: "WooCommerce Orders",
       url: "/dashboard/woocommerce-orders",
       icon: ShoppingBag,
@@ -631,6 +641,7 @@ export function DashboardSidebar() {
     (hasFeature(userProfile, "manage_shopify_orders") ||
       hasFeature(userProfile, "manage_ebay_orders") ||
       hasFeature(userProfile, "manage_shipstation_orders") ||
+      hasFeature(userProfile, "manage_veeqo_orders") ||
       hasFeature(userProfile, "manage_woocommerce_orders") ||
       hasFeature(userProfile, "manage_tiktok_orders") ||
       hasFeature(userProfile, "manage_amazon_orders")) &&

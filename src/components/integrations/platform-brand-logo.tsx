@@ -22,6 +22,7 @@ const MONOGRAM: Record<string, { text: string; className: string }> = {
   walmart: { text: "WM", className: "text-sm tracking-tight text-[#0071CE]" },
   /** ShipStation not in simple-icons; purple aligns with common brand use */
   shipstation: { text: "SS", className: "text-[11px] font-bold tracking-tight text-[#522E92]" },
+  veeqo: { text: "VQ", className: "text-[11px] font-bold tracking-tight text-[#0F766E]" },
 };
 
 type PlatformBrandLogoProps = {

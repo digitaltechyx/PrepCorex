@@ -1111,7 +1111,7 @@ export function WarehouseOpsPack({ warehouse }: Props) {
                             ? "packing"
                             : order.fbaLabelWorkflow
                               ? "FBA"
-                              : "picked"}
+                            : "picked"}
                       </Badge>
                     </div>
                   </button>

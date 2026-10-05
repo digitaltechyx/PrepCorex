@@ -55,6 +55,7 @@ const PLATFORM_COLLECTIONS: { platform: IntegrationPlatformId; group: string }[]
   { platform: "tiktok", group: "tiktokConnections" },
   { platform: "woocommerce", group: "woocommerceConnections" },
   { platform: "shipstation", group: "shipstationConnections" },
+  { platform: "veeqo", group: "veeqoConnections" },
 ];
 
 function emptyPlatformCounts(): PlatformCounts {
@@ -110,6 +111,11 @@ function connectionLabel(
     case "shipstation":
       return {
         label: String(data.accountLabel ?? "ShipStation"),
+        sublabel: data.apiKeyHint ? `Key ${String(data.apiKeyHint)}` : "API account",
+      };
+    case "veeqo":
+      return {
+        label: String(data.accountLabel ?? "Veeqo"),
         sublabel: data.apiKeyHint ? `Key ${String(data.apiKeyHint)}` : "API account",
       };
     default:

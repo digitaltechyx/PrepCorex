@@ -62,6 +62,8 @@ const MODULE_SUBCOLLECTIONS: Record<WipeUserModuleId, string[]> = {
     "woocommerceOrders",
     "shipstationConnections",
     "shipstationOrders",
+    "veeqoConnections",
+    "veeqoOrders",
   ],
   quarantine_moves: [],
   warehouse_camera: [],
