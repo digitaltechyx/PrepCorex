@@ -1,0 +1,1810 @@
+<!-- Prep Services FBA / PrepCorex — FAQs (light)
+     Inspired by common 3PL FAQ topics (e.g. shipbots.com/faqs), rewritten for Prep Services FBA.
+     Paste into WordPress Custom HTML / Elementor HTML. Full-width recommended.
+     Theme: white + orange #FF8806 -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap"
+  rel="stylesheet"
+/>
+
+<style>
+  .psf-faq {
+    --accent: #ff8806;
+    --accent-deep: #e07805;
+    --accent-soft: rgba(255, 136, 6, 0.12);
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e8ecf1;
+    --wash: #fff8f1;
+    font-family: "Outfit", system-ui, sans-serif;
+    color: var(--ink);
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background:
+      radial-gradient(900px 420px at 88% 0%, rgba(255, 136, 6, 0.1), transparent 55%),
+      linear-gradient(180deg, #ffffff 0%, var(--wash) 45%, #ffffff 100%);
+  }
+
+  .psf-faq * {
+    box-sizing: border-box;
+  }
+
+  .psf-faq__inner {
+    width: min(1100px, calc(100% - 2.5rem));
+    margin: 0 auto;
+    padding: 4rem 0 4.5rem;
+  }
+
+  .psf-faq__intro {
+    text-align: center;
+    margin: 0 auto 2.25rem;
+    max-width: 40rem;
+  }
+
+  .psf-faq__intro h2 {
+    margin: 0;
+    font-size: clamp(1.85rem, 4vw, 2.75rem);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1.12;
+  }
+
+  .psf-faq__intro h2 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  .psf-faq__intro p {
+    margin: 0.9rem 0 0;
+    color: var(--muted);
+    font-size: 1.02rem;
+    line-height: 1.6;
+  }
+
+  .psf-faq__search {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin: 0 auto 1.75rem;
+    max-width: 28rem;
+    padding: 0.75rem 1rem;
+    border-radius: 12px;
+    border: 1.5px solid var(--line);
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+  }
+
+  .psf-faq__search svg {
+    flex: 0 0 auto;
+    width: 1.15rem;
+    height: 1.15rem;
+    color: var(--accent);
+  }
+
+  .psf-faq__search input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 0.95rem;
+    color: var(--ink);
+  }
+
+  .psf-faq__list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    align-items: start;
+  }
+
+  .psf-faq__item {
+    border-radius: 14px;
+    border: 1px solid rgba(255, 136, 6, 0.16);
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
+    overflow: hidden;
+    break-inside: avoid;
+  }
+
+  .psf-faq__item[hidden] {
+    display: none;
+  }
+
+  .psf-faq__q {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.05rem 1.15rem;
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+    line-height: 1.35;
+  }
+
+  .psf-faq__q:hover {
+    color: var(--accent-deep);
+  }
+
+  .psf-faq__chev {
+    flex: 0 0 auto;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    transition: transform 0.25s ease, background 0.25s ease;
+  }
+
+  .psf-faq__chev svg {
+    width: 0.85rem;
+    height: 0.85rem;
+  }
+
+  .psf-faq__item.is-open .psf-faq__chev {
+    transform: rotate(180deg);
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .psf-faq__a {
+    display: none;
+    padding: 0 1.15rem 1.15rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.65;
+  }
+
+  .psf-faq__item.is-open .psf-faq__a {
+    display: block;
+  }
+
+  .psf-faq__a p {
+    margin: 0 0 0.65rem;
+  }
+
+  .psf-faq__a p:last-child {
+    margin-bottom: 0;
+  }
+
+  .psf-faq__a ul {
+    margin: 0.35rem 0 0.65rem;
+    padding-left: 1.15rem;
+  }
+
+  .psf-faq__a li {
+    margin: 0.25rem 0;
+  }
+
+  .psf-faq__empty {
+    display: none;
+    text-align: center;
+    padding: 1.5rem;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .psf-faq__empty.is-visible {
+    display: block;
+  }
+
+  .psf-faq__help {
+    margin-top: 2.25rem;
+    padding: 1.5rem 1.35rem;
+    border-radius: 16px;
+    border: 1.5px solid rgba(255, 136, 6, 0.35);
+    background: linear-gradient(165deg, #fff 0%, #fff5eb 100%);
+    text-align: center;
+  }
+
+  .psf-faq__help h3 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 800;
+  }
+
+  .psf-faq__help p {
+    margin: 0.55rem 0 1rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+
+  .psf-faq__help-ctas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    justify-content: center;
+  }
+
+  .psf-faq__help a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.85rem;
+    padding: 0 1.25rem;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 0.92rem;
+    text-decoration: none;
+  }
+
+  .psf-faq__help a.primary {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .psf-faq__help a.ghost {
+    border: 1.5px solid var(--line);
+    color: var(--ink);
+    background: #fff;
+  }
+
+  @media (max-width: 800px) {
+    .psf-faq__list {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .psf-faq__inner {
+      padding: 3rem 0 3.5rem;
+    }
+
+    .psf-faq__q {
+      font-size: 0.95rem;
+      padding: 0.95rem 1rem;
+    }
+  }
+</style>
+
+<section class="psf-faq" aria-label="Prep Services FBA FAQs">
+  <div class="psf-faq__inner">
+    <div class="psf-faq__intro">
+      <h2>Expert Answers to Your <em>Prep &amp; Fulfillment</em> Questions</h2>
+      <p>
+        Choosing a prep and 3PL partner is a big decision. Here are the questions brands ask most
+        about Prep Services FBA—powered by PrepCorex—from receiving and FBA prep to multi-channel
+        shipping from our New Jersey warehouse.
+      </p>
+    </div>
+
+    <label class="psf-faq__search" aria-label="Search FAQs">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" />
+        <path d="M20 20l-3.5-3.5" stroke-linecap="round" />
+      </svg>
+      <input type="search" id="psf-faq-search" placeholder="Search questions…" autocomplete="off" />
+    </label>
+
+    <div class="psf-faq__list" id="psf-faq-list">
+      <!-- Ops & getting started -->
+      <article class="psf-faq__item" data-tags="contract fees setup portal">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you require a long-term contract?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>No.</strong> We don’t lock brands into long-term contracts. We earn your business
+            by accurate prep, clear billing, and on-time dispatch—month after month.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="fees setup portal pricing">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Is there a setup fee or monthly portal fee?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>$0 setup</strong> and <strong>$0 monthly portal fee</strong> for PrepCorex access.
+            You pay for the warehouse work and shipping you use—transparent PrepCorex invoices, no
+            hidden “software tax.”
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="volume minimum scale">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Is there a minimum volume?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            We’re built for growing brands—typically sellers shipping about <strong>500+ units per
+            month</strong> across Amazon FBA/FBM, Walmart WFS, Shopify, TikTok Shop, eBay, and more.
+            During your free audit we’ll confirm fit for your volume and SKU mix.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="spike seasonal launch scale">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you handle a product launch or seasonal spike?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Tell your onboarding or account contact what’s coming (dates,
+            units, SKUs). We’ll plan receiving capacity, prep labor, and outbound so you can scale up
+            for a launch or peak season without renegotiating a multi-year deal.
+          </p>
+        </div>
+      </article>
+
+      <!-- Receiving & visibility -->
+      <article class="psf-faq__item" data-tags="receiving sla dock stock inventory">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How fast is inventory available after it arrives?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            We target a <strong>24-hour receiving SLA</strong> for prompt inventory checks and
+            updates in PrepCorex (timing can vary with ASN quality, carton counts, and special prep
+            instructions). You’ll see live status in the portal instead of waiting on email threads.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="live video receiving camera">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can clients watch receiving live?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> PrepCorex supports <strong>live receiving video</strong> so you can
+            watch warehouse receive work for your inbound requests—more trust, fewer “where’s my
+            freight?” surprises.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="weekend inbound outbound">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you process inbound and outbound on weekends?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes—weekend order processing</strong> is part of how we keep FBA deadlines and
+            DTC cutoffs realistic. Confirm current weekend windows during onboarding for your
+            channel mix.
+          </p>
+        </div>
+      </article>
+
+      <!-- FBA prep & services -->
+      <article class="psf-faq__item" data-tags="amazon fba prep labeling polybag">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What Amazon FBA / FBM prep services do you offer?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Scan-first warehouse ops covering the flow from receive → prep → ship, including FNSKU /
+            labeling, polybagging, bundling, cartonization, and Amazon-ready shipments—plus FBM /
+            multi-channel fulfillment when you need both.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="packaging custom branded boxes">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can I provide my own custom packaging?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> We can use your branded boxes, inserts, or mailers when supplied
+            and approved in your prep instructions. Extra handling for custom materials may be
+            quoted as a line item so costs stay transparent.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="fragile packaging audit">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you handle fragile products? Does it cost extra?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            We review fragile SKUs during onboarding / audit and recommend protective packaging.
+            Extra materials or labor are quoted case-by-case so you know the cost before we ship.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="heavy bulky oversized ltl">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you handle heavy or bulky packages?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Oversized and heavier cartons are common in FBA prep. We’ll use
+            the right cartonization and carrier options (parcel vs freight where needed) and flag
+            any additional handling early in the quote.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="apparel folding polybag hanger">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you handle folding, polybagging, and apparel prep?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Apparel and soft goods can be folded, polybagged, labeled, and
+            packed to your Amazon or DTC standard. Share your SOP once; PrepCorex + floor ops keep
+            it consistent.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="special project kitting labeling audit">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What counts as a “special project”?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Anything outside your standing prep SOP—extra kitting, relabeling campaigns, inventory
+            reconciliations, or one-off rework. Send the scope to your contact; we’ll quote before
+            work starts so invoices stay predictable.
+          </p>
+        </div>
+      </article>
+
+      <!-- Shipping & labels -->
+      <article class="psf-faq__item" data-tags="same day dispatch labels shipping">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you offer same-day label and dispatch?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Same-day label &amp; dispatch</strong> capability is available when orders and
+            inventory are ready before cutoff. Competitive Buy Labels rates inside PrepCorex help
+            keep outbound costs sharp.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="buy labels rates shipping">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can I buy shipping labels through PrepCorex?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Use PrepCorex Buy Labels for competitive carrier rates, then let
+            warehouse ops print and attach as part of pick / pack / dispatch—fewer tools, one portal.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="international customs shipping">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you support international shipping?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            We can support international parcel options where carriers and documentation allow.
+            Share destination countries and product types in your strategy call so we can confirm
+            coverage and any customs paperwork you must provide.
+          </p>
+        </div>
+      </article>
+
+      <!-- Platforms & software -->
+      <article class="psf-faq__item" data-tags="integrations shopify amazon walmart tiktok ebay">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Which platforms do you integrate with?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>PrepCorex is built for multi-channel brands, including:</p>
+          <ul>
+            <li>Amazon FBA / FBM</li>
+            <li>Walmart WFS</li>
+            <li>Shopify / DTC</li>
+            <li>TikTok Shop</li>
+            <li>eBay, Etsy, and WooCommerce</li>
+            <li>Other channels via our integration set</li>
+          </ul>
+          <p>Ask during onboarding if you need a specific connector for your stack.</p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="prepcorex dashboard inventory realtime">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What do I get in the PrepCorex client portal?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            An advanced management dashboard with real-time inventory and order updates, inbound /
+            outbound workflows, transparent invoices, Buy Labels, and continuous product upgrades—so
+            ops and finance aren’t stuck in spreadsheets.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="migration onboarding switch 3pl">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you help us migrate from another 3PL?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Specialized onboarding and migration help is part of how we win
+            brands leaving slower or less transparent partners—inventory transfer plans, SKU setup,
+            and PrepCorex training so go-live isn’t chaotic.
+          </p>
+        </div>
+      </article>
+
+      <!-- Inventory, accuracy, insurance -->
+      <article class="psf-faq__item" data-tags="accuracy inventory audit checks">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How accurate is inventory and shipping?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Scan-first warehouse ops and prompt inventory checks are designed for high shipment
+            accuracy (we publish <strong>99.9% shipment accuracy</strong> as a performance target).
+            Cycle counts and audits can be scheduled when you need deeper verification.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="lot tracking serial recall">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you support lot tracking?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Lot / batch tracking can be enabled for SKUs that require it—tell us during onboarding.
+            We’ll confirm labeling and receiving rules so traceability stays usable if you ever need
+            a targeted pullback.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="insurance storage inventory">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you offer storage / inventory insurance?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Most brands either (1) add our New Jersey warehouse location to their own cargo /
+            inventory policy, or (2) discuss coverage options with us during onboarding. We’ll help
+            you choose based on product value and risk tolerance.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="returns reverse logistics">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How do you handle returns?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Returns can be received, inspected against your rules, and restocked or quarantined as
+            needed. Sellable units show back in PrepCorex so inventory isn’t stuck in limbo. Scope
+            and fees are confirmed when we set your returns SOP.
+          </p>
+        </div>
+      </article>
+
+      <!-- Support & billing -->
+      <article class="psf-faq__item" data-tags="support priority account manager">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What kind of support do clients get?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Priority client support with dedicated onboarding help—not a faceless ticket black hole.
+            Prefer chat? Message operations on WhatsApp for fast movers who need a quick answer.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="billing invoice transparent prepcorex">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How does billing work?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Transparent PrepCorex billing &amp; invoices tied to the work performed—prep, storage,
+            fulfillment, and labels—so finance can reconcile without guessing. Ask for a sample
+            invoice layout on your strategy call.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="warehouse location nj mount laurel">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Where is your warehouse?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            We operate from <strong>New Jersey (Mount Laurel area)</strong>—strong East Coast
+            coverage for Amazon FCs and DTC last-mile. Ask for the current facility address and
+            inbound routing instructions after you book a plan.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="own operate facility 3pl">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you own and operate your facility?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Prep Services FBA runs warehouse ops on-site with our team and PrepCorex—not a
+            black-box marketplace of random warehouses. Quality, SOPs, and portal data stay under
+            one roof.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="3pl services what included">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What do prep / 3PL services typically include?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>With Prep Services FBA you’ll typically get:</p>
+          <ul>
+            <li>Inbound receiving &amp; inventory updates</li>
+            <li>Amazon FBA / FBM prep (FNSKU labeling, bagging, bundling, cartons)</li>
+            <li>Storage, pick, pack, and dispatch for DTC / multi-channel</li>
+            <li>Kitting, inspection, and returns processing</li>
+            <li>PrepCorex portal, invoices, Buy Labels, and live receiving visibility</li>
+          </ul>
+        </div>
+      </article>
+
+      <!-- From prepservicesfba.com homepage FAQs + extra PrepCorex -->
+      <article class="psf-faq__item" data-tags="what is amazon fba prep definition labeling">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What is Amazon FBA Prep?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Amazon FBA Prep is preparing products to Amazon’s fulfillment rules before they ship to
+            Amazon warehouses—labeling, packaging, inspection, bundling, and shipment prep—so your
+            inventory is accepted and sellable without costly rejections.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="fnsku labels carton pallet amazon">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you apply Amazon FNSKU labels?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Absolutely.</strong> We print and apply FNSKU labels, carton labels, pallet
+            labels, and other Amazon shipment labels required for your inbound shipments.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="inspect inspection damage compliance quality">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you inspect products before shipping?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Shipments are checked for quantity accuracy, visible damage,
+            packaging quality, and Amazon / channel compliance requirements before they leave the
+            floor—reducing surprises at Amazon or your customer’s door.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="storage inventory warehouse short long term">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you offer inventory storage?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> We provide secure short-term and long-term inventory storage for
+            FBA prep and multi-channel fulfillment. Storage is billed transparently in PrepCorex so
+            you can see how inventory days affect cost.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="order processing speed 24 48 hours ship">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How quickly are orders processed?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Most orders are processed and shipped within <strong>24–48 hours</strong> after inventory
+            is received and verified—often faster with same-day dispatch when units are already
+            on-hand before cutoff.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="bundling kitting subscription multipack promo">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you handle bundling, kitting, and subscription boxes?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Custom packaging, promotional bundles, multi-pack kitting, and
+            subscription-style assembly are available. Share the build list once; we’ll quote labor
+            and materials before the first batch runs.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="prepcorex included software portal access">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Is PrepCorex included with Prep Services FBA?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Prep Services FBA is powered by PrepCorex—your client portal for
+            inventory, inbound/outbound, invoices, Buy Labels, and live receiving visibility—with
+            <strong>$0 monthly portal fee</strong>.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="inbound request asn create shipment">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How do I send inventory to your warehouse?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Create an inbound / inventory request in PrepCorex with SKUs and expected quantities,
+            then ship to our New Jersey address using the routing instructions we provide. Clear
+            ASNs speed up receiving and your 24-hour check SLA.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="camera live pick pack dispatch warehouse video">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can I watch pick, pack, or dispatch—not only receiving?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            PrepCorex warehouse camera recording supports optional live sessions for receive and
+            outbound stages (pick / pack / dispatch). When your operator is recording, you can watch
+            in the portal and later review confirmed clips—privacy-scoped to your account.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="multi channel one warehouse fba dtc">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can one warehouse inventory serve Amazon and DTC?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Many brands keep stock at Prep Services FBA for FBA prep
+            <em>and</em> Shopify / multi-channel fulfillment—so you’re not splitting inventory
+            across three 3PLs. We’ll set channel rules during onboarding.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="cutoff time same day dispatch deadline">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What are order cut-off times for same-day shipping?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Cut-offs depend on channel (FBA vs DTC) and carrier pickup windows. We’ll share current
+            same-day cut-off times during onboarding—and weekend processing when your SLA needs it.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="small business 3pl who benefits sme">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What types of businesses benefit most from your services?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Growing Amazon and multi-channel sellers who need reliable prep + fulfillment without
+            building their own warehouse—especially brands around <strong>500+ units/month</strong>
+            that want portal visibility, transparent invoices, and East Coast speed.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="scale grow pay as you go flexible">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can I scale services as my business grows?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Start with storage and FBA prep, then add DTC fulfillment,
+            returns, kitting, or Buy Labels as volume grows—pay for what you use, without a
+            long-term lock-in.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="us based 3pl new jersey domestic">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Why choose a US-based prep / 3PL partner?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            A US warehouse means faster domestic transit to Amazon FCs and customers, easier
+            communication in your time zones, and simpler compliance vs overseas middlemen. Our NJ
+            location is built for East Coast reach.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="customer satisfaction reviews delivery accuracy">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How does using Prep Services FBA help customer satisfaction?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Faster, accurate fulfillments and cleaner Amazon inbound reduce late shipments,
+            missing units, and rejection delays—which protects Buy Box performance and customer
+            reviews. PrepCorex visibility also means fewer “where’s my order?” fires for your team.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="label wallet buy labels balance billing">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How does Buy Labels billing / label wallet work?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Label spend is tracked in PrepCorex so postage isn’t a mystery. Admins can manage
+            balances and rates; clients see clear usage on invoices. Exact wallet setup is covered
+            during portal onboarding.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="get started audit strategy call quote">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How do I get started?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Book a free strategy / pricing call (or WhatsApp operations). We’ll run a short audit of
+            volume, SKUs, and channels, then deliver a custom prep &amp; fulfillment plan—no
+            obligation.
+          </p>
+        </div>
+      </article>
+
+      <!-- WMS / PrepCorex -->
+      <article class="psf-faq__item" data-tags="wms prepcorex warehouse management system what is">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What is PrepCorex WMS?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            PrepCorex is Prep Services FBA’s warehouse management system and client portal—one place
+            for inventory, inbound requests, outbound shipments, invoices, Buy Labels, and live
+            warehouse visibility. Floor teams and clients work from the same source of truth.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="scan first barcode warehouse ops receive ship">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What does “scan-first warehouse ops” mean?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Operators scan barcodes at receive → prep → pick → pack → ship so counts and SKUs stay
+            tied to PrepCorex records. That reduces guessing, wrong-item ships, and inventory drift
+            versus paper-only warehouses.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="sku create product catalog prepcorex">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How do I add new SKUs in PrepCorex?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Create products in the PrepCorex catalog with barcodes, dimensions, and prep rules
+            (FNSKU, polybag, bundle, etc.). Onboarding helps import your existing SKU list so inbound
+            and outbound don’t stall on missing product data.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="inventory levels realtime available reserved">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can I see real-time available inventory?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> PrepCorex shows live inventory and order updates after warehouse
+            scans—so planning Amazon restocks or DTC promotions doesn’t depend on end-of-day email
+            spreadsheets.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="cycle count inventory audit physical">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you run cycle counts or inventory audits?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Prompt inventory checks are part of operations; deeper cycle counts
+            or full audits can be scheduled as special projects and reflected back into PrepCorex
+            so system qty matches the floor.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="locations bins bins slots warehouse slots">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you use bin / location tracking?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Inventory is stored in organized warehouse locations so pickers find the right SKU
+            quickly. Location discipline is what keeps scan-first pick accuracy high as SKU count
+            grows.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="outbound shipment create order prepcorex">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How do outbound / shipment requests work in PrepCorex?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Create or sync a shipment / order in PrepCorex. Warehouse runs pick → pack → dispatch
+            against that request, with status updates in the portal. Marketplace integrations can
+            feed orders automatically when connected.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="user roles permissions team access prepcorex">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can multiple people on my team access PrepCorex?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Invite ops, finance, or agency partners as needed. Access is
+            account-scoped so your inventory and camera sessions stay private to your client user
+            IDs—not other brands in the warehouse.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="mobile app phone warehouse tablet">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do warehouse teams use phones or tablets?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            PrepCorex warehouse ops run in the browser on phones/tablets—scanning, receiving,
+            outbound stages, and optional camera recording—so the floor isn’t tied to a single
+            desktop station.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="notifications alerts email portal updates">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Will I get notified when inventory is received or shipped?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Status lives in PrepCorex so you can check inbound and outbound anytime. Live receiving
+            banners and request-level updates reduce the need to chase the warehouse on chat for
+            every carton.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="api automation chatgpt crm integrations">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you support API or automation integrations?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Marketplace and channel connections are the main path for order sync. Advanced
+            automation (CRM, custom workflows) can be discussed during onboarding if your stack
+            needs more than the standard connectors.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="reports export inventory history">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can I export reports from PrepCorex?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Inventory, shipment, and billing views in PrepCorex are designed for day-to-day
+            decisions. Ask onboarding which exports or invoice downloads fit your accounting
+            workflow.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="upgrades new features portal continuous">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How often does PrepCorex get new features?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Continuously. Unlike bolted-on warehouse tools that rarely change, PrepCorex ships
+            ongoing upgrades—live video, Buy Labels improvements, ops workflows—included with your
+            prep partnership (no separate SaaS tax).
+          </p>
+        </div>
+      </article>
+
+      <!-- Amazon / compliance services -->
+      <article class="psf-faq__item" data-tags="amazon rejection error fix prep">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you fix Amazon prep errors or rejections?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Relabeling, repacks, and compliance fixes are common special
+            projects. Send the Amazon feedback / case details and we’ll quote the rework before
+            touching inventory.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="expiration date hazmat restricted amazon">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you handle expiration-dated or restricted products?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Tell us during the audit. Expiration dating and lot rules can be supported for many SKUs;
+            hazmat / heavily restricted categories need case-by-case approval so we stay compliant
+            with Amazon and carriers.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="transparency sticker opacity bag amazon">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you apply transparency stickers or opaque bags?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes</strong>, when your Amazon listing or prep SOP requires them. Include
+            transparency codes / bag rules in PrepCorex product instructions so every unit is
+            treated the same.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="bubble wrap suffocation warning polybag">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you follow Amazon polybag and suffocation-warning rules?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Prep SOPs include Amazon packaging requirements such as polybagging and required
+            warnings where applicable. Your catalog rules in PrepCorex drive what the floor applies.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="pallet wrap stretch amazon inbound">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you palletize and stretch-wrap Amazon inbound shipments?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Cartonization, pallet builds, labels, and stretch wrap for Amazon
+            inbound are part of FBA prep when your shipment plan requires pallets.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="shipment plan amazon partnered carrier">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you work with Amazon shipment plans / SPD / LTL?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Yes—small parcel and larger freight inbound to Amazon are both common. Share the
+            shipment plan details; we’ll prep cartons/pallets and book or hand off labels based on
+            your preferred flow (including Buy Labels when used).
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="fbm merchant fulfilled amazon">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you support Amazon FBM (merchant fulfilled)?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> We can pick, pack, and ship FBM orders from the same NJ inventory
+            that feeds FBA prep—useful when you want Buy Box flexibility without a second warehouse.
+          </p>
+        </div>
+      </article>
+
+      <!-- DTC / multi-channel services -->
+      <article class="psf-faq__item" data-tags="shopify orders sync dtc">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How do Shopify orders get to the warehouse?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Connect Shopify (or your channel) during onboarding so orders sync into PrepCorex for
+            pick / pack / ship. Tracking can flow back per your integration setup.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="tiktok shop fulfillment">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you fulfill TikTok Shop orders?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> TikTok Shop is part of our multi-channel stack. We’ll confirm the
+            current connector path and SLAs on your strategy call.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="walmart wfs prep">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you prep inventory for Walmart WFS?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Walmart WFS prep and related labeling / carton rules can be handled
+            alongside Amazon workflows—ideal for brands selling on both marketplaces.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="b2b wholesale retail pallet">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you support B2B or wholesale / retail shipments?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            B2B and multi-channel fulfillment are supported—carton or pallet builds to retailer
+            routing guides when you provide the requirements. Scope is quoted per account.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="inserts marketing flyer thank you card">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you include marketing inserts or thank-you cards?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes</strong> for DTC packs when you supply inserts (or we quote print). Insert
+            rules are stored with your pack SOP so every order stays on-brand.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="gift wrap message dtc">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you offer gift notes or special pack requests?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Gift notes and special pack instructions can be supported on DTC orders when flagged in
+            the order / PrepCorex workflow. Pricing depends on handling time—confirmed in your rate
+            card.
+          </p>
+        </div>
+      </article>
+
+      <!-- Ops practical -->
+      <article class="psf-faq__item" data-tags="visiting warehouse tour nj">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can I visit or tour the warehouse?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Tours can be arranged by appointment for serious leads and active clients. Many brands
+            also use PrepCorex live receiving video when they can’t travel to New Jersey.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="hours operation timezone eastern">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What hours does the warehouse operate?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Core ops run on Eastern time with weekend processing available for inbound/outbound.
+            Exact hours and cutoffs are shared at onboarding so your team plans ASNs and order
+            releases correctly.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="carrier ups fedex usps freight">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Which carriers do you ship with?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Major parcel carriers via PrepCorex Buy Labels and Amazon / channel label flows, plus
+            freight when pallets require it. Competitive rates are a core part of the Prep Services
+            FBA value.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="damaged inventory claim photos">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          What if inventory arrives damaged?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Receiving inspection flags visible damage. We document issues in the portal workflow so
+            you can decide restock, quarantine, or supplier claims—often with photo evidence from
+            receive ops.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="overage shortage discrepancy inbound">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How are overages and shortages handled?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Counts are scanned against your inbound request. Variances are recorded so you can align
+            with suppliers. Accurate ASNs in PrepCorex make discrepancy handling much faster.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="hold quarantine inventory quality">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can inventory be placed on hold or quarantine?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Damaged, mislabeled, or quality-hold units can be separated from
+            sellable stock until you approve release, rework, or disposal.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="disposal destroy liquidate inventory">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you dispose of or liquidate unsellable inventory?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Disposal / removal can be arranged as a special project with written approval. We’ll
+            quote handling and confirm PrepCorex inventory is updated after completion.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="transfer inventory out leave 3pl">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can I transfer inventory out if I leave?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Because there’s no long-term lock-in, outbound transfer / pickup
+            can be scheduled. We’ll coordinate cartonization and docs so your next partner receives
+            clean inventory.
+          </p>
+        </div>
+      </article>
+
+      <!-- Billing / commercial -->
+      <article class="psf-faq__item" data-tags="pricing rate card quote how priced">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How is pricing structured?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Transparent, volume- and activity-based pricing for prep, storage, pick/pack, and
+            special projects—plus shipping labels when you use Buy Labels. Your custom plan from the
+            free audit becomes the working rate card.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="payment methods invoice due">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How and when do I pay invoices?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Invoices appear in PrepCorex with line-level clarity. Payment methods and terms are set
+            during onboarding—ask for Net terms if your finance team requires them.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="storage fees how calculated pallet bin">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How are storage fees calculated?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Storage is billed based on the space / units your inventory occupies over time (details
+            on your rate card). PrepCorex visibility helps you decide when to restock Amazon vs hold
+            DTC buffer stock.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="hidden fees surprise charges">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Are there hidden fees?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            We price for transparency—$0 setup, $0 portal fee, and special work quoted before
+            execution. If Amazon rules or your SOP change mid-stream, we’ll flag cost impact instead
+            of surprising you on the invoice.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="sla guarantee performance uptime">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do you guarantee SLAs in writing?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Receiving and outbound targets (including 24-hour checks and same-day capability) are
+            discussed in your plan / MSA-style agreement. We believe in earning renewals through
+            performance—not trapping brands in multi-year lock-ins.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="security cameras cctv warehouse safety">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Is the warehouse secured?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Facility access is controlled for ops staff and authorized visitors. Client-facing live
+            camera sessions are permissioned in PrepCorex so you only see your work—not other
+            brands’ inventory.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="data privacy security prepcorex account">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Is my PrepCorex data private from other clients?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes.</strong> Inventory, orders, invoices, and live/playback camera access are
+            scoped to your account. Other sellers in the building cannot see your PrepCorex data.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="training onboarding how long go live">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How long does onboarding / go-live take?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Timeline depends on SKU count, integrations, and first inbound freight. Many brands go
+            live in days to a few weeks after the audit—migration help is included so you’re not
+            alone dumping spreadsheets into a portal.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="china import container ocean freight receive">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you receive containers or freight from overseas suppliers?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            <strong>Yes</strong>—common for FBA sellers importing to the East Coast. Create the
+            inbound in PrepCorex, share BOL / carton details, and we’ll receive into inventory for
+            prep or DTC.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="sample send influencer brand">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Can you ship samples to influencers or Amazon for listing images?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Sample / one-off shipments can be created as outbound requests. Useful for photography,
+            compliance samples, or creator seeding without pulling inventory out yourself.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="veeqo shipstation other wms connect">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          Do I still need ShipStation / another WMS if I use PrepCorex?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            Most clients run day-to-day ops inside PrepCorex (inventory, prep, fulfillment, labels).
+            If you have a legacy tool, we’ll map what still needs to sync during onboarding so you
+            don’t maintain two systems forever.
+          </p>
+        </div>
+      </article>
+
+      <article class="psf-faq__item" data-tags="difference prepcorex other 3pl software">
+        <button class="psf-faq__q" type="button" aria-expanded="false">
+          How is PrepCorex different from typical 3PL portals?
+          <span class="psf-faq__chev" aria-hidden="true">
+            <svg viewBox="0 0 12 8" fill="currentColor"><path d="M1.2 1.4L6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z"/></svg>
+          </span>
+        </button>
+        <div class="psf-faq__a">
+          <p>
+            It’s built around Prep Services FBA’s real floor workflows—scan-first receive-to-ship,
+            transparent invoices, Buy Labels, continuous upgrades, and live receiving video—not a
+            generic “black box” status page updated once a day.
+          </p>
+        </div>
+      </article>
+    </div>
+
+    <p class="psf-faq__empty" id="psf-faq-empty">No matching questions. Try another keyword.</p>
+
+    <div class="psf-faq__help">
+      <h3>Need extra help?</h3>
+      <p>
+        Have a question not covered here? Book a free strategy call or message operations on
+        WhatsApp—we’ll get you a clear answer.
+      </p>
+      <div class="psf-faq__help-ctas">
+        <a class="primary" href="#pricing">Get Fulfillment Pricing</a>
+        <a
+          class="ghost"
+          href="https://wa.link/771ry0"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Chat with Operations</a
+        >
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  (function () {
+    var list = document.getElementById("psf-faq-list");
+    var search = document.getElementById("psf-faq-search");
+    var empty = document.getElementById("psf-faq-empty");
+    if (!list) return;
+
+    list.addEventListener("click", function (e) {
+      var btn = e.target.closest(".psf-faq__q");
+      if (!btn || !list.contains(btn)) return;
+      var item = btn.closest(".psf-faq__item");
+      var open = item.classList.contains("is-open");
+      list.querySelectorAll(".psf-faq__item.is-open").forEach(function (el) {
+        el.classList.remove("is-open");
+        var b = el.querySelector(".psf-faq__q");
+        if (b) b.setAttribute("aria-expanded", "false");
+      });
+      if (!open) {
+        item.classList.add("is-open");
+        btn.setAttribute("aria-expanded", "true");
+      }
+    });
+
+    if (search) {
+      search.addEventListener("input", function () {
+        var q = (search.value || "").trim().toLowerCase();
+        var visible = 0;
+        list.querySelectorAll(".psf-faq__item").forEach(function (item) {
+          var text = (item.textContent || "").toLowerCase();
+          var tags = (item.getAttribute("data-tags") || "").toLowerCase();
+          var show = !q || text.indexOf(q) !== -1 || tags.indexOf(q) !== -1;
+          item.hidden = !show;
+          if (show) visible++;
+        });
+        if (empty) empty.classList.toggle("is-visible", visible === 0);
+      });
+    }
+  })();
+</script>

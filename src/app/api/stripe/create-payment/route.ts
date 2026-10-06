@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStripe } from '@/lib/stripe';
 import { adminDb, adminFieldValue } from '@/lib/firebase-admin';
+import { verifyBearerToken } from '@/lib/api-admin-auth';
 import { assertCanSpendLabelBilling } from '@/lib/label-billing-admin';
+import { getOrCreateStripeCustomer } from '@/lib/stripe-customer';
 import type { LabelPurchase } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
+    const decoded = await verifyBearerToken(request);
+    if (!decoded?.uid) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await request.json();
     const {
       userId,
@@ -16,10 +23,17 @@ export async function POST(request: NextRequest) {
       parcel,
       selectedRate,
       shippedItemId,
+      saveCard = false,
+      paymentMethodId = null,
     } = body;
 
+    const uid = String(userId || decoded.uid).trim();
+    if (uid !== decoded.uid) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     // Validate required fields
-    if (!userId || !amount || !fromAddress || !toAddress || !parcel || !selectedRate) {
+    if (!uid || !amount || !fromAddress || !toAddress || !parcel || !selectedRate) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -36,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     try {
       await assertCanSpendLabelBilling(adminDb(), {
-        userId,
+        userId: uid,
         amountCents: Math.round(Number(amount)),
         preferWallet: false,
       });
@@ -52,26 +66,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get Stripe instance (lazy initialization)
     const stripe = getStripe();
+    const customerId = await getOrCreateStripeCustomer(uid);
+    const pmId = typeof paymentMethodId === 'string' && paymentMethodId.trim()
+      ? paymentMethodId.trim()
+      : null;
+    const shouldSaveCard = Boolean(saveCard) && !pmId;
 
-    // Create payment intent in Stripe
     let paymentIntent;
     try {
       paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount), // Ensure it's an integer (cents)
+        amount: Math.round(amount),
         currency: currency.toLowerCase(),
+        customer: customerId,
+        ...(pmId ? { payment_method: pmId } : {}),
+        ...(shouldSaveCard ? { setup_future_usage: 'off_session' as const } : {}),
         metadata: {
-          userId,
+          userId: uid,
           fromAddress: JSON.stringify(fromAddress),
           toAddress: JSON.stringify(toAddress),
           parcel: JSON.stringify(parcel),
           selectedRate: JSON.stringify(selectedRate),
           shipmentId: selectedRate.shipmentId || '',
           shippedItemId: shippedItemId || '',
+          saveCard: shouldSaveCard ? 'true' : 'false',
         },
         automatic_payment_methods: {
           enabled: true,
+          allow_redirects: 'never',
         },
       });
     } catch (stripeError: any) {
@@ -79,12 +101,11 @@ export async function POST(request: NextRequest) {
       throw new Error(`Stripe error: ${stripeError.message || 'Failed to create payment intent'}`);
     }
 
-    // Create label purchase record in Firestore
     let docRef;
     try {
       const labelPurchaseData: Omit<LabelPurchase, 'id' | 'createdAt'> = {
-        userId,
-        purchasedBy: userId,
+        userId: uid,
+        purchasedBy: uid,
         fromAddress,
         toAddress,
         parcel,
@@ -99,15 +120,13 @@ export async function POST(request: NextRequest) {
       };
 
       docRef = await adminDb()
-        .collection(`users/${userId}/labelPurchases`)
+        .collection(`users/${uid}/labelPurchases`)
         .add({
           ...labelPurchaseData,
           createdAt: adminFieldValue().serverTimestamp(),
         });
     } catch (firestoreError: any) {
       console.error('Firestore write failed:', firestoreError);
-      // Payment intent was created but we couldn't save the record
-      // This is a critical error - the payment exists but we don't have a record
       throw new Error(`Database error: ${firestoreError.message || 'Failed to save payment record'}`);
     }
 
@@ -119,11 +138,9 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error creating payment intent:', error);
     
-    // Provide more detailed error information
     let errorMessage = 'Failed to create payment intent';
     let errorDetails = error.message || 'Unknown error';
     
-    // Check for specific error types
     if (error.type === 'StripeInvalidRequestError') {
       errorMessage = 'Invalid payment request';
       errorDetails = error.message || 'Please check your payment details';
@@ -148,5 +165,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
-

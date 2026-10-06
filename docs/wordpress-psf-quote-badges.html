@@ -1,0 +1,209 @@
+<!-- Prep Services FBA — Quote benefits badges only (use next to Elementor Form)
+     Theme: white + orange #FF8806 · paste into Custom HTML / Elementor HTML -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap"
+  rel="stylesheet"
+/>
+
+<style>
+  .psf-badges {
+    --accent: #ff8806;
+    --accent-deep: #e07805;
+    --accent-soft: rgba(255, 136, 6, 0.12);
+    --ink: #0f172a;
+    --muted: #64748b;
+    font-family: "Outfit", system-ui, sans-serif;
+    color: var(--ink);
+    max-width: 420px;
+    width: 100%;
+  }
+
+  .psf-badges * {
+    box-sizing: border-box;
+  }
+
+  .psf-badges__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .psf-badges__card {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.95rem 1rem;
+    border-radius: 14px;
+    background: #fff;
+    border: 1px solid rgba(255, 136, 6, 0.18);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+  }
+
+  .psf-badges__icon {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 12px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .psf-badges__icon svg {
+    width: 1.2rem;
+    height: 1.2rem;
+    display: block;
+  }
+
+  .psf-badges__text {
+    min-width: 0;
+  }
+
+  .psf-badges__text strong {
+    display: block;
+    font-size: 0.98rem;
+    font-weight: 750;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+  }
+
+  .psf-badges__text span {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.84rem;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  .psf-badges__wa {
+    margin-top: 0.75rem;
+    padding: 1.15rem 1.1rem;
+    border-radius: 16px;
+    border: 1.5px solid rgba(255, 136, 6, 0.45);
+    background: linear-gradient(165deg, #fff 0%, #fff5eb 100%);
+  }
+
+  .psf-badges__wa h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: var(--accent-deep);
+  }
+
+  .psf-badges__wa p {
+    margin: 0.45rem 0 0.9rem;
+    font-size: 0.88rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .psf-badges__wa a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    min-height: 2.75rem;
+    padding: 0 1.15rem;
+    border-radius: 10px;
+    background: #25d366;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.9rem;
+    text-decoration: none;
+  }
+
+  .psf-badges__wa a:hover {
+    filter: brightness(1.05);
+  }
+
+  @media (max-width: 900px) {
+    .psf-badges {
+      max-width: none;
+    }
+
+    .psf-badges__grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .psf-badges__card {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.55rem;
+      height: 100%;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .psf-badges__grid {
+      grid-template-columns: 1fr;
+    }
+
+    .psf-badges__card {
+      flex-direction: row;
+      align-items: center;
+    }
+  }
+</style>
+
+<aside class="psf-badges" aria-label="Plan benefits">
+  <div class="psf-badges__grid">
+    <div class="psf-badges__card">
+      <span class="psf-badges__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+      </span>
+      <div class="psf-badges__text">
+        <strong>15-Minute Audit</strong>
+        <span>Quick, focused, zero fluff.</span>
+      </div>
+    </div>
+
+    <div class="psf-badges__card">
+      <span class="psf-badges__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z" />
+        </svg>
+      </span>
+      <div class="psf-badges__text">
+        <strong>Custom Plan</strong>
+        <span>Tailored to your volume &amp; products.</span>
+      </div>
+    </div>
+
+    <div class="psf-badges__card">
+      <span class="psf-badges__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 2L4 14h7l-1 8 10-14h-7l0-6z" />
+        </svg>
+      </span>
+      <div class="psf-badges__text">
+        <strong>Same-Day Response</strong>
+        <span>Quote delivered within 24 hours.</span>
+      </div>
+    </div>
+
+    <div class="psf-badges__card">
+      <span class="psf-badges__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 15.9 7.2 18l.9-5.4L4.2 8.7l5.4-.8L12 3z" />
+        </svg>
+      </span>
+      <div class="psf-badges__text">
+        <strong>No Obligation</strong>
+        <span>Free audit. No pressure to commit.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="psf-badges__wa">
+    <h3>Prefer WhatsApp?</h3>
+    <p>Fast movers can message us directly for an even quicker response.</p>
+    <a href="https://wa.link/771ry0" target="_blank" rel="noopener noreferrer">Message on WhatsApp</a>
+  </div>
+</aside>

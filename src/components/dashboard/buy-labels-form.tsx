@@ -346,12 +346,12 @@ export function BuyLabelsForm({
   const [selectedRate, setSelectedRate] = useState<ShippingRate | null>(null);
   const [shipmentId, setShipmentId] = useState<string | null>(null);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [stripePromise, setStripePromise] = useState<any>(null);
   const [paymentAmountCents, setPaymentAmountCents] = useState(0);
   const [paymentCurrency, setPaymentCurrency] = useState("usd");
   const [cartItems, setCartItems] = useState<LabelCartItem[]>([]);
   const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
+  const [pendingCheckoutItem, setPendingCheckoutItem] = useState<LabelCartItem | null>(null);
   const [labelBilling, setLabelBilling] = useState<LabelBillingSettings | null>(null);
   const [paymentSource, setPaymentSource] = useState<LabelPaymentSource>("limit");
   const [selectedFromLocationId, setSelectedFromLocationId] = useState("");
@@ -932,10 +932,60 @@ export function BuyLabelsForm({
     }
 
     const amount = Math.round(parseFloat(item.selectedRate.amount) * 100);
+    setPendingCheckoutItem(item);
+    setCheckoutMode("single");
+    setPaymentAmountCents(amount);
+    setPaymentCurrency(item.selectedRate.currency || "usd");
+    setPendingLabelPurchaseId(null);
+    setPaymentDialogOpen(true);
+  };
+
+  const createStripePaymentIntent = async (opts: {
+    saveCard: boolean;
+    paymentMethodId?: string | null;
+  }) => {
+    if (!user) throw new Error("You must be logged in to purchase labels.");
+    const token = await user.getIdToken();
+
+    if (checkoutMode === "bulk") {
+      const response = await fetch("/api/stripe/create-bulk-payment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          saveCard: opts.saveCard,
+          paymentMethodId: opts.paymentMethodId || null,
+          items: cartItems.map((item) => ({
+            fromAddress: item.fromAddress,
+            toAddress: item.toAddress,
+            parcel: item.parcel,
+            selectedRate: toPaymentSelectedRate(
+              item.selectedRate,
+              item.shipmentId || item.selectedRate.shipment || null
+            ),
+          })),
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to start bulk checkout.");
+      }
+      const data = await response.json();
+      return { clientSecret: data.clientSecret as string };
+    }
+
+    const item = pendingCheckoutItem;
+    if (!item) throw new Error("No label selected for checkout.");
+
+    const amount = Math.round(parseFloat(item.selectedRate.amount) * 100);
     const paymentResponse = await fetch("/api/stripe/create-payment", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         userId: user.uid,
@@ -948,11 +998,13 @@ export function BuyLabelsForm({
           item.selectedRate,
           item.shipmentId || item.selectedRate.shipment || null
         ),
+        saveCard: opts.saveCard,
+        paymentMethodId: opts.paymentMethodId || null,
       }),
     });
 
     if (!paymentResponse.ok) {
-      const errorData = await paymentResponse.json();
+      const errorData = await paymentResponse.json().catch(() => ({}));
       const errorMessage = errorData.details
         ? `${errorData.error}: ${errorData.details}`
         : errorData.error || "Failed to create payment";
@@ -960,13 +1012,13 @@ export function BuyLabelsForm({
     }
 
     const { clientSecret, labelPurchaseId } = await paymentResponse.json();
-    setClientSecret(clientSecret);
-    setPendingLabelPurchaseId(
-      typeof labelPurchaseId === "string" && labelPurchaseId ? labelPurchaseId : null
-    );
-    setPaymentAmountCents(amount);
-    setPaymentCurrency(item.selectedRate.currency || "usd");
-    setPaymentDialogOpen(true);
+    if (typeof labelPurchaseId === "string" && labelPurchaseId) {
+      setPendingLabelPurchaseId(labelPurchaseId);
+    }
+    return {
+      clientSecret: clientSecret as string,
+      labelPurchaseId: typeof labelPurchaseId === "string" ? labelPurchaseId : undefined,
+    };
   };
 
   const buildCartItemFromCurrentForm = (): LabelCartItem | null => {
@@ -1068,35 +1120,16 @@ export function BuyLabelsForm({
         return;
       }
 
-      const response = await fetch("/api/stripe/create-bulk-payment", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId: user.uid,
-          items: cartItems.map((item) => ({
-            fromAddress: item.fromAddress,
-            toAddress: item.toAddress,
-            parcel: item.parcel,
-            selectedRate: toPaymentSelectedRate(
-              item.selectedRate,
-              item.shipmentId || item.selectedRate.shipment || null
-            ),
-          })),
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to start bulk checkout.");
-      }
-
-      const { clientSecret, amount, currency } = await response.json();
+      const totalAmount = cartItems.reduce((sum, item) => {
+        const cents = Math.round(Number.parseFloat(item.selectedRate.amount || "0") * 100);
+        return sum + (Number.isFinite(cents) ? cents : 0);
+      }, 0);
+      const currency = cartItems[0]?.selectedRate?.currency || "usd";
       setCheckoutMode("bulk");
-      setClientSecret(clientSecret);
-      setPaymentAmountCents(amount);
-      setPaymentCurrency(currency || "usd");
+      setPendingCheckoutItem(null);
+      setPaymentAmountCents(totalAmount);
+      setPaymentCurrency(currency);
+      setPendingLabelPurchaseId(null);
       setPaymentDialogOpen(true);
     } catch (error: any) {
       toast({
@@ -1121,7 +1154,7 @@ export function BuyLabelsForm({
     setCartItems((prev) => [...prev, ...newItems]);
   };
 
-  const handlePaymentSuccess = async () => {
+  const handlePaymentSuccess = async (paidLabelPurchaseId?: string | null) => {
     if (checkoutMode === "bulk") {
       setCartItems([]);
     }
@@ -1132,15 +1165,16 @@ export function BuyLabelsForm({
     const labelPrice = selectedRate
       ? Number.parseFloat(String(selectedRate.amount))
       : NaN;
+    const resolvedPurchaseId = paidLabelPurchaseId || pendingLabelPurchaseId;
 
     if (shopifyOrderContext && user?.uid) {
       let trackingNumber: string | null = null;
       let trackingCompany: string | null = null;
-      if (pendingLabelPurchaseId) {
+      if (resolvedPurchaseId) {
         for (let i = 0; i < 12; i++) {
           try {
             const snap = await getDoc(
-              doc(db, `users/${user.uid}/labelPurchases`, pendingLabelPurchaseId)
+              doc(db, `users/${user.uid}/labelPurchases`, resolvedPurchaseId)
             );
             if (snap.exists()) {
               const data = snap.data() as {
@@ -1170,7 +1204,7 @@ export function BuyLabelsForm({
           connectionId: shopifyOrderContext.connectionId || "",
           inventoryProductId: selectedInventoryProductId || null,
           inventoryProductName: selectedProduct?.productName || null,
-          labelPurchaseId: pendingLabelPurchaseId,
+          labelPurchaseId: resolvedPurchaseId,
           labelPrice: Number.isFinite(labelPrice) ? labelPrice : null,
           trackingNumber,
           trackingCompany,
@@ -1181,9 +1215,9 @@ export function BuyLabelsForm({
         setRates([]);
         setSelectedRate(null);
         setShipmentId(null);
-        setClientSecret(null);
         setCheckoutMode(null);
         setPendingLabelPurchaseId(null);
+        setPendingCheckoutItem(null);
 
         toast({
           title: trackingNumber ? "Label purchased" : "Payment succeeded",
@@ -1208,7 +1242,7 @@ export function BuyLabelsForm({
         shop: shopifyOrderContext.shop,
         inventoryProductId: selectedInventoryProductId || null,
         inventoryProductName: selectedProduct?.productName || null,
-        labelPurchaseId: pendingLabelPurchaseId,
+        labelPurchaseId: resolvedPurchaseId,
         labelPrice: Number.isFinite(labelPrice) ? labelPrice : null,
         trackingNumber,
         trackingCompany,
@@ -1219,9 +1253,9 @@ export function BuyLabelsForm({
       setRates([]);
       setSelectedRate(null);
       setShipmentId(null);
-      setClientSecret(null);
       setCheckoutMode(null);
       setPendingLabelPurchaseId(null);
+      setPendingCheckoutItem(null);
 
       toast({
         title: trackingNumber ? "Label purchased" : "Payment succeeded",
@@ -1244,9 +1278,9 @@ export function BuyLabelsForm({
     setRates([]);
     setSelectedRate(null);
     setShipmentId(null);
-    setClientSecret(null);
     setCheckoutMode(null);
     setPendingLabelPurchaseId(null);
+    setPendingCheckoutItem(null);
     
     // Redirect to purchased labels page
     router.push(successRedirect);
@@ -1395,18 +1429,27 @@ export function BuyLabelsForm({
           </AlertDescription>
         </Alert>
       ) : null}
-      {stripePromise && clientSecret && (
+      {stripePromise && paymentDialogOpen && user ? (
         <Elements stripe={stripePromise}>
           <PaymentDialog
             open={paymentDialogOpen}
-            onOpenChange={setPaymentDialogOpen}
-            clientSecret={clientSecret}
+            onOpenChange={(open) => {
+              setPaymentDialogOpen(open);
+              if (!open) {
+                setPendingCheckoutItem(null);
+              }
+            }}
             amount={paymentAmountCents}
             currency={paymentCurrency}
-            onSuccess={handlePaymentSuccess}
+            getIdToken={() => user.getIdToken()}
+            createPaymentIntent={createStripePaymentIntent}
+            onSuccess={(labelPurchaseId) => {
+              if (labelPurchaseId) setPendingLabelPurchaseId(labelPurchaseId);
+              void handlePaymentSuccess(labelPurchaseId);
+            }}
           />
         </Elements>
-      )}
+      ) : null}
       {canImportBuyLabels ? (
         <BuyLabelsBulkImportDialog
           open={bulkImportOpen}

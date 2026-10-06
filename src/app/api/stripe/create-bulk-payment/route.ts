@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { adminDb, adminFieldValue } from "@/lib/firebase-admin";
+import { verifyBearerToken } from "@/lib/api-admin-auth";
 import { assertCanSpendLabelBilling } from "@/lib/label-billing-admin";
+import { getOrCreateStripeCustomer } from "@/lib/stripe-customer";
 import type { LabelPurchase } from "@/types";
 
 type BulkItem = {
@@ -13,10 +15,30 @@ type BulkItem = {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { userId, items } = body as { userId?: string; items?: BulkItem[] };
+    const decoded = await verifyBearerToken(request);
+    if (!decoded?.uid) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    if (!userId || !Array.isArray(items) || items.length === 0) {
+    const body = await request.json();
+    const {
+      userId,
+      items,
+      saveCard = false,
+      paymentMethodId = null,
+    } = body as {
+      userId?: string;
+      items?: BulkItem[];
+      saveCard?: boolean;
+      paymentMethodId?: string | null;
+    };
+
+    const uid = String(userId || decoded.uid).trim();
+    if (uid !== decoded.uid) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    if (!uid || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
         { error: "Missing required fields: userId and items[]" },
         { status: 400 }
@@ -37,7 +59,7 @@ export async function POST(request: NextRequest) {
 
     try {
       await assertCanSpendLabelBilling(adminDb(), {
-        userId,
+        userId: uid,
         amountCents: totalAmount,
         preferWallet: false,
       });
@@ -65,16 +87,28 @@ export async function POST(request: NextRequest) {
     }
 
     const stripe = getStripe();
+    const customerId = await getOrCreateStripeCustomer(uid);
+    const pmId =
+      typeof paymentMethodId === "string" && paymentMethodId.trim()
+        ? paymentMethodId.trim()
+        : null;
+    const shouldSaveCard = Boolean(saveCard) && !pmId;
+
     const paymentIntent = await stripe.paymentIntents.create({
       amount: totalAmount,
       currency: firstCurrency,
+      customer: customerId,
+      ...(pmId ? { payment_method: pmId } : {}),
+      ...(shouldSaveCard ? { setup_future_usage: "off_session" as const } : {}),
       metadata: {
-        userId,
+        userId: uid,
         bulkCheckout: "true",
         itemCount: String(items.length),
+        saveCard: shouldSaveCard ? "true" : "false",
       },
       automatic_payment_methods: {
         enabled: true,
+        allow_redirects: "never",
       },
     });
 
@@ -84,8 +118,8 @@ export async function POST(request: NextRequest) {
         bulkBatchId: string;
         bulkBatchIndex: number;
       } = {
-        userId,
-        purchasedBy: userId,
+        userId: uid,
+        purchasedBy: uid,
         fromAddress: item.fromAddress,
         toAddress: item.toAddress,
         parcel: item.parcel,
@@ -101,7 +135,7 @@ export async function POST(request: NextRequest) {
       };
 
       return adminDb()
-        .collection(`users/${userId}/labelPurchases`)
+        .collection(`users/${uid}/labelPurchases`)
         .add({
           ...purchaseData,
           createdAt: adminFieldValue().serverTimestamp(),
@@ -120,9 +154,8 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error("Error creating bulk payment intent:", error);
     return NextResponse.json(
-      { error: error?.message || "Failed to create bulk payment intent" },
+      { error: error?.message || "Failed to create bulk payment" },
       { status: 500 }
     );
   }
 }
-

@@ -1,0 +1,674 @@
+<!-- Prep Services FBA / PrepCorex — WordPress hero (light)
+     Paste into Custom HTML / Elementor HTML. Full-width recommended.
+     Theme: white + orange #FF8806 -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap"
+  rel="stylesheet"
+/>
+
+<style>
+  .psf-hero {
+    --accent: #ff8806;
+    --accent-deep: #e07805;
+    --accent-soft: rgba(255, 136, 6, 0.12);
+    --accent-glow: rgba(255, 136, 6, 0.22);
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e8ecf1;
+    --surface: #ffffff;
+    --wash: #fff8f1;
+    font-family: "Outfit", system-ui, sans-serif;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    color: var(--ink);
+    background:
+      radial-gradient(900px 480px at 92% 8%, rgba(255, 136, 6, 0.14), transparent 58%),
+      radial-gradient(700px 420px at 6% 92%, rgba(255, 136, 6, 0.08), transparent 55%),
+      linear-gradient(180deg, #ffffff 0%, var(--wash) 55%, #ffffff 100%);
+  }
+
+  .psf-hero * {
+    box-sizing: border-box;
+  }
+
+  .psf-hero__mesh {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-image:
+      linear-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 75% 65% at 50% 35%, #000 15%, transparent 78%);
+    animation: psf-hero-mesh 22s linear infinite;
+  }
+
+  .psf-hero__orb {
+    pointer-events: none;
+    position: absolute;
+    z-index: 0;
+    width: min(46vw, 480px);
+    aspect-ratio: 1;
+    right: -4%;
+    top: 4%;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--accent-glow), transparent 68%);
+    filter: blur(6px);
+    animation: psf-hero-orb 8s ease-in-out infinite;
+  }
+
+  .psf-hero__orb--left {
+    width: min(36vw, 340px);
+    left: -8%;
+    right: auto;
+    top: auto;
+    bottom: 8%;
+    opacity: 0.65;
+    animation-delay: -2.5s;
+    animation-duration: 9.5s;
+  }
+
+  .psf-hero__inner {
+    position: relative;
+    z-index: 2;
+    width: min(1180px, calc(100% - 2.5rem));
+    margin: 0 auto;
+    padding: 4.75rem 0 2.75rem;
+  }
+
+  .psf-hero__main {
+    display: grid;
+    grid-template-columns: 1.12fr 0.88fr;
+    gap: 2.75rem;
+    align-items: center;
+  }
+
+  .psf-hero__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0 0 1.25rem;
+    padding: 0.45rem 0.95rem 0.45rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 136, 6, 0.35);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 8px 24px rgba(255, 136, 6, 0.08);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #9a5404;
+    letter-spacing: 0.01em;
+    animation:
+      psf-hero-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both,
+      psf-hero-badge-glow 3.2s ease-in-out infinite 0.7s;
+  }
+
+  .psf-hero__badge-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 1.55rem;
+    height: 1.55rem;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.85rem;
+    line-height: 1;
+    flex-shrink: 0;
+    animation: psf-hero-bolt 2.2s ease-in-out infinite;
+  }
+
+  .psf-hero__title {
+    margin: 0;
+    font-size: clamp(2.15rem, 4.6vw, 3.65rem);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    max-width: 14ch;
+    animation: psf-hero-rise 0.85s 0.08s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .psf-hero__title em {
+    font-style: normal;
+    color: var(--accent);
+    background: linear-gradient(
+      110deg,
+      var(--accent-deep) 0%,
+      #ffb44a 35%,
+      var(--accent) 50%,
+      #ffb44a 65%,
+      var(--accent-deep) 100%
+    );
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: psf-hero-shimmer 4s linear infinite;
+  }
+
+  .psf-hero__copy {
+    margin: 1.2rem 0 0;
+    max-width: 34rem;
+    font-size: clamp(1rem, 1.4vw, 1.12rem);
+    line-height: 1.65;
+    color: var(--muted);
+    font-weight: 450;
+    animation: psf-hero-rise 0.9s 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .psf-hero__ctas {
+    margin-top: 1.85rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    animation: psf-hero-rise 0.95s 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .psf-hero__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    min-height: 3.15rem;
+    padding: 0 1.4rem;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-decoration: none;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease,
+      border-color 0.22s ease;
+  }
+
+  .psf-hero__btn--primary {
+    color: #fff;
+    background: linear-gradient(135deg, #ff9f2e 0%, var(--accent) 45%, var(--accent-deep) 100%);
+    box-shadow: 0 14px 32px rgba(255, 136, 6, 0.32);
+    animation: psf-hero-btn-glow 2.8s ease-in-out infinite;
+  }
+
+  .psf-hero__btn--primary::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -120%;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(
+      100deg,
+      transparent,
+      rgba(255, 255, 255, 0.35),
+      transparent
+    );
+    transform: skewX(-18deg);
+    animation: psf-hero-btn-shine 3.4s ease-in-out infinite;
+  }
+
+  .psf-hero__btn--primary:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 20px 44px rgba(255, 136, 6, 0.48);
+    animation-play-state: paused;
+  }
+
+  .psf-hero__btn--ghost {
+    color: var(--ink);
+    border: 1.5px solid var(--line);
+    background: rgba(255, 255, 255, 0.85);
+  }
+
+  .psf-hero__btn--ghost:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 136, 6, 0.55);
+    background: var(--accent-soft);
+  }
+
+  /* Stats panel — light, strong + motion */
+  .psf-hero__stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.85rem;
+    padding: 1rem;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid rgba(255, 136, 6, 0.18);
+    box-shadow:
+      0 24px 50px rgba(15, 23, 42, 0.06),
+      0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+    backdrop-filter: blur(8px);
+    animation:
+      psf-hero-rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) both,
+      psf-hero-panel-glow 4.5s ease-in-out infinite 1s;
+  }
+
+  .psf-hero__stat {
+    padding: 1.15rem 1rem 1.2rem;
+    border-radius: 14px;
+    background: linear-gradient(165deg, #ffffff 0%, #fff7ee 100%);
+    border: 1px solid rgba(255, 136, 6, 0.12);
+    will-change: transform;
+    transition: box-shadow 0.25s ease, border-color 0.25s ease;
+    animation: psf-hero-float 3.6s ease-in-out infinite;
+  }
+
+  .psf-hero__stat:nth-child(1) {
+    animation-delay: 0s;
+  }
+
+  .psf-hero__stat:nth-child(2) {
+    animation-delay: 0.45s;
+  }
+
+  .psf-hero__stat:nth-child(3) {
+    animation-delay: 0.9s;
+  }
+
+  .psf-hero__stat:nth-child(4) {
+    animation-delay: 1.35s;
+  }
+
+  .psf-hero__stat:hover {
+    animation-play-state: paused;
+    transform: translateY(-7px) scale(1.02);
+    border-color: rgba(255, 136, 6, 0.4);
+    box-shadow: 0 16px 34px rgba(255, 136, 6, 0.18);
+  }
+
+  .psf-hero__stat-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    margin-bottom: 0.7rem;
+    border-radius: 10px;
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    font-size: 1rem;
+    font-weight: 800;
+    animation: psf-hero-icon-pulse 2.8s ease-in-out infinite;
+  }
+
+  .psf-hero__stat:nth-child(2) .psf-hero__stat-icon {
+    animation-delay: 0.35s;
+  }
+
+  .psf-hero__stat:nth-child(3) .psf-hero__stat-icon {
+    animation-delay: 0.7s;
+  }
+
+  .psf-hero__stat:nth-child(4) .psf-hero__stat-icon {
+    animation-delay: 1.05s;
+  }
+
+  .psf-hero__stat strong {
+    display: block;
+    font-size: clamp(1.55rem, 2.4vw, 1.95rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--ink);
+  }
+
+  .psf-hero__stat span {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  /* Trust strip */
+  .psf-hero__trust {
+    margin-top: 2.75rem;
+    padding: 1rem 0 0.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem 1.35rem;
+    align-items: center;
+    border-top: 1px solid var(--line);
+    animation: psf-hero-rise 1.05s 0.12s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .psf-hero__trust-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #334155;
+  }
+
+  .psf-hero__trust-item i {
+    display: inline-grid;
+    place-items: center;
+    width: 1.2rem;
+    height: 1.2rem;
+    border-radius: 50%;
+    background: #16a34a;
+    color: #fff;
+    font-style: normal;
+    font-size: 0.7rem;
+    font-weight: 800;
+    line-height: 1;
+    flex-shrink: 0;
+    animation: psf-hero-check-pop 2.4s ease-in-out infinite;
+  }
+
+  .psf-hero__trust-item:nth-child(2) i {
+    animation-delay: 0.2s;
+  }
+
+  .psf-hero__trust-item:nth-child(3) i {
+    animation-delay: 0.4s;
+  }
+
+  .psf-hero__trust-item:nth-child(4) i {
+    animation-delay: 0.6s;
+  }
+
+  .psf-hero__trust-item:nth-child(5) i {
+    animation-delay: 0.8s;
+  }
+
+  @keyframes psf-hero-mesh {
+    from {
+      background-position: 0 0;
+    }
+    to {
+      background-position: 64px 64px;
+    }
+  }
+
+  @keyframes psf-hero-orb {
+    0%,
+    100% {
+      opacity: 0.7;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.07);
+    }
+  }
+
+  @keyframes psf-hero-rise {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes psf-hero-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-7px);
+    }
+  }
+
+  @keyframes psf-hero-panel-glow {
+    0%,
+    100% {
+      box-shadow:
+        0 24px 50px rgba(15, 23, 42, 0.06),
+        0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+    }
+    50% {
+      box-shadow:
+        0 28px 56px rgba(255, 136, 6, 0.14),
+        0 0 0 1px rgba(255, 255, 255, 0.9) inset;
+    }
+  }
+
+  @keyframes psf-hero-icon-pulse {
+    0%,
+    100% {
+      transform: scale(1);
+      background: var(--accent-soft);
+    }
+    50% {
+      transform: scale(1.08);
+      background: rgba(255, 136, 6, 0.2);
+    }
+  }
+
+  @keyframes psf-hero-check-pop {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    40% {
+      transform: scale(1.12);
+    }
+    55% {
+      transform: scale(1);
+    }
+  }
+
+  @keyframes psf-hero-shimmer {
+    to {
+      background-position: 200% center;
+    }
+  }
+
+  @keyframes psf-hero-btn-glow {
+    0%,
+    100% {
+      box-shadow: 0 14px 32px rgba(255, 136, 6, 0.28);
+    }
+    50% {
+      box-shadow: 0 18px 42px rgba(255, 136, 6, 0.48);
+    }
+  }
+
+  @keyframes psf-hero-btn-shine {
+    0%,
+    35% {
+      left: -120%;
+    }
+    55% {
+      left: 140%;
+    }
+    100% {
+      left: 140%;
+    }
+  }
+
+  @keyframes psf-hero-bolt {
+    0%,
+    100% {
+      transform: scale(1) rotate(0deg);
+    }
+    35% {
+      transform: scale(1.12) rotate(-8deg);
+    }
+    55% {
+      transform: scale(1.05) rotate(6deg);
+    }
+  }
+
+  @keyframes psf-hero-badge-glow {
+    0%,
+    100% {
+      box-shadow: 0 8px 24px rgba(255, 136, 6, 0.08);
+    }
+    50% {
+      box-shadow: 0 10px 28px rgba(255, 136, 6, 0.22);
+    }
+  }
+
+  .psf-hero__trust-item {
+    animation: psf-hero-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .psf-hero__trust-item:nth-child(1) {
+    animation-delay: 0.3s;
+  }
+
+  .psf-hero__trust-item:nth-child(2) {
+    animation-delay: 0.38s;
+  }
+
+  .psf-hero__trust-item:nth-child(3) {
+    animation-delay: 0.46s;
+  }
+
+  .psf-hero__trust-item:nth-child(4) {
+    animation-delay: 0.54s;
+  }
+
+  .psf-hero__trust-item:nth-child(5) {
+    animation-delay: 0.62s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .psf-hero__mesh,
+    .psf-hero__orb,
+    .psf-hero__stats,
+    .psf-hero__stat,
+    .psf-hero__stat-icon,
+    .psf-hero__trust-item i,
+    .psf-hero__badge,
+    .psf-hero__badge-icon,
+    .psf-hero__title,
+    .psf-hero__title em,
+    .psf-hero__copy,
+    .psf-hero__ctas,
+    .psf-hero__btn--primary,
+    .psf-hero__btn--primary::after,
+    .psf-hero__trust,
+    .psf-hero__trust-item {
+      animation: none !important;
+    }
+
+    .psf-hero__title em {
+      -webkit-text-fill-color: var(--accent);
+      color: var(--accent);
+      background: none;
+    }
+
+    .psf-hero__stat:hover,
+    .psf-hero__btn--primary:hover {
+      transform: none;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .psf-hero__inner {
+      padding: 3.5rem 0 2.25rem;
+    }
+
+    .psf-hero__main {
+      grid-template-columns: 1fr;
+      gap: 2rem;
+    }
+
+    .psf-hero__title {
+      max-width: none;
+    }
+
+    .psf-hero__copy-col {
+      order: 1;
+    }
+
+    .psf-hero__stats {
+      order: 2;
+    }
+
+    .psf-hero__orb {
+      width: 70vw;
+      top: -6%;
+      right: -18%;
+    }
+
+    .psf-hero__trust {
+      margin-top: 2rem;
+      gap: 0.55rem 1rem;
+    }
+  }
+</style>
+
+<section class="psf-hero" aria-label="Prep Services FBA hero">
+  <div class="psf-hero__mesh" aria-hidden="true"></div>
+  <div class="psf-hero__orb" aria-hidden="true"></div>
+  <div class="psf-hero__orb psf-hero__orb--left" aria-hidden="true"></div>
+
+  <div class="psf-hero__inner">
+    <div class="psf-hero__main">
+      <div class="psf-hero__copy-col">
+        <p class="psf-hero__badge">
+          <span class="psf-hero__badge-icon" aria-hidden="true">⚡</span>
+          Trusted 3PL Fulfillment Partner for Growing Brands
+        </p>
+
+        <h1 class="psf-hero__title">
+          Amazon FBA Prep &amp;<br />
+          <em>E-commerce Fulfillment Services</em><br />
+          For Scaling Brands
+        </h1>
+
+        <p class="psf-hero__copy">
+          Fast, scalable 3PL fulfillment for Amazon FBA, FBM, Walmart WFS, Shopify, TikTok Shop, and
+          eBay sellers shipping 500+ units monthly.
+        </p>
+
+        <div class="psf-hero__ctas">
+          <a
+            class="psf-hero__btn psf-hero__btn--primary"
+            href="#pricing"
+          >
+            Get Fulfillment Pricing
+          </a>
+          <a
+            class="psf-hero__btn psf-hero__btn--ghost"
+            href="https://wa.link/771ry0"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Chat with Operations Team
+          </a>
+        </div>
+      </div>
+
+      <div class="psf-hero__stats" aria-label="Key performance metrics">
+        <div class="psf-hero__stat">
+          <div class="psf-hero__stat-icon" aria-hidden="true">▣</div>
+          <strong>1M+</strong>
+          <span>Units Processed</span>
+        </div>
+        <div class="psf-hero__stat">
+          <div class="psf-hero__stat-icon" aria-hidden="true">◎</div>
+          <strong>500+</strong>
+          <span>Sellers Supported</span>
+        </div>
+        <div class="psf-hero__stat">
+          <div class="psf-hero__stat-icon" aria-hidden="true">a</div>
+          <strong>99.9%</strong>
+          <span>Shipment Accuracy</span>
+        </div>
+        <div class="psf-hero__stat">
+          <div class="psf-hero__stat-icon" aria-hidden="true">◷</div>
+          <strong>24-Hour</strong>
+          <span>Receiving SLA</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="psf-hero__trust" aria-label="Included benefits">
+      <span class="psf-hero__trust-item"><i>✓</i> $0 Setup</span>
+      <span class="psf-hero__trust-item"><i>✓</i> $0 Monthly Portal Fee</span>
+      <span class="psf-hero__trust-item"><i>✓</i> Same-Day Dispatch</span>
+      <span class="psf-hero__trust-item"><i>✓</i> No long-term contracts</span>
+      <span class="psf-hero__trust-item"><i>✓</i> Dedicated onboarding support</span>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,389 @@
+<!-- Prep Services FBA / PrepCorex — Market Leading Fulfilment
+     Elevated orange (#FF8806) center column — no outline border, no arrow
+     Paste into WordPress Custom HTML / Elementor HTML -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap"
+  rel="stylesheet"
+/>
+
+<style>
+  .psf-cmp {
+    --accent: #ff8806;
+    --accent-deep: #e07805;
+    --accent-dark: #c46804;
+    --accent-deeper: #a35603;
+    --accent-soft: rgba(255, 136, 6, 0.28);
+    --ink: #111827;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --row-alt: #f3f4f6;
+    font-family: "Outfit", system-ui, sans-serif;
+    color: var(--ink);
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2.5rem 1rem 3.5rem;
+  }
+
+  .psf-cmp *,
+  .psf-cmp *::before,
+  .psf-cmp *::after {
+    box-sizing: border-box;
+  }
+
+  .psf-cmp__intro {
+    text-align: center;
+    max-width: 38rem;
+    margin: 0 auto;
+  }
+
+  .psf-cmp__intro h2 {
+    margin: 0;
+    font-size: clamp(1.85rem, 4.2vw, 2.75rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--ink);
+  }
+
+  .psf-cmp__intro h2 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  .psf-cmp__intro p {
+    margin: 0.85rem 0 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  .psf-cmp__stage {
+    position: relative;
+    margin-top: 1.25rem;
+    padding: 0.85rem 0 1.75rem;
+  }
+
+  .psf-cmp__shell {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+    overflow: visible;
+  }
+
+  .psf-cmp table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+  }
+
+  .psf-cmp col.col-feat {
+    width: 46%;
+  }
+
+  .psf-cmp col.col-us {
+    width: 32%;
+  }
+
+  .psf-cmp col.col-other {
+    width: 22%;
+  }
+
+  .psf-cmp th,
+  .psf-cmp td {
+    padding: 0.72rem 0.9rem;
+    font-size: 0.9rem;
+    vertical-align: middle;
+  }
+
+  .psf-cmp thead th {
+    background: #fff;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .psf-cmp tbody tr:nth-child(odd) td.feat,
+  .psf-cmp tbody tr:nth-child(odd) td.other {
+    background: var(--row-alt);
+  }
+
+  .psf-cmp tbody tr:nth-child(even) td.feat,
+  .psf-cmp tbody tr:nth-child(even) td.other {
+    background: #fff;
+  }
+
+  .psf-cmp td.feat,
+  .psf-cmp th.feat {
+    text-align: left;
+    font-weight: 700;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .psf-cmp td.other,
+  .psf-cmp th.other {
+    text-align: center;
+    color: var(--muted);
+    font-weight: 700;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* Elevated center column — orange shades only, no outline border */
+  .psf-cmp th.us,
+  .psf-cmp td.us {
+    text-align: center;
+    color: #fff;
+    background: var(--accent-dark) !important;
+    border: none;
+    position: relative;
+    z-index: 3;
+  }
+
+  .psf-cmp thead th.us {
+    background: linear-gradient(
+      180deg,
+      var(--accent) 0%,
+      var(--accent-deep) 55%,
+      var(--accent-dark) 100%
+    ) !important;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 22px var(--accent-soft);
+    padding: 1.2rem 0.75rem 1rem;
+    transform: translateY(-10px);
+  }
+
+  .psf-cmp tbody td.us {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: none;
+  }
+
+  .psf-cmp tbody tr:last-child td.us {
+    border-radius: 0 0 16px 16px;
+    border-bottom: none;
+    padding-bottom: 1.25rem;
+    box-shadow: 0 14px 28px var(--accent-soft);
+  }
+
+  .psf-cmp tbody tr:last-child td.feat,
+  .psf-cmp tbody tr:last-child td.other {
+    border-bottom: none;
+  }
+
+  .psf-cmp .brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+  }
+
+  .psf-cmp .brand strong {
+    font-size: clamp(0.82rem, 1.7vw, 1.02rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .psf-cmp .brand span {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .psf-cmp .check,
+  .psf-cmp .cross {
+    display: inline-grid;
+    place-items: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    font-weight: 800;
+    font-size: 0.88rem;
+    line-height: 1;
+  }
+
+  .psf-cmp .check {
+    border: 2px solid #fff;
+    color: #fff;
+  }
+
+  .psf-cmp .cross {
+    border: 2px solid #d1d5db;
+    color: #9ca3af;
+    background: #fff;
+  }
+
+  .psf-cmp .val {
+    font-weight: 700;
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+
+  .psf-cmp tr.focus td.feat {
+    font-weight: 800;
+  }
+
+  .psf-cmp tr.focus td.us {
+    background: var(--accent-deeper) !important;
+  }
+
+  @media (max-width: 720px) {
+    .psf-cmp__stage {
+      padding-top: 0.35rem;
+      padding-bottom: 0.75rem;
+    }
+
+    .psf-cmp thead th.us {
+      transform: none;
+    }
+
+    .psf-cmp th,
+    .psf-cmp td {
+      padding: 0.55rem 0.4rem;
+      font-size: 0.76rem;
+    }
+
+    .psf-cmp .val {
+      white-space: normal;
+      font-size: 0.72rem;
+    }
+  }
+</style>
+
+<section class="psf-cmp" aria-label="Prep Services FBA vs other 3PLs">
+  <div class="psf-cmp__intro">
+    <h2>Market Leading <em>Fulfilment</em></h2>
+    <p>
+      Global brands are fulfilling orders on time, retaining loyal customers, and making more
+      profitable decisions with Prep Services FBA—powered by PrepCorex. Here’s why…
+    </p>
+  </div>
+
+  <div class="psf-cmp__stage">
+    <div class="psf-cmp__shell">
+      <table>
+        <colgroup>
+          <col class="col-feat" />
+          <col class="col-us" />
+          <col class="col-other" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="feat" scope="col"></th>
+            <th class="us" scope="col">
+              <div class="brand">
+                <strong>Prep Services FBA</strong>
+                <span>PrepCorex</span>
+              </div>
+            </th>
+            <th class="other" scope="col">Other 3PLs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="feat">Advanced management dashboard</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr class="focus">
+            <td class="feat">Real-time inventory &amp; order updates</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Live receiving video for clients</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Full-scale warehouse automation</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="val">Basic</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Same-day label &amp; dispatch</td>
+            <td class="us"><span class="val">Same day</span></td>
+            <td class="other"><span class="val">24 hrs prior</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Weekend order processing</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Exclusive / transparent pricing</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Competitive shipping rates</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Priority support</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Expert technical assistance</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Specialized onboarding</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Effortless migration team</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Amazon FBA / FBM mastery</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="val">Limited</span></td>
+          </tr>
+          <tr>
+            <td class="feat">E-commerce integrations (Shopify, TikTok, eBay…)</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">B2B excellence</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Transparent invoicing</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Prompt inventory checks</td>
+            <td class="us"><span class="val">24 hours</span></td>
+            <td class="other"><span class="val">3–14 days</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Innovative PrepCorex development</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">Continuous upgrades</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+          <tr>
+            <td class="feat">New features in the portal</td>
+            <td class="us"><span class="check" aria-label="Yes">✓</span></td>
+            <td class="other"><span class="cross" aria-label="No">×</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>

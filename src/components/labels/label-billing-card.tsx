@@ -59,7 +59,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Download, ExternalLink, History, Loader2, ShoppingBag, Wallet } from "lucide-react";
+import { Download, ExternalLink, History, Loader2, ShoppingBag, Trash2, Wallet, CreditCard } from "lucide-react";
 
 function toDate(value: unknown): Date | null {
   if (!value) return null;
@@ -146,6 +146,14 @@ function shouldShowLedgerReason(type: LabelWalletLedgerType | string, reason?: s
 
 type HistoryKind = "topups" | "purchases" | null;
 
+type SavedCardRow = {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+};
+
 type Props = {
   onBillingLoaded?: (settings: LabelBillingSettings) => void;
 };
@@ -161,6 +169,9 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
   const [ledger, setLedger] = useState<LabelWalletLedgerEntry[]>([]);
   const [topups, setTopups] = useState<LabelWalletTopupRequest[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [savedCards, setSavedCards] = useState<SavedCardRow[]>([]);
+  const [cardsLoading, setCardsLoading] = useState(false);
+  const [removingCardId, setRemovingCardId] = useState<string | null>(null);
 
   // Filters inside history dialog
   const [filterFrom, setFilterFrom] = useState("");
@@ -195,6 +206,52 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
       setLoading(false);
     }
   }, [user, onBillingLoaded, toast]);
+
+  const loadSavedCards = useCallback(async () => {
+    if (!user) return;
+    setCardsLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch("/api/stripe/payment-methods", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to load cards");
+      setSavedCards(Array.isArray(data.cards) ? data.cards : []);
+    } catch (error: unknown) {
+      console.warn("saved cards", error);
+      setSavedCards([]);
+    } finally {
+      setCardsLoading(false);
+    }
+  }, [user]);
+
+  const removeSavedCard = async (paymentMethodId: string) => {
+    if (!user) return;
+    setRemovingCardId(paymentMethodId);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(
+        `/api/stripe/payment-methods?paymentMethodId=${encodeURIComponent(paymentMethodId)}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to remove card");
+      toast({ title: "Card removed" });
+      await loadSavedCards();
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Could not remove card",
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+    } finally {
+      setRemovingCardId(null);
+    }
+  };
 
   const loadHistory = useCallback(async () => {
     if (!user || !settings) return;
@@ -247,6 +304,10 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
   useEffect(() => {
     void loadBilling();
   }, [loadBilling]);
+
+  useEffect(() => {
+    void loadSavedCards();
+  }, [loadSavedCards]);
 
   useEffect(() => {
     void loadHistory();
@@ -420,6 +481,61 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
   return (
     <>
       <div className="space-y-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <CreditCard className="h-5 w-5" />
+              Saved cards
+            </CardTitle>
+            <CardDescription>
+              Save a card when paying for Buy Labels, or remove one anytime here.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {cardsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading cards…
+              </div>
+            ) : savedCards.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No saved cards yet. Check “Save this card” on your next Buy Labels payment.
+              </p>
+            ) : (
+              savedCards.map((card) => (
+                <div
+                  key={card.id}
+                  className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+                >
+                  <div className="text-sm">
+                    <p className="font-medium">
+                      {String(card.brand || "Card").replace(/^\w/, (c) => c.toUpperCase())} ····{" "}
+                      {card.last4}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Exp {String(card.expMonth).padStart(2, "0")}/{card.expYear}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={removingCardId === card.id}
+                    onClick={() => void removeSavedCard(card.id)}
+                  >
+                    {removingCardId === card.id ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    Remove
+                  </Button>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
         {limitMode ? (
           <Card>
             <CardHeader className="pb-2">

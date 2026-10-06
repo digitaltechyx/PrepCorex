@@ -500,6 +500,8 @@ export interface UserProfile {
   createdAt?: Date;
   approvedAt?: Date;
   deletedAt?: Date;
+  stripeCustomerId?: string | null;
+  stripeCustomerUpdatedAt?: { seconds: number; nanoseconds: number } | string | Date | null;
   /** Unique 5-digit display ID for clients (e.g. 10001). Shown with name in admin. */
   clientId?: string | null;
   referredByAgentId?: string; // ID of the commission agent who referred this user
