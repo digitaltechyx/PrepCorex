@@ -611,7 +611,7 @@ export interface LabelBillingSettings {
   markupCents: number;
   /** When true, client can fetch Shippo rates. Default true. */
   allowShippo: boolean;
-  /** When true, client can fetch ShipBest / PrepCorex GOFO rates. Default true. */
+  /** When true, client can fetch all ShipBest logistics products (incl. GOFO). Default true. */
   allowShipbest: boolean;
   /** Optional API fee gate for Buy Labels access. */
   apiFee?: LabelApiFeeSettings;

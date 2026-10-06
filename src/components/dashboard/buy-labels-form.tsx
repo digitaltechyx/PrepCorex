@@ -799,15 +799,16 @@ export function BuyLabelsForm({
         if (allowShipbest && !hasRecipientPhone) {
           toast({
             variant: "destructive",
-            title: "PrepCorex GOFO rates need a phone",
+            title: "ShipBest rates need a phone",
             description:
-              "Shippo is disabled for your account. Add the recipient phone number to get PrepCorex GOFO rates.",
+              "Shippo is disabled for your account. Add the recipient phone number to get ShipBest rates (including PrepCorex GOFO).",
           });
         } else {
           toast({
             variant: "destructive",
             title: "No couriers enabled",
-            description: "Contact an administrator to enable Shippo or PrepCorex GOFO rates for your account.",
+            description:
+              "Contact an administrator to enable Shippo or ShipBest rates for your account.",
           });
         }
         setRates([]);
@@ -880,8 +881,9 @@ export function BuyLabelsForm({
         });
         if (allowShipbest && !hasRecipientPhone) {
           toast({
-            title: "PrepCorex GOFO rates unavailable",
-            description: "Add the recipient phone number to view PrepCorex GOFO rates.",
+            title: "ShipBest rates unavailable",
+            description:
+              "Add the recipient phone number to view all ShipBest logistics products (including PrepCorex GOFO).",
           });
         }
         // Only warn about unexpected provider failures — never "courier not enabled".
@@ -891,7 +893,7 @@ export function BuyLabelsForm({
             description: failedProviders
               .map((result) =>
                 result.name === "ShipBest"
-                  ? "PrepCorex GOFO could not return rates. Verify the recipient address and phone."
+                  ? "ShipBest could not return rates. Verify the recipient address and phone."
                   : `${result.name}: ${result.error}`
               )
               .join(" | "),

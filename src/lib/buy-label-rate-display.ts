@@ -31,7 +31,7 @@ export function isShipBestRate(rate: RateDisplayInput): boolean {
   );
 }
 
-/** PrepCorex GOFO products from ShipBest (shown to clients). */
+/** PrepCorex GOFO products from ShipBest (display / savings branding only). */
 export function isPrepCorexGofoRate(rate: RateDisplayInput): boolean {
   if (!isShipBestRate(rate)) return false;
   return /gofo/i.test(rateIdentityBlob(rate));

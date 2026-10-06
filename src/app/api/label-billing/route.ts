@@ -166,7 +166,7 @@ export async function PATCH(request: NextRequest) {
       !body.allowShipbest
     ) {
       return NextResponse.json(
-        { error: "Enable at least one courier (Shippo or PrepCorex GOFO)." },
+        { error: "Enable at least one courier (Shippo or ShipBest)." },
         { status: 400 }
       );
     }

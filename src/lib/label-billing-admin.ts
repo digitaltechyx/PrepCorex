@@ -367,7 +367,7 @@ export async function adminUpdateLabelBilling(
       const allowShipbest =
         typeof opts.allowShipbest === "boolean" ? opts.allowShipbest : settings.allowShipbest;
       if (!allowShippo && !allowShipbest) {
-        throw new Error("Enable at least one courier (Shippo or PrepCorex GOFO).");
+        throw new Error("Enable at least one courier (Shippo or ShipBest).");
       }
       settings = { ...settings, allowShippo, allowShipbest };
     }

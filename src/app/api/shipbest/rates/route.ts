@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     const rateOpts = await resolveBuyLabelsRateOptions(adminDb(), decoded?.uid);
     if (!rateOpts.allowShipbest) {
       return NextResponse.json(
-        { error: "PrepCorex GOFO rates are not enabled for this account." },
+        { error: "ShipBest rates are not enabled for this account." },
         { status: 403 }
       );
     }
@@ -166,18 +166,16 @@ export async function POST(request: NextRequest) {
         };
       });
 
-    // Clients only see PrepCorex GOFO from ShipBest — hide ShipBest USPS / other couriers.
+    // All ShipBest logistics products (GOFO, USPS, etc.) are offered when allowShipbest is on.
     const rates = filterVisibleBuyLabelRates(allRates);
 
     if (rates.length === 0) {
       return NextResponse.json(
         {
-          error: "No PrepCorex GOFO rates for this shipment",
+          error: "No ShipBest rates for this shipment",
           details:
-            allRates.length > 0
-              ? "ShipBest returned courier products, but only PrepCorex GOFO rates are offered in Buy Labels for this account."
-              : lastQuoteError ||
-                "ShipBest returned no priced GOFO products for this address/parcel. Check product coverage for this lane or try different dimensions/weight.",
+            lastQuoteError ||
+            "ShipBest returned no priced logistics products for this address/parcel. Check product coverage for this lane or try different dimensions/weight.",
         },
         { status: 400 }
       );

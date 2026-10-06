@@ -481,7 +481,7 @@ export function AdminLabelBillingPanel() {
                       checked={allowShipbest}
                       onCheckedChange={(v) => setAllowShipbest(v === true)}
                     />
-                    PrepCorex GOFO (ShipBest)
+                    ShipBest (all products incl. GOFO)
                   </label>
                 </div>
                 <p className="text-xs text-muted-foreground">

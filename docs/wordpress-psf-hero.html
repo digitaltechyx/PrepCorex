@@ -122,9 +122,9 @@
 
   .psf-hero__title {
     margin: 0;
-    font-size: clamp(2.15rem, 4.6vw, 3.65rem);
+    font-size: clamp(2.15rem, 4.6vw, 3.55rem);
     font-weight: 800;
-    line-height: 1.05;
+    line-height: 1.08;
     letter-spacing: -0.04em;
     color: var(--ink);
     max-width: 14ch;
@@ -150,17 +150,28 @@
   }
 
   .psf-hero__copy {
-    margin: 1.2rem 0 0;
+    margin: 1.15rem 0 0;
     max-width: 34rem;
-    font-size: clamp(1rem, 1.4vw, 1.12rem);
-    line-height: 1.65;
+    font-size: clamp(0.98rem, 1.35vw, 1.08rem);
+    line-height: 1.55;
     color: var(--muted);
-    font-weight: 450;
+    font-weight: 500;
     animation: psf-hero-rise 0.9s 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
+  .psf-hero__channels {
+    margin: 0.85rem 0 0;
+    max-width: 34rem;
+    font-size: 0.86rem;
+    line-height: 1.45;
+    color: #94a3b8;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    animation: psf-hero-rise 0.9s 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
   .psf-hero__ctas {
-    margin-top: 1.85rem;
+    margin-top: 1.75rem;
     display: flex;
     flex-wrap: wrap;
     gap: 0.75rem;
@@ -172,11 +183,12 @@
     align-items: center;
     justify-content: center;
     gap: 0.45rem;
-    min-height: 3.15rem;
-    padding: 0 1.4rem;
+    min-height: 3.25rem;
+    padding: 0 1.5rem;
     border-radius: 12px;
-    font-size: 0.95rem;
-    font-weight: 700;
+    font-size: 0.98rem;
+    font-weight: 750;
+    letter-spacing: -0.01em;
     text-decoration: none;
     position: relative;
     overflow: hidden;
@@ -611,21 +623,20 @@
         </p>
 
         <h1 class="psf-hero__title">
-          Amazon FBA Prep &amp;<br />
-          <em>E-commerce Fulfillment Services</em><br />
-          For Scaling Brands
+          You Grow Your Brand.<br />
+          <em>We'll Handle the Fulfillment.</em>
         </h1>
 
         <p class="psf-hero__copy">
-          Fast, scalable 3PL fulfillment for Amazon FBA, FBM, Walmart WFS, Shopify, TikTok Shop, and
-          eBay sellers shipping 500+ units monthly.
+          From receiving and storage to Amazon FBA prep, pick &amp; pack, and shipping, we handle the
+          day-to-day operations so you can focus on growing your business.
+        </p>
+        <p class="psf-hero__channels">
+          Amazon FBA · FBM · Walmart WFS · Shopify · TikTok Shop · eBay
         </p>
 
         <div class="psf-hero__ctas">
-          <a
-            class="psf-hero__btn psf-hero__btn--primary"
-            href="#pricing"
-          >
+          <a class="psf-hero__btn psf-hero__btn--primary" href="#pricing">
             Get Fulfillment Pricing
           </a>
           <a
@@ -642,7 +653,7 @@
       <div class="psf-hero__stats" aria-label="Key performance metrics">
         <div class="psf-hero__stat">
           <div class="psf-hero__stat-icon" aria-hidden="true">▣</div>
-          <strong>1M+</strong>
+          <strong>10M+</strong>
           <span>Units Processed</span>
         </div>
         <div class="psf-hero__stat">
@@ -651,7 +662,7 @@
           <span>Sellers Supported</span>
         </div>
         <div class="psf-hero__stat">
-          <div class="psf-hero__stat-icon" aria-hidden="true">a</div>
+          <div class="psf-hero__stat-icon" aria-hidden="true">✓</div>
           <strong>99.9%</strong>
           <span>Shipment Accuracy</span>
         </div>
