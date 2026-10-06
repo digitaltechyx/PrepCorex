@@ -18,6 +18,7 @@ import {
 import { getUserRoles } from "@/lib/permissions";
 import type { UserProfile } from "@/types";
 import { onAuthStateChanged } from "firebase/auth";
+import { countPendingNotificationItems } from "@/lib/pending-notification-count";
 
 /** Matches ShopifyOrdersPanel unfulfilled filter (not partial/cancelled). */
 function isUnfulfilledShopifyOrder(status: unknown): boolean {
@@ -39,15 +40,6 @@ function ownerUid(doc: QueryDocumentSnapshot): string | null {
   return doc.ref.parent.parent?.id ?? null;
 }
 
-function isPendingStatus(status: unknown): boolean {
-  return (
-    String(status || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[\s-]+/g, "_") === "pending"
-  );
-}
-
 function countScopedMarketplaceOrders(
   docs: QueryDocumentSnapshot[],
   managedUids: Set<string>,
@@ -63,7 +55,7 @@ function countScopedMarketplaceOrders(
   return count;
 }
 
-/** Same rules as Notifications Pending tab. */
+/** Same rules as Notifications Pending tab + dashboard Pending Requests card. */
 function countPendingNotificationDocs(
   managedUids: Set<string>,
   bags: {
@@ -80,59 +72,45 @@ function countPendingNotificationDocs(
     apiFee: QueryDocumentSnapshot[];
   }
 ): number {
-  // Match Notifications: hide lines belonging to ANY multi-line batch (even if batch is partial/completed).
-  const multiLineInbound = new Set(
-    bags.inboundBatches
-      .filter((d) => {
+  const mapOwned = (docs: QueryDocumentSnapshot[]) =>
+    docs
+      .map((d) => {
         const uid = ownerUid(d);
-        return uid && managedUids.has(uid) && Number(d.data().totalLines || 0) > 1;
+        if (!uid) return null;
+        const data = d.data();
+        return {
+          id: d.id,
+          uid,
+          status: data.status,
+          batchId: String(data.batchId || ""),
+          totalLines: Number(data.totalLines || 0),
+        };
       })
-      .map((d) => d.id)
-  );
+      .filter((x): x is NonNullable<typeof x> => x != null);
 
-  let count = 0;
-  const addOwned = (docs: QueryDocumentSnapshot[], skip?: (d: QueryDocumentSnapshot) => boolean) => {
-    for (const d of docs) {
-      const uid = ownerUid(d);
-      if (!uid || !managedUids.has(uid)) continue;
-      if (skip?.(d)) continue;
-      count += 1;
-    }
-  };
+  const mapQuarantine = (docs: QueryDocumentSnapshot[]) =>
+    docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        uid: String(data.userId || ""),
+        status: data.status,
+      };
+    });
 
-  addOwned(bags.ship);
-  addOwned(bags.ret);
-  addOwned(bags.del);
-  addOwned(bags.labelRefund);
-  addOwned(bags.wallet);
-  addOwned(bags.apiFee);
-  addOwned(bags.inv, (d) => {
-    const batchId = String(d.data().batchId || "");
-    return Boolean(batchId && multiLineInbound.has(batchId));
+  return countPendingNotificationItems(managedUids, {
+    ship: mapOwned(bags.ship),
+    inv: mapOwned(bags.inv),
+    ret: mapOwned(bags.ret),
+    dispose: mapOwned(bags.dispose),
+    del: mapOwned(bags.del),
+    quarantine: mapQuarantine(bags.quarantine),
+    labelRefund: mapOwned(bags.labelRefund),
+    inboundBatches: mapOwned(bags.inboundBatches),
+    disposeBatches: mapOwned(bags.disposeBatches),
+    wallet: mapOwned(bags.wallet),
+    apiFee: mapOwned(bags.apiFee),
   });
-  // Match Notifications dispose list: any line with batchId is represented by the batch row.
-  addOwned(bags.dispose, (d) => Boolean(String(d.data().batchId || "").trim()));
-
-  for (const d of bags.inboundBatches) {
-    const uid = ownerUid(d);
-    if (!uid || !managedUids.has(uid)) continue;
-    if (!isPendingStatus(d.data().status)) continue;
-    if (Number(d.data().totalLines || 0) <= 1) continue;
-    count += 1;
-  }
-  for (const d of bags.disposeBatches) {
-    const uid = ownerUid(d);
-    if (!uid || !managedUids.has(uid)) continue;
-    if (!isPendingStatus(d.data().status)) continue;
-    count += 1;
-  }
-  for (const d of bags.quarantine) {
-    const uid = String(d.data().userId || "");
-    if (!uid || !managedUids.has(uid)) continue;
-    count += 1;
-  }
-
-  return count;
 }
 
 export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = true) {

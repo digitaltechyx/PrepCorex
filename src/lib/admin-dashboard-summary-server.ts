@@ -4,6 +4,11 @@ import {
   resolveClientUserIdsForDashboard,
   type AdminDashboardFinanceMetrics,
 } from "@/lib/admin-dashboard-finance-server";
+import {
+  countPendingNotificationItems,
+  isPendingRequestStatus,
+  type PendingNotificationCountItem,
+} from "@/lib/pending-notification-count";
 
 export type AdminDashboardSummary = {
   pendingRequestsCount: number;
@@ -46,24 +51,6 @@ type QueryDoc = {
   data: () => Record<string, unknown>;
 };
 
-function isPendingStatus(status: unknown): boolean {
-  return (
-    String(status || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[\s-]+/g, "_") === "pending"
-  );
-}
-
-/** Inbound/dispose batch parents stay actionable while pending or partial (open lines remain). */
-function isActionableBatchStatus(status: unknown): boolean {
-  const s = String(status || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
-  return s === "pending" || s === "partial";
-}
-
 function mapPendingDocs(
   docs: Array<{ id: string; ref: { path: string }; data: () => Record<string, unknown> }>,
   allowedUserIds: Set<string>,
@@ -71,7 +58,7 @@ function mapPendingDocs(
 ): QueryDoc[] {
   return docs
     .filter((d) => {
-      if (!isPendingStatus(d.data().status)) return false;
+      if (!isPendingRequestStatus(d.data().status)) return false;
       if (opts?.topLevelUserIdField) {
         return allowedUserIds.has(String(d.data().userId || ""));
       }
@@ -220,8 +207,7 @@ async function scopedDocs(
 /**
  * Pending-only count for Notifications types (Pending tab).
  * Dedupes multi-line inbound/dispose batches to one parent row, matching the Notifications UI.
- * Multi-line batch membership uses ALL batches (any status) so pending lines under a partial
- * batch are not double-counted when the parent is no longer "pending".
+ * Uses shared rules with the sidebar badge (includes partial batches).
  */
 export async function countPendingRequests(allowedUserIds: Set<string>): Promise<number> {
   const [
@@ -250,41 +236,35 @@ export async function countPendingRequests(allowedUserIds: Set<string>): Promise
     pendingDocs("labelApiFeePaymentRequests", allowedUserIds),
   ]);
 
-  const multiLineInboundBatchIds = new Set(
-    inboundBatchDocs.filter((d) => Number(d.data().totalLines || 0) > 1).map((d) => d.id)
-  );
+  const toItem = (
+    d: QueryDoc,
+    opts?: { topLevelUserIdField?: boolean }
+  ): PendingNotificationCountItem => {
+    const data = d.data();
+    return {
+      id: d.id,
+      uid: opts?.topLevelUserIdField
+        ? String(data.userId || "")
+        : uidFromDocPath(d.ref.path),
+      status: data.status,
+      batchId: String(data.batchId || ""),
+      totalLines: Number(data.totalLines || 0),
+    };
+  };
 
-  let count = 0;
-  count += shipDocs.length;
-  count += retDocs.length;
-  count += deleteDocs.length;
-  count += labelDocs.length;
-  count += quarantineDocs.length;
-  count += walletTopupDocs.length;
-  count += apiFeeDocs.length;
-
-  for (const d of invDocs) {
-    const batchId = String(d.data().batchId || "");
-    if (batchId && multiLineInboundBatchIds.has(batchId)) continue;
-    count += 1;
-  }
-  for (const d of inboundBatchDocs) {
-    if (!isActionableBatchStatus(d.data().status)) continue;
-    if (Number(d.data().totalLines || 0) <= 1) continue;
-    count += 1;
-  }
-
-  // Match Notifications: dispose lines with any batchId are represented by the batch row.
-  for (const d of disposeDocs) {
-    if (String(d.data().batchId || "").trim()) continue;
-    count += 1;
-  }
-  for (const d of disposeBatchDocs) {
-    if (!isActionableBatchStatus(d.data().status)) continue;
-    count += 1;
-  }
-
-  return count;
+  return countPendingNotificationItems(allowedUserIds, {
+    ship: shipDocs.map((d) => toItem(d)),
+    inv: invDocs.map((d) => toItem(d)),
+    ret: retDocs.map((d) => toItem(d)),
+    dispose: disposeDocs.map((d) => toItem(d)),
+    del: deleteDocs.map((d) => toItem(d)),
+    quarantine: quarantineDocs.map((d) => toItem(d, { topLevelUserIdField: true })),
+    labelRefund: labelDocs.map((d) => toItem(d)),
+    inboundBatches: inboundBatchDocs.map((d) => toItem(d)),
+    disposeBatches: disposeBatchDocs.map((d) => toItem(d)),
+    wallet: walletTopupDocs.map((d) => toItem(d)),
+    apiFee: apiFeeDocs.map((d) => toItem(d)),
+  });
 }
 
 async function countTodayActivity(allowedUserIds: Set<string>): Promise<{
