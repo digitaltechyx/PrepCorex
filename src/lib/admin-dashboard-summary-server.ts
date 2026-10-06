@@ -55,6 +55,15 @@ function isPendingStatus(status: unknown): boolean {
   );
 }
 
+/** Inbound/dispose batch parents stay actionable while pending or partial (open lines remain). */
+function isActionableBatchStatus(status: unknown): boolean {
+  const s = String(status || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  return s === "pending" || s === "partial";
+}
+
 function mapPendingDocs(
   docs: Array<{ id: string; ref: { path: string }; data: () => Record<string, unknown> }>,
   allowedUserIds: Set<string>,
@@ -260,7 +269,7 @@ export async function countPendingRequests(allowedUserIds: Set<string>): Promise
     count += 1;
   }
   for (const d of inboundBatchDocs) {
-    if (!isPendingStatus(d.data().status)) continue;
+    if (!isActionableBatchStatus(d.data().status)) continue;
     if (Number(d.data().totalLines || 0) <= 1) continue;
     count += 1;
   }
@@ -271,7 +280,7 @@ export async function countPendingRequests(allowedUserIds: Set<string>): Promise
     count += 1;
   }
   for (const d of disposeBatchDocs) {
-    if (!isPendingStatus(d.data().status)) continue;
+    if (!isActionableBatchStatus(d.data().status)) continue;
     count += 1;
   }
 

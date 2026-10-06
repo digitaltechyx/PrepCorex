@@ -158,7 +158,22 @@ function notificationTabStatus(row: NotificationRow): string {
   if (row.type === "inventory_request" && row.inboundDisplayStatus === "pending_receive") {
     return "approved";
   }
-  return normStatus(row.status);
+  const status = normStatus(row.status);
+  // Multi-line inbound / dispose batches use pending → partial → completed.
+  // Keep partial (still has open lines) on the Pending tab — same as Inventory Requests Management.
+  if (
+    (row.type === "inventory_request" || row.type === "dispose_request") &&
+    status === "partial"
+  ) {
+    return "pending";
+  }
+  if (
+    (row.type === "inventory_request" || row.type === "dispose_request") &&
+    status === "completed"
+  ) {
+    return "closed";
+  }
+  return status;
 }
 
 function cancelReasonSubtitle(reason: unknown, fallback: string): string {
@@ -337,7 +352,7 @@ function canAddInboundTrackingFromNotification(row: NotificationRow): boolean {
   const ids = row.inboundLineRequestIds?.filter(Boolean) ?? [];
   if (ids.length === 0) return false;
   const s = normStatus(row.status);
-  return s === "pending" || s === "approved";
+  return s === "pending" || s === "approved" || s === "partial";
 }
 
 /** True when this request type is in a terminal/completed state (hide Process button). */
@@ -349,11 +364,12 @@ function isProcessComplete(row: NotificationRow): boolean {
       return ["closed", "rejected", "cancelled", "paid"].includes(s) || s === "confirmed";
     case "inventory_request":
       if (row.inboundDisplayStatus === "pending_receive") return false;
-      return ["approved", "rejected", "cancelled"].includes(s);
+      // Batch parents use completed; single-line requests use approved.
+      return ["approved", "rejected", "cancelled", "completed"].includes(s);
     case "product_return":
       return ["confirmed", "closed", "rejected", "cancelled"].includes(s);
     case "dispose_request":
-      return ["approved", "rejected", "completed"].includes(s);
+      return ["approved", "rejected", "completed", "cancelled"].includes(s);
     case "delete_request":
       return ["approved", "rejected", "cancelled"].includes(s);
     case "quarantine_request":
@@ -1421,7 +1437,7 @@ export default function AdminNotificationsPage() {
                   Notifications
           </CardTitle>
                 <CardDescription className="text-indigo-100 mt-0.5 text-sm">
-                  Process shipment, inventory, return, dispose & delete requests
+                  Process shipment, inventory, inbound batches, return, dispose & delete requests
                 </CardDescription>
               </div>
             </div>
