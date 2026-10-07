@@ -61,6 +61,7 @@ import {
   normalizeShipmentItems,
 } from "@/lib/shipment-utils";
 import {
+  adjustExpiryBatchQuantity,
   earliestExpiryFromBatches,
   expiryBatchIso,
   mergeExpiryBatch,
@@ -102,6 +103,18 @@ function toDateInputValue(value: unknown): string {
   if (!date || Number.isNaN(date.getTime())) return "";
   return format(date, "yyyy-MM-dd");
 }
+
+const correctRestockSchema = z.object({
+  quantity: z.number().min(1, "Quantity must be at least 1"),
+  remarks: z.string().max(1000, "Remarks too long").optional(),
+  expiryDate: z
+    .string()
+    .optional()
+    .refine(
+      (v) => !v || v.trim() === "" || /^\d{4}-\d{2}-\d{2}$/.test(v.trim()),
+      "Use YYYY-MM-DD"
+    ),
+});
 
 const restockSchema = z.object({
   quantity: z.number().min(1, "Quantity must be at least 1"),
@@ -421,6 +434,8 @@ export function AdminInventoryManagement({
   });
   const [editExpiryDate, setEditExpiryDate] = useState("");
   const [restockingProduct, setRestockingProduct] = useState<InventoryItem | null>(null);
+  const [correctingRestock, setCorrectingRestock] = useState<RestockHistory | null>(null);
+  const [isCorrectingRestock, setIsCorrectingRestock] = useState(false);
   const [recyclingProduct, setRecyclingProduct] = useState<InventoryItem | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<InventoryItem | null>(null);
   const [editingProductWithLog, setEditingProductWithLog] = useState<InventoryItem | null>(null);
@@ -595,6 +610,15 @@ export function AdminInventoryManagement({
     defaultValues: {
       quantity: 1,
       restockDate: new Date(),
+      remarks: "",
+      expiryDate: "",
+    },
+  });
+
+  const correctRestockForm = useForm<z.infer<typeof correctRestockSchema>>({
+    resolver: zodResolver(correctRestockSchema),
+    defaultValues: {
+      quantity: 1,
       remarks: "",
       expiryDate: "",
     },
@@ -974,9 +998,14 @@ export function AdminInventoryManagement({
       const newQuantity = previousQuantity + values.quantity;
       const lotExpiry = expiryBatchIso(values.expiryDate?.trim() || null);
 
+      const receivingDateTimestamp = Timestamp.fromDate(values.restockDate);
+
       const inventoryPatch: Record<string, unknown> = {
         quantity: newQuantity,
         status: "In Stock",
+        updatedAt: Timestamp.now(),
+        // Match request-based restock: bump receiving date when stock is added.
+        receivingDate: receivingDateTimestamp,
       };
 
       // FEFO: when admin sets an expiry on this restock, merge a dated batch.
@@ -1010,6 +1039,7 @@ export function AdminInventoryManagement({
       const restockHistoryRef = collection(db, `users/${selectedUser.uid}/restockHistory`);
       const remarksTrimmed = (values.remarks || "").trim();
       const historyPayload: Record<string, unknown> = {
+        productId: restockingProduct.id,
         productName: restockingProduct.productName,
         previousQuantity: previousQuantity,
         restockedQuantity: values.quantity,
@@ -1193,6 +1223,161 @@ export function AdminInventoryManagement({
         title: "Error",
         description: error.message || "Failed to update product.",
       });
+    }
+  };
+
+  const resolveInventoryForRestockHistory = (restockItem: RestockHistory): InventoryItem | null => {
+    if (restockItem.productId) {
+      const byId = inventory.find((item) => item.id === restockItem.productId);
+      if (byId) return byId;
+    }
+    const name = (restockItem.productName || "").trim().toLowerCase();
+    if (!name) return null;
+    const matches = inventory.filter(
+      (item) => (item.productName || "").trim().toLowerCase() === name
+    );
+    if (matches.length === 1) return matches[0]!;
+    return null;
+  };
+
+  const openCorrectRestock = (restockItem: RestockHistory) => {
+    setCorrectingRestock(restockItem);
+    correctRestockForm.reset({
+      quantity: Math.max(1, Number(restockItem.restockedQuantity) || 1),
+      remarks: restockItem.remarks || "",
+      expiryDate: expiryBatchIso(restockItem.expiryDate) || "",
+    });
+  };
+
+  const onCorrectRestockSubmit = async (values: z.infer<typeof correctRestockSchema>) => {
+    if (!correctingRestock || !selectedUser || !adminUser) return;
+
+    const product = resolveInventoryForRestockHistory(correctingRestock);
+    if (!product) {
+      toast({
+        variant: "destructive",
+        title: "Cannot correct",
+        description:
+          "Could not match this restock to one inventory product. Open the product and edit quantity manually, or restock again after linking.",
+      });
+      return;
+    }
+
+    const oldRestockQty = Math.max(0, Math.floor(Number(correctingRestock.restockedQuantity) || 0));
+    const newRestockQty = Math.max(1, Math.floor(Number(values.quantity) || 0));
+    const oldExpiry = expiryBatchIso(correctingRestock.expiryDate);
+    const newExpiry = expiryBatchIso(values.expiryDate?.trim() || null);
+    const qtyDelta = newRestockQty - oldRestockQty;
+
+    if (qtyDelta === 0 && oldExpiry === newExpiry) {
+      const remarksTrimmed = (values.remarks || "").trim();
+      const prevRemarks = (correctingRestock.remarks || "").trim();
+      if (remarksTrimmed === prevRemarks) {
+        toast({ title: "No changes", description: "Nothing to update on this restock." });
+        return;
+      }
+    }
+
+    setIsCorrectingRestock(true);
+    try {
+      const productRef = doc(db, `users/${selectedUser.uid}/inventory`, product.id);
+      const productSnap = await getDoc(productRef);
+      if (!productSnap.exists()) {
+        throw new Error("Product not found in inventory");
+      }
+      const currentData = productSnap.data() as InventoryItem;
+      const currentQty = Math.max(0, Number(currentData.quantity) || 0);
+      const nextQty = currentQty + qtyDelta;
+      if (nextQty < 0) {
+        throw new Error(
+          `Correction would make inventory negative (current ${currentQty}, delta ${qtyDelta}).`
+        );
+      }
+
+      let batches: ExpiryBatch[] = Array.isArray(currentData.expiryBatches)
+        ? (currentData.expiryBatches as ExpiryBatch[])
+        : (() => {
+            const legacy = expiryBatchIso(currentData.expiryDate);
+            return legacy && currentQty > 0
+              ? [{ expiry: legacy, quantity: currentQty, lot: null, requestId: null }]
+              : [];
+          })();
+
+      if (oldExpiry || newExpiry) {
+        if (oldExpiry && newExpiry && oldExpiry === newExpiry) {
+          batches = adjustExpiryBatchQuantity(batches, {
+            expiry: oldExpiry,
+            quantityDelta: qtyDelta,
+          });
+        } else {
+          if (oldExpiry && oldRestockQty > 0) {
+            batches = adjustExpiryBatchQuantity(batches, {
+              expiry: oldExpiry,
+              quantityDelta: -oldRestockQty,
+            });
+          }
+          if (newExpiry && newRestockQty > 0) {
+            batches = mergeExpiryBatch(batches, {
+              expiry: newExpiry,
+              quantity: newRestockQty,
+              lot: null,
+              requestId: null,
+            });
+          }
+        }
+      }
+
+      const earliest = earliestExpiryFromBatches(batches);
+      const inventoryPatch: Record<string, unknown> = {
+        quantity: nextQty,
+        status: nextQty > 0 ? "In Stock" : "Out of Stock",
+        updatedAt: Timestamp.now(),
+      };
+      if (oldExpiry || newExpiry || Array.isArray(currentData.expiryBatches)) {
+        inventoryPatch.expiryBatches = batches;
+        inventoryPatch.expiryDate = earliest
+          ? Timestamp.fromDate(new Date(`${earliest}T12:00:00`))
+          : null;
+      }
+
+      await updateDoc(productRef, inventoryPatch);
+      await syncExternalInventoryIfNeeded(product as any, nextQty, selectedUser.uid);
+      await syncEbayInventoryIfNeeded(product as any, nextQty, selectedUser.uid);
+
+      const previousQuantity = Math.max(0, Number(correctingRestock.previousQuantity) || 0);
+      const historyPatch: Record<string, unknown> = {
+        productId: product.id,
+        restockedQuantity: newRestockQty,
+        newQuantity: previousQuantity + newRestockQty,
+        correctedAt: Timestamp.now(),
+        correctedBy: adminUser.name || "Admin",
+      };
+      if (newExpiry) historyPatch.expiryDate = newExpiry;
+      else historyPatch.expiryDate = null;
+
+      const remarksTrimmed = (values.remarks || "").trim();
+      if (remarksTrimmed) historyPatch.remarks = remarksTrimmed;
+      else historyPatch.remarks = null;
+
+      await updateDoc(
+        doc(db, `users/${selectedUser.uid}/restockHistory`, correctingRestock.id),
+        historyPatch
+      );
+
+      toast({
+        title: "Restock corrected",
+        description: `"${product.productName}" history updated in place. Inventory qty is now ${nextQty}.`,
+      });
+      setCorrectingRestock(null);
+      correctRestockForm.reset({ quantity: 1, remarks: "", expiryDate: "" });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Correction failed",
+        description: error?.message || "Failed to correct restock.",
+      });
+    } finally {
+      setIsCorrectingRestock(false);
     }
   };
 
@@ -1891,31 +2076,34 @@ export function AdminInventoryManagement({
       if (aLowStock && !bLowStock) return -1;
       if (!aLowStock && bLowStock) return 1;
       
+      const activityMs = (item: InventoryItem) => {
+        const updated = item.updatedAt
+          ? typeof item.updatedAt === "string"
+            ? new Date(item.updatedAt).getTime()
+            : item.updatedAt instanceof Date
+              ? item.updatedAt.getTime()
+              : Number((item.updatedAt as { seconds: number }).seconds) * 1000
+          : 0;
+        const added =
+          typeof item.dateAdded === "string"
+            ? new Date(item.dateAdded).getTime()
+            : Number((item.dateAdded as { seconds: number }).seconds) * 1000;
+        const u = Number.isFinite(updated) ? updated : 0;
+        const aMs = Number.isFinite(added) ? added : 0;
+        return Math.max(u, aMs);
+      };
+
       // If both are low stock or both are not, apply the selected sort
       switch (inventorySortBy) {
         case "name-asc":
           return a.productName.localeCompare(b.productName);
         case "name-desc":
           return b.productName.localeCompare(a.productName);
-        case "date-asc": {
-          const dateA = typeof a.dateAdded === 'string' 
-            ? new Date(a.dateAdded) 
-            : new Date((a.dateAdded as { seconds: number; nanoseconds: number }).seconds * 1000);
-          const dateB = typeof b.dateAdded === 'string' 
-            ? new Date(b.dateAdded) 
-            : new Date((b.dateAdded as { seconds: number; nanoseconds: number }).seconds * 1000);
-          return dateA.getTime() - dateB.getTime();
-        }
+        case "date-asc":
+          return activityMs(a) - activityMs(b);
         case "date-desc":
-        default: {
-          const dateA = typeof a.dateAdded === 'string' 
-            ? new Date(a.dateAdded) 
-            : new Date((a.dateAdded as { seconds: number; nanoseconds: number }).seconds * 1000);
-          const dateB = typeof b.dateAdded === 'string' 
-            ? new Date(b.dateAdded) 
-            : new Date((b.dateAdded as { seconds: number; nanoseconds: number }).seconds * 1000);
-          return dateB.getTime() - dateA.getTime();
-        }
+        default:
+          return activityMs(b) - activityMs(a);
       }
     });
 
@@ -2875,21 +3063,34 @@ export function AdminInventoryManagement({
                     <TableRow>
                       <TableHead className="min-w-[260px]">Product</TableHead>
                       <TableHead className="min-w-[120px]">Restocked Qty</TableHead>
+                      <TableHead className="min-w-[120px]">Expiry</TableHead>
                       <TableHead className="min-w-[110px]">Previous</TableHead>
                       <TableHead className="min-w-[120px]">New Total</TableHead>
                       <TableHead className="min-w-[180px]">Restocked By</TableHead>
                       <TableHead className="min-w-[150px]">Date</TableHead>
                       <TableHead className="min-w-[140px]">Pictures</TableHead>
                       <TableHead className="min-w-[200px]">Remarks</TableHead>
-                      <TableHead className="w-14 text-right">Action</TableHead>
+                      <TableHead className="w-24 text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedRestockHistory.map((item) => (
                       <TableRow key={item.id} className="bg-white/70">
-                        <TableCell className="font-semibold text-slate-900">{item.productName}</TableCell>
+                        <TableCell className="font-semibold text-slate-900">
+                          <div className="flex flex-col gap-0.5">
+                            <span>{item.productName}</span>
+                            {item.correctedAt ? (
+                              <span className="text-[10px] font-medium text-amber-700">Corrected</span>
+                            ) : null}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <Badge className="bg-green-500 text-white text-[10px]">+{item.restockedQuantity}</Badge>
+                        </TableCell>
+                        <TableCell className="text-slate-700 text-sm">
+                          {expiryBatchIso(item.expiryDate) || (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-slate-700">{item.previousQuantity}</TableCell>
                         <TableCell className="font-semibold text-green-700">{item.newQuantity}</TableCell>
@@ -2945,30 +3146,41 @@ export function AdminInventoryManagement({
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="destructive" size="sm" className="h-7 w-7 p-0">
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Restock Entry</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to delete this restock record for "{item.productName}"?
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDeleteRestockHistory(item)}
-                                  className="bg-red-600 hover:bg-red-700"
-                                >
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                          <div className="inline-flex items-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              title="Correct restock"
+                              onClick={() => openCorrectRestock(item)}
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm" className="h-7 w-7 p-0">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Restock Entry</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to delete this restock record for "{item.productName}"?
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handleDeleteRestockHistory(item)}
+                                    className="bg-red-600 hover:bg-red-700"
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -3595,6 +3807,119 @@ export function AdminInventoryManagement({
                   }}
                 >
                   Cancel
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Correct Restock History Dialog */}
+      <Dialog
+        open={!!correctingRestock}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCorrectingRestock(null);
+            correctRestockForm.reset({ quantity: 1, remarks: "", expiryDate: "" });
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Correct Restock</DialogTitle>
+            <DialogDescription>
+              Fix qty or expiry on this history row. Inventory adjusts by the difference — no new history entry.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...correctRestockForm}>
+            <form onSubmit={correctRestockForm.handleSubmit(onCorrectRestockSubmit)} className="space-y-4">
+              <div className="bg-muted/50 p-3 rounded-lg space-y-1 text-sm">
+                <p>
+                  <strong>Product:</strong> {correctingRestock?.productName}
+                </p>
+                <p>
+                  <strong>Was:</strong> +{correctingRestock?.restockedQuantity}
+                  {expiryBatchIso(correctingRestock?.expiryDate)
+                    ? ` · expiry ${expiryBatchIso(correctingRestock?.expiryDate)}`
+                    : ""}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Previous on-hand before this restock: {correctingRestock?.previousQuantity}
+                </p>
+              </div>
+              <FormField
+                control={correctRestockForm.control}
+                name="quantity"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Correct restocked quantity</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder="e.g. 30"
+                        {...field}
+                        onChange={(e) => field.onChange(parseInt(e.target.value, 10) || 0)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={correctRestockForm.control}
+                name="expiryDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Correct expiry date (optional)</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} value={field.value || ""} />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Clear the date to remove this restock&apos;s expiry lot from FEFO.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={correctRestockForm.control}
+                name="remarks"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Remarks (optional)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={3}
+                        placeholder="e.g. Corrected qty/expiry — wrong entry on first restock"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isCorrectingRestock}
+                  onClick={() => {
+                    setCorrectingRestock(null);
+                    correctRestockForm.reset({ quantity: 1, remarks: "", expiryDate: "" });
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isCorrectingRestock}>
+                  {isCorrectingRestock ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    "Save correction"
+                  )}
                 </Button>
               </div>
             </form>

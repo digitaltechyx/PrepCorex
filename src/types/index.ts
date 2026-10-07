@@ -730,6 +730,11 @@ export interface InventoryItem {
     seconds: number;
     nanoseconds: number;
   } | string;
+  /** Bumped on restock / putaway so the inventory list can surface recent activity. */
+  updatedAt?: {
+    seconds: number;
+    nanoseconds: number;
+  } | string | Date;
   status: 'In Stock' | 'Out of Stock';
   /** Set when item is synced from an external integration (read-only in inventory list). */
   source?: 'shopify' | 'ebay' | 'woocommerce' | 'tiktok' | 'amazon';
@@ -1454,6 +1459,8 @@ export interface ShippedItem {
 
 export interface RestockHistory {
   id: string;
+  /** Inventory document id when known — used to correct the right SKU. */
+  productId?: string;
   productName: string;
   previousQuantity: number;
   restockedQuantity: number;
@@ -1469,6 +1476,12 @@ export interface RestockHistory {
   imageUrls?: string[];
   /** Optional lot expiry (YYYY-MM-DD) when admin restocked with FEFO dating. */
   expiryDate?: string | null;
+  /** Set when an admin corrects this row in place (no new history entry). */
+  correctedAt?: {
+    seconds: number;
+    nanoseconds: number;
+  } | string | Date;
+  correctedBy?: string;
 }
 
 export interface RecycledShippedItem {

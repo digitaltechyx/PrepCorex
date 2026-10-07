@@ -83,6 +83,52 @@ export function mergeExpiryBatch(
   return next.sort((a, b) => a.expiry.localeCompare(b.expiry));
 }
 
+/**
+ * Add or remove quantity from a single expiry lot (lot key optional).
+ * Negative deltas remove units; empty lots are dropped.
+ */
+export function adjustExpiryBatchQuantity(
+  existing: ExpiryBatch[] | undefined | null,
+  change: { expiry: string; quantityDelta: number; lot?: string | null }
+): ExpiryBatch[] {
+  const expiry = String(change.expiry || "").trim();
+  const delta = Math.trunc(Number(change.quantityDelta) || 0);
+  if (!expiry || delta === 0) {
+    return Array.isArray(existing) ? existing.map((b) => ({ ...b })) : [];
+  }
+
+  const next = Array.isArray(existing)
+    ? existing
+        .map((b) => ({
+          expiry: String(b.expiry || "").trim(),
+          quantity: Math.max(0, Math.floor(Number(b.quantity) || 0)),
+          lot: b.lot ?? null,
+          requestId: b.requestId ?? null,
+        }))
+        .filter((b) => b.expiry && b.quantity > 0)
+    : [];
+
+  const lotKey = (change.lot ?? "").trim();
+  const idx = next.findIndex(
+    (b) => b.expiry === expiry && (b.lot ?? "").trim() === lotKey
+  );
+
+  if (idx >= 0) {
+    const qty = next[idx]!.quantity + delta;
+    if (qty <= 0) next.splice(idx, 1);
+    else next[idx] = { ...next[idx]!, quantity: qty };
+  } else if (delta > 0) {
+    next.push({
+      expiry,
+      quantity: delta,
+      lot: change.lot ?? null,
+      requestId: null,
+    });
+  }
+
+  return next.sort((a, b) => a.expiry.localeCompare(b.expiry));
+}
+
 /** Earliest expiry among batches (for inventory.expiryDate summary field). */
 export function earliestExpiryFromBatches(batches: ExpiryBatch[]): string | null {
   const dates = batches

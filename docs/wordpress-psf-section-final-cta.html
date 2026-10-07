@@ -1,0 +1,115 @@
+<!-- SECTION 7/7 — Final CTA
+     Paste into Elementor Custom HTML · full-width
+     Order: last on homepage · set #pricing to your quote section -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+<style>
+  .psf-final {
+    --accent: #ff8806;
+    --accent-deep: #e07805;
+    --ok: #16a34a;
+    font-family: "Outfit", system-ui, sans-serif;
+    position: relative;
+    padding: 4.5rem 0;
+    overflow: hidden;
+    background:
+      radial-gradient(900px 420px at 80% 20%, rgba(255, 136, 6, 0.18), transparent 55%),
+      linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0f172a 100%);
+    color: #fff;
+  }
+  .psf-final * { box-sizing: border-box; }
+  .psf-final__wrap { width: min(1180px, calc(100% - 2.5rem)); margin: 0 auto; }
+  .psf-final__layout {
+    display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 2rem; align-items: center;
+  }
+  .psf-final__title {
+    margin: 0; font-size: clamp(1.85rem, 3.8vw, 2.65rem); font-weight: 800;
+    letter-spacing: -0.035em; line-height: 1.12; max-width: 18ch; color: #fff;
+  }
+  .psf-final__title em { font-style: normal; color: #ffb44a; }
+  .psf-final__lead {
+    margin: 0.85rem 0 0; max-width: 36rem; color: #cbd5e1;
+    font-size: 1.02rem; line-height: 1.55; font-weight: 500;
+  }
+  .psf-final__checks {
+    list-style: none; margin: 1.25rem 0 0; padding: 0; display: grid; gap: 0.45rem;
+  }
+  .psf-final__checks li {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.92rem; font-weight: 600; color: #e2e8f0;
+  }
+  .psf-final__checks i {
+    display: inline-grid; place-items: center; width: 1.15rem; height: 1.15rem;
+    border-radius: 50%; background: var(--ok); color: #fff;
+    font-style: normal; font-size: 0.68rem; font-weight: 800;
+  }
+  .psf-final__actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem; }
+  .psf-final__btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 3.1rem; padding: 0 1.35rem; border-radius: 12px;
+    font-size: 0.95rem; font-weight: 750; letter-spacing: -0.01em; text-decoration: none;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .psf-final__btn--primary {
+    color: #fff;
+    background: linear-gradient(135deg, #ff9f2e 0%, var(--accent) 45%, var(--accent-deep) 100%);
+    box-shadow: 0 12px 28px rgba(255, 136, 6, 0.3);
+  }
+  .psf-final__btn--primary:hover {
+    transform: translateY(-2px); box-shadow: 0 16px 36px rgba(255, 136, 6, 0.42);
+  }
+  .psf-final__btn--ghost {
+    color: #fff; border: 1.5px solid rgba(255, 255, 255, 0.28); background: transparent;
+  }
+  .psf-final__btn--ghost:hover {
+    background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 180, 74, 0.7);
+  }
+  .psf-final__panel {
+    padding: 1.5rem; border-radius: 18px; border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06); backdrop-filter: blur(8px);
+  }
+  .psf-final__panel a {
+    display: block; color: #fff; text-decoration: none; font-weight: 650; margin-top: 0.55rem;
+  }
+  .psf-final__panel a span {
+    display: block; font-size: 0.78rem; font-weight: 500; color: #94a3b8; margin-bottom: 0.15rem;
+  }
+  @media (max-width: 960px) { .psf-final__layout { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) { .psf-final__wrap { width: min(1180px, calc(100% - 1.5rem)); } }
+</style>
+
+<section class="psf-final" aria-label="Get fulfillment pricing">
+  <div class="psf-final__wrap">
+    <div class="psf-final__layout">
+      <div>
+        <h2 class="psf-final__title">Ready for prep that <em>ships on time?</em></h2>
+        <p class="psf-final__lead">
+          Get a clear fulfillment plan for Amazon, Walmart, Shopify, and multi-channel volume —
+          with East Coast speed and PrepCorex visibility.
+        </p>
+        <ul class="psf-final__checks">
+          <li><i>✓</i> $0 setup · $0 monthly portal fee</li>
+          <li><i>✓</i> No long-term contracts</li>
+          <li><i>✓</i> Dedicated onboarding support</li>
+        </ul>
+        <div class="psf-final__actions">
+          <a class="psf-final__btn psf-final__btn--primary" href="#pricing">Get Fulfillment Pricing</a>
+          <a
+            class="psf-final__btn psf-final__btn--ghost"
+            href="https://wa.link/771ry0"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Chat with Operations Team</a
+          >
+        </div>
+      </div>
+      <aside class="psf-final__panel">
+        <a href="tel:+13476613010"><span>Call</span>+1 (347) 661-3010</a>
+        <a href="mailto:info@prepservicesfba.com"><span>Email</span>info@prepservicesfba.com</a>
+        <a href="#pricing"><span>Location</span>New Jersey · Near Port Newark</a>
+      </aside>
+    </div>
+  </div>
+</section>

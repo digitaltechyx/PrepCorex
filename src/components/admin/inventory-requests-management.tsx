@@ -596,6 +596,7 @@ export function InventoryRequestsManagement({
             receivingDate: receivingDateTimestamp,
             approvedBy: adminProfile.uid,
             approvedAt,
+            updatedAt: Timestamp.now(),
             remarks: remarksToSave,
             imageUrls: finalImageUrls,
             sourceRequestId: request.id,

@@ -1,0 +1,498 @@
+<!-- Prep Services FBA — Site footer
+     Paste into Elementor Custom HTML · full-width · place at page bottom
+     Theme: dark + orange #FF8806 · Font: Outfit -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+<style>
+  .psf-foot {
+    --accent: #ff8806;
+    --accent-deep: #e07805;
+    --ink: #f8fafc;
+    --muted: #94a3b8;
+    --line: rgba(248, 250, 252, 0.1);
+    font-family: "Outfit", system-ui, sans-serif;
+    color: var(--ink);
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(900px 420px at 12% 0%, rgba(255, 136, 6, 0.16), transparent 55%),
+      radial-gradient(700px 360px at 92% 100%, rgba(255, 136, 6, 0.1), transparent 50%),
+      linear-gradient(180deg, #14100c 0%, #0c0a08 55%, #080706 100%);
+  }
+
+  .psf-foot *,
+  .psf-foot *::before,
+  .psf-foot *::after {
+    box-sizing: border-box;
+  }
+
+  .psf-foot a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .psf-foot__wrap {
+    width: min(1180px, calc(100% - 2.5rem));
+    margin: 0 auto;
+  }
+
+  /* ——— Top CTA strip ——— */
+  .psf-foot__cta {
+    position: relative;
+    padding: 2.25rem 0 0;
+  }
+
+  .psf-foot__cta-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: 1.5rem 1.75rem;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 136, 6, 0.28);
+    background:
+      linear-gradient(135deg, rgba(255, 136, 6, 0.14), rgba(255, 136, 6, 0.04) 45%, rgba(255, 255, 255, 0.03)),
+      rgba(255, 255, 255, 0.03);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+  }
+
+  .psf-foot__cta-copy h2 {
+    margin: 0;
+    font-size: clamp(1.35rem, 2.4vw, 1.75rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+  }
+
+  .psf-foot__cta-copy h2 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  .psf-foot__cta-copy p {
+    margin: 0.4rem 0 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+    font-weight: 500;
+    line-height: 1.45;
+    max-width: 38rem;
+  }
+
+  .psf-foot__cta-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    flex-shrink: 0;
+  }
+
+  .psf-foot__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    min-height: 2.75rem;
+    padding: 0 1.2rem;
+    border-radius: 999px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+  }
+
+  .psf-foot__btn--primary {
+    background: linear-gradient(180deg, #ff9a2a, var(--accent));
+    color: #fff;
+    box-shadow: 0 10px 24px rgba(255, 136, 6, 0.28);
+  }
+
+  .psf-foot__btn--primary:hover {
+    transform: translateY(-2px);
+    background: linear-gradient(180deg, #ffaa48, var(--accent-deep));
+  }
+
+  .psf-foot__btn--ghost {
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.04);
+    color: #fff;
+  }
+
+  .psf-foot__btn--ghost:hover {
+    border-color: rgba(255, 136, 6, 0.45);
+    background: rgba(255, 136, 6, 0.1);
+  }
+
+  /* ——— Main grid ——— */
+  .psf-foot__main {
+    padding: 3rem 0 2.25rem;
+  }
+
+  .psf-foot__grid {
+    display: grid;
+    grid-template-columns: 1.35fr 0.85fr 0.85fr 0.95fr;
+    gap: 2.25rem 1.75rem;
+  }
+
+  .psf-foot__brand-logo {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .psf-foot__brand-logo img {
+    display: block;
+    height: 52px;
+    width: auto;
+    max-width: 220px;
+    object-fit: contain;
+  }
+
+  .psf-foot__brand p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.55;
+    font-weight: 500;
+    max-width: 30rem;
+  }
+
+  .psf-foot__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-top: 1.1rem;
+  }
+
+  .psf-foot__chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.85rem;
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 136, 6, 0.28);
+    background: rgba(255, 136, 6, 0.08);
+    color: #ffd7a8;
+    font-size: 0.74rem;
+    font-weight: 650;
+  }
+
+  .psf-foot__contact {
+    list-style: none;
+    margin: 1.25rem 0 0;
+    padding: 0;
+    display: grid;
+    gap: 0.65rem;
+  }
+
+  .psf-foot__contact a,
+  .psf-foot__contact span {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    color: #e2e8f0;
+    font-size: 0.9rem;
+    font-weight: 550;
+    line-height: 1.4;
+  }
+
+  .psf-foot__contact a:hover {
+    color: var(--accent);
+  }
+
+  .psf-foot__contact i {
+    display: inline-grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 10px;
+    background: rgba(255, 136, 6, 0.12);
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .psf-foot__contact svg {
+    width: 1rem;
+    height: 1rem;
+    display: block;
+  }
+
+  .psf-foot__col h3 {
+    margin: 0 0 1rem;
+    font-size: 0.82rem;
+    font-weight: 750;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #fff;
+  }
+
+  .psf-foot__links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  .psf-foot__links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--muted);
+    font-size: 0.92rem;
+    font-weight: 550;
+    transition: color 0.15s ease, transform 0.15s ease;
+  }
+
+  .psf-foot__links a::before {
+    content: "";
+    width: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    transition: width 0.15s ease;
+  }
+
+  .psf-foot__links a:hover {
+    color: #fff;
+    transform: translateX(2px);
+  }
+
+  .psf-foot__links a:hover::before {
+    width: 0.55rem;
+  }
+
+  .psf-foot__social {
+    display: flex;
+    gap: 0.55rem;
+    margin-top: 1.25rem;
+  }
+
+  .psf-foot__social a {
+    display: inline-grid;
+    place-items: center;
+    width: 2.45rem;
+    height: 2.45rem;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 136, 6, 0.35);
+    background: rgba(255, 136, 6, 0.12);
+    color: var(--accent);
+    transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+  }
+
+  .psf-foot__social a:hover {
+    transform: translateY(-2px);
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .psf-foot__social svg {
+    width: 1.05rem;
+    height: 1.05rem;
+    display: block;
+  }
+
+  /* ——— Bottom bar ——— */
+  .psf-foot__bottom {
+    border-top: 1px solid var(--line);
+    padding: 1.15rem 0 1.4rem;
+  }
+
+  .psf-foot__bottom-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .psf-foot__copy {
+    margin: 0;
+    color: #64748b;
+    font-size: 0.84rem;
+    font-weight: 500;
+  }
+
+  .psf-foot__legal {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .psf-foot__legal a {
+    color: #94a3b8;
+    font-size: 0.84rem;
+    font-weight: 600;
+  }
+
+  .psf-foot__legal a:hover {
+    color: var(--accent);
+  }
+
+  @media (max-width: 980px) {
+    .psf-foot__grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .psf-foot__brand {
+      grid-column: 1 / -1;
+    }
+
+    .psf-foot__cta-card {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .psf-foot__wrap {
+      width: min(1180px, calc(100% - 1.5rem));
+    }
+
+    .psf-foot__grid {
+      grid-template-columns: 1fr;
+      gap: 1.75rem;
+    }
+
+    .psf-foot__cta-actions {
+      width: 100%;
+    }
+
+    .psf-foot__btn {
+      flex: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .psf-foot__btn,
+    .psf-foot__links a,
+    .psf-foot__social a {
+      transition: none;
+    }
+  }
+</style>
+
+<footer class="psf-foot" aria-label="Site footer">
+  <div class="psf-foot__wrap">
+    <div class="psf-foot__cta">
+      <div class="psf-foot__cta-card">
+        <div class="psf-foot__cta-copy">
+          <h2>Ready for prep that <em>ships on time?</em></h2>
+          <p>$0 setup · no monthly portal fee · East Coast speed with PrepCorex visibility.</p>
+        </div>
+        <div class="psf-foot__cta-actions">
+          <a class="psf-foot__btn psf-foot__btn--primary" href="#pricing">Request a Quote</a>
+          <a
+            class="psf-foot__btn psf-foot__btn--ghost"
+            href="https://prepcorex.com/login"
+            target="_blank"
+            rel="noopener noreferrer"
+          >Login to PrepCorex</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="psf-foot__main">
+      <div class="psf-foot__grid">
+        <div class="psf-foot__brand">
+          <a class="psf-foot__brand-logo" href="https://prepservicesfba.com/" aria-label="Prep Services FBA home">
+            <img
+              src="https://prepservicesfba.com/wp-content/uploads/2026/10/500x500-01-2-rni5e8ucfg5v1ywiqurp00dijmv76yiilpvmcowfsw.webp"
+              alt="Prep Services FBA"
+              width="220"
+              height="52"
+              loading="lazy"
+              decoding="async"
+            />
+          </a>
+          <p>
+            Amazon FBA prep, FBM/DTC fulfillment, Walmart WFS, storage, and returns — from our New Jersey warehouse for scaling US brands.
+          </p>
+          <div class="psf-foot__chips" aria-label="Highlights">
+            <span class="psf-foot__chip">$0 setup</span>
+            <span class="psf-foot__chip">No monthly portal fee</span>
+            <span class="psf-foot__chip">NJ · East Coast</span>
+          </div>
+          <ul class="psf-foot__contact">
+            <li>
+              <a href="tel:+13476613010">
+                <i aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                </i>
+                +1 (347) 661-3010
+              </a>
+            </li>
+            <li>
+              <a href="mailto:info@prepservicesfba.com">
+                <i aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                </i>
+                info@prepservicesfba.com
+              </a>
+            </li>
+            <li>
+              <span>
+                <i aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                </i>
+                New Jersey, USA · near Port Newark &amp; major Amazon FCs
+              </span>
+            </li>
+          </ul>
+        </div>
+
+        <nav class="psf-foot__col" aria-label="Services">
+          <h3>Services</h3>
+          <ul class="psf-foot__links">
+            <li><a href="https://prepservicesfba.com/amazon-fba-prep-services/">Amazon FBA Prep</a></li>
+            <li><a href="https://prepservicesfba.com/amazon-fbm-fulfillment/">FBM Fulfillment</a></li>
+            <li><a href="https://prepservicesfba.com/walmart-wfs-prep/">Walmart WFS Prep</a></li>
+            <li><a href="https://prepservicesfba.com/dtc-shopify-fulfillment/">DTC / Shopify</a></li>
+            <li><a href="https://prepservicesfba.com/product-returns-management/">Returns Management</a></li>
+            <li><a href="https://prepservicesfba.com/warehouse-storage/">Storage &amp; Pallets</a></li>
+          </ul>
+        </nav>
+
+        <nav class="psf-foot__col" aria-label="Company">
+          <h3>Company</h3>
+          <ul class="psf-foot__links">
+            <li><a href="https://prepservicesfba.com/why-psf/">Why PSF</a></li>
+            <li><a href="https://prepservicesfba.com/about/">About Us</a></li>
+            <li><a href="https://prepservicesfba.com/case-studies/">Case Studies</a></li>
+            <li><a href="https://prepservicesfba.com/prepcorex/">PrepCorex</a></li>
+            <li><a href="https://prepservicesfba.com/how-it-works/">How It Works</a></li>
+            <li><a href="https://prepservicesfba.com/blog/">Blog</a></li>
+          </ul>
+        </nav>
+
+        <nav class="psf-foot__col" aria-label="Support">
+          <h3>Support</h3>
+          <ul class="psf-foot__links">
+            <li><a href="#pricing">Get a Quote</a></li>
+            <li><a href="https://prepservicesfba.com/contact/">Contact</a></li>
+            <li><a href="https://prepcorex.com/login" target="_blank" rel="noopener noreferrer">Client Portal</a></li>
+            <li><a href="https://wa.me/13476613010" target="_blank" rel="noopener noreferrer">WhatsApp Ops</a></li>
+          </ul>
+          <div class="psf-foot__social" aria-label="Social links">
+            <a href="https://www.facebook.com/" target="_blank" rel="noopener noreferrer" aria-label="Facebook">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
+            </a>
+            <a href="https://www.instagram.com/" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect width="20" height="20" x="2" y="2" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+            </a>
+          </div>
+        </nav>
+      </div>
+    </div>
+
+    <div class="psf-foot__bottom">
+      <div class="psf-foot__bottom-inner">
+        <p class="psf-foot__copy">© 2026 Prep Services FBA. All rights reserved.</p>
+        <div class="psf-foot__legal">
+          <a href="https://prepservicesfba.com/privacy-policy/">Privacy Policy</a>
+          <a href="https://prepservicesfba.com/terms-of-service/">Terms of Service</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>

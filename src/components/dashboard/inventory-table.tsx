@@ -1743,7 +1743,7 @@ export function InventoryTable({
     [combinedInventory.otherResourcesItems]
   );
 
-  // Filtered and sorted aggregate inventory data (newest first).
+  // Filtered and sorted aggregate inventory data (recent activity first: restock/update, else date added).
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
       const query = searchTerm.toLowerCase();
@@ -1767,7 +1767,10 @@ export function InventoryTable({
       return matchesSearch && matchesStatus && matchesSource;
     });
 
-    return filtered.sort((a, b) => getTimestampMs(b.dateAdded) - getTimestampMs(a.dateAdded));
+    const activityMs = (item: { dateAdded?: unknown; updatedAt?: unknown }) =>
+      Math.max(getTimestampMs(item.updatedAt), getTimestampMs(item.dateAdded));
+
+    return filtered.sort((a, b) => activityMs(b) - activityMs(a));
   }, [combinedData, searchTerm, statusFilter, sourceFilter]);
 
   // Pagination calculations

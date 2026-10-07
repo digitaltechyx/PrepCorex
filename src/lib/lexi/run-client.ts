@@ -165,8 +165,15 @@ export async function lexiRunClientAction(
       if (addQty <= 0) throw new Error("Restock quantity must be greater than zero.");
       const previousQuantity = Number(product.quantity) || 0;
       const newQuantity = previousQuantity + addQty;
-      await updateDoc(productRef, { quantity: newQuantity, status: "In Stock" });
+      const now = Timestamp.now();
+      await updateDoc(productRef, {
+        quantity: newQuantity,
+        status: "In Stock",
+        updatedAt: now,
+        receivingDate: now,
+      });
       await addDoc(collection(db, `users/${p.clientUserId}/restockHistory`), {
+        productId: p.productId,
         productName: product.productName || p.productName,
         previousQuantity,
         restockedQuantity: addQty,

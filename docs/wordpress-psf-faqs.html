@@ -114,7 +114,7 @@
     display: none;
   }
 
-  .psf-faq__q {
+  .psf-faq .psf-faq__q {
     width: 100%;
     display: flex;
     align-items: center;
@@ -122,31 +122,48 @@
     gap: 1rem;
     padding: 1.05rem 1.15rem;
     border: none;
-    background: transparent;
+    border-radius: 0;
+    background: transparent !important;
+    background-color: transparent !important;
     text-align: left;
     cursor: pointer;
     font-family: inherit;
     font-size: 1rem;
     font-weight: 700;
-    color: var(--ink);
+    color: var(--ink) !important;
     letter-spacing: -0.015em;
     line-height: 1.35;
+    box-shadow: none !important;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
-  .psf-faq__q:hover {
-    color: var(--accent-deep);
+  /* Beat Elementor global button hover (magenta/purple themes) */
+  .psf-faq .psf-faq__q:hover,
+  .psf-faq .psf-faq__q:focus,
+  .psf-faq .psf-faq__q:focus-visible,
+  .psf-faq .psf-faq__item.is-open .psf-faq__q {
+    background: rgba(255, 136, 6, 0.1) !important;
+    background-color: rgba(255, 136, 6, 0.1) !important;
+    color: var(--accent-deep) !important;
+    box-shadow: none !important;
   }
 
-  .psf-faq__chev {
+  .psf-faq .psf-faq__chev {
     flex: 0 0 auto;
     width: 1.75rem;
     height: 1.75rem;
     border-radius: 50%;
     display: grid;
     place-items: center;
-    background: var(--accent-soft);
-    color: var(--accent-deep);
-    transition: transform 0.25s ease, background 0.25s ease;
+    background: var(--accent-soft) !important;
+    color: var(--accent-deep) !important;
+    transition: transform 0.25s ease, background 0.25s ease, color 0.25s ease;
+  }
+
+  .psf-faq .psf-faq__q:hover .psf-faq__chev,
+  .psf-faq .psf-faq__q:focus .psf-faq__chev {
+    background: rgba(255, 136, 6, 0.22) !important;
+    color: var(--accent) !important;
   }
 
   .psf-faq__chev svg {
@@ -154,10 +171,10 @@
     height: 0.85rem;
   }
 
-  .psf-faq__item.is-open .psf-faq__chev {
+  .psf-faq .psf-faq__item.is-open .psf-faq__chev {
     transform: rotate(180deg);
-    background: var(--accent);
-    color: #fff;
+    background: var(--accent) !important;
+    color: #fff !important;
   }
 
   .psf-faq__a {

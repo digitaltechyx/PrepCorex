@@ -1,0 +1,762 @@
+<!-- Prep Services FBA — Site header (main nav bar sticky only)
+     Paste into Elementor HTML · full-width · place above hero
+     Theme: white + orange #FF8806 · Font: Outfit
+     Update hrefs below to match your WordPress page URLs. -->
+     <link rel="preconnect" href="https://fonts.googleapis.com" />
+     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+     <link
+       href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap"
+       rel="stylesheet"
+     />
+     
+     <style>
+       .psf-hdr {
+         --accent: #ff8806;
+         --accent-deep: #e07805;
+         --accent-soft: rgba(255, 136, 6, 0.12);
+         --ink: #0f172a;
+         --muted: #64748b;
+         --line: #e8ecf1;
+         --wash: #fff8f1;
+         font-family: "Outfit", system-ui, sans-serif;
+         color: var(--ink);
+         position: relative;
+         z-index: 1000;
+       }
+     
+       .psf-hdr *,
+       .psf-hdr *::before,
+       .psf-hdr *::after {
+         box-sizing: border-box;
+       }
+     
+       .psf-hdr__top {
+         background: linear-gradient(90deg, #1a1208 0%, #2a1a0c 45%, #1a1208 100%);
+         color: #f8e6d0;
+         font-size: 0.78rem;
+         font-weight: 550;
+       }
+     
+       .psf-hdr__top-inner {
+         width: min(1180px, calc(100% - 2rem));
+         margin: 0 auto;
+         min-height: 2.15rem;
+         display: flex;
+         align-items: center;
+         justify-content: space-between;
+         gap: 1rem;
+       }
+     
+       .psf-hdr__top a {
+         color: #ffd7a8;
+         text-decoration: none;
+         font-weight: 650;
+       }
+     
+       .psf-hdr__top a:hover {
+         color: #fff;
+       }
+     
+       .psf-hdr__top-left,
+       .psf-hdr__top-right {
+         display: flex;
+         align-items: center;
+         gap: 1rem;
+         flex-wrap: wrap;
+       }
+     
+       .psf-hdr__dot {
+         width: 4px;
+         height: 4px;
+         border-radius: 50%;
+         background: rgba(255, 136, 6, 0.75);
+       }
+     
+       .psf-hdr__bar {
+         position: relative;
+         z-index: 1001;
+         background: rgba(255, 255, 255, 0.92);
+         border-bottom: 1px solid rgba(232, 236, 241, 0.95);
+         backdrop-filter: blur(14px);
+         box-shadow: 0 8px 28px rgba(15, 23, 42, 0.04);
+         transition: box-shadow 0.25s ease, background 0.25s ease;
+       }
+
+       /* Only the main nav bar pins; top utility strip scrolls away */
+       .psf-hdr__bar.is-pinned {
+         position: fixed;
+         top: 0;
+         left: 0;
+         right: 0;
+         width: 100%;
+         background: rgba(255, 255, 255, 0.97);
+         box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+       }
+
+       .psf-hdr__bar-spacer {
+         display: none;
+         width: 100%;
+         pointer-events: none;
+       }
+
+       .psf-hdr__bar-spacer.is-active {
+         display: block;
+       }
+     
+       .psf-hdr.is-scrolled .psf-hdr__bar {
+         background: rgba(255, 255, 255, 0.97);
+         box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+       }
+     
+       .psf-hdr__inner {
+         width: min(1180px, calc(100% - 2rem));
+         margin: 0 auto;
+         min-height: 4.6rem;
+         display: flex;
+         align-items: center;
+         justify-content: space-between;
+         gap: 1.25rem;
+       }
+     
+       .psf-hdr__logo {
+         display: inline-flex;
+         align-items: center;
+         flex-shrink: 0;
+         text-decoration: none;
+       }
+     
+       .psf-hdr__logo img {
+         display: block;
+         height: 52px;
+         width: auto;
+         max-width: 210px;
+         object-fit: contain;
+       }
+     
+       .psf-hdr__nav {
+         display: flex;
+         align-items: center;
+         gap: 0.15rem;
+         margin: 0;
+         padding: 0;
+         list-style: none;
+       }
+     
+       .psf-hdr__nav > li {
+         position: relative;
+       }
+     
+       .psf-hdr__link {
+         display: inline-flex;
+         align-items: center;
+         gap: 0.3rem;
+         padding: 0.55rem 0.75rem;
+         border-radius: 10px;
+         color: #1e293b;
+         text-decoration: none;
+         font-size: 0.92rem;
+         font-weight: 650;
+         letter-spacing: -0.01em;
+         transition: color 0.18s ease, background 0.18s ease;
+       }
+     
+       .psf-hdr__link:hover,
+       .psf-hdr__item--open > .psf-hdr__link {
+         color: var(--accent-deep);
+         background: var(--accent-soft);
+       }
+     
+       .psf-hdr__chev {
+         width: 0.7rem;
+         height: 0.7rem;
+         display: block;
+         transition: transform 0.2s ease;
+       }
+     
+       .psf-hdr__item--open .psf-hdr__chev {
+         transform: rotate(180deg);
+       }
+     
+       .psf-hdr__drop {
+         position: absolute;
+         top: calc(100% + 0.45rem);
+         left: 50%;
+         transform: translateX(-50%) translateY(6px);
+         width: min(520px, 80vw);
+         padding: 0.75rem;
+         border-radius: 16px;
+         border: 1px solid rgba(255, 136, 6, 0.16);
+         background: #fff;
+         box-shadow: 0 22px 50px rgba(15, 23, 42, 0.12);
+         opacity: 0;
+         visibility: hidden;
+         pointer-events: none;
+         transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+         display: grid;
+         grid-template-columns: 1fr 1fr;
+         gap: 0.25rem;
+       }
+     
+       .psf-hdr__item--open > .psf-hdr__drop,
+       .psf-hdr__nav > li:hover > .psf-hdr__drop {
+         opacity: 1;
+         visibility: visible;
+         pointer-events: auto;
+         transform: translateX(-50%) translateY(0);
+       }
+     
+       .psf-hdr__drop a {
+         display: flex;
+         align-items: center;
+         gap: 0.75rem;
+         padding: 0.7rem 0.75rem;
+         border-radius: 12px;
+         text-decoration: none;
+         color: var(--ink);
+         transition: background 0.15s ease;
+       }
+     
+       .psf-hdr__drop a:hover {
+         background: var(--wash);
+       }
+     
+       .psf-hdr__drop-ico {
+         display: inline-grid;
+         place-items: center;
+         width: 2.35rem;
+         height: 2.35rem;
+         border-radius: 50%;
+         flex-shrink: 0;
+         overflow: hidden;
+         box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
+       }
+     
+       .psf-hdr__drop-ico svg {
+         width: 1.15rem;
+         height: 1.15rem;
+         display: block;
+       }
+     
+       .psf-hdr__drop-ico--brand {
+         background: transparent;
+         box-shadow: none;
+       }
+     
+       .psf-hdr__drop-ico--brand img {
+         width: 100%;
+         height: 100%;
+         object-fit: cover;
+         display: block;
+       }
+     
+       .psf-hdr__drop-ico--shopify {
+         background: #95bf47;
+       }
+     
+       .psf-hdr__drop-ico--shopify img {
+         width: 72%;
+         height: 72%;
+         object-fit: contain;
+       }
+     
+       .psf-hdr__drop-ico--oa {
+         background: #f3e8ff;
+         color: #7c3aed;
+       }
+     
+       .psf-hdr__drop-ico--wholesale {
+         background: #fff7ed;
+         color: #c2410c;
+       }
+     
+       .psf-hdr__drop-ico--label {
+         background: #fce7f3;
+         color: #db2777;
+       }
+     
+       .psf-hdr__drop-ico--pallet {
+         background: #ecfeff;
+         color: #0891b2;
+       }
+     
+       .psf-hdr__drop-ico--returns {
+         background: #fee2e2;
+         color: #dc2626;
+       }
+     
+       .psf-hdr__drop-ico--storage {
+         background: #e0e7ff;
+         color: #4f46e5;
+       }
+     
+       .psf-hdr__drop-text {
+         min-width: 0;
+       }
+     
+       .psf-hdr__drop strong {
+         display: block;
+         font-size: 0.88rem;
+         font-weight: 700;
+         letter-spacing: -0.01em;
+         line-height: 1.25;
+       }
+     
+       .psf-hdr__drop-text small {
+         display: block;
+         margin-top: 0.15rem;
+         font-size: 0.74rem;
+         color: var(--muted);
+         font-weight: 500;
+         line-height: 1.3;
+       }
+     
+       .psf-hdr__actions {
+         display: flex;
+         align-items: center;
+         gap: 0.55rem;
+         flex-shrink: 0;
+       }
+     
+       .psf-hdr__login {
+         display: inline-flex;
+         align-items: center;
+         gap: 0.4rem;
+         padding: 0.55rem 0.95rem;
+         border-radius: 999px;
+         border: 1px solid var(--line);
+         color: var(--ink);
+         text-decoration: none;
+         font-size: 0.88rem;
+         font-weight: 700;
+         background: #fff;
+         transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+       }
+     
+       .psf-hdr__login:hover {
+         border-color: rgba(255, 136, 6, 0.45);
+         background: var(--accent-soft);
+         color: var(--accent-deep);
+       }
+     
+       .psf-hdr__login svg {
+         width: 0.95rem;
+         height: 0.95rem;
+         color: var(--accent-deep);
+       }
+     
+       .psf-hdr__cta {
+         display: inline-flex;
+         align-items: center;
+         justify-content: center;
+         min-height: 2.7rem;
+         padding: 0 1.2rem;
+         border-radius: 999px;
+         color: #fff;
+         text-decoration: none;
+         font-size: 0.9rem;
+         font-weight: 750;
+         letter-spacing: -0.01em;
+         background: linear-gradient(135deg, #ff9f2e 0%, var(--accent) 45%, var(--accent-deep) 100%);
+         box-shadow: 0 10px 24px rgba(255, 136, 6, 0.28);
+         transition: transform 0.18s ease, box-shadow 0.18s ease;
+       }
+     
+       .psf-hdr__cta:hover {
+         transform: translateY(-1px);
+         box-shadow: 0 14px 30px rgba(255, 136, 6, 0.4);
+       }
+     
+       .psf-hdr__toggle {
+         display: none;
+         width: 2.6rem;
+         height: 2.6rem;
+         border-radius: 12px;
+         border: 1px solid var(--line);
+         background: #fff;
+         align-items: center;
+         justify-content: center;
+         cursor: pointer;
+         padding: 0;
+       }
+     
+       .psf-hdr__toggle span,
+       .psf-hdr__toggle span::before,
+       .psf-hdr__toggle span::after {
+         display: block;
+         width: 1.1rem;
+         height: 2px;
+         background: var(--ink);
+         border-radius: 2px;
+         position: relative;
+         transition: transform 0.2s ease, opacity 0.2s ease;
+       }
+     
+       .psf-hdr__toggle span::before,
+       .psf-hdr__toggle span::after {
+         content: "";
+         position: absolute;
+         left: 0;
+       }
+     
+       .psf-hdr__toggle span::before {
+         top: -5px;
+       }
+     
+       .psf-hdr__toggle span::after {
+         top: 5px;
+       }
+     
+       .psf-hdr.is-open .psf-hdr__toggle span {
+         background: transparent;
+       }
+     
+       .psf-hdr.is-open .psf-hdr__toggle span::before {
+         top: 0;
+         transform: rotate(45deg);
+       }
+     
+       .psf-hdr.is-open .psf-hdr__toggle span::after {
+         top: 0;
+         transform: rotate(-45deg);
+       }
+     
+       @media (max-width: 980px) {
+         .psf-hdr__top {
+           display: none;
+         }
+     
+         .psf-hdr__toggle {
+           display: inline-flex;
+         }
+     
+         .psf-hdr__login {
+           padding: 0.5rem 0.8rem;
+           font-size: 0.82rem;
+         }
+     
+         .psf-hdr__nav-wrap {
+           position: absolute;
+           left: 0;
+           right: 0;
+           top: 100%;
+           background: #fff;
+           border-bottom: 1px solid var(--line);
+           box-shadow: 0 18px 40px rgba(15, 23, 42, 0.1);
+           max-height: 0;
+           overflow: hidden;
+           opacity: 0;
+           transition: max-height 0.28s ease, opacity 0.2s ease;
+           -webkit-overflow-scrolling: touch;
+         }
+     
+         .psf-hdr.is-open .psf-hdr__nav-wrap {
+           max-height: min(85vh, 720px);
+           opacity: 1;
+           overflow-y: auto;
+           overflow-x: hidden;
+         }
+     
+         .psf-hdr__nav {
+           flex-direction: column;
+           align-items: stretch;
+           gap: 0.15rem;
+           padding: 0.85rem 1rem 1.25rem;
+           width: 100%;
+           margin: 0 auto;
+         }
+     
+         .psf-hdr__link {
+           width: 100%;
+           justify-content: space-between;
+           padding: 0.85rem 0.9rem;
+         }
+     
+         /* Mobile: dropdown only via tap (class), never hover */
+         .psf-hdr__drop,
+         .psf-hdr__nav > li:hover > .psf-hdr__drop,
+         .psf-hdr__item--open > .psf-hdr__drop {
+           position: static !important;
+           left: auto !important;
+           top: auto !important;
+           transform: none !important;
+           width: 100% !important;
+           opacity: 1 !important;
+           visibility: visible !important;
+           pointer-events: auto !important;
+           box-shadow: none;
+           border: 1px solid var(--line);
+           margin: 0.15rem 0 0.55rem;
+           grid-template-columns: 1fr;
+           display: none;
+         }
+     
+         .psf-hdr.is-open .psf-hdr__item--open > .psf-hdr__drop {
+           display: grid !important;
+         }
+     
+         /* Keep bar clean: Quote lives inside the burger panel */
+         .psf-hdr__actions .psf-hdr__cta {
+           display: none;
+         }
+
+         .psf-hdr__mobile-cta {
+           display: block;
+           padding: 0.35rem 1rem 1.15rem;
+         }
+
+         .psf-hdr__mobile-cta .psf-hdr__cta {
+           display: flex;
+           width: 100%;
+           justify-content: center;
+           min-height: 2.75rem;
+           font-size: 0.9rem;
+         }
+     
+         .psf-hdr__logo img {
+           height: 44px;
+         }
+       }
+
+       .psf-hdr__mobile-cta {
+         display: none;
+       }
+     
+       @media (prefers-reduced-motion: reduce) {
+         .psf-hdr__bar,
+         .psf-hdr__cta,
+         .psf-hdr__drop,
+         .psf-hdr__nav-wrap {
+           transition: none;
+         }
+       }
+     </style>
+     
+     <header class="psf-hdr" id="psf-site-header">
+       <div class="psf-hdr__top">
+         <div class="psf-hdr__top-inner">
+           <div class="psf-hdr__top-left">
+             <span>East Coast 3PL · New Jersey</span>
+             <span class="psf-hdr__dot" aria-hidden="true"></span>
+             <span>$0 setup · No monthly portal fee</span>
+           </div>
+           <div class="psf-hdr__top-right">
+             <a href="tel:+13476613010">+1 (347) 661-3010</a>
+             <span class="psf-hdr__dot" aria-hidden="true"></span>
+             <a href="mailto:info@prepservicesfba.com">info@prepservicesfba.com</a>
+           </div>
+         </div>
+       </div>
+     
+       <div class="psf-hdr__bar">
+         <div class="psf-hdr__inner">
+           <a class="psf-hdr__logo" href="https://prepservicesfba.com/" aria-label="Prep Services FBA home">
+             <img
+               src="https://prepservicesfba.com/wp-content/uploads/elementor/thumbs/Prep-Services-Logo-scaled-rnlk2g0nthrn20crd1ef421fo4mifpdi1c63a8vvxw.png"
+               alt="Prep Services FBA"
+               width="210"
+               height="52"
+             />
+           </a>
+     
+           <div class="psf-hdr__nav-wrap" id="psf-hdr-nav">
+             <ul class="psf-hdr__nav">
+               <li class="psf-hdr__item" data-psf-drop>
+                 <a class="psf-hdr__link" href="#" data-psf-drop-toggle aria-haspopup="true" aria-expanded="false">
+                   Services
+                   <svg class="psf-hdr__chev" viewBox="0 0 12 8" fill="currentColor" aria-hidden="true">
+                     <path d="M1.2 1.4 6 6.2l4.8-4.8L12 2.6 6 8.6 0 2.6z" />
+                   </svg>
+                 </a>
+                 <div class="psf-hdr__drop" role="menu">
+                   <a href="https://prepservicesfba.com/amazon-fba-prep-services/">
+                     <span class="psf-hdr__drop-ico psf-hdr__drop-ico--brand" aria-hidden="true">
+                       <img src="https://cdn.prod.website-files.com/65e089dbff2dce1eb85a78dc/661ccf0f9911086b9044e280_6368ddf18abc4062b0fd1692_amazon-logo-svg.webp" alt="" width="40" height="40" loading="lazy" decoding="async" />
+                     </span>
+                     <span class="psf-hdr__drop-text"><strong>Amazon FBA Prep</strong><small>FNSKU, bundling, carton prep</small></span>
+                   </a>
+                   <a href="https://prepservicesfba.com/amazon-fbm-fulfillment/">
+                     <span class="psf-hdr__drop-ico psf-hdr__drop-ico--brand" aria-hidden="true">
+                       <img src="https://cdn.prod.website-files.com/65e089dbff2dce1eb85a78dc/661ccf0f9911086b9044e280_6368ddf18abc4062b0fd1692_amazon-logo-svg.webp" alt="" width="40" height="40" loading="lazy" decoding="async" />
+                     </span>
+                     <span class="psf-hdr__drop-text"><strong>Amazon FBM Fulfillment</strong><small>Pick, pack &amp; ship</small></span>
+                   </a>
+                   <a href="https://prepservicesfba.com/walmart-wfs-prep/">
+                     <span class="psf-hdr__drop-ico psf-hdr__drop-ico--brand" aria-hidden="true">
+                       <img src="https://cdn.prod.website-files.com/65e089dbff2dce1eb85a78dc/661fa436f3d1611ec6e02bf1_unnamed-logo3.webp" alt="" width="40" height="40" loading="lazy" decoding="async" />
+                     </span>
+                     <span class="psf-hdr__drop-text"><strong>Walmart WFS Prep</strong><small>Compliant inbound prep</small></span>
+                   </a>
+                   <a href="https://prepservicesfba.com/dtc-shopify-fulfillment/">
+                     <span class="psf-hdr__drop-ico psf-hdr__drop-ico--brand psf-hdr__drop-ico--shopify" aria-hidden="true">
+                       <img src="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/webp/shopify.webp" alt="" width="40" height="40" loading="lazy" decoding="async" />
+                     </span>
+                     <span class="psf-hdr__drop-text"><strong>DTC / Shopify</strong><small>Brand-ready fulfillment</small></span>
+                   </a>
+                   <a href="https://prepservicesfba.com/online-arbitrage-prep/">
+                     <span class="psf-hdr__drop-ico psf-hdr__drop-ico--oa" aria-hidden="true">
+                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+                     </span>
+                     <span class="psf-hdr__drop-text"><strong>Online Arbitrage Prep</strong><small>Fast turnaround OA flows</small></span>
+                   </a>
+                  <a href="https://prepservicesfba.com/wholesale-prep/">
+                    <span class="psf-hdr__drop-ico psf-hdr__drop-ico--wholesale" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>
+                    </span>
+                    <span class="psf-hdr__drop-text"><strong>Wholesale Prep</strong><small>Case-pack &amp; pallet prep</small></span>
+                  </a>
+                   <a href="https://prepservicesfba.com/private-label-prep/">
+                     <span class="psf-hdr__drop-ico psf-hdr__drop-ico--label" aria-hidden="true">
+                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                     </span>
+                     <span class="psf-hdr__drop-text"><strong>Private Label</strong><small>Labeling &amp; brand prep</small></span>
+                   </a>
+                   <a href="https://prepservicesfba.com/pallet-container-handling/">
+                     <span class="psf-hdr__drop-ico psf-hdr__drop-ico--pallet" aria-hidden="true">
+                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="8" rx="1"/><path d="M7 8V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2"/><path d="M12 12v4"/><path d="M8 12v4"/><path d="M16 12v4"/></svg>
+                     </span>
+                     <span class="psf-hdr__drop-text"><strong>Pallet &amp; Container</strong><small>LTL, FTL &amp; receiving</small></span>
+                   </a>
+                   <a href="https://prepservicesfba.com/product-returns-management/">
+                     <span class="psf-hdr__drop-ico psf-hdr__drop-ico--returns" aria-hidden="true">
+                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+                     </span>
+                     <span class="psf-hdr__drop-text"><strong>Product Returns</strong><small>Reverse logistics</small></span>
+                   </a>
+                   <a href="https://prepservicesfba.com/warehouse-storage/">
+                     <span class="psf-hdr__drop-ico psf-hdr__drop-ico--storage" aria-hidden="true">
+                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z"/><path d="M6 18h12"/><path d="M6 14h12"/></svg>
+                     </span>
+                     <span class="psf-hdr__drop-text"><strong>Warehouse Storage</strong><small>Secure NJ inventory</small></span>
+                   </a>
+                 </div>
+               </li>
+               <li><a class="psf-hdr__link" href="https://prepservicesfba.com/why-psf/">Why PSF</a></li>
+               <li><a class="psf-hdr__link" href="https://prepservicesfba.com/case-studies/">Case Studies</a></li>
+               <li><a class="psf-hdr__link" href="https://prepservicesfba.com/prepcorex/">PrepCorex</a></li>
+               <li><a class="psf-hdr__link" href="https://prepservicesfba.com/how-it-works/">How It Works</a></li>
+               <li><a class="psf-hdr__link" href="https://prepservicesfba.com/about/">About</a></li>
+             </ul>
+             <div class="psf-hdr__mobile-cta">
+               <a class="psf-hdr__cta" href="#pricing">Request a Quote</a>
+             </div>
+           </div>
+     
+           <div class="psf-hdr__actions">
+             <a
+               class="psf-hdr__login"
+               href="https://prepcorex.com/login"
+               target="_blank"
+               rel="noopener noreferrer"
+               aria-label="Login to PrepCorex"
+             >
+               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                 <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                 <polyline points="10 17 15 12 10 7" />
+                 <line x1="15" y1="12" x2="3" y2="12" />
+               </svg>
+               Login
+             </a>
+             <a class="psf-hdr__cta" href="#pricing">Request a Quote</a>
+             <button class="psf-hdr__toggle" type="button" id="psf-hdr-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="psf-hdr-nav">
+               <span aria-hidden="true"></span>
+             </button>
+           </div>
+         </div>
+       </div>
+     </header>
+     
+     <script>
+       (function () {
+         var root = document.getElementById("psf-site-header");
+         if (!root) return;
+         var toggle = document.getElementById("psf-hdr-toggle");
+         var bar = root.querySelector(".psf-hdr__bar");
+         var topEl = root.querySelector(".psf-hdr__top");
+         var dropItems = root.querySelectorAll("[data-psf-drop]");
+         var spacer = document.createElement("div");
+         spacer.className = "psf-hdr__bar-spacer";
+         spacer.setAttribute("aria-hidden", "true");
+         if (bar && bar.parentNode) {
+           bar.parentNode.insertBefore(spacer, bar.nextSibling);
+         }
+         var isMobile = function () {
+           return window.matchMedia("(max-width: 980px)").matches;
+         };
+
+         function syncPinnedBar() {
+           if (!bar) return;
+           var topH = 0;
+           if (topEl) {
+             var topStyle = window.getComputedStyle(topEl);
+             if (topStyle.display !== "none" && topStyle.visibility !== "hidden") {
+               topH = topEl.offsetHeight;
+             }
+           }
+           var pin = window.scrollY > topH;
+           bar.classList.toggle("is-pinned", pin);
+           spacer.classList.toggle("is-active", pin);
+           spacer.style.height = pin ? bar.offsetHeight + "px" : "0px";
+           root.classList.toggle("is-scrolled", window.scrollY > 8);
+         }
+     
+         function closeDrops() {
+           dropItems.forEach(function (item) {
+             item.classList.remove("psf-hdr__item--open");
+             var link = item.querySelector("[data-psf-drop-toggle]");
+             if (link) link.setAttribute("aria-expanded", "false");
+           });
+         }
+     
+         function setMenuOpen(open) {
+           root.classList.toggle("is-open", open);
+           if (toggle) {
+             toggle.setAttribute("aria-expanded", open ? "true" : "false");
+             toggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+           }
+           if (!open) closeDrops();
+         }
+     
+         if (toggle) {
+           toggle.addEventListener("click", function (e) {
+             e.stopPropagation();
+             setMenuOpen(!root.classList.contains("is-open"));
+           });
+         }
+     
+         dropItems.forEach(function (item) {
+           var link = item.querySelector("[data-psf-drop-toggle]");
+           if (!link) return;
+           link.addEventListener("click", function (e) {
+             if (!isMobile()) return;
+             e.preventDefault();
+             e.stopPropagation();
+             var willOpen = !item.classList.contains("psf-hdr__item--open");
+             closeDrops();
+             if (willOpen) {
+               item.classList.add("psf-hdr__item--open");
+               link.setAttribute("aria-expanded", "true");
+               // Keep Services row visible while the list expands
+               try {
+                 item.scrollIntoView({ block: "nearest", behavior: "smooth" });
+               } catch (err) {}
+             }
+           });
+         });
+     
+         window.addEventListener("scroll", syncPinnedBar, { passive: true });
+         syncPinnedBar();
+     
+         document.addEventListener("click", function (e) {
+           if (!root.contains(e.target)) setMenuOpen(false);
+         });
+     
+         window.addEventListener("resize", function () {
+           if (!isMobile()) {
+             setMenuOpen(false);
+             closeDrops();
+           }
+           syncPinnedBar();
+         });
+       })();
+     </script>
+     

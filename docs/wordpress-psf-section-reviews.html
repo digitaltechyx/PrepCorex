@@ -1,0 +1,97 @@
+<!-- SECTION 5/7 — Testimonials / reviews
+     Paste into Elementor Custom HTML · full-width
+     Order: after PrepCorex (or after quote) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+<style>
+  .psf-reviews {
+    --accent: #ff8806;
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e8ecf1;
+    font-family: "Outfit", system-ui, sans-serif;
+    color: var(--ink);
+    padding: 4.25rem 0;
+    background: #fff;
+  }
+  .psf-reviews * { box-sizing: border-box; }
+  .psf-reviews__wrap { width: min(1180px, calc(100% - 2.5rem)); margin: 0 auto; }
+  .psf-reviews__head { text-align: center; margin-bottom: 2rem; }
+  .psf-reviews__eyebrow {
+    display: inline-flex; margin: 0 0 0.85rem; padding: 0.35rem 0.85rem;
+    border-radius: 999px; border: 1px solid rgba(255, 136, 6, 0.35);
+    background: rgba(255, 255, 255, 0.92); color: #9a5404;
+    font-size: 0.78rem; font-weight: 650;
+  }
+  .psf-reviews__title {
+    margin: 0 auto; font-size: clamp(1.85rem, 3.8vw, 2.65rem); font-weight: 800;
+    letter-spacing: -0.035em; line-height: 1.12; max-width: 22ch;
+  }
+  .psf-reviews__title em { font-style: normal; color: var(--accent); }
+  .psf-reviews__lead {
+    margin: 0.85rem auto 0; max-width: 40rem; color: var(--muted);
+    font-size: 1.02rem; line-height: 1.55; font-weight: 500;
+  }
+  .psf-reviews__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  .psf-reviews__card {
+    padding: 1.4rem 1.25rem 1.45rem; border-radius: 16px; border: 1px solid var(--line);
+    background: linear-gradient(165deg, #ffffff 0%, #fffaf5 100%);
+  }
+  .psf-reviews__quote {
+    margin: 0; color: #334155; font-size: 0.95rem; line-height: 1.55; font-weight: 500;
+  }
+  .psf-reviews__meta { margin-top: 1.15rem; padding-top: 0.95rem; border-top: 1px solid var(--line); }
+  .psf-reviews__meta strong { display: block; font-size: 0.95rem; font-weight: 750; }
+  .psf-reviews__meta span { display: block; margin-top: 0.15rem; font-size: 0.82rem; color: var(--muted); }
+  @media (max-width: 960px) { .psf-reviews__grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 640px) {
+    .psf-reviews__grid { grid-template-columns: 1fr; }
+    .psf-reviews__wrap { width: min(1180px, calc(100% - 1.5rem)); }
+  }
+</style>
+
+<section class="psf-reviews" aria-label="Client results">
+  <div class="psf-reviews__wrap">
+    <div class="psf-reviews__head">
+      <p class="psf-reviews__eyebrow">Trusted by growing sellers</p>
+      <h2 class="psf-reviews__title">Reliable fulfillment for <em>e-commerce brands</em></h2>
+      <p class="psf-reviews__lead">
+        Faster turnaround, cleaner inbound, and inventory visibility without hiring a warehouse team.
+      </p>
+    </div>
+    <div class="psf-reviews__grid">
+      <article class="psf-reviews__card">
+        <p class="psf-reviews__quote">
+          “Prep Services FBA reduced inbound delays and improved shipment consistency across our
+          wholesale inventory workflow.”
+        </p>
+        <div class="psf-reviews__meta">
+          <strong>Amazon Wholesale Seller</strong>
+          <span>2,000+ units / month</span>
+        </div>
+      </article>
+      <article class="psf-reviews__card">
+        <p class="psf-reviews__quote">
+          “Inventory visibility and same-day processing helped us scale without adding internal
+          warehouse staff.”
+        </p>
+        <div class="psf-reviews__meta">
+          <strong>Shopify Brand Owner</strong>
+          <span>Multi-channel fulfillment</span>
+        </div>
+      </article>
+      <article class="psf-reviews__card">
+        <p class="psf-reviews__quote">
+          “We switched from another prep center and immediately improved turnaround speed and
+          operational reliability.”
+        </p>
+        <div class="psf-reviews__meta">
+          <strong>Walmart WFS Seller</strong>
+          <span>50K+ units / year</span>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>

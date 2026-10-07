@@ -1,0 +1,131 @@
+<!-- SECTION 1/7 — Channels (logos)
+     Paste into Elementor Custom HTML · full-width
+     Order: after hero -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&display=swap" rel="stylesheet" />
+
+<style>
+  .psf-channels {
+    --accent: #ff8806;
+    --accent-deep: #e07805;
+    --accent-soft: rgba(255, 136, 6, 0.12);
+    --line: #e8ecf1;
+    font-family: "Outfit", system-ui, sans-serif;
+    padding: 1.5rem 0 2.75rem;
+    border-bottom: 1px solid var(--line);
+    background: #fff;
+  }
+  .psf-channels * { box-sizing: border-box; }
+  .psf-channels__wrap {
+    width: min(1180px, calc(100% - 2.5rem));
+    margin: 0 auto;
+  }
+  .psf-channels__label {
+    text-align: center;
+    margin: 0 0 0.55rem;
+    font-size: 0.8rem;
+    font-weight: 650;
+    color: #94a3b8;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .psf-channels__row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+  }
+  .psf-channels__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-height: 2.85rem;
+    padding: 0.55rem 1rem 0.55rem 0.7rem;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: #fff;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+    font-size: 0.88rem;
+    font-weight: 650;
+    color: #334155;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  }
+  .psf-channels__pill:hover {
+    border-color: rgba(255, 136, 6, 0.35);
+    box-shadow: 0 10px 22px rgba(255, 136, 6, 0.1);
+    transform: translateY(-2px);
+  }
+  .psf-channels__logo {
+    display: inline-grid;
+    place-items: center;
+    width: 1.85rem;
+    height: 1.85rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .psf-channels__logo svg { width: 1.1rem; height: 1.1rem; display: block; }
+  .psf-channels__logo--brand { background: transparent; }
+  .psf-channels__logo--brand img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .psf-channels__logo--shopify { background: #95bf47; }
+  .psf-channels__logo--shopify img { width: 72%; height: 72%; object-fit: contain; }
+  .psf-channels__logo--tiktok { background: #111; }
+  .psf-channels__logo--tiktok img { width: 70%; height: 70%; object-fit: contain; }
+  .psf-channels__logo--ebay { background: #f8fafc; box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08); }
+  .psf-channels__logo--ebay img { width: 78%; height: 78%; object-fit: contain; }
+  .psf-channels__logo--wholesale { background: var(--accent-soft); color: var(--accent-deep); border-radius: 9px; }
+  @media (max-width: 640px) {
+    .psf-channels__wrap { width: min(1180px, calc(100% - 1.5rem)); }
+  }
+</style>
+
+<section class="psf-channels" aria-label="Supported sales channels">
+  <div class="psf-channels__wrap">
+    <p class="psf-channels__label">Built for multi-channel sellers</p>
+    <div class="psf-channels__row">
+      <span class="psf-channels__pill">
+        <span class="psf-channels__logo psf-channels__logo--brand" aria-hidden="true">
+          <img src="https://cdn.prod.website-files.com/65e089dbff2dce1eb85a78dc/661ccf0f9911086b9044e280_6368ddf18abc4062b0fd1692_amazon-logo-svg.webp" alt="" width="32" height="32" loading="lazy" decoding="async" />
+        </span>
+        Amazon FBA
+      </span>
+      <span class="psf-channels__pill">
+        <span class="psf-channels__logo psf-channels__logo--brand" aria-hidden="true">
+          <img src="https://cdn.prod.website-files.com/65e089dbff2dce1eb85a78dc/661ccf0f9911086b9044e280_6368ddf18abc4062b0fd1692_amazon-logo-svg.webp" alt="" width="32" height="32" loading="lazy" decoding="async" />
+        </span>
+        Amazon FBM
+      </span>
+      <span class="psf-channels__pill">
+        <span class="psf-channels__logo psf-channels__logo--brand" aria-hidden="true">
+          <img src="https://cdn.prod.website-files.com/65e089dbff2dce1eb85a78dc/661fa436f3d1611ec6e02bf1_unnamed-logo3.webp" alt="" width="32" height="32" loading="lazy" decoding="async" />
+        </span>
+        Walmart WFS
+      </span>
+      <span class="psf-channels__pill">
+        <span class="psf-channels__logo psf-channels__logo--brand psf-channels__logo--shopify" aria-hidden="true">
+          <img src="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/webp/shopify.webp" alt="" width="32" height="32" loading="lazy" decoding="async" />
+        </span>
+        Shopify
+      </span>
+      <span class="psf-channels__pill">
+        <span class="psf-channels__logo psf-channels__logo--brand psf-channels__logo--tiktok" aria-hidden="true">
+          <img src="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/webp/tiktok.webp" alt="" width="32" height="32" loading="lazy" decoding="async" />
+        </span>
+        TikTok Shop
+      </span>
+      <span class="psf-channels__pill">
+        <span class="psf-channels__logo psf-channels__logo--brand psf-channels__logo--ebay" aria-hidden="true">
+          <img src="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/webp/ebay.webp" alt="" width="32" height="32" loading="lazy" decoding="async" />
+        </span>
+        eBay
+      </span>
+      <span class="psf-channels__pill">
+        <span class="psf-channels__logo psf-channels__logo--wholesale" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>
+        </span>
+        Wholesale
+      </span>
+    </div>
+  </div>
+</section>

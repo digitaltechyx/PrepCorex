@@ -1,0 +1,117 @@
+<!-- SECTION 4/7 — PrepCorex technology
+     Paste into Elementor Custom HTML · full-width
+     Order: after process · optional: map after this -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+<style>
+  .psf-tech {
+    --accent: #ff8806;
+    --accent-deep: #e07805;
+    --accent-soft: rgba(255, 136, 6, 0.12);
+    --ink: #0f172a;
+    --muted: #64748b;
+    --wash: #fff8f1;
+    --ok: #16a34a;
+    font-family: "Outfit", system-ui, sans-serif;
+    color: var(--ink);
+    position: relative;
+    padding: 4.25rem 0;
+    overflow: hidden;
+    background:
+      radial-gradient(800px 420px at 0% 50%, rgba(255, 136, 6, 0.12), transparent 55%),
+      linear-gradient(180deg, var(--wash) 0%, #ffffff 100%);
+  }
+  .psf-tech * { box-sizing: border-box; }
+  .psf-tech__wrap { width: min(1180px, calc(100% - 2.5rem)); margin: 0 auto; }
+  .psf-tech__layout {
+    display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 2.5rem; align-items: center;
+  }
+  .psf-tech__eyebrow {
+    display: inline-flex; margin: 0 0 0.85rem; padding: 0.35rem 0.85rem;
+    border-radius: 999px; border: 1px solid rgba(255, 136, 6, 0.35);
+    background: rgba(255, 255, 255, 0.92); color: #9a5404;
+    font-size: 0.78rem; font-weight: 650;
+  }
+  .psf-tech__title {
+    margin: 0; font-size: clamp(1.85rem, 3.8vw, 2.65rem); font-weight: 800;
+    letter-spacing: -0.035em; line-height: 1.12; max-width: 18ch;
+  }
+  .psf-tech__title em { font-style: normal; color: var(--accent); }
+  .psf-tech__lead {
+    margin: 0.85rem 0 0; max-width: 36rem; color: var(--muted);
+    font-size: 1.02rem; line-height: 1.55; font-weight: 500;
+  }
+  .psf-tech__list {
+    list-style: none; margin: 1.5rem 0 0; padding: 0;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem 1rem;
+  }
+  .psf-tech__list li {
+    display: flex; align-items: flex-start; gap: 0.5rem;
+    font-size: 0.92rem; font-weight: 600; color: #334155;
+  }
+  .psf-tech__list i {
+    display: inline-grid; place-items: center; width: 1.15rem; height: 1.15rem;
+    margin-top: 0.1rem; border-radius: 50%; background: var(--ok); color: #fff;
+    font-style: normal; font-size: 0.68rem; font-weight: 800; flex-shrink: 0;
+  }
+  .psf-tech__panel {
+    padding: 1.5rem; border-radius: 20px; border: 1px solid rgba(255, 136, 6, 0.18);
+    background: rgba(255, 255, 255, 0.92); box-shadow: 0 20px 44px rgba(15, 23, 42, 0.06);
+  }
+  .psf-tech__panel h3 { margin: 0 0 0.85rem; font-size: 1.15rem; font-weight: 750; }
+  .psf-tech__metric { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+  .psf-tech__metric div {
+    padding: 1rem 0.9rem; border-radius: 12px;
+    background: linear-gradient(165deg, #ffffff 0%, #fff7ee 100%);
+    border: 1px solid rgba(255, 136, 6, 0.12);
+  }
+  .psf-tech__metric strong {
+    display: block; font-size: 1.35rem; font-weight: 800; letter-spacing: -0.03em;
+  }
+  .psf-tech__metric span {
+    display: block; margin-top: 0.2rem; font-size: 0.8rem; color: var(--muted); font-weight: 500;
+  }
+  .psf-tech__note { margin: 1rem 0 0; font-size: 0.88rem; color: var(--muted); line-height: 1.45; }
+  @media (max-width: 960px) {
+    .psf-tech__layout { grid-template-columns: 1fr; }
+    .psf-tech__list { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px) { .psf-tech__wrap { width: min(1180px, calc(100% - 1.5rem)); } }
+</style>
+
+<section class="psf-tech" aria-label="PrepCorex technology">
+  <div class="psf-tech__wrap">
+    <div class="psf-tech__layout">
+      <div>
+        <p class="psf-tech__eyebrow">PrepCorex technology</p>
+        <h2 class="psf-tech__title">Most prep centers run on spreadsheets. <em>We run on systems.</em></h2>
+        <p class="psf-tech__lead">
+          Real-time inventory, receiving, shipments, and returns — included free for Prep Services
+          FBA partners after onboarding.
+        </p>
+        <ul class="psf-tech__list">
+          <li><i>✓</i> Real-time inventory visibility</li>
+          <li><i>✓</i> Receiving &amp; prep workflows</li>
+          <li><i>✓</i> Shipment tracking</li>
+          <li><i>✓</i> Returns processing</li>
+          <li><i>✓</i> Multi-channel oversight</li>
+          <li><i>✓</i> Operational reporting</li>
+        </ul>
+      </div>
+      <aside class="psf-tech__panel" aria-label="Ops highlights">
+        <h3>Built for scaling brands</h3>
+        <div class="psf-tech__metric">
+          <div><strong>24-Hour</strong><span>Receiving SLA</span></div>
+          <div><strong>99.9%</strong><span>Shipment accuracy</span></div>
+          <div><strong>$0</strong><span>Portal monthly fee</span></div>
+          <div><strong>Same-day</strong><span>Dispatch available</span></div>
+        </div>
+        <p class="psf-tech__note">
+          PrepCorex access is included after your onboarding call — no extra software fee.
+        </p>
+      </aside>
+    </div>
+  </div>
+</section>

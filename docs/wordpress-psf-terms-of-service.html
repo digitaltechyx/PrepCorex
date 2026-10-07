@@ -1,0 +1,329 @@
+<!-- Prep Services FBA — Terms of Service
+     Paste into Elementor Custom HTML · full-width
+     Page: https://prepservicesfba.com/terms-of-service/
+     Theme: white + orange #FF8806 · Font: Outfit -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+<style>
+  .psf-legal {
+    --accent: #ff8806;
+    --accent-deep: #e07805;
+    --accent-soft: rgba(255, 136, 6, 0.12);
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e8ecf1;
+    --wash: #fff8f1;
+    font-family: "Outfit", system-ui, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(900px 420px at 90% 0%, rgba(255, 136, 6, 0.1), transparent 55%),
+      linear-gradient(180deg, #ffffff 0%, var(--wash) 40%, #ffffff 100%);
+  }
+  .psf-legal *,
+  .psf-legal *::before,
+  .psf-legal *::after { box-sizing: border-box; }
+  .psf-legal a { color: var(--accent-deep); text-decoration: none; font-weight: 650; }
+  .psf-legal a:hover { color: var(--accent); }
+  .psf-legal__wrap { width: min(1100px, calc(100% - 2.5rem)); margin: 0 auto; padding: 3.5rem 0 4.5rem; }
+  .psf-legal__hero { text-align: center; margin-bottom: 2.5rem; }
+  .psf-legal__eyebrow {
+    display: inline-flex; margin: 0 0 0.85rem; padding: 0.35rem 0.85rem;
+    border-radius: 999px; border: 1px solid rgba(255, 136, 6, 0.35);
+    background: rgba(255, 255, 255, 0.92); color: #9a5404;
+    font-size: 0.78rem; font-weight: 650;
+  }
+  .psf-legal__title {
+    margin: 0 auto; font-size: clamp(2rem, 4vw, 3rem); font-weight: 800;
+    letter-spacing: -0.035em; line-height: 1.1; max-width: 18ch;
+  }
+  .psf-legal__title em { font-style: normal; color: var(--accent); }
+  .psf-legal__lead {
+    margin: 0.9rem auto 0; max-width: 42rem; color: var(--muted);
+    font-size: 1.05rem; line-height: 1.55; font-weight: 500;
+  }
+  .psf-legal__meta {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 0.55rem; margin-top: 1.25rem;
+  }
+  .psf-legal__chip {
+    display: inline-flex; align-items: center; min-height: 2rem; padding: 0.3rem 0.8rem;
+    border-radius: 999px; border: 1px solid var(--line); background: #fff;
+    color: #475569; font-size: 0.8rem; font-weight: 650;
+  }
+  .psf-legal__chip strong { color: var(--ink); margin-left: 0.25rem; }
+  .psf-legal__layout {
+    display: grid; grid-template-columns: 220px 1fr; gap: 2rem; align-items: start;
+  }
+  .psf-legal__toc {
+    position: sticky; top: 5.5rem; padding: 1.1rem 1rem;
+    border-radius: 16px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04);
+  }
+  .psf-legal__toc h2 {
+    margin: 0 0 0.75rem; font-size: 0.75rem; font-weight: 750;
+    letter-spacing: 0.06em; text-transform: uppercase; color: #94a3b8;
+  }
+  .psf-legal__toc ol {
+    margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem;
+    max-height: min(70vh, 560px); overflow: auto;
+  }
+  .psf-legal__toc a {
+    display: block; padding: 0.32rem 0.5rem; border-radius: 8px;
+    color: #475569; font-size: 0.8rem; font-weight: 600; line-height: 1.3;
+  }
+  .psf-legal__toc a:hover { background: var(--accent-soft); color: var(--accent-deep); }
+  .psf-legal__content { display: grid; gap: 1rem; }
+  .psf-legal__intro,
+  .psf-legal__section,
+  .psf-legal__contact {
+    border: 1px solid var(--line); border-radius: 18px; background: #fff;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.04); padding: 1.35rem 1.4rem 1.45rem;
+  }
+  .psf-legal__intro h2,
+  .psf-legal__section h2,
+  .psf-legal__contact h2 {
+    margin: 0 0 0.7rem; font-size: 1.2rem; font-weight: 800;
+    letter-spacing: -0.02em; line-height: 1.25;
+  }
+  .psf-legal__section h2 span {
+    display: inline-grid; place-items: center; min-width: 1.7rem; height: 1.7rem;
+    margin-right: 0.45rem; border-radius: 8px; background: var(--accent-soft);
+    color: var(--accent-deep); font-size: 0.82rem; font-weight: 800; vertical-align: middle;
+  }
+  .psf-legal__intro p,
+  .psf-legal__section p,
+  .psf-legal__contact p {
+    margin: 0 0 0.75rem; color: #475569; font-size: 0.96rem; line-height: 1.65; font-weight: 500;
+  }
+  .psf-legal__section p:last-child,
+  .psf-legal__intro p:last-child { margin-bottom: 0; }
+  .psf-legal__section ul {
+    margin: 0.4rem 0 0.85rem; padding: 0 0 0 1.15rem; color: #475569;
+    font-size: 0.95rem; line-height: 1.6; font-weight: 500;
+  }
+  .psf-legal__section li { margin: 0.25rem 0; }
+  .psf-legal__section li strong { color: var(--ink); }
+  .psf-legal__contact {
+    background:
+      linear-gradient(135deg, rgba(255, 136, 6, 0.08), rgba(255, 255, 255, 0.96)),
+      #fff;
+    border-color: rgba(255, 136, 6, 0.22);
+  }
+  .psf-legal__contact-list {
+    list-style: none; margin: 0.85rem 0 0; padding: 0; display: grid; gap: 0.55rem;
+  }
+  .psf-legal__contact-list li {
+    display: flex; gap: 0.55rem; align-items: flex-start;
+    color: #334155; font-size: 0.94rem; font-weight: 600;
+  }
+  .psf-legal__contact-list i {
+    display: inline-grid; place-items: center; width: 1.85rem; height: 1.85rem;
+    border-radius: 9px; background: var(--accent-soft); color: var(--accent-deep);
+    font-style: normal; font-size: 0.85rem; flex-shrink: 0;
+  }
+  @media (max-width: 900px) {
+    .psf-legal__layout { grid-template-columns: 1fr; }
+    .psf-legal__toc { position: static; max-height: none; }
+    .psf-legal__toc ol { max-height: none; }
+  }
+  @media (max-width: 640px) {
+    .psf-legal__wrap { width: min(1100px, calc(100% - 1.5rem)); padding-top: 2.5rem; }
+  }
+</style>
+
+<section class="psf-legal" aria-label="Terms of Service">
+  <div class="psf-legal__wrap">
+    <header class="psf-legal__hero">
+      <p class="psf-legal__eyebrow">Legal</p>
+      <h1 class="psf-legal__title">Terms of <em>Service</em></h1>
+      <p class="psf-legal__lead">
+        Please read these Terms carefully before using Prep Services FBA. By engaging our services, placing an order, or using our website, you agree to be bound by these Terms.
+      </p>
+      <div class="psf-legal__meta">
+        <span class="psf-legal__chip">Last updated: <strong>May 2025</strong></span>
+        <span class="psf-legal__chip">Effective: <strong>May 1, 2025</strong></span>
+      </div>
+    </header>
+
+    <div class="psf-legal__layout">
+      <aside class="psf-legal__toc" aria-label="On this page">
+        <h2>On this page</h2>
+        <ol>
+          <li><a href="#psf-tos-1">1. Services Provided</a></li>
+          <li><a href="#psf-tos-2">2. Client Responsibilities</a></li>
+          <li><a href="#psf-tos-3">3. Pricing &amp; Payment</a></li>
+          <li><a href="#psf-tos-4">4. Receiving &amp; Processing</a></li>
+          <li><a href="#psf-tos-5">5. Liability &amp; Claims</a></li>
+          <li><a href="#psf-tos-6">6. Storage Terms</a></li>
+          <li><a href="#psf-tos-7">7. Prohibited Products</a></li>
+          <li><a href="#psf-tos-8">8. Termination</a></li>
+          <li><a href="#psf-tos-9">9. Confidentiality</a></li>
+          <li><a href="#psf-tos-10">10. Intellectual Property</a></li>
+          <li><a href="#psf-tos-11">11. Indemnification</a></li>
+          <li><a href="#psf-tos-12">12. Disclaimer</a></li>
+          <li><a href="#psf-tos-13">13. Governing Law</a></li>
+          <li><a href="#psf-tos-14">14. Changes</a></li>
+          <li><a href="#psf-tos-contact">Contact</a></li>
+        </ol>
+      </aside>
+
+      <div class="psf-legal__content">
+        <article class="psf-legal__intro">
+          <h2>Agreement overview</h2>
+          <p>
+            These Terms of Service (“Terms”) govern your use of the services provided by Prep Services FBA (“PSF,” “we,” “us,” or “our”). Specific services, pricing, and account terms may also be set out in your individual service agreement or quote confirmation.
+          </p>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-1">
+          <h2><span>1</span> Services Provided</h2>
+          <p>PSF provides third-party logistics, prep, and fulfillment services including but not limited to:</p>
+          <ul>
+            <li>Amazon FBA prep (FNSKU labeling, polybagging, bundling, kitting, shipment creation)</li>
+            <li>Amazon FBM fulfillment (pick, pack, and ship)</li>
+            <li>Walmart WFS prep</li>
+            <li>DTC and Shopify fulfillment</li>
+            <li>Online arbitrage and wholesale prep</li>
+            <li>Private label prep and quality control</li>
+            <li>Pallet and container handling</li>
+            <li>Returns management and liquidation support</li>
+            <li>Warehouse storage</li>
+          </ul>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-2">
+          <h2><span>2</span> Account &amp; Client Responsibilities</h2>
+          <p>By using our services, you agree to:</p>
+          <ul>
+            <li>Provide accurate, complete, and up-to-date information about inventory, shipping requirements, and account details</li>
+            <li>Supply required labels, shipping plans, and documentation in a timely manner</li>
+            <li>Ensure products comply with Amazon, Walmart, and relevant marketplace policies</li>
+            <li>Notify us of hazmat, oversized, or restricted products before sending them</li>
+            <li>Maintain a valid selling account on any marketplace for which you request prep or fulfillment</li>
+            <li>Pay all invoices by the agreed due date</li>
+          </ul>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-3">
+          <h2><span>3</span> Pricing &amp; Payment</h2>
+          <p>All pricing is provided in your custom quote. By confirming a quote or sending inventory to our facility, you agree to the stated pricing.</p>
+          <ul>
+            <li><strong>Invoicing:</strong> Issued upon completion of processing or on a weekly/monthly basis per your agreement</li>
+            <li><strong>Payment terms:</strong> Typically net 7 or net 14 days from invoice date</li>
+            <li><strong>Late payments:</strong> Overdue balances may incur 1.5% per month. PSF may hold outbound shipments for unpaid accounts</li>
+            <li><strong>No hidden fees:</strong> Applicable fees are disclosed in your quote; additional charges are communicated before applied</li>
+            <li><strong>Price changes:</strong> We may update pricing with 30 days’ written notice</li>
+          </ul>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-4">
+          <h2><span>4</span> Receiving &amp; Processing</h2>
+          <ul>
+            <li>We make reasonable efforts to process inventory within agreed turnaround times (typically 24–72 hours from receiving, subject to volume and label availability)</li>
+            <li>Turnaround begins once all required labels, shipping plans, and prep instructions are provided</li>
+            <li>PSF is not responsible for delays caused by late labels, missing shipment plans, or incomplete client instructions</li>
+            <li>We notify you of discrepancies (short shipments, damage, unidentifiable products) upon receiving</li>
+            <li>We may refuse shipments containing prohibited, hazardous, or undisclosed regulated products</li>
+          </ul>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-5">
+          <h2><span>5</span> Liability &amp; Damage Claims</h2>
+          <ul>
+            <li>Liability for lost or damaged inventory is limited to the lesser of actual replacement cost or $50 per unit, unless a higher declared value was agreed in writing before receiving</li>
+            <li>Damage claims must be submitted in writing within 14 days of dispatch or return to the client</li>
+            <li>Claims after 14 days will not be accepted. PSF is not liable for damage from improper client packaging, inherent product defects, or carrier mishandling after handoff</li>
+            <li>Total cumulative liability for any client in a calendar month shall not exceed fees paid by that client to PSF in that month</li>
+          </ul>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-6">
+          <h2><span>6</span> Storage Terms</h2>
+          <ul>
+            <li>Storage fees are charged monthly based on cubic footage or pallet positions, as agreed in your quote</li>
+            <li>Inventory stored more than 90 days without a dispatch instruction may incur additional long-term storage fees</li>
+            <li>Unclaimed inventory stored more than 180 days without communication or payment may be disposed of or liquidated after 30 days’ written notice</li>
+            <li>Clients are responsible for accurate inventory counts; PSF conducts cycle counts but cannot guarantee 100% accuracy for large mixed-SKU accounts</li>
+          </ul>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-7">
+          <h2><span>7</span> Prohibited Products</h2>
+          <p>The following are not accepted without prior written authorization:</p>
+          <ul>
+            <li>Hazardous materials without proper documentation and advance notice</li>
+            <li>Controlled substances or products requiring federal licensing</li>
+            <li>Counterfeit, trademark-infringing, or unauthorized branded products</li>
+            <li>Products illegal to sell in the United States</li>
+            <li>Live animals or perishables without prior written agreement</li>
+            <li>Adult or explicit content products without prior written agreement</li>
+          </ul>
+          <p>PSF may refuse, return, or dispose of (at the client’s expense) prohibited products received at our facility.</p>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-8">
+          <h2><span>8</span> Termination</h2>
+          <ul>
+            <li>Either party may terminate with 30 days’ written notice</li>
+            <li>PSF may terminate immediately for Terms violations, false information, or unpaid invoices after a 7-day cure period</li>
+            <li>Upon termination, retrieve or dispose of remaining inventory within 30 days; afterward PSF may charge storage or arrange disposal at client cost</li>
+            <li>All outstanding balances become immediately due upon termination</li>
+          </ul>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-9">
+          <h2><span>9</span> Confidentiality</h2>
+          <p>
+            Both parties agree to keep confidential proprietary information, business strategies, pricing, or trade secrets shared during the relationship. This obligation survives termination for 2 years.
+          </p>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-10">
+          <h2><span>10</span> Intellectual Property</h2>
+          <p>
+            Website content including text, graphics, logos, and software is the property of Prep Services FBA and protected by applicable IP laws. You may not reproduce, distribute, or use our content without prior written permission.
+          </p>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-11">
+          <h2><span>11</span> Indemnification</h2>
+          <p>
+            You agree to indemnify, defend, and hold harmless PSF, its officers, employees, and agents from claims, damages, losses, or expenses (including reasonable attorney’s fees) arising from: (a) your use of our services; (b) your violation of these Terms; (c) your violation of third-party rights, including marketplace policies; or (d) products you send that are prohibited, defective, or cause harm.
+          </p>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-12">
+          <h2><span>12</span> Disclaimer of Warranties</h2>
+          <p>
+            PSF provides services “as is” and makes no warranties, express or implied, regarding results — including guarantees of Amazon acceptance beyond our standard zero-rejection process, marketplace sales performance, or delivery times beyond stated turnaround guarantees.
+          </p>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-13">
+          <h2><span>13</span> Governing Law &amp; Disputes</h2>
+          <p>
+            These Terms are governed by the laws of the State of New Jersey, United States, without regard to conflict of law provisions. Disputes shall first be attempted through good-faith negotiation. If unresolved within 30 days, disputes shall be submitted to binding arbitration in New Jersey under American Arbitration Association rules.
+          </p>
+        </article>
+
+        <article class="psf-legal__section" id="psf-tos-14">
+          <h2><span>14</span> Changes to These Terms</h2>
+          <p>
+            PSF may modify these Terms at any time. Material changes will be noticed via email or prominent website notice at least 14 days before they take effect. Continued use after that period constitutes acceptance of the updated Terms.
+          </p>
+        </article>
+
+        <article class="psf-legal__contact" id="psf-tos-contact">
+          <h2>Questions about these Terms?</h2>
+          <p>Contact Prep Services FBA:</p>
+          <ul class="psf-legal__contact-list">
+            <li><i aria-hidden="true">✉</i> <a href="mailto:info@prepservicesfba.com">info@prepservicesfba.com</a></li>
+            <li><i aria-hidden="true">🌐</i> <a href="https://prepservicesfba.com/" target="_blank" rel="noopener noreferrer">prepservicesfba.com</a></li>
+            <li><i aria-hidden="true">📍</i> New Jersey, United States</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>

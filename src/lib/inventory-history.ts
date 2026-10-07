@@ -378,10 +378,29 @@ function isChainSortable(e: RawEvent): boolean {
   return qtyAfter - qtyBefore === qtyChange;
 }
 
-/** Pick next event when several are valid — stock chain beats unreliable ship timestamps. */
+/** Small slack so same-second / clock-skew events can still chain. */
+const CHAIN_TIMESTAMP_SLACK_MS = 60_000;
+
+/** True when `a` may precede `b` in the stock chain without jumping backward in time. */
+function timestampAllowsPrecede(a: RawEvent, b: RawEvent): boolean {
+  if (!a.timestamp || !b.timestamp) return true;
+  return a.timestamp <= b.timestamp + CHAIN_TIMESTAMP_SLACK_MS;
+}
+
+function canLinkStockChain(a: RawEvent, b: RawEvent): boolean {
+  if (a.qtyAfter == null || b.qtyBefore == null) return false;
+  if (a.qtyAfter !== b.qtyBefore) return false;
+  return timestampAllowsPrecede(a, b);
+}
+
+/** Pick next event when several are valid — stock chain only when time order agrees. */
 function compareHistoryEventsTiebreak(a: RawEvent, b: RawEvent): number {
-  if (a.qtyAfter != null && b.qtyBefore != null && a.qtyAfter === b.qtyBefore) return -1;
-  if (b.qtyAfter != null && a.qtyBefore != null && b.qtyAfter === a.qtyBefore) return 1;
+  // Calendar time first so Overview # / Newest-first matches Date+Time.
+  const timeDiff = a.timestamp - b.timestamp;
+  if (Math.abs(timeDiff) > CHAIN_TIMESTAMP_SLACK_MS) return timeDiff;
+
+  if (canLinkStockChain(a, b)) return -1;
+  if (canLinkStockChain(b, a)) return 1;
 
   const outboundOrder = outboundEventSortKey(a) - outboundEventSortKey(b);
   if (outboundOrder !== 0) return outboundOrder;
@@ -418,15 +437,28 @@ function compareHistoryEventsTiebreak(a: RawEvent, b: RawEvent): number {
 
   const aInc = (a.qtyChange ?? 0) > 0;
   const bDec = (b.qtyChange ?? 0) < 0;
-  if (aInc && bDec && a.qtyBefore != null && b.qtyAfter != null && a.qtyBefore === b.qtyAfter) {
+  if (
+    aInc &&
+    bDec &&
+    a.qtyBefore != null &&
+    b.qtyAfter != null &&
+    a.qtyBefore === b.qtyAfter &&
+    timestampAllowsPrecede(b, a)
+  ) {
     return 1;
   }
-  if (bIncrease && aDecrease && b.qtyBefore != null && a.qtyAfter != null && b.qtyBefore === a.qtyAfter) {
+  if (
+    bIncrease &&
+    aDecrease &&
+    b.qtyBefore != null &&
+    a.qtyAfter != null &&
+    b.qtyBefore === a.qtyAfter &&
+    timestampAllowsPrecede(a, b)
+  ) {
     return -1;
   }
 
-  const diff = a.timestamp - b.timestamp;
-  if (diff !== 0) return diff;
+  if (timeDiff !== 0) return timeDiff;
 
   const aId = String(a.sourceId ?? "");
   const bId = String(b.sourceId ?? "");
@@ -482,12 +514,14 @@ function sortHistoryEventsByChain(events: RawEvent[]): RawEvent[] {
       if (i === j) continue;
       const a = chainSortable[i];
       const b = chainSortable[j];
-      if (a.qtyAfter === b.qtyBefore) {
+      // Only link when Before/After match AND time does not jump backward
+      // (avoids coincidental qty matches scrambling Overview sequence).
+      if (canLinkStockChain(a, b)) {
         if (!successors[i].has(j)) {
           successors[i].add(j);
           inDegree[j]++;
         }
-      } else if (b.qtyAfter === a.qtyBefore) {
+      } else if (canLinkStockChain(b, a)) {
         if (!successors[j].has(i)) {
           successors[j].add(i);
           inDegree[i]++;

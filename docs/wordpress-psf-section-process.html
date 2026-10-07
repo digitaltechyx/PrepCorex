@@ -1,0 +1,524 @@
+<!-- SECTION 3/7 — How it works (sticky point-scroll + branded visuals)
+     Paste into Elementor Custom HTML · full-width
+     Order: after services · optional: comparison after this -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+<style>
+  .psf-process {
+    --accent: #ff8806;
+    --accent-deep: #e07805;
+    --accent-soft: rgba(255, 136, 6, 0.14);
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e8ecf1;
+    font-family: "Outfit", system-ui, sans-serif;
+    color: var(--ink);
+    padding: 4.25rem 0 5rem;
+    background:
+      radial-gradient(800px 380px at 12% 0%, rgba(255, 136, 6, 0.07), transparent 55%),
+      #fff;
+  }
+  .psf-process * { box-sizing: border-box; }
+  .psf-process__wrap { width: min(1180px, calc(100% - 2.5rem)); margin: 0 auto; }
+  .psf-process__head { text-align: center; margin-bottom: 2.5rem; }
+  .psf-process__eyebrow {
+    display: inline-flex; margin: 0 0 0.85rem; padding: 0.35rem 0.85rem;
+    border-radius: 999px; border: 1px solid rgba(255, 136, 6, 0.35);
+    background: rgba(255, 255, 255, 0.92); color: #9a5404;
+    font-size: 0.78rem; font-weight: 650;
+  }
+  .psf-process__title {
+    margin: 0 auto; font-size: clamp(1.85rem, 3.8vw, 2.65rem); font-weight: 800;
+    letter-spacing: -0.035em; line-height: 1.12; max-width: 22ch;
+  }
+  .psf-process__title em { font-style: normal; color: var(--accent); }
+  .psf-process__lead {
+    margin: 0.85rem auto 0; max-width: 40rem; color: var(--muted);
+    font-size: 1.02rem; line-height: 1.55; font-weight: 500;
+  }
+
+  .psf-process__stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+    gap: clamp(1.25rem, 3vw, 2.5rem);
+    align-items: start;
+  }
+
+  .psf-process__media {
+    position: sticky;
+    top: 6.25rem;
+    align-self: start;
+    aspect-ratio: 4 / 3;
+    max-height: min(68vh, 460px);
+    border-radius: 22px;
+    overflow: hidden;
+    background: #0f172a;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+  }
+
+  .psf-process__visual {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transform: scale(1.03);
+    transition: opacity 0.4s ease, transform 0.5s ease;
+    pointer-events: none;
+    padding: clamp(1rem, 2.5vw, 1.6rem);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    color: #fff;
+  }
+  .psf-process__visual.is-active {
+    opacity: 1;
+    transform: scale(1);
+    z-index: 1;
+    pointer-events: auto;
+  }
+
+  .psf-process__visual--1 {
+    background:
+      radial-gradient(500px 280px at 85% 15%, rgba(255, 136, 6, 0.35), transparent 55%),
+      linear-gradient(160deg, #1e293b 0%, #0f172a 55%, #1a1208 100%);
+  }
+  .psf-process__visual--2 {
+    background:
+      radial-gradient(480px 260px at 10% 90%, rgba(255, 136, 6, 0.28), transparent 50%),
+      linear-gradient(155deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+  }
+  .psf-process__visual--3 {
+    background:
+      radial-gradient(520px 280px at 90% 80%, rgba(255, 136, 6, 0.3), transparent 50%),
+      linear-gradient(165deg, #1a1208 0%, #0f172a 45%, #1e293b 100%);
+  }
+  .psf-process__visual--4 {
+    background:
+      radial-gradient(500px 260px at 20% 20%, rgba(255, 136, 6, 0.32), transparent 55%),
+      linear-gradient(150deg, #0f172a 0%, #172554 50%, #0f172a 100%);
+  }
+
+  .psf-process__v-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .psf-process__v-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #ffb44a;
+  }
+  .psf-process__v-icon {
+    width: 2.6rem;
+    height: 2.6rem;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    background: rgba(255, 136, 6, 0.2);
+    color: #ffb44a;
+    border: 1px solid rgba(255, 136, 6, 0.35);
+  }
+  .psf-process__v-icon svg { width: 1.25rem; height: 1.25rem; display: block; }
+
+  .psf-process__v-card {
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(8px);
+    padding: 1rem 1.05rem;
+  }
+  .psf-process__v-card h4 {
+    margin: 0 0 0.85rem;
+    font-size: 0.95rem;
+    font-weight: 750;
+    letter-spacing: -0.02em;
+  }
+  .psf-process__v-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.82rem;
+    color: #cbd5e1;
+  }
+  .psf-process__v-row:first-of-type { border-top: none; padding-top: 0; }
+  .psf-process__v-row strong { color: #fff; font-weight: 700; }
+  .psf-process__v-pill {
+    display: inline-flex;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 750;
+    background: rgba(255, 136, 6, 0.2);
+    color: #ffb44a;
+  }
+  .psf-process__v-pill--ok {
+    background: rgba(34, 197, 94, 0.18);
+    color: #86efac;
+  }
+  .psf-process__v-bars {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    align-items: end;
+    gap: 0.4rem;
+    height: 5.5rem;
+    margin-top: 0.35rem;
+  }
+  .psf-process__v-bars span {
+    display: block;
+    border-radius: 6px 6px 2px 2px;
+    background: linear-gradient(180deg, #ffb44a 0%, #ff8806 100%);
+    opacity: 0.85;
+  }
+  .psf-process__v-bars span:nth-child(1) { height: 38%; }
+  .psf-process__v-bars span:nth-child(2) { height: 55%; }
+  .psf-process__v-bars span:nth-child(3) { height: 48%; }
+  .psf-process__v-bars span:nth-child(4) { height: 72%; }
+  .psf-process__v-bars span:nth-child(5) { height: 64%; }
+  .psf-process__v-bars span:nth-child(6) { height: 88%; }
+
+  .psf-process__v-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-top: 0.75rem;
+  }
+  .psf-process__v-tags span {
+    padding: 0.3rem 0.6rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 0.72rem;
+    font-weight: 650;
+    color: #e2e8f0;
+  }
+
+  .psf-process__v-foot {
+    margin-top: 0.85rem;
+    font-size: 0.78rem;
+    color: #94a3b8;
+    font-weight: 500;
+  }
+
+  .psf-process__steps {
+    position: relative;
+    padding-left: 2.75rem;
+  }
+  .psf-process__steps::before {
+    content: "";
+    position: absolute;
+    top: 1.25rem;
+    bottom: 1.25rem;
+    left: 1.35rem;
+    border-left: 2px dashed rgba(255, 136, 6, 0.42);
+  }
+
+  .psf-process__step {
+    position: relative;
+    min-height: min(52vh, 360px);
+    display: flex;
+    align-items: center;
+    padding: 2rem 0;
+  }
+
+  .psf-process__dot {
+    position: absolute;
+    left: -2.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: #fff7ee;
+    color: var(--accent-deep);
+    border: 2px solid rgba(255, 136, 6, 0.4);
+    box-shadow: 0 6px 16px rgba(255, 136, 6, 0.14);
+    transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+  }
+  .psf-process__dot svg { width: 1.15rem; height: 1.15rem; display: block; }
+  .psf-process__step.is-active .psf-process__dot {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    transform: translateY(-50%) scale(1.07);
+  }
+
+  .psf-process__copy {
+    width: 100%;
+    padding: 1.25rem 1.3rem 1.35rem;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: linear-gradient(165deg, #ffffff 0%, #fff8f1 100%);
+    opacity: 0.5;
+    transform: translateY(8px);
+    transition: opacity 0.3s ease, transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  }
+  .psf-process__step.is-active .psf-process__copy {
+    opacity: 1;
+    transform: translateY(0);
+    border-color: rgba(255, 136, 6, 0.35);
+    box-shadow: 0 14px 32px rgba(255, 136, 6, 0.1);
+  }
+
+  .psf-process__num {
+    display: inline-block;
+    margin: 0 0 0.5rem;
+    font-size: 0.78rem;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent-deep);
+  }
+  .psf-process__copy h3 {
+    margin: 0;
+    font-size: clamp(1.15rem, 2.2vw, 1.45rem);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.25;
+  }
+  .psf-process__copy p {
+    margin: 0.65rem 0 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  @media (max-width: 960px) {
+    .psf-process__stage {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+    .psf-process__media {
+      display: none !important;
+    }
+    .psf-process__step {
+      min-height: 0;
+      padding: 0.7rem 0;
+    }
+    .psf-process__copy {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .psf-process { padding: 3.25rem 0 3.75rem; }
+    .psf-process__wrap { width: min(1180px, calc(100% - 1.25rem)); }
+    .psf-process__head { margin-bottom: 1.75rem; }
+    .psf-process__steps { padding-left: 2.35rem; }
+    .psf-process__steps::before { left: 1.1rem; }
+    .psf-process__dot {
+      left: -2.35rem;
+      width: 2.25rem;
+      height: 2.25rem;
+    }
+    .psf-process__dot svg { width: 1rem; height: 1rem; }
+    .psf-process__copy { padding: 1.05rem 1.1rem 1.15rem; border-radius: 14px; }
+  }
+</style>
+
+<section class="psf-process" aria-label="How onboarding works" id="psf-process">
+  <div class="psf-process__wrap">
+    <div class="psf-process__head">
+      <p class="psf-process__eyebrow">Simple onboarding</p>
+      <h2 class="psf-process__title">From inbound to shipped in <em>four steps</em></h2>
+      <p class="psf-process__lead">
+        Structured receiving, prep, and visibility so you can stay focused on sourcing and sales.
+      </p>
+    </div>
+
+    <div class="psf-process__stage">
+      <div class="psf-process__media" aria-hidden="true">
+        <!-- 1 Strategy -->
+        <div class="psf-process__visual psf-process__visual--1 is-active" data-step="0">
+          <div class="psf-process__v-top">
+            <span class="psf-process__v-badge">Ops kickoff</span>
+            <span class="psf-process__v-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+            </span>
+          </div>
+          <div class="psf-process__v-card">
+            <h4>Strategy checklist</h4>
+            <div class="psf-process__v-row"><strong>SKU map &amp; prep rules</strong><span class="psf-process__v-pill--ok psf-process__v-pill">Done</span></div>
+            <div class="psf-process__v-row"><strong>Channel mix</strong><span class="psf-process__v-pill">Amazon · WFS</span></div>
+            <div class="psf-process__v-row"><strong>Bottleneck review</strong><span class="psf-process__v-pill">In call</span></div>
+            <div class="psf-process__v-tags">
+              <span>FBA</span><span>FBM</span><span>Shopify</span><span>Returns</span>
+            </div>
+            <p class="psf-process__v-foot">Plan before the first inbound lands</p>
+          </div>
+        </div>
+
+        <!-- 2 Receive -->
+        <div class="psf-process__visual psf-process__visual--2" data-step="1">
+          <div class="psf-process__v-top">
+            <span class="psf-process__v-badge">NJ receiving</span>
+            <span class="psf-process__v-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>
+            </span>
+          </div>
+          <div class="psf-process__v-card">
+            <h4>Inbound dock board</h4>
+            <div class="psf-process__v-row"><strong>ASN / request logged</strong><span class="psf-process__v-pill--ok psf-process__v-pill">Live</span></div>
+            <div class="psf-process__v-row"><strong>Carton count</strong><span class="psf-process__v-pill">248 pcs</span></div>
+            <div class="psf-process__v-row"><strong>QC inspect</strong><span class="psf-process__v-pill">Scan-first</span></div>
+            <div class="psf-process__v-tags">
+              <span>Barcode</span><span>Photo QC</span><span>Bin putaway</span>
+            </div>
+            <p class="psf-process__v-foot">Checked, logged, and routed in PrepCorex</p>
+          </div>
+        </div>
+
+        <!-- 3 Prep -->
+        <div class="psf-process__visual psf-process__visual--3" data-step="2">
+          <div class="psf-process__v-top">
+            <span class="psf-process__v-badge">Floor ops</span>
+            <span class="psf-process__v-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+            </span>
+          </div>
+          <div class="psf-process__v-card">
+            <h4>Prep &amp; dispatch queue</h4>
+            <div class="psf-process__v-row"><strong>FNSKU / WFS labels</strong><span class="psf-process__v-pill--ok psf-process__v-pill">Ready</span></div>
+            <div class="psf-process__v-row"><strong>Pick · pack · pallet</strong><span class="psf-process__v-pill">Active</span></div>
+            <div class="psf-process__v-row"><strong>Same-day cutoff</strong><span class="psf-process__v-pill">NJ hub</span></div>
+            <div class="psf-process__v-tags">
+              <span>Polybag</span><span>Bundle</span><span>Carton</span><span>LTL</span>
+            </div>
+            <p class="psf-process__v-foot">One ops system from prep to ship</p>
+          </div>
+        </div>
+
+        <!-- 4 Track -->
+        <div class="psf-process__visual psf-process__visual--4" data-step="3">
+          <div class="psf-process__v-top">
+            <span class="psf-process__v-badge">PrepCorex</span>
+            <span class="psf-process__v-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            </span>
+          </div>
+          <div class="psf-process__v-card">
+            <h4>Inventory &amp; shipment pulse</h4>
+            <div class="psf-process__v-bars" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <div class="psf-process__v-row"><strong>On-hand units</strong><span class="psf-process__v-pill">12,480</span></div>
+            <div class="psf-process__v-row"><strong>Open shipments</strong><span class="psf-process__v-pill--ok psf-process__v-pill">Tracking</span></div>
+            <p class="psf-process__v-foot">Grow volume with live portal visibility</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="psf-process__steps">
+        <article class="psf-process__step is-active" data-step="0">
+          <span class="psf-process__dot" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+          </span>
+          <div class="psf-process__copy">
+            <span class="psf-process__num">Step 01</span>
+            <h3>Strategy review</h3>
+            <p>We map SKUs, prep rules, channels, and bottlenecks before your first shipment lands.</p>
+          </div>
+        </article>
+
+        <article class="psf-process__step" data-step="1">
+          <span class="psf-process__dot" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>
+          </span>
+          <div class="psf-process__copy">
+            <span class="psf-process__num">Step 02</span>
+            <h3>Receive &amp; inspect</h3>
+            <p>Inventory arrives at our NJ center, gets checked, logged, and routed into workflow.</p>
+          </div>
+        </article>
+
+        <article class="psf-process__step" data-step="2">
+          <span class="psf-process__dot" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          </span>
+          <div class="psf-process__copy">
+            <span class="psf-process__num">Step 03</span>
+            <h3>Prep &amp; fulfill</h3>
+            <p>FBA/WFS prep, pick &amp; pack, palletizing, and dispatch handled under one ops system.</p>
+          </div>
+        </article>
+
+        <article class="psf-process__step" data-step="3">
+          <span class="psf-process__dot" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+          </span>
+          <div class="psf-process__copy">
+            <span class="psf-process__num">Step 04</span>
+            <h3>Track &amp; scale</h3>
+            <p>Monitor inventory and shipments in PrepCorex while you grow volume with confidence.</p>
+          </div>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+(function () {
+  var root = document.getElementById("psf-process");
+  if (!root) return;
+  var steps = root.querySelectorAll(".psf-process__step");
+  var visuals = root.querySelectorAll(".psf-process__visual");
+  if (!steps.length || !visuals.length) return;
+
+  function setActive(index) {
+    steps.forEach(function (step, i) {
+      step.classList.toggle("is-active", i === index);
+    });
+    visuals.forEach(function (panel) {
+      panel.classList.toggle("is-active", Number(panel.getAttribute("data-step")) === index);
+    });
+  }
+
+  if (!("IntersectionObserver" in window)) {
+    setActive(0);
+    return;
+  }
+
+  var current = 0;
+  var observer = new IntersectionObserver(
+    function (entries) {
+      var best = null;
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        if (!best || entry.intersectionRatio > best.intersectionRatio) best = entry;
+      });
+      if (!best) return;
+      var idx = Number(best.target.getAttribute("data-step"));
+      if (Number.isNaN(idx) || idx === current) return;
+      current = idx;
+      setActive(idx);
+    },
+    {
+      root: null,
+      threshold: [0.35, 0.55, 0.7],
+      rootMargin: "-18% 0px -38% 0px",
+    }
+  );
+
+  steps.forEach(function (step) {
+    observer.observe(step);
+  });
+})();
+</script>
