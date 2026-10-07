@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History, PackageX, Upload, Loader2, Ruler, Boxes } from "lucide-react";
+import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History, PackageX, Upload, Loader2, Ruler, Boxes, RotateCcw } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { InventoryHistoryDialog } from "@/components/inventory/inventory-history-dialog";
@@ -599,6 +599,8 @@ function InventoryProductName({
 
 export type AdminInventoryActions = {
   onRestock?: (item: InventoryItem) => void;
+  /** Open correct dialog for this product's most recent restock history row. */
+  onCorrectLastRestock?: (item: InventoryItem) => void;
   onDispose?: (item: InventoryItem) => void;
   onEdit?: (item: InventoryItem) => void;
   onDelete?: (item: InventoryItem) => void;
@@ -616,7 +618,12 @@ export function InventoryTable({
   adminActions?: AdminInventoryActions;
 }) {
   const hasAdminActions = Boolean(
-    adminActions && (adminActions.onRestock || adminActions.onDispose || adminActions.onEdit || adminActions.onDelete)
+    adminActions &&
+      (adminActions.onRestock ||
+        adminActions.onCorrectLastRestock ||
+        adminActions.onDispose ||
+        adminActions.onEdit ||
+        adminActions.onDelete)
   );
   const searchParams = useSearchParams();
   const { user, userProfile } = useAuth();
@@ -2193,6 +2200,16 @@ export function InventoryTable({
                           <PlusCircle className="h-3 w-3 mr-1" /> Restock
                         </Button>
                       )}
+                      {adminActions?.onCorrectLastRestock && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] border-amber-300 text-amber-800 hover:bg-amber-50"
+                          onClick={() => adminActions.onCorrectLastRestock?.(item as InventoryItem)}
+                        >
+                          <RotateCcw className="h-3 w-3 mr-1" /> Correct restock
+                        </Button>
+                      )}
                       {adminActions?.onEdit && (
                         <Button
                           variant="outline"
@@ -2552,6 +2569,17 @@ export function InventoryTable({
                                 onClick={() => adminActions.onRestock?.(item as InventoryItem)}
                               >
                                 <PlusCircle className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {adminActions?.onCorrectLastRestock && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-amber-800 hover:bg-amber-50"
+                                title="Correct last restock"
+                                onClick={() => adminActions.onCorrectLastRestock?.(item as InventoryItem)}
+                              >
+                                <RotateCcw className="h-4 w-4" />
                               </Button>
                             )}
                             {adminActions?.onEdit && (

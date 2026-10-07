@@ -1259,12 +1259,34 @@ export function AdminInventoryManagement({
 
   const openCorrectRestock = (restockItem: RestockHistory) => {
     setCorrectingRestock(restockItem);
+    setActiveSection("restock-history");
     correctRestockForm.reset({
       quantity: Math.max(1, Number(restockItem.restockedQuantity) || 1),
       restockDate: restockHistoryDate(restockItem.restockedAt),
       remarks: restockItem.remarks || "",
       expiryDate: expiryBatchIso(restockItem.expiryDate) || "",
     });
+  };
+
+  const handleCorrectLastRestock = (product: InventoryItem) => {
+    const productId = String(product.id || "").trim();
+    const productName = (product.productName || "").trim().toLowerCase();
+    const matches = restockHistory.filter((row) => {
+      if (productId && row.productId && row.productId === productId) return true;
+      return (row.productName || "").trim().toLowerCase() === productName;
+    });
+    if (matches.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "No restock to correct",
+        description: `No restock history found for "${product.productName}". Use Restock first, or open Restock Summary.`,
+      });
+      return;
+    }
+    matches.sort(
+      (a, b) => restockHistoryDate(b.restockedAt).getTime() - restockHistoryDate(a.restockedAt).getTime()
+    );
+    openCorrectRestock(matches[0]!);
   };
 
   const onCorrectRestockSubmit = async (values: z.infer<typeof correctRestockSchema>) => {
@@ -2665,6 +2687,7 @@ export function AdminInventoryManagement({
               ownerUserName={selectedUser.name ?? selectedUser.email ?? "User"}
               adminActions={{
                 onRestock: handleRestockProduct,
+                onCorrectLastRestock: handleCorrectLastRestock,
                 onEdit: handleEditProductWithLog,
                 onDispose: handleRecycleProduct,
                 onDelete: handleDeleteProduct,
@@ -3015,7 +3038,10 @@ export function AdminInventoryManagement({
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
                 <CardTitle>Restock Summary ({filteredRestockHistory.length})</CardTitle>
-                <CardDescription>View restock summary for {selectedUser.name}</CardDescription>
+                <CardDescription>
+                  View restock history for {selectedUser.name}. Use <strong>Correct</strong> on a row
+                  to fix qty, date, or expiry (no new entry).
+                </CardDescription>
               </div>
               <div className="w-full sm:w-72">
                 <div className="relative">
@@ -3106,14 +3132,7 @@ export function AdminInventoryManagement({
                   <TableBody>
                     {paginatedRestockHistory.map((item) => (
                       <TableRow key={item.id} className="bg-white/70">
-                        <TableCell className="font-semibold text-slate-900">
-                          <div className="flex flex-col gap-0.5">
-                            <span>{item.productName}</span>
-                            {item.correctedAt ? (
-                              <span className="text-[10px] font-medium text-amber-700">Corrected</span>
-                            ) : null}
-                          </div>
-                        </TableCell>
+                        <TableCell className="font-semibold text-slate-900">{item.productName}</TableCell>
                         <TableCell>
                           <Badge className="bg-green-500 text-white text-[10px]">+{item.restockedQuantity}</Badge>
                         </TableCell>
@@ -3180,11 +3199,12 @@ export function AdminInventoryManagement({
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-7 w-7 p-0"
-                              title="Correct restock"
+                              className="h-7 px-2 text-xs border-amber-300 text-amber-800 hover:bg-amber-50"
+                              title="Correct restock qty, date, or expiry"
                               onClick={() => openCorrectRestock(item)}
                             >
-                              <Edit className="h-3.5 w-3.5" />
+                              <Edit className="h-3.5 w-3.5 mr-1" />
+                              Correct
                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
