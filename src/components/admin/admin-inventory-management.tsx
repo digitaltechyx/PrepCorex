@@ -106,6 +106,7 @@ function toDateInputValue(value: unknown): string {
 
 const correctRestockSchema = z.object({
   quantity: z.number().min(1, "Quantity must be at least 1"),
+  restockDate: z.date({ required_error: "A restock date is required." }),
   remarks: z.string().max(1000, "Remarks too long").optional(),
   expiryDate: z
     .string()
@@ -115,6 +116,21 @@ const correctRestockSchema = z.object({
       "Use YYYY-MM-DD"
     ),
 });
+
+function restockHistoryDate(value: RestockHistory["restockedAt"] | undefined): Date {
+  if (!value) return new Date();
+  if (typeof value === "string" || typeof value === "number") {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? new Date() : d;
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? new Date() : value;
+  }
+  if (typeof value === "object" && value !== null && "seconds" in value) {
+    return new Date(Number((value as { seconds: number }).seconds) * 1000);
+  }
+  return new Date();
+}
 
 const restockSchema = z.object({
   quantity: z.number().min(1, "Quantity must be at least 1"),
@@ -573,7 +589,7 @@ export function AdminInventoryManagement({
   const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryStatusFilter, setInventoryStatusFilter] = useState<string>("all");
   const [inventoryDateFilter, setInventoryDateFilter] = useState<string>("all");
-  const [inventorySortBy, setInventorySortBy] = useState<string>("name-asc");
+  const [inventorySortBy, setInventorySortBy] = useState<string>("date-desc");
   const [inventoryFromDate, setInventoryFromDate] = useState<Date | undefined>();
   const [inventoryToDate, setInventoryToDate] = useState<Date | undefined>();
   const [restockDateFilter, setRestockDateFilter] = useState<string>("all");
@@ -619,6 +635,7 @@ export function AdminInventoryManagement({
     resolver: zodResolver(correctRestockSchema),
     defaultValues: {
       quantity: 1,
+      restockDate: new Date(),
       remarks: "",
       expiryDate: "",
     },
@@ -1244,6 +1261,7 @@ export function AdminInventoryManagement({
     setCorrectingRestock(restockItem);
     correctRestockForm.reset({
       quantity: Math.max(1, Number(restockItem.restockedQuantity) || 1),
+      restockDate: restockHistoryDate(restockItem.restockedAt),
       remarks: restockItem.remarks || "",
       expiryDate: expiryBatchIso(restockItem.expiryDate) || "",
     });
@@ -1268,8 +1286,13 @@ export function AdminInventoryManagement({
     const oldExpiry = expiryBatchIso(correctingRestock.expiryDate);
     const newExpiry = expiryBatchIso(values.expiryDate?.trim() || null);
     const qtyDelta = newRestockQty - oldRestockQty;
+    const oldRestockDateMs = restockHistoryDate(correctingRestock.restockedAt).getTime();
+    const newRestockDate = values.restockDate instanceof Date ? values.restockDate : new Date(values.restockDate);
+    const newRestockDateMs = newRestockDate.getTime();
+    const dateChanged =
+      Number.isFinite(newRestockDateMs) && Math.abs(newRestockDateMs - oldRestockDateMs) > 1000;
 
-    if (qtyDelta === 0 && oldExpiry === newExpiry) {
+    if (qtyDelta === 0 && oldExpiry === newExpiry && !dateChanged) {
       const remarksTrimmed = (values.remarks || "").trim();
       const prevRemarks = (correctingRestock.remarks || "").trim();
       if (remarksTrimmed === prevRemarks) {
@@ -1328,10 +1351,13 @@ export function AdminInventoryManagement({
       }
 
       const earliest = earliestExpiryFromBatches(batches);
+      const receivingDateTimestamp = Timestamp.fromDate(newRestockDate);
       const inventoryPatch: Record<string, unknown> = {
         quantity: nextQty,
         status: nextQty > 0 ? "In Stock" : "Out of Stock",
         updatedAt: Timestamp.now(),
+        // Keep inventory receiving date aligned with corrected restock date.
+        receivingDate: receivingDateTimestamp,
       };
       if (oldExpiry || newExpiry || Array.isArray(currentData.expiryBatches)) {
         inventoryPatch.expiryBatches = batches;
@@ -1349,6 +1375,7 @@ export function AdminInventoryManagement({
         productId: product.id,
         restockedQuantity: newRestockQty,
         newQuantity: previousQuantity + newRestockQty,
+        restockedAt: receivingDateTimestamp,
         correctedAt: Timestamp.now(),
         correctedBy: adminUser.name || "Admin",
       };
@@ -1369,7 +1396,7 @@ export function AdminInventoryManagement({
         description: `"${product.productName}" history updated in place. Inventory qty is now ${nextQty}.`,
       });
       setCorrectingRestock(null);
-      correctRestockForm.reset({ quantity: 1, remarks: "", expiryDate: "" });
+      correctRestockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "", expiryDate: "" });
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -2077,20 +2104,23 @@ export function AdminInventoryManagement({
       if (!aLowStock && bLowStock) return 1;
       
       const activityMs = (item: InventoryItem) => {
-        const updated = item.updatedAt
-          ? typeof item.updatedAt === "string"
-            ? new Date(item.updatedAt).getTime()
-            : item.updatedAt instanceof Date
-              ? item.updatedAt.getTime()
-              : Number((item.updatedAt as { seconds: number }).seconds) * 1000
-          : 0;
-        const added =
-          typeof item.dateAdded === "string"
-            ? new Date(item.dateAdded).getTime()
-            : Number((item.dateAdded as { seconds: number }).seconds) * 1000;
-        const u = Number.isFinite(updated) ? updated : 0;
-        const aMs = Number.isFinite(added) ? added : 0;
-        return Math.max(u, aMs);
+        const toMs = (value: unknown): number => {
+          if (!value) return 0;
+          if (typeof value === "string") {
+            const ms = new Date(value).getTime();
+            return Number.isFinite(ms) ? ms : 0;
+          }
+          if (value instanceof Date) {
+            const ms = value.getTime();
+            return Number.isFinite(ms) ? ms : 0;
+          }
+          if (typeof value === "object" && value !== null && "seconds" in value) {
+            const ms = Number((value as { seconds: number }).seconds) * 1000;
+            return Number.isFinite(ms) ? ms : 0;
+          }
+          return 0;
+        };
+        return Math.max(toMs(item.updatedAt), toMs(item.receivingDate), toMs(item.dateAdded));
       };
 
       // If both are low stock or both are not, apply the selected sort
@@ -3820,7 +3850,7 @@ export function AdminInventoryManagement({
         onOpenChange={(open) => {
           if (!open) {
             setCorrectingRestock(null);
-            correctRestockForm.reset({ quantity: 1, remarks: "", expiryDate: "" });
+            correctRestockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "", expiryDate: "" });
           }
         }}
       >
@@ -3828,7 +3858,8 @@ export function AdminInventoryManagement({
           <DialogHeader>
             <DialogTitle>Correct Restock</DialogTitle>
             <DialogDescription>
-              Fix qty or expiry on this history row. Inventory adjusts by the difference — no new history entry.
+              Fix qty, restock/receiving date, or expiry on this history row. Inventory adjusts by the
+              difference — no new history entry.
             </DialogDescription>
           </DialogHeader>
           <Form {...correctRestockForm}>
@@ -3868,6 +3899,20 @@ export function AdminInventoryManagement({
               />
               <FormField
                 control={correctRestockForm.control}
+                name="restockDate"
+                render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Correct restock / receiving date</FormLabel>
+                    <DatePicker date={field.value} setDate={field.onChange} />
+                    <p className="text-xs text-muted-foreground">
+                      Updates this history date and the product&apos;s receiving date.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={correctRestockForm.control}
                 name="expiryDate"
                 render={({ field }) => (
                   <FormItem>
@@ -3891,7 +3936,7 @@ export function AdminInventoryManagement({
                     <FormControl>
                       <Textarea
                         rows={3}
-                        placeholder="e.g. Corrected qty/expiry — wrong entry on first restock"
+                        placeholder="e.g. Corrected qty/date/expiry — wrong entry on first restock"
                         {...field}
                       />
                     </FormControl>
@@ -3906,7 +3951,7 @@ export function AdminInventoryManagement({
                   disabled={isCorrectingRestock}
                   onClick={() => {
                     setCorrectingRestock(null);
-                    correctRestockForm.reset({ quantity: 1, remarks: "", expiryDate: "" });
+                    correctRestockForm.reset({ quantity: 1, restockDate: new Date(), remarks: "", expiryDate: "" });
                   }}
                 >
                   Cancel

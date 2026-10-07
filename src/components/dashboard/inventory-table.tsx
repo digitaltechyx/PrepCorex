@@ -1767,8 +1767,17 @@ export function InventoryTable({
       return matchesSearch && matchesStatus && matchesSource;
     });
 
-    const activityMs = (item: { dateAdded?: unknown; updatedAt?: unknown }) =>
-      Math.max(getTimestampMs(item.updatedAt), getTimestampMs(item.dateAdded));
+    // Newest activity first: restock/update/receiving, else original date added.
+    const activityMs = (item: {
+      dateAdded?: unknown;
+      updatedAt?: unknown;
+      receivingDate?: unknown;
+    }) =>
+      Math.max(
+        getTimestampMs(item.updatedAt),
+        getTimestampMs(item.receivingDate),
+        getTimestampMs(item.dateAdded)
+      );
 
     return filtered.sort((a, b) => activityMs(b) - activityMs(a));
   }, [combinedData, searchTerm, statusFilter, sourceFilter]);
