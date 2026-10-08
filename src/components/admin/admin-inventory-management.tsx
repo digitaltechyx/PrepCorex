@@ -26,7 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Trash2, Edit, Package, Eye, EyeOff, Search, Filter, X, Download, History, RotateCcw, Calendar, Plus, Truck, FileText, List, Bell, ClipboardList, Archive, Boxes, ImageOff, ArrowRight, ChevronsUpDown, Loader2, ImageIcon, Upload, ShieldAlert } from "lucide-react";
 import { AdminQuickInboundForm } from "@/components/admin/admin-quick-inbound-form";
 import { AddInventoryRequestForm } from "@/components/dashboard/add-inventory-request-form";
-import { ShipInventoryForm } from "@/components/admin/ship-inventory-form";
+import { AdminQuickOutboundForm } from "@/components/admin/admin-quick-outbound-form";
 import { CreateShipmentWithLabelsForm } from "@/components/dashboard/create-shipment-with-labels-form";
 import { ShipmentRequestsManagement } from "@/components/admin/shipment-requests-management";
 import { InventoryRequestsManagement } from "@/components/admin/inventory-requests-management";
@@ -2922,7 +2922,7 @@ export function AdminInventoryManagement({
               Ship Inventory
             </CardTitle>
             <CardDescription className="text-cyan-700">
-              Quick ship removes stock immediately, or create a pending shipment request (labels, services, product types) under {selectedUser.name}&apos;s account—same as the client flow.
+              Quick Ship: full outbound details + confirm &amp; dispatch immediately (like Quick Add). Create Request: pending approval workflow for {selectedUser.name}.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
@@ -2945,7 +2945,12 @@ export function AdminInventoryManagement({
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="quick" className="mt-4">
-                <ShipInventoryForm userId={selectedUser.uid} inventory={inventory} />
+                <AdminQuickOutboundForm
+                  userId={selectedUser.uid}
+                  userName={selectedUser.name ?? selectedUser.email ?? "User"}
+                  userProfile={selectedUser}
+                  inventory={inventory}
+                />
               </TabsContent>
               <TabsContent value="request" className="mt-4">
                 <CreateShipmentWithLabelsForm

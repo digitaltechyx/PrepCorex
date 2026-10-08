@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
 import { Timestamp, doc, getDoc } from "firebase/firestore";
-import { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -133,6 +133,21 @@ interface CreateShipmentWithLabelsFormProps {
   targetUserId?: string;
   targetUserName?: string;
   targetUserProfile?: Pick<UserProfile, "uid" | "pricingProfileId">;
+  /**
+   * - `request` (default): create pending outbound for approval
+   * - `adminQuickShip`: confirm + dispatch immediately after create (admin Quick Ship)
+   */
+  submitMode?: "request" | "adminQuickShip";
+  /** Extra fields rendered above the submit footer (e.g. warehouse / tracking). */
+  extraBeforeSubmit?: ReactNode;
+  /** Return an error message to block submit, or null when OK. */
+  validateBeforeSubmit?: () => string | null;
+  /** Runs after pending request docs are created (Quick Ship approve+dispatch). */
+  afterRequestsCreated?: (ctx: {
+    requestIds: string[];
+    ownerId: string;
+    ownerName: string;
+  }) => Promise<{ successDescription?: string } | void>;
 }
 
 interface LabelItem {
@@ -151,11 +166,16 @@ export function CreateShipmentWithLabelsForm({
   targetUserId,
   targetUserName,
   targetUserProfile,
+  submitMode = "request",
+  extraBeforeSubmit,
+  validateBeforeSubmit,
+  afterRequestsCreated,
 }: CreateShipmentWithLabelsFormProps) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
   const router = useRouter();
   const canBuyLabels = hasFeature(userProfile, "buy_labels");
+  const isQuickShip = submitMode === "adminQuickShip";
   const ownerId = targetUserId ?? user?.uid ?? "";
   const ownerDisplayName =
     (targetUserName ?? userProfile?.name ?? "").trim() || "Unknown User";
@@ -461,7 +481,7 @@ export function CreateShipmentWithLabelsForm({
           }
           return;
         }
-
+        
         let finalUnitPrice = 0;
         
         // Custom product pricing is a placeholder ($1). Admin can set final pricing when creating on behalf.
@@ -886,10 +906,23 @@ export function CreateShipmentWithLabelsForm({
       return;
     }
 
+    if (isQuickShip) {
+      const extraError = validateBeforeSubmit?.();
+      if (extraError) {
+        toast({
+          variant: "destructive",
+          title: "Quick Ship incomplete",
+          description: extraError,
+        });
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
       const requestedAt = Timestamp.now();
       let totalRequestsCreated = 0;
+      const createdRequestIds: string[] = [];
 
       // Process each shipment group
       for (let i = 0; i < values.shipmentGroups.length; i++) {
@@ -902,8 +935,8 @@ export function CreateShipmentWithLabelsForm({
         const prepUnitsByInboundId = new Map<string, { name: string; units: number }>();
 
         for (const shipment of group.shipments) {
-          const packOf = group.shipmentType === "product" ? (shipment.packOf || 1) : 1;
-          const totalUnits = shipment.quantity * packOf;
+            const packOf = group.shipmentType === "product" ? (shipment.packOf || 1) : 1;
+            const totalUnits = shipment.quantity * packOf;
           const inboundId =
             shipment.sourceInventoryRequestId ||
             parsePrepOutboundRequestId(shipment.productId) ||
@@ -1076,10 +1109,14 @@ export function CreateShipmentWithLabelsForm({
           }
 
           requestData.shipments = mappedShipments;
-          await createOutboundRequestWithClientReserve({
+          if (isQuickShip) {
+            requestData.approvalSource = "admin_quick_ship";
+          }
+          const created = await createOutboundRequestWithClientReserve({
             clientUserId: ownerId,
             requestData: removeUndefined(requestData) as Record<string, unknown>,
           });
+          createdRequestIds.push(created.requestId);
           totalRequestsCreated += 1;
         };
 
@@ -1119,11 +1156,26 @@ export function CreateShipmentWithLabelsForm({
         }
       }
 
+      let successDescription = targetUserId
+        ? `${totalRequestsCreated} shipment request(s) created for ${ownerDisplayName}. Inventory reserved until ship or cancel.`
+        : `${totalRequestsCreated} shipment request(s) submitted. Inventory is reserved (awaiting ship) until warehouse dispatch or cancel.`;
+
+      if (isQuickShip && afterRequestsCreated && createdRequestIds.length > 0) {
+        const after = await afterRequestsCreated({
+          requestIds: createdRequestIds,
+          ownerId,
+          ownerName: ownerDisplayName,
+        });
+        if (after?.successDescription) {
+          successDescription = after.successDescription;
+        } else {
+          successDescription = `Quick Shipped ${totalRequestsCreated} outbound request(s) for ${ownerDisplayName}.`;
+        }
+      }
+
       toast({
         title: "Success",
-        description: targetUserId
-          ? `${totalRequestsCreated} shipment request(s) created for ${ownerDisplayName}. Inventory reserved until ship or cancel.`
-          : `${totalRequestsCreated} shipment request(s) submitted. Inventory is reserved (awaiting ship) until warehouse dispatch or cancel.`,
+        description: successDescription,
       });
 
       form.reset({
@@ -1193,7 +1245,14 @@ export function CreateShipmentWithLabelsForm({
   return (
     <div className="space-y-6">
       {/* Simple Fulfillment Notice */}
-      {isAdminCreatingForClient ? (
+      {isQuickShip ? (
+        <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-4">
+          <p className="text-sm font-medium text-cyan-900">
+            Quick Ship for {ownerDisplayName}: full outbound details (services, types, labels). On submit stock is
+            reserved, confirmed, and dispatched immediately — same idea as Quick Add for inbound.
+          </p>
+        </div>
+      ) : isAdminCreatingForClient ? (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
           <p className="text-sm font-medium text-blue-900">
             Creating outbound for {ownerDisplayName}. Unit prices default from their profile and can be edited before submit.
@@ -1201,7 +1260,7 @@ export function CreateShipmentWithLabelsForm({
         </div>
       ) : null}
 
-      {!targetUserId && (
+      {!targetUserId && !isQuickShip && (
         <div className="p-4 border border-green-200 rounded-lg bg-green-50">
           <p className="text-sm text-green-800 font-medium">
             For same day fulfillment please create outbound shipment before 11 am EST.
@@ -1214,8 +1273,14 @@ export function CreateShipmentWithLabelsForm({
           {/* Add Shipment Button */}
           <div className="flex justify-between items-center">
             <div>
-              <h3 className="text-lg font-semibold">Create Outbound Shipment</h3>
-              <p className="text-sm text-muted-foreground">Create multiple shipments, each with its own label</p>
+              <h3 className="text-lg font-semibold">
+                {isQuickShip ? "Quick Ship outbound" : "Create Outbound Shipment"}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {isQuickShip
+                  ? "Same fields as Create Request — ships and deducts immediately on submit"
+                  : "Create multiple shipments, each with its own label"}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               {canImportOutbound ? (
@@ -1228,14 +1293,14 @@ export function CreateShipmentWithLabelsForm({
                   Import
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                onClick={handleAddShipmentGroup}
-                variant="outline"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Add Shipment
-              </Button>
+            <Button
+              type="button"
+              onClick={handleAddShipmentGroup}
+              variant="outline"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Shipment
+            </Button>
             </div>
           </div>
 
@@ -1434,28 +1499,28 @@ export function CreateShipmentWithLabelsForm({
                           <FormItem className="order-1 w-[150px] shrink-0 space-y-1">
                             <FormLabel className="text-[11px] text-muted-foreground">Service *</FormLabel>
                             <Dialog open={openPopups[`${popupKey}_service`] || false} onOpenChange={(open) => {
-                              if (open) {
+                            if (open) {
                                 setOpenPopups(prev => ({ ...prev, [`${popupKey}_service`]: true }));
-                              } else {
+                            } else {
                                 closePopup(popupKey, 'service');
-                              }
-                            }}>
-                              <DialogTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 w-full justify-between"
+                            }
+                          }}>
+                            <DialogTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 w-full justify-between"
                                   onClick={() => togglePopup(popupKey, 'service')}
-                                >
+                              >
                                   <span className="truncate">{field.value || "Select"}</span>
-                                  <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
+                                <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
                                   <DialogTitle>Select Service</DialogTitle>
-                                </DialogHeader>
-                                <div className="space-y-2 py-4">
+                              </DialogHeader>
+                              <div className="space-y-2 py-4">
                                   <Button
                                     type="button"
                                     variant={field.value === "FBA/WFS/TFS" ? "default" : "outline"}
@@ -1463,15 +1528,15 @@ export function CreateShipmentWithLabelsForm({
                                     onClick={() => {
                                       field.onChange("FBA/WFS/TFS");
                                       form.setValue(`shipmentGroups.${groupIndex}.shipmentType`, "product");
-                                      form.setValue(`shipmentGroups.${groupIndex}.palletSubType`, undefined);
+                                        form.setValue(`shipmentGroups.${groupIndex}.palletSubType`, undefined);
                                       form.setValue(`shipmentGroups.${groupIndex}.shipments`, []);
                                       closePopup(popupKey, 'service');
                                     }}
                                   >
                                     FBA/WFS/TFS
                                   </Button>
-                                  <Button
-                                    type="button"
+                                <Button
+                                  type="button"
                                     variant={isDtcFbmService(field.value) ? "default" : "outline"}
                                     className="w-full justify-start"
                                     onClick={() => {
@@ -1483,7 +1548,7 @@ export function CreateShipmentWithLabelsForm({
                                     }}
                                   >
                                     DTC/FBM
-                                  </Button>
+                                </Button>
                                   <Button
                                     type="button"
                                     variant={field.value === "Carton Forwarding" ? "default" : "outline"}
@@ -1574,49 +1639,49 @@ export function CreateShipmentWithLabelsForm({
                                     const isSelected = selectedLineCount > 0;
                                     const isPrep = item.source === "pending_inbound";
                                     const buildShipmentLine = () => {
-                                      let initialUnitPrice = 0;
-                                      let initialTotalPrice = 0;
-
-                                      const group = form.getValues(`shipmentGroups.${groupIndex}`);
-                                      const shipmentType = group?.shipmentType;
-                                      const palletSubType = group?.palletSubType;
-
-                                      if (shipmentType === "box" && effectiveBoxForwardingPricing && effectiveBoxForwardingPricing.length > 0) {
-                                        const latestBoxPricing = [...effectiveBoxForwardingPricing].sort((a, b) => {
-                                          const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
-                                          const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
-                                          return bUpdated - aUpdated;
-                                        })[0];
-                                        if (latestBoxPricing && latestBoxPricing.price !== undefined && latestBoxPricing.price !== null) {
-                                          const priceValue = typeof latestBoxPricing.price === 'string'
-                                            ? parseFloat(latestBoxPricing.price)
-                                            : latestBoxPricing.price;
-                                          if (!isNaN(priceValue) && priceValue > 0) {
-                                            initialUnitPrice = priceValue;
+                                              let initialUnitPrice = 0;
+                                              let initialTotalPrice = 0;
+                                              
+                                              const group = form.getValues(`shipmentGroups.${groupIndex}`);
+                                              const shipmentType = group?.shipmentType;
+                                              const palletSubType = group?.palletSubType;
+                                              
+                                              if (shipmentType === "box" && effectiveBoxForwardingPricing && effectiveBoxForwardingPricing.length > 0) {
+                                                const latestBoxPricing = [...effectiveBoxForwardingPricing].sort((a, b) => {
+                                                  const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
+                                                  const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
+                                                  return bUpdated - aUpdated;
+                                                })[0];
+                                                if (latestBoxPricing && latestBoxPricing.price !== undefined && latestBoxPricing.price !== null) {
+                                                  const priceValue = typeof latestBoxPricing.price === 'string' 
+                                                    ? parseFloat(latestBoxPricing.price) 
+                                                    : latestBoxPricing.price;
+                                                  if (!isNaN(priceValue) && priceValue > 0) {
+                                                    initialUnitPrice = priceValue;
                                             initialTotalPrice = priceValue;
-                                          }
-                                        }
-                                      } else if (shipmentType === "pallet") {
-                                        if (palletSubType === "forwarding" && effectivePalletForwardingPricing && effectivePalletForwardingPricing.length > 0) {
-                                          const latestPalletForwarding = [...effectivePalletForwardingPricing].sort((a, b) => {
-                                            const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
-                                            const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
-                                            return bUpdated - aUpdated;
-                                          })[0];
-                                          if (latestPalletForwarding && latestPalletForwarding.price) {
-                                            const priceValue = typeof latestPalletForwarding.price === 'string'
-                                              ? parseFloat(latestPalletForwarding.price)
-                                              : latestPalletForwarding.price;
-                                            if (!isNaN(priceValue) && priceValue > 0) {
-                                              initialUnitPrice = priceValue;
-                                              initialTotalPrice = priceValue;
-                                            }
-                                          }
-                                        } else if (palletSubType === "existing_inventory") {
-                                          initialUnitPrice = 0;
-                                          initialTotalPrice = 0;
-                                        }
-                                      }
+                                                  }
+                                                }
+                                              } else if (shipmentType === "pallet") {
+                                                if (palletSubType === "forwarding" && effectivePalletForwardingPricing && effectivePalletForwardingPricing.length > 0) {
+                                                  const latestPalletForwarding = [...effectivePalletForwardingPricing].sort((a, b) => {
+                                                    const aUpdated = typeof a.updatedAt === 'string' ? new Date(a.updatedAt).getTime() : (a.updatedAt as any)?.seconds ? (a.updatedAt as any).seconds * 1000 : 0;
+                                                    const bUpdated = typeof b.updatedAt === 'string' ? new Date(b.updatedAt).getTime() : (b.updatedAt as any)?.seconds ? (b.updatedAt as any).seconds * 1000 : 0;
+                                                    return bUpdated - aUpdated;
+                                                  })[0];
+                                                  if (latestPalletForwarding && latestPalletForwarding.price) {
+                                                    const priceValue = typeof latestPalletForwarding.price === 'string' 
+                                                      ? parseFloat(latestPalletForwarding.price) 
+                                                      : latestPalletForwarding.price;
+                                                    if (!isNaN(priceValue) && priceValue > 0) {
+                                                      initialUnitPrice = priceValue;
+                                                      initialTotalPrice = priceValue;
+                                                    }
+                                                  }
+                                                } else if (palletSubType === "existing_inventory") {
+                                                  initialUnitPrice = 0;
+                                                  initialTotalPrice = 0;
+                                                }
+                                              }
                                       if (
                                         shipmentType === "product" &&
                                         (group?.service === "FBA/WFS/TFS" || isDtcFbmService(group?.service))
@@ -1633,17 +1698,17 @@ export function CreateShipmentWithLabelsForm({
                                                   initialUnitPrice = calculated.rate;
                                                   initialTotalPrice = calculated.rate;
                                                 }
-                                      }
+                                              }
 
                                       return {
-                                        productId: item.id,
-                                        quantity: 1,
-                                        packOf: 1,
-                                        unitPrice: initialUnitPrice,
-                                        totalPrice: initialTotalPrice,
-                                        productType: shipmentType === "product" ? ("Standard" as const) : undefined,
-                                        customDimensions: undefined,
-                                        selectedAdditionalServices: undefined,
+                                                  productId: item.id,
+                                                  quantity: 1,
+                                                  packOf: 1,
+                                                  unitPrice: initialUnitPrice,
+                                                  totalPrice: initialTotalPrice,
+                                                  productType: shipmentType === "product" ? ("Standard" as const) : undefined,
+                                                  customDimensions: undefined,
+                                                  selectedAdditionalServices: undefined,
                                         sourceInventoryRequestId: item.sourceInventoryRequestId,
                                       };
                                     };
@@ -1840,15 +1905,15 @@ export function CreateShipmentWithLabelsForm({
                                               }
                                             />
                                           ) : (
-                                            <Input
-                                              className="h-8"
-                                              value={Number(
-                                                form.watch(
-                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice`
-                                                ) || 0
-                                              ).toFixed(2)}
-                                              readOnly
-                                            />
+                                          <Input
+                                            className="h-8"
+                                            value={Number(
+                                              form.watch(
+                                                `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice`
+                                              ) || 0
+                                            ).toFixed(2)}
+                                            readOnly
+                                          />
                                           )}
                                           <Dialog
                                             open={openPopups[servicesPopupKey] || false}
@@ -1987,10 +2052,10 @@ export function CreateShipmentWithLabelsForm({
                     </FormItem>
 
                     {/* Date */}
-                    <FormField
-                      control={form.control}
+                      <FormField
+                        control={form.control}
                       name={`shipmentGroups.${groupIndex}.date`}
-                      render={({ field }) => (
+                        render={({ field }) => (
                         <FormItem className="order-3 w-[170px] shrink-0 space-y-1">
                           <FormLabel className="text-[11px] text-muted-foreground">Shipping Date</FormLabel>
                           <div className="w-full">
@@ -2018,11 +2083,11 @@ export function CreateShipmentWithLabelsForm({
                               }
                             }}
                           >
-                            <DialogTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-8 w-full justify-between"
+                              <DialogTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 w-full justify-between"
                                 onClick={() => togglePopup(popupKey, "shipmentPreference")}
                               >
                                 <span className="truncate">
@@ -2030,17 +2095,17 @@ export function CreateShipmentWithLabelsForm({
                                     ? formatShipmentPreferenceLabel(field.value)
                                     : "Select"}
                                 </span>
-                                <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
+                                  <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
                                 <DialogTitle>Shipment Preference</DialogTitle>
                                 <DialogDescription>
                                   How should this outbound shipment be packed for fulfillment?
                                 </DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-2 py-4">
+                                </DialogHeader>
+                                <div className="space-y-2 py-4">
                                 {(["box", "pallet"] as const).map((pref) => (
                                   <Button
                                     key={pref}
@@ -2055,9 +2120,9 @@ export function CreateShipmentWithLabelsForm({
                                     {formatShipmentPreferenceLabel(pref)}
                                   </Button>
                                 ))}
-                              </div>
-                            </DialogContent>
-                          </Dialog>
+                                </div>
+                              </DialogContent>
+                            </Dialog>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -2259,9 +2324,9 @@ export function CreateShipmentWithLabelsForm({
                                                 <span className="truncate">
                                                   {field.value === "Standard"
                                                     ? "Standard (6×6×6) - <3lbs"
-                                                    : field.value === "Custom"
-                                                      ? "Custom"
-                                                      : "Select"}
+                                                      : field.value === "Custom"
+                                                        ? "Custom"
+                                                        : "Select"}
                                                 </span>
                                                 <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
                                               </Button>
@@ -2296,7 +2361,7 @@ export function CreateShipmentWithLabelsForm({
                                                   >
                                                     {opt === "Standard"
                                                       ? "Standard (6×6×6) - <3lbs"
-                                                      : "Custom"}
+                                                        : "Custom"}
                                                   </Button>
                                                 ))}
                                               </div>
@@ -2440,33 +2505,33 @@ export function CreateShipmentWithLabelsForm({
                                   </>
                                 ) : (
                                   <>
-                                    <FormField
-                                      control={form.control}
-                                      name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice` as const}
-                                      render={({ field }) => {
-                                        if (groupShipmentType === "product" && lineProductType === "Custom") {
-                                          return (
-                                            <FormItem className="w-[180px] shrink-0">
-                                              <FormLabel className="text-xs">Price ($)</FormLabel>
-                                              <FormControl>
-                                                <Input
-                                                  type="text"
-                                                  className="h-8 [appearance:textfield]"
-                                                  readOnly
-                                                  value={"1.00"}
-                                                />
-                                              </FormControl>
-                                              <div className="mt-2 rounded-md border-2 border-blue-200 border-dashed bg-blue-50 p-2">
-                                                <p className="text-center text-xs font-medium text-blue-700">
-                                                  Admin can review your request and then charge
-                                                </p>
-                                              </div>
-                                              <FormMessage />
-                                            </FormItem>
-                                          );
-                                        }
+                                <FormField
+                                  control={form.control}
+                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice` as const}
+                                  render={({ field }) => {
+                                    if (groupShipmentType === "product" && lineProductType === "Custom") {
+                                      return (
+                                        <FormItem className="w-[180px] shrink-0">
+                                          <FormLabel className="text-xs">Price ($)</FormLabel>
+                                          <FormControl>
+                                            <Input
+                                              type="text"
+                                              className="h-8 [appearance:textfield]"
+                                              readOnly
+                                              value={"1.00"}
+                                            />
+                                          </FormControl>
+                                          <div className="mt-2 rounded-md border-2 border-blue-200 border-dashed bg-blue-50 p-2">
+                                            <p className="text-center text-xs font-medium text-blue-700">
+                                              Admin can review your request and then charge
+                                            </p>
+                                          </div>
+                                          <FormMessage />
+                                        </FormItem>
+                                      );
+                                    }
 
-                                        const lineQuantity =
+                                    const lineQuantity =
                                           form.watch(
                                             `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`
                                           ) || 0;
@@ -2475,42 +2540,42 @@ export function CreateShipmentWithLabelsForm({
                                             `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`
                                           ) || 0;
 
-                                        let calculatedTotal = 0;
+                                    let calculatedTotal = 0;
                                         if (unitPrice > 0 && lineQuantity > 0) {
-                                          calculatedTotal = parseFloat((unitPrice * lineQuantity).toFixed(2));
-                                        }
+                                      calculatedTotal = parseFloat((unitPrice * lineQuantity).toFixed(2));
+                                    }
 
-                                        const displayValue = calculatedTotal > 0 ? calculatedTotal : field.value || 0;
-                                        const formattedValue =
-                                          typeof displayValue === "number"
-                                            ? displayValue.toFixed(2)
-                                            : parseFloat(displayValue || 0).toFixed(2);
+                                    const displayValue = calculatedTotal > 0 ? calculatedTotal : field.value || 0;
+                                    const formattedValue =
+                                      typeof displayValue === "number"
+                                        ? displayValue.toFixed(2)
+                                        : parseFloat(displayValue || 0).toFixed(2);
 
-                                        return (
-                                          <FormItem className="w-[180px] shrink-0">
-                                            <FormLabel className="text-xs">Price ($)</FormLabel>
-                                            <FormControl>
-                                              <Input
-                                                type="text"
-                                                placeholder="Auto"
-                                                className="h-8 [appearance:textfield]"
-                                                readOnly
-                                                value={formattedValue}
-                                              />
-                                            </FormControl>
-                                            <FormMessage />
-                                          </FormItem>
-                                        );
-                                      }}
-                                    />
+                                    return (
+                                      <FormItem className="w-[180px] shrink-0">
+                                        <FormLabel className="text-xs">Price ($)</FormLabel>
+                                        <FormControl>
+                                          <Input
+                                            type="text"
+                                            placeholder="Auto"
+                                            className="h-8 [appearance:textfield]"
+                                            readOnly
+                                            value={formattedValue}
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    );
+                                  }}
+                                />
 
-                                    <FormField
-                                      control={form.control}
-                                      name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice` as const}
-                                      render={({ field }) => (
-                                        <input type="hidden" {...field} value={field.value ?? ""} />
-                                      )}
-                                    />
+                                <FormField
+                                  control={form.control}
+                                  name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice` as const}
+                                  render={({ field }) => (
+                                    <input type="hidden" {...field} value={field.value ?? ""} />
+                                  )}
+                                />
                                   </>
                                 )}
 
@@ -2800,13 +2865,16 @@ export function CreateShipmentWithLabelsForm({
             );
           })()}
 
+          {extraBeforeSubmit ? <div className="pt-1">{extraBeforeSubmit}</div> : null}
+
           <div className="flex justify-end gap-3">
             <Button
               type="submit"
               disabled={isLoading || shipmentGroups.length === 0}
+              className={isQuickShip ? "bg-cyan-600 hover:bg-cyan-700" : undefined}
             >
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Submit All Shipment Requests
+              {isQuickShip ? "Quick Ship now" : "Submit All Shipment Requests"}
             </Button>
           </div>
         </form>
