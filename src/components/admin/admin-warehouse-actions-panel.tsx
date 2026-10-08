@@ -840,10 +840,11 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         <div className="border-t pt-3 space-y-2">
           <p className="text-xs font-medium text-foreground">Correct outbound lines</p>
           <p className="text-xs text-muted-foreground">
-            Same as Warehouse Ops — change qty / pack of, or remove a line before dispatch. Client
-            reserved stock updates when units change.
+            Edit qty / pack of / unit price, remove a line, or add another product before dispatch.
+            Client reserved stock updates when units change.
           </p>
           <WarehouseOutboundLineEditPanel
+            mode="admin"
             warehouseId={preferredWarehouseId}
             clientUserId={clientUserId}
             shipmentRequestId={request.id}

@@ -2643,10 +2643,11 @@ function ReviewShipmentDialog({
             <div className="space-y-2 border-t pt-4">
               <p className="text-sm font-medium">Correct outbound</p>
               <p className="text-xs text-muted-foreground">
-                Same as Warehouse Ops — edit qty / pack of or remove a line before you confirm. Reserved
-                stock updates when units change.
+                Edit qty / pack of / unit price, remove a line, or add another product before you
+                confirm. Reserved stock updates when units change.
               </p>
               <WarehouseOutboundLineEditPanel
+                mode="admin"
                 warehouseId={correctWarehouseId}
                 clientUserId={clientUserId}
                 shipmentRequestId={String((request as ShipmentRequest & { id?: string }).id)}

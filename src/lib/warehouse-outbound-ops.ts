@@ -410,5 +410,8 @@ export async function cancelConfirmedOutboundAtWarehouse(input: {
   });
 }
 
-export { editOutboundLineAtWarehouse } from "@/lib/warehouse-outbound-line-edit";
+export {
+  editOutboundLineAtWarehouse,
+  addOutboundLineAtWarehouse,
+} from "@/lib/warehouse-outbound-line-edit";
 export type { EditOutboundLineResult } from "@/lib/warehouse-outbound-line-edit";

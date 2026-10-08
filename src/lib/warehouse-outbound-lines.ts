@@ -86,6 +86,7 @@ export type EditableOutboundShipmentLine = {
   boxes: number;
   packOf: number;
   quantityUnits: number;
+  unitPrice: number;
   productId?: string;
   isPrepOnly: boolean;
   removedAtWarehouse: boolean;
@@ -112,6 +113,7 @@ export function buildEditableShipmentLines(
     const boxes = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
     const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
     const quantityUnits = boxes * packOf;
+    const unitPrice = Number(shipment.unitPrice);
     if (!productId && !isPrep) return;
     lines.push({
       lineIndex,
@@ -121,6 +123,7 @@ export function buildEditableShipmentLines(
       boxes,
       packOf,
       quantityUnits,
+      unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
       productId: productId || undefined,
       isPrepOnly: isPrep,
       removedAtWarehouse,

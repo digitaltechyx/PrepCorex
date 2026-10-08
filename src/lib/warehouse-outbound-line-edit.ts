@@ -77,8 +77,8 @@ export type EditOutboundLineResult = {
 };
 
 /**
- * Warehouse-only edit for one confirmed outbound line before dispatch.
- * Supports reduce qty, remove line, increase qty, or change pack size (operator picks extra manually).
+ * Edit one open outbound line before dispatch.
+ * Supports reduce qty, remove line, increase qty, change pack size, and (admin) unit price.
  */
 export async function editOutboundLineAtWarehouse(input: {
   clientUserId: string;
@@ -89,15 +89,20 @@ export async function editOutboundLineAtWarehouse(input: {
   newBoxQuantity: number;
   /** New pack size per box/case; defaults to existing line pack when omitted. */
   newPackOf?: number;
+  /** When set, updates stored unit price on the shipment line (admin). */
+  newUnitPrice?: number;
   editedBy: string;
-  reason: string;
+  reason?: string;
+  /** When true (default), reason is required. Admin UI may pass false. */
+  requireReason?: boolean;
 }): Promise<EditOutboundLineResult> {
   const clientUserId = input.clientUserId.trim();
   const shipmentRequestId = input.shipmentRequestId.trim();
   const warehouseId = input.warehouseId.trim();
   const lineIndex = Math.floor(input.lineIndex);
   const newBoxQuantity = Math.max(0, Math.floor(input.newBoxQuantity));
-  const reason = input.reason.trim();
+  const requireReason = input.requireReason !== false;
+  const reason = (input.reason ?? "").trim() || (requireReason ? "" : "Admin correction");
 
   if (!clientUserId || !shipmentRequestId) throw new Error("Missing client or request.");
   if (!warehouseId) throw new Error("Warehouse is required.");
@@ -148,6 +153,7 @@ export async function editOutboundLineAtWarehouse(input: {
 
   const oldBoxes = lineMeta.boxes;
   const oldPackOf = lineMeta.packOf;
+  const oldUnitPrice = lineMeta.unitPrice;
   const newPackOf = Math.max(
     1,
     Math.floor(
@@ -156,12 +162,23 @@ export async function editOutboundLineAtWarehouse(input: {
         : oldPackOf
     ) || 1
   );
+  const priceProvided =
+    input.newUnitPrice != null && Number.isFinite(input.newUnitPrice);
+  const newUnitPrice = priceProvided
+    ? Math.max(0, Number(input.newUnitPrice))
+    : oldUnitPrice;
+  const priceChanged = priceProvided && Math.abs(newUnitPrice - oldUnitPrice) > 0.0001;
   const oldUnits = shipmentUnits(data, shipment, lineIndex);
   const newUnits = newBoxQuantity * newPackOf;
   const unitDelta = newUnits - oldUnits;
 
-  if (unitDelta === 0 && newBoxQuantity === oldBoxes && newPackOf === oldPackOf) {
-    throw new Error("Quantity unchanged — nothing to update.");
+  if (
+    unitDelta === 0 &&
+    newBoxQuantity === oldBoxes &&
+    newPackOf === oldPackOf &&
+    !priceChanged
+  ) {
+    throw new Error("Nothing to update — qty, pack of, and price are unchanged.");
   }
 
   const sku = lineMeta.sku;
@@ -207,12 +224,14 @@ export async function editOutboundLineAtWarehouse(input: {
       warehouseLineEditedBy: input.editedBy,
       warehouseLineEditReason: reason,
       warehouseLineEditFrom: layoutBefore,
+      ...(priceChanged ? { unitPrice: newUnitPrice } : {}),
     };
   } else {
     nextShipments[lineIndex] = {
       ...shipment,
       quantity: newBoxQuantity,
       packOf: newPackOf,
+      ...(priceChanged || priceProvided ? { unitPrice: newUnitPrice } : {}),
       warehouseLineEditedAt: lineEditedAt,
       warehouseLineEditedBy: input.editedBy,
       warehouseLineEditReason: reason,
@@ -279,5 +298,142 @@ export async function editOutboundLineAtWarehouse(input: {
     pickSourceHints,
     unitsUnpicked,
     removed: newBoxQuantity === 0,
+  };
+}
+
+/**
+ * Admin: append a product line to an open outbound before dispatch.
+ * Reserves client stock when the request already has inventory deducted.
+ */
+export async function addOutboundLineAtWarehouse(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+  warehouseId: string;
+  productId: string;
+  boxQuantity: number;
+  packOf?: number;
+  unitPrice?: number;
+  editedBy: string;
+  reason?: string;
+}): Promise<EditOutboundLineResult> {
+  const clientUserId = input.clientUserId.trim();
+  const shipmentRequestId = input.shipmentRequestId.trim();
+  const warehouseId = input.warehouseId.trim();
+  const productId = input.productId.trim();
+  const boxQuantity = Math.max(0, Math.floor(input.boxQuantity));
+  const packOf = Math.max(1, Math.floor(input.packOf ?? 1) || 1);
+  const unitPrice =
+    input.unitPrice != null && Number.isFinite(input.unitPrice)
+      ? Math.max(0, Number(input.unitPrice))
+      : 0;
+  const reason = (input.reason ?? "").trim() || "Admin correction — add product";
+
+  if (!clientUserId || !shipmentRequestId) throw new Error("Missing client or request.");
+  if (!warehouseId) throw new Error("Warehouse is required.");
+  if (!input.editedBy.trim()) throw new Error("Sign in required to edit.");
+  if (!productId) throw new Error("Select a product to add.");
+  if (boxQuantity < 1) throw new Error("Quantity must be at least 1.");
+
+  const requestRef = doc(db, `users/${clientUserId}/shipmentRequests`, shipmentRequestId);
+  const snap = await getDoc(requestRef);
+  if (!snap.exists()) throw new Error("Shipment request not found.");
+
+  const data = snap.data() as Record<string, unknown>;
+  const status = normOutboundStatus(data.status);
+  const editableStatuses = new Set([
+    "confirmed",
+    "pending",
+    "awaiting_label",
+    "awaiting_label_upload",
+  ]);
+  if (!editableStatuses.has(status)) {
+    throw new Error(
+      `Only open outbounds (pending / awaiting label / confirmed) can be corrected (current: ${status || "unknown"}).`
+    );
+  }
+  if (dispatchStatusFromRequest(data) === "dispatched") {
+    throw new Error("This order was already dispatched — line edit is not available.");
+  }
+
+  const inventoryRef = doc(db, `users/${clientUserId}/inventory`, productId);
+  const inventorySnap = await getDoc(inventoryRef);
+  if (!inventorySnap.exists()) throw new Error("Product not found in client inventory.");
+  const inv = inventorySnap.data() as Record<string, unknown>;
+  const sku = String(inv.sku ?? "").trim() || productId;
+  const productName = String(inv.productName ?? sku).trim() || sku;
+  const units = boxQuantity * packOf;
+
+  const productMap = await loadClientProductMap(clientUserId);
+  const shipments = Array.isArray(data.shipments)
+    ? ([...data.shipments] as Array<Record<string, unknown>>)
+    : [];
+
+  if (packStatusFromRequest(data) === "ready_to_dispatch") {
+    await restoreWarehouseStockForOutboundCancel({
+      warehouseId,
+      clientUserId,
+      shipmentRequestId,
+      operatorId: input.editedBy,
+    });
+    await clearPackStateAfterLineEdit(clientUserId, shipmentRequestId);
+  }
+
+  const lineEditedAt = Timestamp.now();
+  const lineIndex = shipments.length;
+  shipments.push({
+    productId,
+    quantity: boxQuantity,
+    packOf,
+    unitPrice,
+    sku,
+    productName,
+    warehouseLineEditedAt: lineEditedAt,
+    warehouseLineEditedBy: input.editedBy,
+    warehouseLineEditReason: reason,
+    warehouseLineAddedByAdmin: true,
+  });
+
+  await updateDoc(requestRef, {
+    shipments,
+    updatedAt: serverTimestamp(),
+  });
+
+  if (hasClientInventoryDeducted(data) && units > 0) {
+    await adjustClientInventoryForOutboundLineEdit({
+      clientUserId,
+      shipmentRequestId,
+      lineIndex,
+      productId,
+      unitDelta: units,
+      packOf,
+      boxesAfter: boxQuantity,
+      boxesBefore: 0,
+      packOfBefore: packOf,
+      reason,
+    });
+  }
+
+  const updatedSnap = await getDoc(requestRef);
+  const updatedData = updatedSnap.data() as Record<string, unknown>;
+  const pickLines = buildOrderLinesFromRequestData(updatedData, productMap);
+
+  await reconcilePickStatusAfterLineEdit({
+    warehouseId,
+    clientUserId,
+    shipmentRequestId,
+    lines: pickLines,
+    operatorId: input.editedBy,
+  });
+
+  const pickSourceHints = await getPickSourceHintsForSku({
+    warehouseId,
+    shipmentRequestId,
+    sku,
+  });
+
+  return {
+    pickSourceHints,
+    unitsUnpicked: 0,
+    removed: false,
   };
 }
