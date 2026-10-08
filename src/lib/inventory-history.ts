@@ -434,16 +434,6 @@ function shippedEventTimestamp(s: ShippedItem): number {
   return businessOutboundTimestamp(s.date, s.createdAt);
 }
 
-function isChainSortable(e: RawEvent): boolean {
-  const qtyBefore = e.qtyBefore;
-  const qtyAfter = e.qtyAfter;
-  const qtyChange = e.qtyChange;
-  if (qtyBefore == null || qtyAfter == null || qtyChange == null || qtyChange === 0) {
-    return false;
-  }
-  return qtyAfter - qtyBefore === qtyChange;
-}
-
 /** Small slack so same-second / clock-skew events can still chain. */
 const CHAIN_TIMESTAMP_SLACK_MS = 60_000;
 
@@ -543,95 +533,14 @@ function compareHistoryEventsTiebreak(a: RawEvent, b: RawEvent): number {
   return 0;
 }
 
-function mergeEventsByTimestamp(chainSorted: RawEvent[], others: RawEvent[]): RawEvent[] {
-  if (others.length === 0) return chainSorted;
-  if (chainSorted.length === 0) return [...others].sort(compareHistoryEventsTiebreak);
-
-  const result: RawEvent[] = [];
-  const othersSorted = [...others].sort(compareHistoryEventsTiebreak);
-  let chainIdx = 0;
-  let otherIdx = 0;
-
-  while (chainIdx < chainSorted.length || otherIdx < othersSorted.length) {
-    const chainEvt = chainSorted[chainIdx];
-    const otherEvt = othersSorted[otherIdx];
-    if (otherEvt == null || (chainEvt != null && chainEvt.timestamp <= otherEvt.timestamp)) {
-      result.push(chainEvt!);
-      chainIdx++;
-    } else {
-      result.push(otherEvt);
-      otherIdx++;
-    }
-  }
-  return result;
-}
-
-/** Order events by Before/After links; timestamps alone are often wrong on shipped rows. */
+/**
+ * Order by business date/time (ship date, receive time, etc.).
+ * Do not reorder by stored Before/After — backdated writes snapshot today's stock
+ * and those links scramble the ledger. Every input event is kept.
+ */
 function sortHistoryEventsByChain(events: RawEvent[]): RawEvent[] {
   if (events.length <= 1) return events;
-
-  const chainSortable: RawEvent[] = [];
-  const other: RawEvent[] = [];
-  for (const e of events) {
-    if (isChainSortable(e)) chainSortable.push(e);
-    else other.push(e);
-  }
-
-  if (chainSortable.length <= 1) {
-    return [...events].sort(compareHistoryEventsTiebreak);
-  }
-
-  const n = chainSortable.length;
-  const successors: Set<number>[] = Array.from({ length: n }, () => new Set());
-  const inDegree = new Array(n).fill(0);
-
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      if (i === j) continue;
-      const a = chainSortable[i];
-      const b = chainSortable[j];
-      // Only link when Before/After match AND time does not jump backward
-      // (avoids coincidental qty matches scrambling Overview sequence).
-      if (canLinkStockChain(a, b)) {
-        if (!successors[i].has(j)) {
-          successors[i].add(j);
-          inDegree[j]++;
-        }
-      } else if (canLinkStockChain(b, a)) {
-        if (!successors[j].has(i)) {
-          successors[j].add(i);
-          inDegree[i]++;
-        }
-      }
-    }
-  }
-
-  let ready: number[] = [];
-  for (let i = 0; i < n; i++) {
-    if (inDegree[i] === 0) ready.push(i);
-  }
-
-  const sorted: RawEvent[] = [];
-  const processed = new Set<number>();
-
-  while (ready.length > 0) {
-    ready.sort((i, j) => compareHistoryEventsTiebreak(chainSortable[i], chainSortable[j]));
-    const idx = ready.shift()!;
-    sorted.push(chainSortable[idx]);
-    processed.add(idx);
-    for (const j of successors[idx]) {
-      inDegree[j]--;
-      if (inDegree[j] === 0) ready.push(j);
-    }
-  }
-
-  const stranded = chainSortable.filter((_, i) => !processed.has(i));
-  if (stranded.length > 0) {
-    stranded.sort(compareHistoryEventsTiebreak);
-    sorted.push(...stranded);
-  }
-
-  return mergeEventsByTimestamp(sorted, other);
+  return [...events].sort(compareHistoryEventsTiebreak);
 }
 
 function isInformationalOutboundDispatch(e: RawEvent): boolean {
@@ -642,81 +551,63 @@ function isInformationalOutboundDispatch(e: RawEvent): boolean {
   );
 }
 
-function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
+function resolveEventQtyChange(e: RawEvent): number | null {
+  if (e.qtyChange != null && Number.isFinite(Number(e.qtyChange))) {
+    return Math.trunc(Number(e.qtyChange));
+  }
+  if (
+    e.qtyBefore != null &&
+    e.qtyAfter != null &&
+    Number.isFinite(Number(e.qtyBefore)) &&
+    Number.isFinite(Number(e.qtyAfter))
+  ) {
+    return Math.trunc(Number(e.qtyAfter) - Number(e.qtyBefore));
+  }
+  return null;
+}
+
+/**
+ * Rebuild Before/After as a continuous ledger in business-date order.
+ * Stored snapshots are ignored for chaining (they freeze write-time stock and break
+ * when admin backdates). Deltas are kept; levels are shifted so the last After
+ * matches current on-hand quantity when known.
+ */
+function applyRunningBalances(
+  events: RawEvent[],
+  options?: { currentQuantity?: number | null }
+): InventoryHistoryRow[] {
   const sorted = sortHistoryEventsByChain(events);
-  let running: number | null = null;
+  let running = 0;
   const rows: Array<InventoryHistoryRow & { outboundLinkKind?: RawEvent["outboundLinkKind"] }> =
     [];
 
   for (const e of sorted) {
-    let qtyBefore = e.qtyBefore ?? null;
-    let qtyAfter = e.qtyAfter ?? null;
-    let qtyChange = e.qtyChange ?? null;
+    const storedBefore = e.qtyBefore ?? null;
+    const storedAfter = e.qtyAfter ?? null;
+    let qtyChange = resolveEventQtyChange(e);
 
     const packLayoutOnly =
       qtyChange === 0 &&
-      qtyBefore != null &&
-      qtyAfter != null &&
-      qtyBefore === qtyAfter;
+      storedBefore != null &&
+      storedAfter != null &&
+      storedBefore === storedAfter;
 
-    const hasTrustedSnapshot =
-      qtyBefore != null &&
-      qtyAfter != null &&
-      qtyChange != null &&
-      qtyChange !== 0 &&
-      qtyAfter - qtyBefore === qtyChange;
+    let qtyBefore: number | null;
+    let qtyAfter: number | null;
 
     if (packLayoutOnly || isInformationalOutboundDispatch(e)) {
-      if (running != null) {
-        qtyBefore = running;
-        qtyAfter = running;
-      }
+      qtyBefore = running;
+      qtyAfter = running;
       qtyChange = 0;
-    } else if (hasTrustedSnapshot) {
-      // Trust Firestore snapshots from ship/dispatch/restock transactions — not a rebuilt ledger.
-      qtyBefore = e.qtyBefore ?? qtyBefore;
-      qtyAfter = e.qtyAfter ?? qtyAfter;
-      running = qtyAfter;
     } else if (qtyChange != null && qtyChange !== 0) {
-      // Inbound-only deltas without snapshots — chain from prior running balance.
-      qtyBefore = running != null ? running : qtyBefore ?? 0;
-      qtyAfter = qtyBefore + qtyChange;
+      qtyBefore = running;
+      qtyAfter = running + qtyChange;
       running = qtyAfter;
-    } else if (qtyBefore != null && qtyAfter != null && qtyChange == null) {
-      qtyChange = qtyAfter - qtyBefore;
-      if (qtyChange !== 0) {
-        qtyBefore = running != null ? running : qtyBefore;
-        qtyAfter = qtyBefore + qtyChange;
-      }
-      running = qtyAfter;
-    } else if (qtyAfter != null && qtyChange != null && qtyBefore == null) {
-      if (running != null && qtyChange !== 0 && qtyAfter === qtyChange) {
-        qtyBefore = running;
-        qtyAfter = running + qtyChange;
-      } else {
-        qtyBefore = qtyAfter - qtyChange;
-      }
-      running = qtyAfter;
-    } else if (qtyChange != null && qtyBefore == null && qtyAfter == null) {
-      qtyBefore = running != null ? running : 0;
-      qtyAfter = qtyBefore + qtyChange;
-      running = qtyAfter;
-    } else if (qtyAfter != null && qtyBefore == null && qtyChange == null) {
-      qtyChange = running != null ? qtyAfter - running : qtyAfter;
-      qtyBefore = running != null ? running : 0;
-      running = qtyAfter;
-    } else if (qtyBefore != null && qtyChange != null && qtyAfter == null) {
-      qtyAfter = qtyBefore + qtyChange;
-      if (running != null && qtyChange !== 0) {
-        qtyBefore = running;
-        qtyAfter = qtyBefore + qtyChange;
-      }
-      running = qtyAfter;
-    }
-
-    if (running == null && qtyAfter != null) running = qtyAfter;
-    else if (running == null && qtyBefore != null && qtyChange != null) {
-      running = qtyBefore + qtyChange;
+    } else {
+      // Non-stock row (notes / zero-delta): keep the running level, never drop the event.
+      qtyBefore = running;
+      qtyAfter = running;
+      qtyChange = qtyChange ?? 0;
     }
 
     const { dateLabel, timeLabel } = formatLabels(e.timestamp);
@@ -735,6 +626,20 @@ function applyRunningBalances(events: RawEvent[]): InventoryHistoryRow[] {
       shipmentRequestId: e.shipmentRequestId ?? null,
       outboundLinkKind: e.outboundLinkKind ?? null,
     });
+  }
+
+  const currentQty =
+    options?.currentQuantity != null && Number.isFinite(Number(options.currentQuantity))
+      ? Math.max(0, Math.floor(Number(options.currentQuantity)))
+      : null;
+  if (currentQty != null && rows.length > 0) {
+    const shift = currentQty - running;
+    if (shift !== 0) {
+      for (const r of rows) {
+        if (r.qtyBefore != null) r.qtyBefore += shift;
+        if (r.qtyAfter != null) r.qtyAfter += shift;
+      }
+    }
   }
 
   const withSeq = rows.map((r, i) => ({ ...r, seq: i + 1 }));
@@ -1228,7 +1133,7 @@ export function buildInventoryHistory(
     });
   }
 
-  return applyRunningBalances(raw);
+  return applyRunningBalances(raw, { currentQuantity: item.quantity });
 }
 
 export function formatQtyCell(n: number | null): string {
