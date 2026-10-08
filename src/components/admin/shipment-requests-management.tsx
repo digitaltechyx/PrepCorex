@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import type { ShipmentRequest, UserProfile, InventoryItem, InventoryTransfer, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserAdditionalServicesPricing } from "@/types";
+import type { ShipmentRequest, UserProfile, InventoryItem, InventoryTransfer, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserAdditionalServicesPricing, WarehouseDoc } from "@/types";
 import { formatShipmentPreferenceLabel } from "@/types";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
@@ -46,17 +46,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { doc, updateDoc, collection, Timestamp, runTransaction, addDoc } from "firebase/firestore";
+import { doc, updateDoc, collection, Timestamp, runTransaction, addDoc, getDoc } from "firebase/firestore";
 import { getCommittedOutboundUnits, restoreClientInventoryForOutboundRequest, backfillClientInventoryReserveForOpenOutbounds, isOpenOutboundEligibleForReserveBackfill } from "@/lib/client-inventory-outbound-sync";
 import { resolvePrepOutboundShipmentsForConfirm, shipmentRequestIsPrepOutbound } from "@/lib/prep-outbound";
 import { format } from "date-fns";
-import { Check, X, Eye, Loader2, FileText } from "lucide-react";
+import { Check, X, Eye, Loader2, FileText, Pencil } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DatePicker } from "@/components/ui/date-picker";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import { readProductUnitMeasurements } from "@/lib/box-suggestion";
-import { formatWarehouseDisplayName } from "@/lib/warehouse-display";
+import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { AdminWarehouseActionsPanel } from "@/components/admin/admin-warehouse-actions-panel";
+import { WarehouseOutboundLineEditPanel } from "@/components/warehouse-ops/warehouse-outbound-line-edit-panel";
 
 type LocationDoc = { id: string; name?: string; active?: boolean };
 
@@ -201,7 +202,7 @@ export function ShipmentRequestsManagement({
     boxForwardingPricing: effectiveBoxForwardingPricing,
     palletForwardingPricing: effectivePalletForwardingPricing,
   } = useUserPricingCollections(pricingUser);
-
+  
   const filteredRequests = useMemo(() => {
     let filtered =
       statusFilter === "all"
@@ -515,7 +516,7 @@ export function ShipmentRequestsManagement({
       });
 
       if (restoreHints.length > 0 && authUser) {
-        const token = await authUser.getIdToken();
+              const token = await authUser.getIdToken();
         for (const hint of restoreHints) {
           try {
             if (hint.source === "shopify" && hint.shop && hint.shopifyVariantId) {
@@ -618,13 +619,13 @@ export function ShipmentRequestsManagement({
                       : "Reconnect eBay with write scopes in Integrations.",
                 });
               }
-            }
-          } catch (e) {
-            toast({
-              variant: "destructive",
+              }
+            } catch (e) {
+              toast({
+                variant: "destructive",
               title: "Channel inventory sync failed after restore",
-              description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
-            });
+                description: e instanceof Error ? e.message : "Re-connect the store in Integrations.",
+              });
           }
         }
       }
@@ -724,6 +725,18 @@ export function ShipmentRequestsManagement({
     );
   }
 
+  const refreshSelectedRequest = async () => {
+    if (!selectedRequest?.id || !userId) return;
+    try {
+      const snap = await getDoc(doc(db, `users/${userId}/shipmentRequests`, selectedRequest.id));
+      if (snap.exists()) {
+        setSelectedRequest({ id: snap.id, ...snap.data() } as ShipmentRequest);
+      }
+    } catch {
+      /* keep current selection */
+    }
+  };
+
   const reviewDialog =
     selectedRequest && userId ? (
       <ReviewShipmentDialog
@@ -735,6 +748,7 @@ export function ShipmentRequestsManagement({
         onReject={handleReject}
         onApproveForLabelUpload={handleApproveForLabelUpload}
         onClose={closeSelectedRequest}
+        onRequestCorrected={() => void refreshSelectedRequest()}
         onFulfillmentComplete={
           standaloneMode
             ? () => {
@@ -924,19 +938,19 @@ export function ShipmentRequestsManagement({
                     <TableCell>{formatDate(request.requestedAt)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-1">
-                        <Badge
-                          variant={
-                            request.status === "confirmed"
-                              ? "default"
-                              : request.status === "rejected"
-                              ? "destructive"
-                              : request.status === "cancelled"
-                              ? "secondary"
-                              : "secondary"
-                          }
-                        >
-                          {request.status}
-                        </Badge>
+                      <Badge
+                        variant={
+                          request.status === "confirmed"
+                            ? "default"
+                            : request.status === "rejected"
+                            ? "destructive"
+                            : request.status === "cancelled"
+                            ? "secondary"
+                            : "secondary"
+                        }
+                      >
+                        {request.status}
+                      </Badge>
                         {shipmentRequestIsPrepOutbound(request as unknown as Record<string, unknown>) ? (
                           <Badge variant="outline" className="border-amber-400 text-amber-800">
                             Pre outbound
@@ -945,6 +959,7 @@ export function ShipmentRequestsManagement({
                       </div>
                     </TableCell>
                     <TableCell>
+                      <div className="flex flex-wrap items-center gap-1">
                       {request.status === "pending" || request.status === "awaiting_label_upload" ? (
                         <Button
                           variant="ghost"
@@ -974,6 +989,25 @@ export function ShipmentRequestsManagement({
                             : `Rejected ${request.rejectedAt ? formatDate(request.rejectedAt) : ""}`}
                         </span>
                       )}
+                      {(request.status === "pending" ||
+                        request.status === "awaiting_label_upload" ||
+                        request.status === "awaiting_label" ||
+                        (request.status === "confirmed" &&
+                          String((request as ShipmentRequest).warehouseDispatchStatus ?? "")
+                            .trim()
+                            .toLowerCase() !== "dispatched")) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          title="Correct qty, pack size, or remove a line"
+                          onClick={() => setSelectedRequest(request)}
+                        >
+                          <Pencil className="h-3.5 w-3.5 mr-1" />
+                          Correct
+                        </Button>
+                      )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1013,6 +1047,7 @@ function ReviewShipmentDialog({
   onApproveForLabelUpload,
   onClose,
   onFulfillmentComplete,
+  onRequestCorrected,
   isProcessing,
   additionalServicesPricing,
   pricingRules,
@@ -1024,6 +1059,8 @@ function ReviewShipmentDialog({
   inventory: InventoryItem[];
   warehouseNameById: Record<string, string>;
   onFulfillmentComplete?: () => void;
+  /** After admin corrects lines (qty / remove) — refresh request snapshot. */
+  onRequestCorrected?: () => void;
   onConfirm: (
     request: ShipmentRequest,
     adminRemarks?: string,
@@ -1052,6 +1089,17 @@ function ReviewShipmentDialog({
   palletForwardingPricing?: UserPalletForwardingPricing[] | null;
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const { data: warehouses } = useCollection<WarehouseDoc>("warehouses");
+  const correctWarehouseId = useMemo(() => {
+    const fromRequest = String((request as ShipmentRequest & { warehouseId?: string }).warehouseId ?? "").trim();
+    if (fromRequest) return fromRequest;
+    const active = warehouses.filter((w) => w.active !== false);
+    const nj2 = active.find(
+      (w) => isDefaultNj2Warehouse(w.name) || isDefaultNj2Warehouse(w.code)
+    );
+    return nj2?.id || active[0]?.id || "";
+  }, [request, warehouses]);
   const [adminRemarks, setAdminRemarks] = useState("");
   const [crossdockHoldFulfillment, setCrossdockHoldFulfillment] = useState(false);
   const [adminCustomDimensions, setAdminCustomDimensions] = useState(
@@ -1153,6 +1201,13 @@ function ReviewShipmentDialog({
     String((request as ShipmentRequest).warehouseDispatchStatus ?? "")
       .trim()
       .toLowerCase() !== "dispatched";
+  const canCorrectLines =
+    (request.status === "pending" ||
+      request.status === "awaiting_label" ||
+      request.status === "awaiting_label_upload" ||
+      confirmedUndispatched) &&
+    Boolean(correctWarehouseId) &&
+    Boolean(user?.uid);
   /** Client sellable qty was already reserved when this outbound was created. */
   const alreadyReservedAtCreate =
     Boolean((request as ShipmentRequest).clientInventoryDeductedAt) ||
@@ -1354,17 +1409,17 @@ function ReviewShipmentDialog({
     const invalidSourceQty = alreadyReservedAtCreate
       ? undefined
       : request.shipments.find((shipment: any, index: number) => {
-          const product = inventory.find((item) => item.id === shipment.productId);
-          if (!requiresSourceLocationSelection(product)) return false;
-          const selectedLocationId = shipFromLocationByIndex[index];
-          const options = getLocationBreakdownForProduct(product);
-          const selectedEntry = options.find((entry) => entry.locationId === selectedLocationId);
-          const effectivePackOf = isCustomProduct
-            ? (customProductPricing[index]?.packOf || shipment.packOf || 1)
-            : shipment.packOf;
-          const totalUnits = (shipment.quantity || 0) * (effectivePackOf || 1);
-          return !selectedEntry || selectedEntry.qty < totalUnits;
-        });
+      const product = inventory.find((item) => item.id === shipment.productId);
+      if (!requiresSourceLocationSelection(product)) return false;
+      const selectedLocationId = shipFromLocationByIndex[index];
+      const options = getLocationBreakdownForProduct(product);
+      const selectedEntry = options.find((entry) => entry.locationId === selectedLocationId);
+      const effectivePackOf = isCustomProduct
+        ? (customProductPricing[index]?.packOf || shipment.packOf || 1)
+        : shipment.packOf;
+      const totalUnits = (shipment.quantity || 0) * (effectivePackOf || 1);
+      return !selectedEntry || selectedEntry.qty < totalUnits;
+    });
     if (invalidSourceQty) {
       toast({
         variant: "destructive",
@@ -1714,7 +1769,7 @@ function ReviewShipmentDialog({
                 // Calculate unit price and packOfPrice from pricing rules
                 let unitPrice = shipment.unitPrice || 0; // Fallback to stored value
                 let packOfPrice = 0;
-
+                
                 if (readOnly) {
                   const adminPricing = request.adminCustomProductPricing?.[index];
                   if (adminPricing) {
@@ -1782,15 +1837,15 @@ function ReviewShipmentDialog({
                     if (Number.isFinite(storedUnitPrice) && storedUnitPrice > 0) {
                       unitPrice = storedUnitPrice;
                       packOfPrice = 0;
-                    } else {
-                      const calculatedPrice = calculatePrepUnitPrice(
-                        pricingRules,
-                        request.service,
-                        request.productType,
+                  } else {
+                    const calculatedPrice = calculatePrepUnitPrice(
+                      pricingRules,
+                      request.service,
+                      request.productType,
                         shipment.quantity
-                      );
-                      if (calculatedPrice) {
-                        unitPrice = calculatedPrice.rate || shipment.unitPrice || 0;
+                    );
+                    if (calculatedPrice) {
+                      unitPrice = calculatedPrice.rate || shipment.unitPrice || 0;
                         packOfPrice = 0;
                       }
                     }
@@ -2264,7 +2319,7 @@ function ReviewShipmentDialog({
             const totalProductCost = request.shipments.reduce((sum: number, shipment: any, index: number) => {
               let unitPrice = shipment.unitPrice || 0;
               let packOfPrice = 0;
-
+              
               if (readOnly) {
                 const adminPricing = request.adminCustomProductPricing?.[index];
                 if (adminPricing) {
@@ -2272,8 +2327,8 @@ function ReviewShipmentDialog({
                   packOfPrice = adminPricing.packOfPrice || 0;
                 } else {
                   unitPrice = shipment.unitPrice || 0;
-                  packOfPrice = 0;
-                }
+                packOfPrice = 0;
+              }
               } else if (isPalletExistingInventory) {
                 unitPrice = palletExistingUnitPrice[index] ?? shipment.unitPrice ?? 0;
                 packOfPrice = 0;
@@ -2297,13 +2352,13 @@ function ReviewShipmentDialog({
                   pricingRules &&
                   pricingRules.length > 0
                 ) {
-                  const calculatedPrice = calculatePrepUnitPrice(
-                    pricingRules,
-                    request.service,
-                    request.productType,
+                const calculatedPrice = calculatePrepUnitPrice(
+                  pricingRules,
+                  request.service,
+                  request.productType,
                     shipment.quantity
-                  );
-                  if (calculatedPrice) {
+                );
+                if (calculatedPrice) {
                     unitPrice = calculatedPrice.rate || 0;
                     packOfPrice = 0;
                   }
@@ -2578,13 +2633,39 @@ function ReviewShipmentDialog({
           </>
           )}
 
+          {canCorrectLines &&
+            (request.status === "pending" ||
+              request.status === "awaiting_label" ||
+              request.status === "awaiting_label_upload") &&
+            correctWarehouseId &&
+            user?.uid &&
+            (request as ShipmentRequest & { id?: string }).id ? (
+            <div className="space-y-2 border-t pt-4">
+              <p className="text-sm font-medium">Correct outbound</p>
+              <p className="text-xs text-muted-foreground">
+                Same as Warehouse Ops — edit qty / pack of or remove a line before you confirm. Reserved
+                stock updates when units change.
+              </p>
+              <WarehouseOutboundLineEditPanel
+                warehouseId={correctWarehouseId}
+                clientUserId={clientUserId}
+                shipmentRequestId={String((request as ShipmentRequest & { id?: string }).id)}
+                operatorId={user.uid}
+                onEdited={() => onRequestCorrected?.()}
+              />
+            </div>
+          ) : null}
+
           {readOnly && request.status === "confirmed" && (
             <div className="space-y-4 border-t pt-4">
               <AdminWarehouseActionsPanel
                 mode="outbound"
                 clientUserId={clientUserId}
                 request={{ ...request, id: (request as ShipmentRequest & { id?: string }).id ?? "" }}
-                onProgress={onFulfillmentComplete}
+                onProgress={() => {
+                  onRequestCorrected?.();
+                  onFulfillmentComplete?.();
+                }}
                 onComplete={() => {
                   onFulfillmentComplete?.();
                   onClose();

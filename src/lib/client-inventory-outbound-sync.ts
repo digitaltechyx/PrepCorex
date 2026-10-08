@@ -84,6 +84,43 @@ function timestampFromUnknown(value: unknown): Timestamp {
   return Timestamp.now();
 }
 
+/**
+ * History / change-log time for outbound: use selected ship date (not click time).
+ * Date-only values land at end of that local day so same-day inbound stays first.
+ */
+function outboundHistoryAt(
+  data: Record<string, unknown>,
+  shippingDate: Date | null | undefined,
+  fallback: Timestamp
+): Timestamp {
+  let source: Timestamp | null = null;
+  if (shippingDate && !Number.isNaN(shippingDate.getTime())) {
+    source = Timestamp.fromDate(shippingDate);
+  } else if (data.date != null) {
+    source = timestampFromUnknown(data.date);
+  }
+  if (!source) return fallback;
+
+  const d = source.toDate();
+  const localMidnight =
+    d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0;
+  const utcMidnight =
+    d.getUTCHours() === 0 &&
+    d.getUTCMinutes() === 0 &&
+    d.getUTCSeconds() === 0 &&
+    d.getUTCMilliseconds() === 0;
+  if (!localMidnight && !utcMidnight) return source;
+
+  if (utcMidnight && !localMidnight) {
+    return Timestamp.fromDate(
+      new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999)
+    );
+  }
+  return Timestamp.fromDate(
+    new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999)
+  );
+}
+
 function isCustomProductRequest(data: Record<string, unknown>): boolean {
   return (
     String(data.productType || "").toLowerCase() === "custom" &&
@@ -431,7 +468,7 @@ export async function createOutboundRequestWithClientReserve(input: {
       requestData: input.requestData,
       rows: inventoryReads,
       reservedAt,
-      awaitingShipDetail: "Outbound awaiting ship",
+      awaitingShipDetail: "Outbound Scheduled",
     });
 
     const requestPayload: Record<string, unknown> = {
@@ -560,7 +597,7 @@ export async function reserveClientInventoryForExistingOpenOutbound(input: {
         requestData: data,
         rows: inventoryReads,
         reservedAt,
-        awaitingShipDetail: "Outbound awaiting ship (legacy open-request reserve)",
+        awaitingShipDetail: "Outbound Scheduled (legacy open-request reserve)",
       });
 
       const hintsByProduct = new Map<string, ShopifyInventorySyncHint>();
@@ -1270,6 +1307,7 @@ export async function applyClientInventoryOnDispatch(input: {
     const service = serviceLabelForRequest(data);
     const shipTo = data.shipTo != null ? String(data.shipTo) : null;
     const dispatchedAt = Timestamp.now();
+    const historyAt = outboundHistoryAt(data, input.shippingDate, dispatchedAt);
 
     for (const row of inventoryReads) {
       const currentInventory = row.inventorySnap.data() as Omit<InventoryItem, "id">;
@@ -1338,7 +1376,7 @@ export async function applyClientInventoryOnDispatch(input: {
           ]
             .filter(Boolean)
             .join(" · "),
-          at: dispatchedAt,
+          at: historyAt,
         });
 
         if (currentInventory.source === "shopify" && currentInventory.shop && currentInventory.shopifyVariantId) {
@@ -1429,7 +1467,7 @@ export async function applyClientInventoryOnDispatch(input: {
             ]
               .filter(Boolean)
               .join(" · "),
-            at: dispatchedAt,
+            at: historyAt,
           },
           { merge: true }
         );

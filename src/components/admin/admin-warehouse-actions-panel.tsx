@@ -49,6 +49,7 @@ import { pushShopifyInventoryHints } from "@/lib/shopify-inventory-sync";
 import { pushEbayInventoryHints } from "@/lib/ebay-inventory-sync";
 import { isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { isFbaLabelWorkflowRequest } from "@/lib/fba-shipment-workflow";
+import { WarehouseOutboundLineEditPanel } from "@/components/warehouse-ops/warehouse-outbound-line-edit-panel";
 import type {
   InventoryRequest,
   ShipmentRequest,
@@ -832,6 +833,23 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               ))}
             </SelectContent>
           </Select>
+        </div>
+      ) : null}
+
+      {!isDispatched && preferredWarehouseId && user?.uid ? (
+        <div className="border-t pt-3 space-y-2">
+          <p className="text-xs font-medium text-foreground">Correct outbound lines</p>
+          <p className="text-xs text-muted-foreground">
+            Same as Warehouse Ops — change qty / pack of, or remove a line before dispatch. Client
+            reserved stock updates when units change.
+          </p>
+          <WarehouseOutboundLineEditPanel
+            warehouseId={preferredWarehouseId}
+            clientUserId={clientUserId}
+            shipmentRequestId={request.id}
+            operatorId={user.uid}
+            onEdited={() => onProgress?.()}
+          />
         </div>
       ) : null}
 

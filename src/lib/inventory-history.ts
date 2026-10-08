@@ -189,6 +189,72 @@ function formatLabels(ts: number): { dateLabel: string; timeLabel: string } {
   };
 }
 
+/** Local calendar-day key (midnight) for same-day inbound-before-outbound ordering. */
+function calendarDayKey(ts: number): number {
+  if (!ts) return 0;
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** True when a DatePicker-style value has no meaningful clock time (local or UTC midnight). */
+function isLikelyDateOnlyTimestamp(ts: number): boolean {
+  if (!ts) return false;
+  const d = new Date(ts);
+  const localMidnight =
+    d.getHours() === 0 &&
+    d.getMinutes() === 0 &&
+    d.getSeconds() === 0 &&
+    d.getMilliseconds() === 0;
+  const utcMidnight =
+    d.getUTCHours() === 0 &&
+    d.getUTCMinutes() === 0 &&
+    d.getUTCSeconds() === 0 &&
+    d.getUTCMilliseconds() === 0;
+  return localMidnight || utcMidnight;
+}
+
+/**
+ * Business outbound timestamp for history:
+ * prefer selected ship `date` over system `createdAt`, and pin date-only values
+ * to local end-of-day so same-day inbound (real receive times) stay first.
+ */
+function businessOutboundTimestamp(dateValue: unknown, createdAtValue?: unknown): number {
+  const business = toTimestamp(dateValue);
+  if (business) {
+    if (!isLikelyDateOnlyTimestamp(business)) return business;
+    const d = new Date(business);
+    // UTC midnight from some pickers → use that UTC calendar day in local wall time.
+    if (
+      d.getUTCHours() === 0 &&
+      d.getUTCMinutes() === 0 &&
+      d.getUTCSeconds() === 0 &&
+      d.getUTCMilliseconds() === 0 &&
+      d.getHours() !== 0
+    ) {
+      return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999).getTime();
+    }
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime();
+  }
+  return toTimestamp(createdAtValue) || 0;
+}
+
+function isInboundHistoryEvent(e: RawEvent): boolean {
+  if (e.eventType === "received" || e.eventType === "restock" || e.eventType === "created") {
+    return true;
+  }
+  if ((e.qtyChange ?? 0) > 0 && e.eventType !== "shipped") return true;
+  return false;
+}
+
+function isOutboundHistoryEvent(e: RawEvent): boolean {
+  if (e.eventType === "shipped" || e.eventType === "disposed" || e.eventType === "transfer") {
+    return true;
+  }
+  if (e.outboundLinkKind === "dispatch" || e.outboundLinkKind === "reserve") return true;
+  if ((e.qtyChange ?? 0) < 0) return true;
+  return false;
+}
+
 /** Firebase Auth UIDs are opaque IDs — never show them in the By column. */
 function isLikelyAuthUid(value: string): boolean {
   return /^[A-Za-z0-9]{20,36}$/.test(value.trim());
@@ -363,9 +429,9 @@ function outboundEventSortKey(e: RawEvent): number {
   return 0;
 }
 
-/** Shipped rows often store date-only midnight; createdAt reflects actual ship order. */
+/** Prefer selected ship date over system createdAt for history date/order. */
 function shippedEventTimestamp(s: ShippedItem): number {
-  return toTimestamp(s.createdAt) || toTimestamp(s.date) || 0;
+  return businessOutboundTimestamp(s.date, s.createdAt);
 }
 
 function isChainSortable(e: RawEvent): boolean {
@@ -395,6 +461,16 @@ function canLinkStockChain(a: RawEvent, b: RawEvent): boolean {
 
 /** Pick next event when several are valid — stock chain only when time order agrees. */
 function compareHistoryEventsTiebreak(a: RawEvent, b: RawEvent): number {
+  // Same calendar day: inbound/receive before outbound/ship (backdated ships must not precede receives).
+  if (a.timestamp && b.timestamp && calendarDayKey(a.timestamp) === calendarDayKey(b.timestamp)) {
+    const aIn = isInboundHistoryEvent(a);
+    const bIn = isInboundHistoryEvent(b);
+    const aOut = isOutboundHistoryEvent(a);
+    const bOut = isOutboundHistoryEvent(b);
+    if (aIn && bOut) return -1;
+    if (aOut && bIn) return 1;
+  }
+
   // Calendar time first so Overview # / Newest-first matches Date+Time.
   const timeDiff = a.timestamp - b.timestamp;
   if (Math.abs(timeDiff) > CHAIN_TIMESTAMP_SLACK_MS) return timeDiff;
@@ -859,7 +935,7 @@ export function buildInventoryHistory(
       : awaitingButDispatched
         ? "Outbound dispatched"
         : log.eventType === "outbound_awaiting_ship"
-          ? "Outbound awaiting ship"
+          ? "Outbound Scheduled"
           : log.eventType === "outbound_restored"
           ? "Outbound cancelled — restored"
           : log.eventType === "outbound_line_restored"
@@ -946,8 +1022,17 @@ export function buildInventoryHistory(
       String(log.details ?? "").toLowerCase().includes("reserved at request create") &&
       (log.qtyChange == null || Number(log.qtyChange) === 0);
 
+    // Prefer selected ship date from the linked shipped row (Quick Ship / backdated outbound).
+    const linkedShipped =
+      log.shippedId != null
+        ? sources.shipped.find((s) => s.id === String(log.shippedId).trim())
+        : undefined;
+    const changeLogTimestamp = linkedShipped
+      ? shippedEventTimestamp(linkedShipped) || toTimestamp(log.at)
+      : toTimestamp(log.at);
+
     raw.push({
-      timestamp: toTimestamp(log.at),
+      timestamp: changeLogTimestamp,
       event: eventLabel,
       eventType: historyEventType,
       qtyBefore: isPackLayoutOnly || isReservedAtCreateDispatch ? null : log.qtyBefore,

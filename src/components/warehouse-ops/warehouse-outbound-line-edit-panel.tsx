@@ -203,11 +203,11 @@ export function WarehouseOutboundLineEditPanel({
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
           <Pencil className="h-4 w-4" />
-          Edit order lines
+          Correct order lines
         </CardTitle>
         <CardDescription className="text-xs">
           Reduce qty, remove a SKU, or change qty / pack size before dispatch. Client inventory
-          updates when total units change.
+          updates when total units change. Reason required.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

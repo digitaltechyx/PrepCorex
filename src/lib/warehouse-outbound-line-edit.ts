@@ -111,9 +111,15 @@ export async function editOutboundLineAtWarehouse(input: {
 
   const data = snap.data() as Record<string, unknown>;
   const status = normOutboundStatus(data.status);
-  if (status !== "confirmed") {
+  const editableStatuses = new Set([
+    "confirmed",
+    "pending",
+    "awaiting_label",
+    "awaiting_label_upload",
+  ]);
+  if (!editableStatuses.has(status)) {
     throw new Error(
-      `Only approved (confirmed) outbounds can be edited here (current: ${status || "unknown"}).`
+      `Only open outbounds (pending / awaiting label / confirmed) can be corrected (current: ${status || "unknown"}).`
     );
   }
   if (dispatchStatusFromRequest(data) === "dispatched") {
