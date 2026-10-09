@@ -21,13 +21,43 @@ import type { InventoryItem } from "@/types";
 
 export type { StockRotationPolicy };
 
+/** Explicit fefo/fifo only — unused “auto” / empty falls through. */
+function explicitStockRotationPolicy(value: unknown): StockRotationPolicy | null {
+  const raw = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (raw === "fefo" || raw === "fifo") return raw;
+  return null;
+}
+
+/**
+ * Per-line override → request override → auto:
+ * FEFO when the product has expiry lots, otherwise FIFO.
+ */
+export function resolveStockRotationPolicy(input: {
+  shipment?: Record<string, unknown> | null;
+  requestData?: Record<string, unknown> | null;
+  expiryBatches?: Array<{ expiry?: string | null; quantity?: number | null }> | null;
+}): StockRotationPolicy {
+  const fromLine = explicitStockRotationPolicy(input.shipment?.stockRotationPolicy);
+  if (fromLine) return fromLine;
+  const fromRequest = explicitStockRotationPolicy(input.requestData?.stockRotationPolicy);
+  if (fromRequest) return fromRequest;
+  const hasExpiryLot =
+    Array.isArray(input.expiryBatches) &&
+    input.expiryBatches.some(
+      (b) =>
+        String(b?.expiry ?? "").trim().length > 0 &&
+        Math.max(0, Math.floor(Number(b?.quantity) || 0)) > 0
+    );
+  return hasExpiryLot ? "fefo" : "fifo";
+}
+
+/** @deprecated Prefer resolveStockRotationPolicy — request-level only, defaults FEFO. */
 export function stockRotationPolicyFromRequest(
   data: Record<string, unknown> | null | undefined
 ): StockRotationPolicy {
-  const raw = String(data?.stockRotationPolicy ?? "")
-    .trim()
-    .toLowerCase();
-  return raw === "fifo" ? "fifo" : "fefo";
+  return resolveStockRotationPolicy({ requestData: data });
 }
 
 export type ClientInventoryDeductionTiming = "create" | "confirm" | "dispatch";
@@ -392,7 +422,6 @@ function reserveDeductibleRowsGroupedByProduct(input: {
 }): string[] {
   const reservedProductIds: string[] = [];
   const service = serviceLabelForRequest(input.requestData);
-  const rotationPolicy = stockRotationPolicyFromRequest(input.requestData);
   const byProduct = new Map<string, DeductibleInventoryRow[]>();
 
   for (const row of input.rows) {
@@ -427,6 +456,11 @@ function reserveDeductibleRowsGroupedByProduct(input: {
         (row.shipment as Record<string, unknown>).sourceLocationId || ""
       ).trim();
       const qtyBefore = working.quantity;
+      const rotationPolicy = resolveStockRotationPolicy({
+        shipment: row.shipment,
+        requestData: input.requestData,
+        expiryBatches: working.expiryBatches,
+      });
       const applied = applyLocationDeduction(
         working,
         row.totalUnits,
@@ -478,7 +512,9 @@ function reserveDeductibleRowsGroupedByProduct(input: {
       });
 
       row.shipment.consumedExpiryBatches = applied.consumedExpiryBatches;
-      row.shipment.stockRotationPolicy = rotationPolicy;
+      if (!explicitStockRotationPolicy(row.shipment.stockRotationPolicy)) {
+        row.shipment.stockRotationPolicyApplied = rotationPolicy;
+      }
 
       working = {
         ...working,
@@ -1274,7 +1310,11 @@ export async function adjustClientInventoryForOutboundLineEdit(input: {
     const boxesAfter = Math.max(0, Math.floor(input.boxesAfter) || 0);
 
     const qtyBefore = base.quantity;
-    const rotationPolicy = stockRotationPolicyFromRequest(data);
+    const rotationPolicy = resolveStockRotationPolicy({
+      shipment,
+      requestData: data,
+      expiryBatches: base.expiryBatches,
+    });
     const preferredBatches = Array.isArray(shipment?.consumedExpiryBatches)
       ? (shipment.consumedExpiryBatches as Array<{
           expiry?: string | null;
@@ -1467,7 +1507,11 @@ export async function applyClientInventoryOnDispatch(input: {
           currentInventory,
           totalUnitsShipped,
           selectedSourceLocationId,
-          stockRotationPolicyFromRequest(data)
+          resolveStockRotationPolicy({
+            shipment: row.shipment as Record<string, unknown>,
+            requestData: data,
+            expiryBatches: currentInventory.expiryBatches,
+          })
         );
         remainingQty = applied.newQuantity;
 

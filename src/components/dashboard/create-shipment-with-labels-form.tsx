@@ -69,6 +69,11 @@ const shipmentItemSchema = z.object({
   selectedAdditionalServices: z.array(z.string()).optional(),
   /** Set when line is created from a pending / not-yet-received inbound. */
   sourceInventoryRequestId: z.string().optional(),
+  /**
+   * Admin-only optional override. Omit / "auto" → system picks FEFO when the
+   * product has expiry lots, otherwise FIFO.
+   */
+  stockRotationPolicy: z.enum(["auto", "fefo", "fifo"]).optional(),
 });
 
 const shipmentGroupSchema = z.object({
@@ -79,8 +84,6 @@ const shipmentGroupSchema = z.object({
   shipmentPreference: z.enum(["box", "pallet"], {
     required_error: "Select SPD or LTL shipment preference.",
   }),
-  /** Which expiry batch to ship from when inventory has multiple lots. */
-  stockRotationPolicy: z.enum(["fefo", "fifo"]).default("fefo"),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Carton Forwarding", "Pallet Forwarding"]).optional(),
 }).superRefine((data, ctx) => {
@@ -612,7 +615,6 @@ export function CreateShipmentWithLabelsForm({
       shipments: [],
       date: new Date(),
       shipmentPreference: undefined,
-      stockRotationPolicy: "fefo",
       remarks: undefined,
       service: "FBA/WFS/TFS",
     });
@@ -1055,6 +1057,13 @@ export function CreateShipmentWithLabelsForm({
             if (shipment.selectedAdditionalServices && shipment.selectedAdditionalServices.length > 0) {
               cleaned.selectedAdditionalServices = shipment.selectedAdditionalServices;
             }
+            // Admin optional per-line override only (users never set this).
+            if (
+              isAdminCreatingForClient &&
+              (shipment.stockRotationPolicy === "fefo" || shipment.stockRotationPolicy === "fifo")
+            ) {
+              cleaned.stockRotationPolicy = shipment.stockRotationPolicy;
+            }
             return cleaned;
           });
 
@@ -1075,7 +1084,6 @@ export function CreateShipmentWithLabelsForm({
             remarks: group.remarks || undefined,
             shipmentType: group.shipmentType,
             shipmentPreference: group.shipmentPreference,
-            stockRotationPolicy: group.stockRotationPolicy === "fifo" ? "fifo" : "fefo",
             labelUrl: labelUrl || "",
             status: "pending",
             requestedBy: ownerId,
@@ -1714,6 +1722,9 @@ export function CreateShipmentWithLabelsForm({
                                                   customDimensions: undefined,
                                                   selectedAdditionalServices: undefined,
                                         sourceInventoryRequestId: item.sourceInventoryRequestId,
+                                        ...(isAdminCreatingForClient
+                                          ? { stockRotationPolicy: "auto" as const }
+                                          : {}),
                                       };
                                     };
 
@@ -1795,6 +1806,9 @@ export function CreateShipmentWithLabelsForm({
                               <p className="text-xs text-muted-foreground">
                                 Set qty and pack size per line. Use &quot;Pack line&quot; above to add another pack
                                 config for the same product.
+                                {isAdminCreatingForClient
+                                  ? " Batch priority is optional per product (Auto uses FEFO when expiry lots exist)."
+                                  : ""}
                               </p>
                               <div className="mouse-both-scroll max-h-[44vh] rounded-md border">
                                 <div className="min-w-[1100px]">
@@ -1844,21 +1858,96 @@ export function CreateShipmentWithLabelsForm({
                                         );
                                       };
 
+                                      const expiryLots = (() => {
+                                        if (!selectedProduct) return [] as Array<{ expiry: string; quantity: number }>;
+                                        const fromBatches = Array.isArray(selectedProduct.expiryBatches)
+                                          ? selectedProduct.expiryBatches
+                                              .map((b) => ({
+                                                expiry: String(b.expiry || "").trim(),
+                                                quantity: Math.max(0, Math.floor(Number(b.quantity) || 0)),
+                                              }))
+                                              .filter((b) => b.expiry && b.quantity > 0)
+                                              .sort((a, b) => a.expiry.localeCompare(b.expiry))
+                                          : [];
+                                        if (fromBatches.length > 0) return fromBatches;
+                                        const single = selectedProduct.expiryDate
+                                          ? String(
+                                              typeof selectedProduct.expiryDate === "string"
+                                                ? selectedProduct.expiryDate
+                                                : (selectedProduct.expiryDate as { toDate?: () => Date })?.toDate?.()
+                                                    ?.toISOString()
+                                                    ?.slice(0, 10) || ""
+                                            ).trim()
+                                          : "";
+                                        if (single) {
+                                          return [
+                                            {
+                                              expiry: single.slice(0, 10),
+                                              quantity: Math.max(0, Number(selectedProduct.quantity) || 0),
+                                            },
+                                          ];
+                                        }
+                                        return [];
+                                      })();
+                                      const lineRotation =
+                                        form.watch(
+                                          `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.stockRotationPolicy`
+                                        ) || "auto";
+
                                       return (
                                         <div
                                           key={`${shipment.productId}-${shipmentIndex}`}
                                           className="grid grid-cols-[220px_90px_90px_120px_250px_180px_120px] gap-2 border-b px-2 py-2"
                                         >
-                                          <div className="truncate text-xs font-medium">
-                                            {selectedProduct?.productName || "Unknown"}
-                                            {isPrepLine ? (
-                                              <span className="ml-1 text-[10px] font-normal text-amber-700">
-                                                (pre)
-                                              </span>
-                                            ) : null}
+                                          <div className="text-xs font-medium">
+                                            <div className="truncate">
+                                              {selectedProduct?.productName || "Unknown"}
+                                              {isPrepLine ? (
+                                                <span className="ml-1 text-[10px] font-normal text-amber-700">
+                                                  (pre)
+                                                </span>
+                                              ) : null}
+                                            </div>
                                             <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
                                               Line {shipmentIndex + 1}
                                             </span>
+                                            {isAdminCreatingForClient && !isPrepLine ? (
+                                              <div className="mt-1.5 space-y-1">
+                                                <Select
+                                                  value={lineRotation}
+                                                  onValueChange={(value) =>
+                                                    form.setValue(
+                                                      `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.stockRotationPolicy`,
+                                                      value as "auto" | "fefo" | "fifo",
+                                                      { shouldValidate: false }
+                                                    )
+                                                  }
+                                                >
+                                                  <SelectTrigger className="h-7 text-[10px]">
+                                                    <SelectValue placeholder="Batch: Auto" />
+                                                  </SelectTrigger>
+                                                  <SelectContent>
+                                                    <SelectItem value="auto">
+                                                      Auto (FEFO if expiry)
+                                                    </SelectItem>
+                                                    <SelectItem value="fefo">FEFO — first expire</SelectItem>
+                                                    <SelectItem value="fifo">FIFO — first received</SelectItem>
+                                                  </SelectContent>
+                                                </Select>
+                                                {expiryLots.length > 0 ? (
+                                                  <p className="text-[10px] font-normal leading-snug text-muted-foreground">
+                                                    Lots:{" "}
+                                                    {expiryLots
+                                                      .map((b) => `${b.expiry} (${b.quantity})`)
+                                                      .join(" · ")}
+                                                  </p>
+                                                ) : (
+                                                  <p className="text-[10px] font-normal text-muted-foreground">
+                                                    No expiry lots on file
+                                                  </p>
+                                                )}
+                                              </div>
+                                            ) : null}
                                           </div>
                                           <Input
                                             type="number"
@@ -2132,46 +2221,12 @@ export function CreateShipmentWithLabelsForm({
                       )}
                     />
 
-                    {/* Batch rotation: FEFO (first expire) or FIFO (first received) */}
-                    <FormField
-                      control={form.control}
-                      name={`shipmentGroups.${groupIndex}.stockRotationPolicy`}
-                      render={({ field }) => (
-                        <FormItem className="order-5 w-[160px] shrink-0 space-y-1">
-                          <FormLabel className="text-[11px] text-muted-foreground flex items-center gap-1">
-                            Batch priority *
-                            <span
-                              className="inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold text-muted-foreground"
-                              title="FEFO ships the earliest expiry lot first. FIFO ships the earliest received lot first."
-                            >
-                              ?
-                            </span>
-                          </FormLabel>
-                          <Select
-                            value={field.value || "fefo"}
-                            onValueChange={field.onChange}
-                          >
-                            <FormControl>
-                              <SelectTrigger className="h-8">
-                                <SelectValue placeholder="FEFO" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="fefo">FEFO — first expire</SelectItem>
-                              <SelectItem value="fifo">FIFO — first received</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
                     {/* Remarks */}
                     <FormField
                       control={form.control}
                       name={`shipmentGroups.${groupIndex}.remarks`}
                       render={({ field }) => (
-                        <FormItem className="order-6 w-[260px] shrink-0 space-y-1">
+                        <FormItem className="order-5 w-[260px] shrink-0 space-y-1">
                           <FormLabel className="text-[11px] text-muted-foreground flex items-center gap-1">
                             Remarks (Optional)
                             <span
