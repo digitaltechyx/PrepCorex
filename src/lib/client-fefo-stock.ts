@@ -225,3 +225,26 @@ export function buildClientFefoStockRows(
       a.productTitle.localeCompare(b.productTitle)
   );
 }
+
+/** Match FEFO rows to a product by SKU, then name (same grouping as the FEFO tab). */
+export function fefoLotsForProduct(
+  rows: ClientFefoStockRow[],
+  product: { id?: string; sku?: string | null; productName?: string | null }
+): Array<{ expiry: string; quantity: number }> {
+  const sku = text(product.sku).toLowerCase();
+  const name = text(product.productName).toLowerCase();
+  const matched = rows.filter((row) => {
+    const rowSku = text(row.sku).toLowerCase();
+    const rowName = text(row.productTitle).toLowerCase();
+    if (sku && rowSku && rowSku !== "—" && rowSku === sku) return true;
+    if (name && rowName && rowName === name) return true;
+    return false;
+  });
+  return matched
+    .map((row) => ({
+      expiry: row.expiry,
+      quantity: Math.max(0, Math.floor(Number(row.quantity) || 0)),
+    }))
+    .filter((row) => row.expiry && row.quantity > 0)
+    .sort((a, b) => a.expiry.localeCompare(b.expiry));
+}

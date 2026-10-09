@@ -14,7 +14,14 @@ import { Loader2, X, Plus, ChevronDown, Upload, Tag } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import type { InventoryItem, InventoryRequest, ServiceType, ProductType, UserProfile } from "@/types";
+import type {
+  InventoryItem,
+  InventoryRequest,
+  InboundReceiveLog,
+  ServiceType,
+  ProductType,
+  UserProfile,
+} from "@/types";
 import { DTC_FBM_SERVICE, formatShipmentPreferenceLabel, isDtcFbmService } from "@/types";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/use-auth";
@@ -42,6 +49,10 @@ import {
   prepOutboundProductId,
 } from "@/lib/prep-outbound";
 import { createOutboundRequestWithClientReserve } from "@/lib/client-inventory-outbound-sync";
+import {
+  buildClientFefoStockRows,
+  fefoLotsForProduct,
+} from "@/lib/client-fefo-stock";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import {
   readProductUnitMeasurements,
@@ -191,6 +202,35 @@ export function CreateShipmentWithLabelsForm({
   const { data: inboundRequests } = useCollection<InventoryRequest>(
     ownerId ? `users/${ownerId}/inventoryRequests` : ""
   );
+  const { data: inboundReceiveLogs } = useCollection<InboundReceiveLog>(
+    ownerId && isAdminCreatingForClient ? `users/${ownerId}/inboundReceiveLogs` : ""
+  );
+
+  /** Same lot reconstruction as the FEFO tab (batches + receive logs + inbound). */
+  const adminFefoRows = useMemo(() => {
+    if (!isAdminCreatingForClient) return [];
+    return buildClientFefoStockRows(
+      inventory.map((item) => ({
+        id: item.id,
+        data: {
+          productName: item.productName,
+          sku: item.sku,
+          quantity: item.quantity,
+          expiryDate: item.expiryDate,
+          expiryBatches: item.expiryBatches,
+        },
+      })),
+      inboundRequests.map((req) => ({
+        id: req.id,
+        data: req as unknown as Record<string, unknown>,
+      })),
+      new Date(),
+      inboundReceiveLogs.map((log) => ({
+        id: log.id,
+        data: log as unknown as Record<string, unknown>,
+      }))
+    );
+  }, [isAdminCreatingForClient, inventory, inboundRequests, inboundReceiveLogs]);
 
   type SelectableOutboundProduct = {
     id: string;
@@ -1859,34 +1899,35 @@ export function CreateShipmentWithLabelsForm({
                                       };
 
                                       const expiryLots = (() => {
-                                        if (!selectedProduct) return [] as Array<{ expiry: string; quantity: number }>;
-                                        const fromBatches = Array.isArray(selectedProduct.expiryBatches)
-                                          ? selectedProduct.expiryBatches
+                                        if (!selectedProduct) {
+                                          return [] as Array<{ expiry: string; quantity: number }>;
+                                        }
+                                        // Prefer full inventory doc (has expiryBatches); FEFO tab
+                                        // sources when batches were never written on the doc.
+                                        const invDoc =
+                                          inventory.find((item) => item.id === selectedProduct.id) ||
+                                          selectedProduct;
+                                        const fromFefo = fefoLotsForProduct(adminFefoRows, {
+                                          id: invDoc.id,
+                                          sku: invDoc.sku,
+                                          productName: invDoc.productName,
+                                        });
+                                        if (fromFefo.length > 0) return fromFefo;
+                                        const fromBatches = Array.isArray(
+                                          (invDoc as InventoryItem).expiryBatches
+                                        )
+                                          ? ((invDoc as InventoryItem).expiryBatches || [])
                                               .map((b) => ({
                                                 expiry: String(b.expiry || "").trim(),
-                                                quantity: Math.max(0, Math.floor(Number(b.quantity) || 0)),
+                                                quantity: Math.max(
+                                                  0,
+                                                  Math.floor(Number(b.quantity) || 0)
+                                                ),
                                               }))
                                               .filter((b) => b.expiry && b.quantity > 0)
                                               .sort((a, b) => a.expiry.localeCompare(b.expiry))
                                           : [];
                                         if (fromBatches.length > 0) return fromBatches;
-                                        const single = selectedProduct.expiryDate
-                                          ? String(
-                                              typeof selectedProduct.expiryDate === "string"
-                                                ? selectedProduct.expiryDate
-                                                : (selectedProduct.expiryDate as { toDate?: () => Date })?.toDate?.()
-                                                    ?.toISOString()
-                                                    ?.slice(0, 10) || ""
-                                            ).trim()
-                                          : "";
-                                        if (single) {
-                                          return [
-                                            {
-                                              expiry: single.slice(0, 10),
-                                              quantity: Math.max(0, Number(selectedProduct.quantity) || 0),
-                                            },
-                                          ];
-                                        }
                                         return [];
                                       })();
                                       const lineRotation =

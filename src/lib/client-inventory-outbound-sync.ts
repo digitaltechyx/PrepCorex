@@ -554,6 +554,22 @@ export async function createOutboundRequestWithClientReserve(input: {
   let reservedProductIds: string[] = [];
   const reservedAt = Timestamp.now();
 
+  const shipmentsForHydrate = Array.isArray(input.requestData.shipments)
+    ? (input.requestData.shipments as Array<Record<string, unknown>>)
+    : [];
+  const hydrateIds = shipmentsForHydrate
+    .filter((shipment) => !shipmentLineIsPrepOnly(shipment))
+    .map((shipment) => String(shipment.productId ?? "").trim())
+    .filter(Boolean);
+  if (hydrateIds.length > 0) {
+    try {
+      const { hydrateMissingExpiryBatchesForProducts } = await import("@/lib/client-fefo-hydrate");
+      await hydrateMissingExpiryBatchesForProducts(input.clientUserId, hydrateIds);
+    } catch (err) {
+      console.warn("[createOutboundRequestWithClientReserve] FEFO hydrate skipped", err);
+    }
+  }
+
   await runTransaction(db, async (transaction) => {
     const shipments = Array.isArray(input.requestData.shipments)
       ? (input.requestData.shipments as Array<Record<string, unknown>>)
