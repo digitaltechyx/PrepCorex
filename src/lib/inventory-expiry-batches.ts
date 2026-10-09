@@ -137,3 +137,132 @@ export function earliestExpiryFromBatches(batches: ExpiryBatch[]): string | null
     .sort();
   return dates[0] ?? null;
 }
+
+export type StockRotationPolicy = "fefo" | "fifo";
+
+function normalizeExpiryBatches(existing: ExpiryBatch[] | undefined | null): ExpiryBatch[] {
+  if (!Array.isArray(existing)) return [];
+  return existing
+    .map((b) => ({
+      expiry: String(b.expiry || "").trim(),
+      quantity: Math.max(0, Math.floor(Number(b.quantity) || 0)),
+      lot: b.lot ?? null,
+      requestId: b.requestId ?? null,
+    }))
+    .filter((b) => b.expiry && b.quantity > 0);
+}
+
+function batchReceiveKey(batch: ExpiryBatch): string {
+  const requestId = String(batch.requestId ?? "").trim();
+  // FIFO: prefer inbound/restock request id order when present; else expiry.
+  return requestId || batch.expiry;
+}
+
+/**
+ * Remove units from expiry lots.
+ * FEFO = earliest expiry first; FIFO = earliest received/request id, then expiry.
+ */
+export function consumeExpiryBatches(
+  existing: ExpiryBatch[] | undefined | null,
+  units: number,
+  policy: StockRotationPolicy = "fefo"
+): {
+  batches: ExpiryBatch[];
+  consumed: ExpiryBatch[];
+  expiryDate: string | null;
+} {
+  const take = Math.max(0, Math.floor(units));
+  const next = normalizeExpiryBatches(existing);
+  if (take <= 0 || next.length === 0) {
+    return {
+      batches: next.sort((a, b) => a.expiry.localeCompare(b.expiry)),
+      consumed: [],
+      expiryDate: earliestExpiryFromBatches(next),
+    };
+  }
+
+  const ordered = [...next].sort((a, b) => {
+    if (policy === "fifo") {
+      const byReceive = batchReceiveKey(a).localeCompare(batchReceiveKey(b));
+      if (byReceive !== 0) return byReceive;
+    }
+    return a.expiry.localeCompare(b.expiry);
+  });
+
+  let remaining = take;
+  const consumed: ExpiryBatch[] = [];
+  for (const batch of ordered) {
+    if (remaining <= 0) break;
+    const qty = Math.min(batch.quantity, remaining);
+    if (qty <= 0) continue;
+    batch.quantity -= qty;
+    remaining -= qty;
+    consumed.push({
+      expiry: batch.expiry,
+      quantity: qty,
+      lot: batch.lot ?? null,
+      requestId: batch.requestId ?? null,
+    });
+  }
+
+  const batches = ordered
+    .filter((b) => b.quantity > 0)
+    .sort((a, b) => a.expiry.localeCompare(b.expiry));
+
+  return {
+    batches,
+    consumed,
+    expiryDate: earliestExpiryFromBatches(batches),
+  };
+}
+
+/** Put units back onto expiry lots (cancel / line restore). */
+export function restoreExpiryBatches(
+  existing: ExpiryBatch[] | undefined | null,
+  units: number,
+  preferred?: Array<{ expiry?: string | null; quantity?: number; lot?: string | null; requestId?: string | null }> | null
+): ExpiryBatch[] {
+  const restoreUnits = Math.max(0, Math.floor(units));
+  if (restoreUnits <= 0) return normalizeExpiryBatches(existing);
+
+  const preferredList = Array.isArray(preferred)
+    ? preferred
+        .map((b) => ({
+          expiry: String(b.expiry || "").trim(),
+          quantity: Math.max(0, Math.floor(Number(b.quantity) || 0)),
+          lot: b.lot ?? null,
+          requestId: b.requestId ?? null,
+        }))
+        .filter((b) => b.expiry && b.quantity > 0)
+    : [];
+
+  let next = normalizeExpiryBatches(existing);
+  let remaining = restoreUnits;
+
+  for (const batch of preferredList) {
+    if (remaining <= 0) break;
+    const qty = Math.min(batch.quantity, remaining);
+    next = mergeExpiryBatch(next, {
+      expiry: batch.expiry,
+      quantity: qty,
+      lot: batch.lot,
+      requestId: batch.requestId,
+    });
+    remaining -= qty;
+  }
+
+  if (remaining > 0) {
+    const fallbackExpiry =
+      earliestExpiryFromBatches(next) ||
+      preferredList[0]?.expiry ||
+      null;
+    if (fallbackExpiry) {
+      next = mergeExpiryBatch(next, {
+        expiry: fallbackExpiry,
+        quantity: remaining,
+      });
+    }
+  }
+
+  return next;
+}

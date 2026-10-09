@@ -46,18 +46,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { doc, updateDoc, collection, Timestamp, runTransaction, addDoc, getDoc } from "firebase/firestore";
+import { doc, updateDoc, collection, Timestamp, runTransaction, addDoc, getDoc, getDocs } from "firebase/firestore";
 import { getCommittedOutboundUnits, restoreClientInventoryForOutboundRequest, backfillClientInventoryReserveForOpenOutbounds, isOpenOutboundEligibleForReserveBackfill } from "@/lib/client-inventory-outbound-sync";
 import { resolvePrepOutboundShipmentsForConfirm, shipmentRequestIsPrepOutbound } from "@/lib/prep-outbound";
+import {
+  addOutboundLineAtWarehouse,
+  editOutboundLineAtWarehouse,
+} from "@/lib/warehouse-outbound-ops";
 import { format } from "date-fns";
-import { Check, X, Eye, Loader2, FileText, Pencil } from "lucide-react";
+import { Check, X, Eye, Loader2, FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DatePicker } from "@/components/ui/date-picker";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import { readProductUnitMeasurements } from "@/lib/box-suggestion";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { AdminWarehouseActionsPanel } from "@/components/admin/admin-warehouse-actions-panel";
-import { WarehouseOutboundLineEditPanel } from "@/components/warehouse-ops/warehouse-outbound-line-edit-panel";
 
 type LocationDoc = { id: string; name?: string; active?: boolean };
 
@@ -1208,6 +1211,63 @@ function ReviewShipmentDialog({
       confirmedUndispatched) &&
     Boolean(correctWarehouseId) &&
     Boolean(user?.uid);
+  const requestId = String((request as ShipmentRequest & { id?: string }).id ?? "").trim();
+  /** Inline edit on product cards (pending / awaiting label). Confirmed uses warehouse actions panel. */
+  const showInlineProductCorrect =
+    canCorrectLines &&
+    Boolean(requestId) &&
+    request.status !== "confirmed";
+  const [lineEditIndex, setLineEditIndex] = useState<number | null>(null);
+  const [lineEditQty, setLineEditQty] = useState("");
+  const [lineEditPackOf, setLineEditPackOf] = useState("");
+  const [lineEditUnitPrice, setLineEditUnitPrice] = useState("");
+  const [lineCorrectReason, setLineCorrectReason] = useState("");
+  const [lineCorrectSaving, setLineCorrectSaving] = useState(false);
+  const [addProductId, setAddProductId] = useState("");
+  const [addBoxes, setAddBoxes] = useState("1");
+  const [addPackOf, setAddPackOf] = useState("1");
+  const [addUnitPrice, setAddUnitPrice] = useState("0");
+  const [addSaving, setAddSaving] = useState(false);
+  const [addableProducts, setAddableProducts] = useState<
+    Array<{ id: string; productName: string; sku: string; quantity: number }>
+  >([]);
+
+  useEffect(() => {
+    if (!showInlineProductCorrect || !clientUserId) {
+      setAddableProducts([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const snap = await getDocs(collection(db, `users/${clientUserId}/inventory`));
+        const onOrder = new Set(
+          (request.shipments || [])
+            .filter((s: any) => !s.warehouseLineRemoved)
+            .map((s: any) => String(s.productId ?? "").trim())
+            .filter(Boolean)
+        );
+        const rows: Array<{ id: string; productName: string; sku: string; quantity: number }> = [];
+        for (const d of snap.docs) {
+          if (onOrder.has(d.id)) continue;
+          const data = d.data() as Record<string, unknown>;
+          const qty = Math.max(0, Math.floor(Number(data.quantity) || 0));
+          if (qty <= 0) continue;
+          const sku = String(data.sku ?? "").trim();
+          const productName = String(data.productName ?? sku).trim() || sku || d.id;
+          rows.push({ id: d.id, productName, sku: sku || productName, quantity: qty });
+        }
+        rows.sort((a, b) => a.productName.localeCompare(b.productName));
+        if (!cancelled) setAddableProducts(rows);
+      } catch {
+        if (!cancelled) setAddableProducts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showInlineProductCorrect, clientUserId, request.shipments]);
+
   /** Client sellable qty was already reserved when this outbound was created. */
   const alreadyReservedAtCreate =
     Boolean((request as ShipmentRequest).clientInventoryDeductedAt) ||
@@ -1340,6 +1400,134 @@ function ReviewShipmentDialog({
   if (readOnly && storedAdminServices?.total != null) {
     additionalServicesTotal = Number(storedAdminServices.total) || 0;
   }
+
+  const startLineEdit = (index: number, shipment: any) => {
+    setLineEditIndex(index);
+    setLineEditQty(String(shipment.quantity ?? 1));
+    setLineEditPackOf(String(shipment.packOf ?? 1));
+    setLineEditUnitPrice(String(shipment.unitPrice ?? 0));
+  };
+
+  const cancelLineEdit = () => {
+    setLineEditIndex(null);
+    setLineEditQty("");
+    setLineEditPackOf("");
+    setLineEditUnitPrice("");
+  };
+
+  const saveLineEdit = async (index: number, remove: boolean) => {
+    if (!user?.uid || !correctWarehouseId || !requestId) {
+      toast({ title: "Sign in required", variant: "destructive" });
+      return;
+    }
+    const shipment = request.shipments[index] as any;
+    if (!shipment || shipment.warehouseLineRemoved) return;
+    const productId = String(shipment.productId ?? "");
+    if (productId.startsWith("prep:") || String(shipment.sourceInventoryRequestId ?? "").trim()) {
+      toast({
+        title: "Prep line",
+        description: "Prep-only lines cannot be edited here.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const boxQty = remove ? 0 : Math.max(0, Math.floor(Number(lineEditQty) || 0));
+    const packOf = remove
+      ? Math.max(1, Math.floor(Number(shipment.packOf) || 1))
+      : Math.max(1, Math.floor(Number(lineEditPackOf) || 0) || 1);
+    const priceNum = Number(lineEditUnitPrice);
+    const unitPrice = Number.isFinite(priceNum) ? Math.max(0, priceNum) : 0;
+    if (!remove && boxQty < 1) {
+      toast({
+        title: "Invalid quantity",
+        description: "Use Remove to drop this line, or enter qty of at least 1.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLineCorrectSaving(true);
+    try {
+      await editOutboundLineAtWarehouse({
+        clientUserId,
+        shipmentRequestId: requestId,
+        warehouseId: correctWarehouseId,
+        lineIndex: index,
+        newBoxQuantity: boxQty,
+        newPackOf: packOf,
+        ...(remove ? {} : { newUnitPrice: unitPrice }),
+        editedBy: user.uid,
+        reason: lineCorrectReason.trim() || (remove ? "Admin correction — remove line" : "Admin correction"),
+        requireReason: false,
+      });
+      toast({
+        title: remove ? "Line removed" : "Line updated",
+        description: "Product details and reserved stock updated.",
+      });
+      cancelLineEdit();
+      onRequestCorrected?.();
+    } catch (e) {
+      toast({
+        title: "Correction failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setLineCorrectSaving(false);
+    }
+  };
+
+  const submitAddProduct = async () => {
+    if (!user?.uid || !correctWarehouseId || !requestId) {
+      toast({ title: "Sign in required", variant: "destructive" });
+      return;
+    }
+    if (!addProductId) {
+      toast({
+        title: "Select a product",
+        description: "Choose a product from inventory to add.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const boxQty = Math.max(0, Math.floor(Number(addBoxes) || 0));
+    const packOf = Math.max(1, Math.floor(Number(addPackOf) || 0) || 1);
+    const priceNum = Number(addUnitPrice);
+    const unitPrice = Number.isFinite(priceNum) ? Math.max(0, priceNum) : 0;
+    if (boxQty < 1) {
+      toast({ title: "Invalid quantity", description: "Qty must be at least 1.", variant: "destructive" });
+      return;
+    }
+    setAddSaving(true);
+    try {
+      await addOutboundLineAtWarehouse({
+        clientUserId,
+        shipmentRequestId: requestId,
+        warehouseId: correctWarehouseId,
+        productId: addProductId,
+        boxQuantity: boxQty,
+        packOf,
+        unitPrice,
+        editedBy: user.uid,
+        reason: lineCorrectReason.trim() || "Admin correction — add product",
+      });
+      toast({ title: "Product added", description: "Line added to this outbound request." });
+      setAddProductId("");
+      setAddBoxes("1");
+      setAddPackOf("1");
+      setAddUnitPrice("0");
+      onRequestCorrected?.();
+    } catch (e) {
+      toast({
+        title: "Could not add product",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setAddSaving(false);
+    }
+  };
 
   const handleConfirmClick = () => {
     if (!shippingDate) {
@@ -1733,8 +1921,26 @@ function ReviewShipmentDialog({
               </div>
             ) : null}
             <div className="space-y-4 border rounded-lg p-4">
+              {showInlineProductCorrect ? (
+                <div className="space-y-1 pb-1 border-b">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Correction reason (optional)
+                  </label>
+                  <Textarea
+                    placeholder="Optional note — defaults to “Admin correction”"
+                    value={lineCorrectReason}
+                    onChange={(e) => setLineCorrectReason(e.target.value)}
+                    className="min-h-[56px] text-xs"
+                    disabled={lineCorrectSaving || addSaving}
+                  />
+                </div>
+              ) : null}
               {request.shipments.map((shipment: any, index: number) => {
+                if (shipment.warehouseLineRemoved) return null;
                 const product = inventory.find(item => item.id === shipment.productId);
+                const isPrepLine =
+                  Boolean(String(shipment.sourceInventoryRequestId ?? "").trim()) ||
+                  String(shipment.productId ?? "").startsWith("prep:");
                 const effectivePackOf = isCustomProduct
                   ? (customProductPricing[index]?.packOf || shipment.packOf || 1)
                   : shipment.packOf;
@@ -2265,9 +2471,171 @@ function ReviewShipmentDialog({
                         )}
                       </div>
                     )}
+
+                    {showInlineProductCorrect && !isPrepLine ? (
+                      <div className="mt-3 pt-3 border-t space-y-2">
+                        {lineEditIndex === index ? (
+                          <div className="flex flex-wrap items-end gap-2">
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">Qty</label>
+                              <Input
+                                type="number"
+                                min={1}
+                                className="h-8 w-24 text-xs"
+                                value={lineEditQty}
+                                onChange={(e) => setLineEditQty(e.target.value)}
+                                disabled={lineCorrectSaving}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">Pack of</label>
+                              <Input
+                                type="number"
+                                min={1}
+                                className="h-8 w-24 text-xs"
+                                value={lineEditPackOf}
+                                onChange={(e) => setLineEditPackOf(e.target.value)}
+                                disabled={lineCorrectSaving}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">Unit price ($)</label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                className="h-8 w-28 text-xs"
+                                value={lineEditUnitPrice}
+                                onChange={(e) => setLineEditUnitPrice(e.target.value)}
+                                disabled={lineCorrectSaving}
+                              />
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={lineCorrectSaving}
+                              onClick={() => void saveLineEdit(index, false)}
+                            >
+                              {lineCorrectSaving ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                "Save"
+                              )}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              disabled={lineCorrectSaving}
+                              onClick={cancelLineEdit}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={lineCorrectSaving || addSaving}
+                              onClick={() => startLineEdit(index, shipment)}
+                            >
+                              <Pencil className="h-3.5 w-3.5 mr-1" />
+                              Edit qty / price
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="text-destructive"
+                              disabled={lineCorrectSaving || addSaving}
+                              onClick={() => void saveLineEdit(index, true)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 mr-1" />
+                              Remove
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
+
+              {showInlineProductCorrect ? (
+                <div className="rounded-md border border-dashed p-3 space-y-2 text-xs">
+                  <p className="font-medium flex items-center gap-1.5 text-sm">
+                    <Plus className="h-3.5 w-3.5" />
+                    Add product
+                  </p>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Product</label>
+                    <Select
+                      value={addProductId || undefined}
+                      onValueChange={setAddProductId}
+                      disabled={addSaving || lineCorrectSaving}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Select from client inventory" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {addableProducts.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.productName}
+                            {p.sku && p.sku !== p.productName ? ` (${p.sku})` : ""} — {p.quantity}{" "}
+                            avail
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Qty</label>
+                      <Input
+                        type="number"
+                        min={1}
+                        className="h-8 w-24 text-xs"
+                        value={addBoxes}
+                        onChange={(e) => setAddBoxes(e.target.value)}
+                        disabled={addSaving || lineCorrectSaving}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Pack of</label>
+                      <Input
+                        type="number"
+                        min={1}
+                        className="h-8 w-24 text-xs"
+                        value={addPackOf}
+                        onChange={(e) => setAddPackOf(e.target.value)}
+                        disabled={addSaving || lineCorrectSaving}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">Unit price ($)</label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className="h-8 w-28 text-xs"
+                        value={addUnitPrice}
+                        onChange={(e) => setAddUnitPrice(e.target.value)}
+                        disabled={addSaving || lineCorrectSaving}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={addSaving || lineCorrectSaving || !addProductId}
+                      onClick={() => void submitAddProduct()}
+                    >
+                      {addSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Add to order"}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -2632,30 +3000,6 @@ function ReviewShipmentDialog({
           )}
           </>
           )}
-
-          {canCorrectLines &&
-            (request.status === "pending" ||
-              request.status === "awaiting_label" ||
-              request.status === "awaiting_label_upload") &&
-            correctWarehouseId &&
-            user?.uid &&
-            (request as ShipmentRequest & { id?: string }).id ? (
-            <div className="space-y-2 border-t pt-4">
-              <p className="text-sm font-medium">Correct outbound</p>
-              <p className="text-xs text-muted-foreground">
-                Edit qty / pack of / unit price, remove a line, or add another product before you
-                confirm. Reserved stock updates when units change.
-              </p>
-              <WarehouseOutboundLineEditPanel
-                mode="admin"
-                warehouseId={correctWarehouseId}
-                clientUserId={clientUserId}
-                shipmentRequestId={String((request as ShipmentRequest & { id?: string }).id)}
-                operatorId={user.uid}
-                onEdited={() => onRequestCorrected?.()}
-              />
-            </div>
-          ) : null}
 
           {readOnly && request.status === "confirmed" && (
             <div className="space-y-4 border-t pt-4">

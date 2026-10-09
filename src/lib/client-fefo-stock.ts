@@ -61,8 +61,12 @@ function addBatchQty(target: Map<string, number>, expiry: string, quantity: numb
 
 /**
  * Reconstructs current FEFO batches from the user's own inventory, receive logs,
- * and approved inbound requests. Current quantity is allocated against the oldest
- * expiry batches first, so shipped stock is removed in FEFO order.
+ * and approved inbound requests.
+ *
+ * When stored batch totals exceed on-hand quantity (legacy ships that did not
+ * reduce expiryBatches), leftover units are kept on the *newest* expiry dates —
+ * i.e. FEFO already consumed the earliest lots. Live outbound now updates
+ * expiryBatches directly, so totals usually match quantity.
  */
 export function buildClientFefoStockRows(
   inventoryDocs: RawClientInventoryDoc[],
@@ -197,8 +201,9 @@ export function buildClientFefoStockRows(
       fallbackNeeded -= quantity;
     }
 
+    // Newest expiry first so surplus (shipped) is attributed to earliest FEFO lots.
     for (const [expiry, batchQuantity] of Array.from(candidates).sort(([a], [b]) =>
-      a.localeCompare(b)
+      b.localeCompare(a)
     )) {
       if (remaining <= 0) break;
       const quantity = Math.min(remaining, batchQuantity);

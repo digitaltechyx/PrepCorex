@@ -79,6 +79,8 @@ const shipmentGroupSchema = z.object({
   shipmentPreference: z.enum(["box", "pallet"], {
     required_error: "Select SPD or LTL shipment preference.",
   }),
+  /** Which expiry batch to ship from when inventory has multiple lots. */
+  stockRotationPolicy: z.enum(["fefo", "fifo"]).default("fefo"),
   remarks: z.string().optional(),
   service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Carton Forwarding", "Pallet Forwarding"]).optional(),
 }).superRefine((data, ctx) => {
@@ -610,6 +612,7 @@ export function CreateShipmentWithLabelsForm({
       shipments: [],
       date: new Date(),
       shipmentPreference: undefined,
+      stockRotationPolicy: "fefo",
       remarks: undefined,
       service: "FBA/WFS/TFS",
     });
@@ -1072,6 +1075,7 @@ export function CreateShipmentWithLabelsForm({
             remarks: group.remarks || undefined,
             shipmentType: group.shipmentType,
             shipmentPreference: group.shipmentPreference,
+            stockRotationPolicy: group.stockRotationPolicy === "fifo" ? "fifo" : "fefo",
             labelUrl: labelUrl || "",
             status: "pending",
             requestedBy: ownerId,
@@ -1489,7 +1493,7 @@ export function CreateShipmentWithLabelsForm({
                   <div className="pt-3">
                     <div className="border-b pb-2">
                       <div className="mouse-h-scroll pb-2">
-                        <div className="min-w-[1050px] space-y-2">
+                        <div className="min-w-[1220px] space-y-2">
                           <div className="flex flex-nowrap items-start gap-2">
                     {/* Service */}
                     <FormField
@@ -2128,12 +2132,46 @@ export function CreateShipmentWithLabelsForm({
                       )}
                     />
 
+                    {/* Batch rotation: FEFO (first expire) or FIFO (first received) */}
+                    <FormField
+                      control={form.control}
+                      name={`shipmentGroups.${groupIndex}.stockRotationPolicy`}
+                      render={({ field }) => (
+                        <FormItem className="order-5 w-[160px] shrink-0 space-y-1">
+                          <FormLabel className="text-[11px] text-muted-foreground flex items-center gap-1">
+                            Batch priority *
+                            <span
+                              className="inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold text-muted-foreground"
+                              title="FEFO ships the earliest expiry lot first. FIFO ships the earliest received lot first."
+                            >
+                              ?
+                            </span>
+                          </FormLabel>
+                          <Select
+                            value={field.value || "fefo"}
+                            onValueChange={field.onChange}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="h-8">
+                                <SelectValue placeholder="FEFO" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="fefo">FEFO — first expire</SelectItem>
+                              <SelectItem value="fifo">FIFO — first received</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
                     {/* Remarks */}
                     <FormField
                       control={form.control}
                       name={`shipmentGroups.${groupIndex}.remarks`}
                       render={({ field }) => (
-                        <FormItem className="order-5 w-[260px] shrink-0 space-y-1">
+                        <FormItem className="order-6 w-[260px] shrink-0 space-y-1">
                           <FormLabel className="text-[11px] text-muted-foreground flex items-center gap-1">
                             Remarks (Optional)
                             <span

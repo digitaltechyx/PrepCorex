@@ -10,8 +10,25 @@ import {
   deleteField,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import {
+  consumeExpiryBatches,
+  earliestExpiryFromBatches,
+  restoreExpiryBatches,
+  type StockRotationPolicy,
+} from "@/lib/inventory-expiry-batches";
 import { formatOutboundPackLine } from "@/lib/warehouse-outbound-lines";
 import type { InventoryItem } from "@/types";
+
+export type { StockRotationPolicy };
+
+export function stockRotationPolicyFromRequest(
+  data: Record<string, unknown> | null | undefined
+): StockRotationPolicy {
+  const raw = String(data?.stockRotationPolicy ?? "")
+    .trim()
+    .toLowerCase();
+  return raw === "fifo" ? "fifo" : "fefo";
+}
 
 export type ClientInventoryDeductionTiming = "create" | "confirm" | "dispatch";
 
@@ -212,12 +229,21 @@ export function defersClientInventoryDeduction(data: Record<string, unknown>): b
 function applyLocationDeduction(
   currentInventory: Omit<InventoryItem, "id">,
   totalUnits: number,
-  selectedSourceLocationId: string
+  selectedSourceLocationId: string,
+  stockRotationPolicy: StockRotationPolicy = "fefo"
 ): {
   newQuantity: number;
   newStatus: string;
   locationQuantities: Record<string, number>;
   nextPrimaryLocationId: string;
+  expiryBatches: InventoryItem["expiryBatches"];
+  expiryDate: InventoryItem["expiryDate"] | null;
+  consumedExpiryBatches: Array<{
+    expiry: string;
+    quantity: number;
+    lot?: string | null;
+    requestId?: string | null;
+  }>;
 } {
   const incoming = (currentInventory as InventoryItem & { locationQuantities?: Record<string, number> })
     .locationQuantities;
@@ -254,18 +280,40 @@ function applyLocationDeduction(
     Object.keys(locationQuantities)[0] ||
     String(currentInventory.locationId || "").trim();
 
-  return { newQuantity, newStatus, locationQuantities, nextPrimaryLocationId };
+  const batchResult = consumeExpiryBatches(
+    currentInventory.expiryBatches,
+    totalUnits,
+    stockRotationPolicy
+  );
+
+  return {
+    newQuantity,
+    newStatus,
+    locationQuantities,
+    nextPrimaryLocationId,
+    expiryBatches: batchResult.batches,
+    expiryDate: batchResult.expiryDate,
+    consumedExpiryBatches: batchResult.consumed,
+  };
 }
 
 function applyLocationRestore(
   currentInventory: Omit<InventoryItem, "id">,
   totalUnits: number,
-  selectedSourceLocationId: string
+  selectedSourceLocationId: string,
+  preferredBatches?: Array<{
+    expiry?: string | null;
+    quantity?: number;
+    lot?: string | null;
+    requestId?: string | null;
+  }> | null
 ): {
   newQuantity: number;
   newStatus: string;
   locationQuantities: Record<string, number>;
   nextPrimaryLocationId: string;
+  expiryBatches: InventoryItem["expiryBatches"];
+  expiryDate: InventoryItem["expiryDate"] | null;
 } {
   const incoming = (currentInventory as InventoryItem & { locationQuantities?: Record<string, number> })
     .locationQuantities;
@@ -296,13 +344,25 @@ function applyLocationRestore(
 
   const newQuantity = currentInventory.quantity + totalUnits;
   const newStatus = newQuantity > 0 ? "In Stock" : "Out of Stock";
+  const restoredBatches = restoreExpiryBatches(
+    currentInventory.expiryBatches,
+    totalUnits,
+    preferredBatches
+  );
   const nextPrimaryLocationId =
     String(currentInventory.locationId || "").trim() ||
     restoreLocationId ||
     Object.keys(locationQuantities)[0] ||
     "";
 
-  return { newQuantity, newStatus, locationQuantities, nextPrimaryLocationId };
+  return {
+    newQuantity,
+    newStatus,
+    locationQuantities,
+    nextPrimaryLocationId,
+    expiryBatches: restoredBatches,
+    expiryDate: earliestExpiryFromBatches(restoredBatches),
+  };
 }
 
 type DeductibleInventoryRow = {
@@ -332,6 +392,7 @@ function reserveDeductibleRowsGroupedByProduct(input: {
 }): string[] {
   const reservedProductIds: string[] = [];
   const service = serviceLabelForRequest(input.requestData);
+  const rotationPolicy = stockRotationPolicyFromRequest(input.requestData);
   const byProduct = new Map<string, DeductibleInventoryRow[]>();
 
   for (const row of input.rows) {
@@ -349,6 +410,9 @@ function reserveDeductibleRowsGroupedByProduct(input: {
     let working: Omit<InventoryItem, "id"> = {
       ...base,
       locationQuantities: { ...incomingLocations },
+      expiryBatches: Array.isArray(base.expiryBatches)
+        ? base.expiryBatches.map((b) => ({ ...b }))
+        : base.expiryBatches,
     };
 
     const totalNeeded = productRows.reduce((sum, row) => sum + row.totalUnits, 0);
@@ -363,7 +427,12 @@ function reserveDeductibleRowsGroupedByProduct(input: {
         (row.shipment as Record<string, unknown>).sourceLocationId || ""
       ).trim();
       const qtyBefore = working.quantity;
-      const applied = applyLocationDeduction(working, row.totalUnits, selectedSourceLocationId);
+      const applied = applyLocationDeduction(
+        working,
+        row.totalUnits,
+        selectedSourceLocationId,
+        rotationPolicy
+      );
       const packOf = effectivePackOfForShipment(input.requestData, row.shipment, row.index);
       const boxesShipped = shipmentBoxes(row.shipment);
       const changeLogRef = doc(
@@ -373,6 +442,12 @@ function reserveDeductibleRowsGroupedByProduct(input: {
         "inventoryChangeLogs",
         outboundInventoryChangeLogId(input.requestId, row.productId, row.index)
       );
+      const consumedDetail =
+        applied.consumedExpiryBatches.length > 0
+          ? `Batches: ${applied.consumedExpiryBatches
+              .map((b) => `${b.quantity}× exp ${b.expiry}`)
+              .join(", ")}`
+          : "";
       input.transaction.set(changeLogRef, {
         inventoryId: row.productId,
         productName: working.productName,
@@ -387,9 +462,13 @@ function reserveDeductibleRowsGroupedByProduct(input: {
         shipTo: null,
         packOf,
         boxesShipped,
+        stockRotationPolicy: rotationPolicy,
+        consumedExpiryBatches: applied.consumedExpiryBatches,
         details: [
           outboundPackDetailsLine(boxesShipped, packOf),
           input.awaitingShipDetail,
+          `Rotation: ${rotationPolicy.toUpperCase()}`,
+          consumedDetail,
           service ? `Service: ${service}` : "",
           applied.newStatus === "Out of Stock" ? "Now out of stock" : "",
         ]
@@ -398,12 +477,17 @@ function reserveDeductibleRowsGroupedByProduct(input: {
         at: input.reservedAt,
       });
 
+      row.shipment.consumedExpiryBatches = applied.consumedExpiryBatches;
+      row.shipment.stockRotationPolicy = rotationPolicy;
+
       working = {
         ...working,
         quantity: applied.newQuantity,
         status: applied.newStatus as InventoryItem["status"],
         locationId: applied.nextPrimaryLocationId,
         locationQuantities: applied.locationQuantities,
+        expiryBatches: applied.expiryBatches,
+        expiryDate: applied.expiryDate ?? undefined,
       };
     }
 
@@ -413,6 +497,8 @@ function reserveDeductibleRowsGroupedByProduct(input: {
       locationId: working.locationId,
       locationQuantities: (working as InventoryItem & { locationQuantities?: Record<string, number> })
         .locationQuantities,
+      expiryBatches: working.expiryBatches ?? [],
+      expiryDate: working.expiryDate ?? null,
     });
     reservedProductIds.push(first.productId);
   }
@@ -826,14 +912,30 @@ export async function restoreClientInventoryForOutboundRequest(input: {
       let working: Omit<InventoryItem, "id"> = {
         ...base,
         locationQuantities: { ...incomingLocations },
+        expiryBatches: Array.isArray(base.expiryBatches)
+          ? base.expiryBatches.map((b) => ({ ...b }))
+          : base.expiryBatches,
       };
 
       for (const row of productRows) {
         const selectedSourceLocationId = String(
           (row.shipment as Record<string, unknown>).sourceLocationId || ""
         ).trim();
+        const preferredBatches = Array.isArray(row.shipment.consumedExpiryBatches)
+          ? (row.shipment.consumedExpiryBatches as Array<{
+              expiry?: string | null;
+              quantity?: number;
+              lot?: string | null;
+              requestId?: string | null;
+            }>)
+          : null;
         const qtyBefore = working.quantity;
-        const applied = applyLocationRestore(working, row.totalUnits, selectedSourceLocationId);
+        const applied = applyLocationRestore(
+          working,
+          row.totalUnits,
+          selectedSourceLocationId,
+          preferredBatches
+        );
         const changeLogRef = doc(
           db,
           "users",
@@ -868,6 +970,8 @@ export async function restoreClientInventoryForOutboundRequest(input: {
           status: applied.newStatus as InventoryItem["status"],
           locationId: applied.nextPrimaryLocationId,
           locationQuantities: applied.locationQuantities,
+          expiryBatches: applied.expiryBatches,
+          expiryDate: applied.expiryDate ?? undefined,
         };
       }
 
@@ -877,6 +981,8 @@ export async function restoreClientInventoryForOutboundRequest(input: {
         locationId: working.locationId,
         locationQuantities: (working as InventoryItem & { locationQuantities?: Record<string, number> })
           .locationQuantities,
+        expiryBatches: working.expiryBatches ?? [],
+        expiryDate: working.expiryDate ?? null,
       });
 
       const currentInventory = base;
@@ -1168,10 +1274,24 @@ export async function adjustClientInventoryForOutboundLineEdit(input: {
     const boxesAfter = Math.max(0, Math.floor(input.boxesAfter) || 0);
 
     const qtyBefore = base.quantity;
+    const rotationPolicy = stockRotationPolicyFromRequest(data);
+    const preferredBatches = Array.isArray(shipment?.consumedExpiryBatches)
+      ? (shipment.consumedExpiryBatches as Array<{
+          expiry?: string | null;
+          quantity?: number;
+          lot?: string | null;
+          requestId?: string | null;
+        }>)
+      : null;
     const applied =
       unitDelta > 0
-        ? applyLocationDeduction(base, unitDelta, selectedSourceLocationId)
-        : applyLocationRestore(base, Math.abs(unitDelta), selectedSourceLocationId);
+        ? applyLocationDeduction(base, unitDelta, selectedSourceLocationId, rotationPolicy)
+        : applyLocationRestore(
+            base,
+            Math.abs(unitDelta),
+            selectedSourceLocationId,
+            preferredBatches
+          );
 
     const eventType = unitDelta > 0 ? "outbound_line_reserved" : "outbound_line_restored";
     const detailLead =
@@ -1227,11 +1347,28 @@ export async function adjustClientInventoryForOutboundLineEdit(input: {
       at: editAt,
     });
 
+    const nextShipments = [...shipments];
+    if (shipment && unitDelta > 0 && "consumedExpiryBatches" in applied) {
+      const prior = Array.isArray(shipment.consumedExpiryBatches)
+        ? (shipment.consumedExpiryBatches as Array<Record<string, unknown>>)
+        : [];
+      const added =
+        (applied as { consumedExpiryBatches?: Array<Record<string, unknown>> })
+          .consumedExpiryBatches ?? [];
+      nextShipments[input.lineIndex] = {
+        ...shipment,
+        consumedExpiryBatches: [...prior, ...added],
+      };
+      transaction.update(requestRef, { shipments: nextShipments });
+    }
+
     transaction.update(inventoryRef, {
       quantity: applied.newQuantity,
       status: applied.newStatus as InventoryItem["status"],
       locationId: applied.nextPrimaryLocationId,
       locationQuantities: applied.locationQuantities,
+      expiryBatches: applied.expiryBatches ?? [],
+      expiryDate: applied.expiryDate ?? null,
     });
 
     collectIntegrationSyncHints(input.productId, { ...base, quantity: applied.newQuantity }, shopifyHints);
@@ -1329,7 +1466,8 @@ export async function applyClientInventoryOnDispatch(input: {
         const applied = applyLocationDeduction(
           currentInventory,
           totalUnitsShipped,
-          selectedSourceLocationId
+          selectedSourceLocationId,
+          stockRotationPolicyFromRequest(data)
         );
         remainingQty = applied.newQuantity;
 
@@ -1342,7 +1480,10 @@ export async function applyClientInventoryOnDispatch(input: {
           status: applied.newStatus,
           locationId: applied.nextPrimaryLocationId,
           locationQuantities: applied.locationQuantities,
+          expiryBatches: applied.expiryBatches ?? [],
+          expiryDate: applied.expiryDate ?? null,
         });
+        row.shipment.consumedExpiryBatches = applied.consumedExpiryBatches;
 
         const packOf = effectivePackOfForShipment(data, row.shipment, row.index);
         const boxesShipped = shipmentBoxes(row.shipment);
@@ -1570,7 +1711,12 @@ export async function applyClientInventoryOnDispatch(input: {
     transaction.set(shippedRef, removeUndefined(shipmentDoc) as Record<string, unknown>);
 
     transaction.update(requestRef, {
-      ...(shouldDeductInventory ? { clientInventoryDeductedAt: dispatchedAt } : {}),
+      ...(shouldDeductInventory
+        ? {
+            clientInventoryDeductedAt: dispatchedAt,
+            shipments: inventoryReads.map((row) => row.shipment),
+          }
+        : {}),
       warehouseDispatchedClientSyncAt: dispatchedAt,
     });
 
