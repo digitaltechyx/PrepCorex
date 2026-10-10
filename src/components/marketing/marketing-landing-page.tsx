@@ -20,9 +20,13 @@ import {
   Fingerprint,
   Globe2,
   Eye,
+  FileSpreadsheet,
   Layers3,
+  ListChecks,
   LockKeyhole,
+  MapPin,
   Menu,
+  MessageSquare,
   PackageCheck,
   PackageOpen,
   Play,
@@ -247,6 +251,56 @@ const trustProof = [
   { value: "Scan-first", label: "Warehouse floor workflows" },
 ];
 
+const payoffStats = [
+  {
+    value: "1",
+    suffix: " record",
+    label: "Shared operational truth",
+    detail: "Inbound, inventory, and outbound stay on the same PrepCorex record—no rebuild in Sheets.",
+  },
+  {
+    value: "0",
+    suffix: " chase threads",
+    label: "Status without the inbox",
+    detail: "Clients see live inventory, shipments, and receiving video instead of pinging the warehouse.",
+  },
+  {
+    value: "12",
+    suffix: " mo",
+    label: "Affiliate client window",
+    detail: "Referral commission tracks paid invoices for a clear 12-month eligibility window.",
+  },
+];
+
+const spreadsheetPain = [
+  "Inventory counts rebuilt in Excel after every receive",
+  "Shipment status buried in WhatsApp and email threads",
+  "Photos and clips living in random Drive folders",
+  "Clients asking “where is my stock?” every week",
+];
+
+const prepcorexWins = [
+  "Live stock by SKU, carton, pallet, bin, and condition",
+  "Inbound → pick → pack → dispatch on one workflow",
+  "Receiving video matched to the client request",
+  "Reports, labels, and invoices in the same portal",
+];
+
+const mobileFloorActions = [
+  { title: "Receive", copy: "Scan inbound, capture damage, publish live video.", icon: PackageOpen },
+  { title: "Putaway", copy: "Label cartons and place units into traceable bins.", icon: Warehouse },
+  { title: "Pick", copy: "Guided scan confirmation for outbound accuracy.", icon: ShoppingCart },
+  { title: "Pack & dispatch", copy: "Verify prep, attach labels, release tracking.", icon: Truck },
+];
+
+const sellerChecklist = [
+  "You sell on Amazon, Shopify, or multiple channels",
+  "You need East Coast prep / fulfillment capacity",
+  "Clients or partners ask for inventory visibility",
+  "You want receiving proof without WhatsApp photo dumps",
+  "Labels, invoices, and ops should live in one place",
+];
+
 function useLandingMotion() {
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -285,10 +339,10 @@ function MarketingHeader() {
 
   const links = [
     ["Product", "#product"],
-    ["How it works", "#get-started"],
+    ["Vs spreadsheets", "#vs-spreadsheets"],
+    ["Mobile ops", "#mobile-ops"],
     ["Live video", "#live-video"],
     ["Integrations", "#integrations"],
-    ["Portals", "#platform"],
   ];
 
   return (
@@ -1146,6 +1200,390 @@ function LabelSavingsSection() {
   );
 }
 
+function PayoffStatsSection() {
+  return (
+    <section id="proof-numbers" className="border-b border-slate-200 bg-white py-16 sm:py-20">
+      <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
+        <div data-reveal className={cn(styles.reveal, "mx-auto max-w-3xl text-center")}>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-600">
+            Built for clarity
+          </p>
+          <h2 className="mt-4 font-headline text-3xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
+            Fewer tools. Fewer status chases.{" "}
+            <span className="bg-[#071a3d] px-2 text-white sm:px-3">One system.</span>
+          </h2>
+        </div>
+        <div className="mt-12 grid gap-4 md:grid-cols-3">
+          {payoffStats.map((stat, index) => (
+            <div
+              key={stat.label}
+              data-reveal
+              style={{ transitionDelay: `${index * 80}ms` }}
+              className={cn(
+                styles.reveal,
+                "rounded-[26px] border border-slate-200 bg-[#fffaf5] p-6 sm:p-7"
+              )}
+            >
+              <p className="font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
+                {stat.value}
+                <span className="text-2xl text-orange-600 sm:text-3xl">{stat.suffix}</span>
+              </p>
+              <p className="mt-3 text-sm font-bold text-slate-900">{stat.label}</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{stat.detail}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SpreadsheetVsSection() {
+  return (
+    <section id="vs-spreadsheets" className="bg-[#071a3d] py-24 text-white sm:py-32">
+      <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
+        <div data-reveal className={cn(styles.reveal, "mx-auto max-w-3xl text-center")}>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-400">
+            Spreadsheets vs PrepCorex
+          </p>
+          <h2 className="mt-4 font-headline text-4xl font-bold tracking-tight sm:text-5xl">
+            Stop rebuilding the warehouse story every week.
+          </h2>
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-300">
+            No more Excel rebuilds. No more WhatsApp status hunts. No guessing where a carton went.
+            PrepCorex keeps floor work and client visibility on one live record.
+          </p>
+        </div>
+
+        <div className="mt-14 grid gap-4 lg:grid-cols-[1fr_auto_1fr] lg:items-stretch">
+          <div
+            data-reveal
+            className={cn(
+              styles.reveal,
+              "rounded-[28px] border border-white/10 bg-white/[0.04] p-6 sm:p-8"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-slate-300">
+                <FileSpreadsheet className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                  Without PrepCorex
+                </p>
+                <h3 className="text-xl font-bold">Scattered tools</h3>
+              </div>
+            </div>
+            <ul className="mt-7 space-y-3">
+              {spreadsheetPain.map((item) => (
+                <li key={item} className="flex gap-3 text-sm leading-6 text-slate-300">
+                  <X className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="hidden items-center justify-center lg:flex">
+            <span className="inline-flex h-14 w-14 items-center justify-center rounded-full border border-orange-400/40 bg-orange-500/15 text-sm font-bold text-orange-300">
+              VS
+            </span>
+          </div>
+
+          <div
+            data-reveal
+            className={cn(
+              styles.reveal,
+              "rounded-[28px] border border-orange-400/30 bg-gradient-to-br from-orange-500/15 to-white/[0.04] p-6 sm:p-8"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-500 text-white">
+                <Layers3 className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-300">
+                  With PrepCorex
+                </p>
+                <h3 className="text-xl font-bold">One connected record</h3>
+              </div>
+            </div>
+            <ul className="mt-7 space-y-3">
+              {prepcorexWins.map((item) => (
+                <li key={item} className="flex gap-3 text-sm leading-6 text-slate-100">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FloorVisibilitySection() {
+  return (
+    <section id="inventory-visibility" className="bg-slate-50 py-24 sm:py-32">
+      <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
+        <div className="grid gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+          <div data-reveal className={cn(styles.reveal, "relative")}>
+            <div className="relative overflow-hidden rounded-[30px] border border-slate-200 shadow-[0_35px_90px_rgba(7,26,61,.16)]">
+              <div
+                className="aspect-[4/3] bg-cover bg-center sm:aspect-[16/10]"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(120deg, rgba(7,26,61,.55), rgba(7,26,61,.18) 45%, transparent 70%), url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=1200&h=800&fit=crop')",
+                }}
+              />
+              <div
+                className={cn(
+                  styles.floatCardA,
+                  "absolute left-4 top-4 max-w-[220px] rounded-2xl border border-white/20 bg-[#071a3d]/[0.88] p-4 text-white shadow-2xl backdrop-blur sm:left-6 sm:top-6"
+                )}
+              >
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-orange-300">
+                  <MapPin className="h-3.5 w-3.5" />
+                  Live location
+                </div>
+                <p className="mt-3 text-sm font-bold">Wireless Headphones</p>
+                <p className="mt-1 text-xs text-slate-300">SKU PCX-2334 · Aisle B · Bin 14</p>
+                <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="rounded-xl bg-white/10 px-2.5 py-2">
+                    <p className="text-slate-400">Sellable</p>
+                    <p className="mt-0.5 text-base font-bold">480</p>
+                  </div>
+                  <div className="rounded-xl bg-white/10 px-2.5 py-2">
+                    <p className="text-slate-400">Allocated</p>
+                    <p className="mt-0.5 text-base font-bold">36</p>
+                  </div>
+                </div>
+              </div>
+              <div
+                className={cn(
+                  styles.floatCardB,
+                  "absolute bottom-4 right-4 max-w-[210px] rounded-2xl border border-orange-200 bg-white p-4 shadow-2xl sm:bottom-6 sm:right-6"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                  </span>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-red-600">
+                    Live receive
+                  </p>
+                </div>
+                <p className="mt-2 text-sm font-bold text-[#071a3d]">INB-2451 in progress</p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  Client can watch inspection now—matched to product + SKU.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div data-reveal className={cn(styles.reveal, "max-w-xl")}>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-600">
+              Always know where it is
+            </p>
+            <h2 className="mt-4 font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
+              Exact inventory visibility—on the floor and in the portal.
+            </h2>
+            <p className="mt-5 text-base leading-7 text-slate-600">
+              No digging through spreadsheets. No calling the floor. No guessing. PrepCorex ties
+              location, quantity, condition, and optional live receiving video to the same SKU
+              record clients already trust.
+            </p>
+            <ul className="mt-8 space-y-3">
+              {[
+                "Bin, aisle, carton, and pallet context on every unit",
+                "Sellable / damaged / quarantine states stay current",
+                "Live receive sessions surface product + SKU for the right client",
+              ].map((item) => (
+                <li key={item} className="flex gap-3 text-sm font-medium text-slate-700">
+                  <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <a
+              href="#live-video"
+              className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-orange-600"
+            >
+              See live receiving video <ArrowRight className="h-4 w-4" />
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MobileOpsSection() {
+  return (
+    <section id="mobile-ops" className="relative overflow-hidden bg-[#fffaf5] py-24 sm:py-32">
+      <div className="pointer-events-none absolute -right-24 top-10 h-72 w-72 rounded-full bg-orange-200/40 blur-3xl" />
+      <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
+        <div className="grid gap-14 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+          <div data-reveal className={cn(styles.reveal, "max-w-xl")}>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-600">
+              Warehouse in your pocket
+            </p>
+            <h2 className="mt-4 font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
+              Run the floor from a phone—not a desktop tether.
+            </h2>
+            <p className="mt-5 text-base leading-7 text-slate-600">
+              Operators receive, putaway, pick, pack, and dispatch with scan-first queues on mobile.
+              Optional stage recording publishes live to the client while clips stay on-device until
+              confirmed upload.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-2">
+              {["Scan-first queues", "Front / back camera", "Live client watch", "Offline-ready clips"].map(
+                (pill) => (
+                  <span
+                    key={pill}
+                    className="rounded-full border border-orange-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm"
+                  >
+                    {pill}
+                  </span>
+                )
+              )}
+            </div>
+          </div>
+
+          <div data-reveal className={cn(styles.reveal, "relative mx-auto w-full max-w-lg")}>
+            <div className="absolute inset-x-10 bottom-4 top-16 rounded-full bg-orange-400/25 blur-3xl" />
+            <div className="relative grid items-center gap-6 sm:grid-cols-[0.78fr_1.22fr]">
+              <div className="mx-auto w-[210px] rounded-[34px] border-[7px] border-slate-900 bg-slate-950 p-2 shadow-2xl">
+                <div className="overflow-hidden rounded-[24px] bg-white">
+                  <div className="border-b border-slate-100 px-3 py-3">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                      Warehouse Ops
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-[#071a3d]">Today&apos;s queue</p>
+                  </div>
+                  <div className="space-y-2 p-3">
+                    {mobileFloorActions.map((action) => {
+                      const Icon = action.icon;
+                      return (
+                        <div
+                          key={action.title}
+                          className="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-slate-50 px-2.5 py-2.5"
+                        >
+                          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#071a3d] text-white">
+                            <Icon className="h-3.5 w-3.5" />
+                          </span>
+                          <div>
+                            <p className="text-[11px] font-bold text-slate-900">{action.title}</p>
+                            <p className="mt-0.5 text-[10px] leading-4 text-slate-500">{action.copy}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {mobileFloorActions.map((action, index) => {
+                  const Icon = action.icon;
+                  return (
+                    <div
+                      key={action.title}
+                      style={{ transitionDelay: `${index * 70}ms` }}
+                      className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                          <Icon className="h-5 w-5" />
+                        </span>
+                        <div>
+                          <p className="text-sm font-bold text-[#071a3d]">{action.title}</p>
+                          <p className="mt-0.5 text-xs leading-5 text-slate-600">{action.copy}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SellerChecklistSection() {
+  return (
+    <section id="seller-checklist" className="bg-white py-24 sm:py-32">
+      <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
+        <div
+          data-reveal
+          className={cn(
+            styles.reveal,
+            "grid overflow-hidden rounded-[34px] border border-orange-100 bg-[#fffaf5] lg:grid-cols-[1.05fr_0.95fr]"
+          )}
+        >
+          <div className="p-7 sm:p-10 lg:p-12">
+            <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-orange-700">
+              <ListChecks className="h-3.5 w-3.5" />
+              Seller readiness
+            </div>
+            <h2 className="mt-5 font-headline text-3xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
+              Is your operation ready for PrepCorex?
+            </h2>
+            <p className="mt-4 max-w-xl text-base leading-7 text-slate-600">
+              A quick checklist sellers and partners use before booking a demo—so the first
+              conversation focuses on your channels, volume, and visibility needs.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <a
+                href="https://wa.link/771ry0"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-orange-600 px-6 text-sm font-bold text-white shadow-xl shadow-orange-600/20 transition hover:-translate-y-1 hover:bg-orange-700"
+              >
+                Talk through your checklist <ArrowRight className="h-4 w-4" />
+              </a>
+              <Link
+                href="/register"
+                className="inline-flex min-h-12 items-center justify-center rounded-full border border-slate-300 bg-white px-6 text-sm font-bold text-slate-800 transition hover:border-orange-300"
+              >
+                Create an account
+              </Link>
+            </div>
+          </div>
+
+          <div className="border-t border-orange-100 bg-white p-7 sm:p-10 lg:border-l lg:border-t-0 lg:p-12">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+              Check what applies
+            </p>
+            <ul className="mt-5 space-y-3">
+              {sellerChecklist.map((item) => (
+                <li
+                  key={item}
+                  className="flex gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3.5 text-sm font-medium text-slate-700"
+                >
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-orange-200 bg-orange-50 text-orange-600">
+                    <Check className="h-3.5 w-3.5" />
+                  </span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-6 inline-flex items-center gap-2 text-xs font-semibold text-slate-500">
+              <MessageSquare className="h-3.5 w-3.5 text-orange-500" />
+              No software retainer—PrepCorex is included with Prep Services FBA fulfillment.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function MarketingLandingPage() {
   const rootRef = useLandingMotion();
   const heroRef = useRef<HTMLElement>(null);
@@ -1276,6 +1714,8 @@ export function MarketingLandingPage() {
           </div>
         </section>
 
+        <PayoffStatsSection />
+
         <section id="get-started" className="bg-[#fffaf5] py-24 sm:py-32">
           <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
             <div data-reveal className={cn(styles.reveal, "mx-auto max-w-3xl text-center")}>
@@ -1318,6 +1758,8 @@ export function MarketingLandingPage() {
             </div>
           </div>
         </section>
+
+        <SpreadsheetVsSection />
 
         <section id="product" className="relative overflow-hidden bg-slate-50 py-24 sm:py-32">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-orange-200 to-transparent" />
@@ -1479,6 +1921,10 @@ export function MarketingLandingPage() {
           </div>
         </section>
 
+        <FloorVisibilitySection />
+
+        <MobileOpsSection />
+
         <section id="platform" className="py-24 sm:py-32">
           <div className="mx-auto max-w-7xl px-5 sm:px-7 lg:px-10">
             <div data-reveal className={cn(styles.reveal, "max-w-3xl")}>
@@ -1621,26 +2067,80 @@ export function MarketingLandingPage() {
                 Integrations
               </p>
               <h2 className="mt-4 font-headline text-4xl font-bold tracking-tight text-[#071a3d] sm:text-5xl">
-                Connect channels in minutes. Fulfill from one flow.
+                Your warehouse shouldn&apos;t work in silos.
               </h2>
               <p className="mx-auto mt-5 max-w-2xl leading-7 text-slate-600">
-                Bring the marketplaces your clients sell on into PrepCorex, then run receiving,
-                inventory, and dispatch without switching tools.
+                Channels feed PrepCorex. PrepCorex feeds client, warehouse, admin, and affiliate
+                views—so inventory, orders, and fulfillment stay connected.
               </p>
             </div>
 
-            <div data-reveal className={cn(styles.reveal, "mt-12 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6")}>
-              {integrations.map((integration) => (
-                <div
-                  key={integration.id}
-                  className="flex min-h-[108px] flex-col items-center justify-center gap-3 rounded-2xl border bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:border-orange-300 hover:shadow-lg"
-                >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50">
-                    <PlatformBrandLogo platformId={integration.id} className="h-7 w-7" />
-                  </span>
-                  <span className="text-xs font-bold text-slate-700">{integration.label}</span>
+            <div
+              data-reveal
+              className={cn(
+                styles.reveal,
+                "relative mx-auto mt-14 max-w-4xl rounded-[32px] border border-slate-200 bg-[#071a3d] px-5 py-10 text-white sm:px-10 sm:py-12"
+              )}
+            >
+              <div className="absolute inset-0 overflow-hidden rounded-[32px]">
+                <div className="absolute -left-16 top-0 h-48 w-48 rounded-full bg-orange-500/20 blur-3xl" />
+                <div className="absolute -right-10 bottom-0 h-48 w-48 rounded-full bg-blue-400/10 blur-3xl" />
+              </div>
+              <div className="relative grid gap-8 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2">
+                  {integrations.slice(0, 4).map((integration) => (
+                    <div
+                      key={integration.id}
+                      className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-3"
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white">
+                        <PlatformBrandLogo platformId={integration.id} className="h-6 w-6" />
+                      </span>
+                      <span className="text-xs font-bold">{integration.label}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+
+                <div className="mx-auto flex flex-col items-center gap-3">
+                  <div className="flex h-24 w-24 flex-col items-center justify-center rounded-[28px] border border-orange-300/40 bg-orange-500 text-center shadow-[0_0_40px_rgba(249,115,22,.35)]">
+                    <Layers3 className="h-7 w-7" />
+                    <span className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em]">
+                      PrepCorex
+                    </span>
+                  </div>
+                  <p className="text-center text-[11px] font-semibold text-slate-300">
+                    One connected hub
+                  </p>
+                </div>
+
+                <div className="grid gap-3">
+                  {[
+                    ["Client portal", "Inventory, video, labels, invoices"],
+                    ["Warehouse Ops", "Receive · pick · pack · dispatch"],
+                    ["Admin + Affiliate", "Billing, control, commission"],
+                  ].map(([title, copy]) => (
+                    <div
+                      key={title}
+                      className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3"
+                    >
+                      <p className="text-sm font-bold">{title}</p>
+                      <p className="mt-0.5 text-xs text-slate-300">{copy}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="relative mt-8 flex flex-wrap items-center justify-center gap-2 border-t border-white/10 pt-6">
+                {integrations.slice(4).map((integration) => (
+                  <span
+                    key={integration.id}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-slate-200"
+                  >
+                    <PlatformBrandLogo platformId={integration.id} className="h-4 w-4" />
+                    {integration.label}
+                  </span>
+                ))}
+              </div>
             </div>
 
             <div
@@ -1747,6 +2247,8 @@ export function MarketingLandingPage() {
             </div>
           </div>
         </section>
+
+        <SellerChecklistSection />
 
         <section className="py-24 sm:py-32">
           <div className="mx-auto max-w-5xl px-5 sm:px-7">
@@ -1860,11 +2362,12 @@ export function MarketingLandingPage() {
               <p className="text-xs font-bold uppercase tracking-wider text-slate-900">Platform</p>
               <div className="mt-4 grid gap-3 text-sm text-slate-600">
                 <a href="#product" className="hover:text-orange-600">Product modules</a>
-                <a href="#get-started" className="hover:text-orange-600">How it works</a>
-                <a href="#workflow" className="hover:text-orange-600">Workflow</a>
-                <a href="#platform" className="hover:text-orange-600">Portals</a>
+                <a href="#vs-spreadsheets" className="hover:text-orange-600">Vs spreadsheets</a>
+                <a href="#inventory-visibility" className="hover:text-orange-600">Inventory visibility</a>
+                <a href="#mobile-ops" className="hover:text-orange-600">Mobile warehouse ops</a>
                 <a href="#live-video" className="hover:text-orange-600">Live receiving video</a>
                 <a href="#integrations" className="hover:text-orange-600">Integrations</a>
+                <a href="#seller-checklist" className="hover:text-orange-600">Seller checklist</a>
               </div>
             </div>
             <div>
