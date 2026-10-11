@@ -63,37 +63,62 @@ function ForgotPasswordContent() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     const email = values.email.trim().toLowerCase();
-    try {
-      const continueUrl =
-        typeof window !== "undefined"
-          ? `${window.location.origin}/login`
-          : "https://prepcorex.com/login";
 
-      await sendPasswordResetEmail(auth, email, {
-        url: continueUrl,
-        handleCodeInApp: false,
-      });
-
+    const showSent = () => {
       setSentTo(email);
       toast({
         title: "Check your email",
         description:
           "If an account exists for that address, we sent a password reset link. It may take a minute to arrive.",
       });
+    };
+
+    const authErrorCode = (error: unknown) =>
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: string }).code || "")
+        : "";
+
+    try {
+      // Prefer the live app URL (must be in Firebase Authorized domains).
+      // Avoid preview/localhost origins — those often cause unauthorized-continue-uri.
+      const appUrl = (
+        process.env.NEXT_PUBLIC_APP_URL || "https://prepcorex.com"
+      ).replace(/\/$/, "");
+      const continueUrl = `${appUrl}/login`;
+
+      try {
+        await sendPasswordResetEmail(auth, email, {
+          url: continueUrl,
+          handleCodeInApp: false,
+        });
+      } catch (firstError: unknown) {
+        const firstCode = authErrorCode(firstError);
+        // Retry without continue URL if Firebase rejects the action link domain.
+        if (
+          firstCode === "auth/unauthorized-continue-uri" ||
+          firstCode === "auth/invalid-continue-uri" ||
+          firstCode === "auth/missing-continue-uri" ||
+          firstCode === "auth/unauthorized-domain"
+        ) {
+          console.warn(
+            "[forgot-password] continue URL rejected, retrying without actionCodeSettings",
+            firstCode,
+            continueUrl
+          );
+          await sendPasswordResetEmail(auth, email);
+        } else {
+          throw firstError;
+        }
+      }
+
+      showSent();
     } catch (error: unknown) {
-      const code =
-        error && typeof error === "object" && "code" in error
-          ? String((error as { code?: string }).code || "")
-          : "";
+      const code = authErrorCode(error);
+      console.error("[forgot-password] sendPasswordResetEmail failed", code, error);
 
       // Same generic success for user-not-found (avoid email enumeration)
       if (code === "auth/user-not-found" || code === "auth/invalid-email") {
-        setSentTo(email);
-        toast({
-          title: "Check your email",
-          description:
-            "If an account exists for that address, we sent a password reset link. It may take a minute to arrive.",
-        });
+        showSent();
         return;
       }
 
@@ -102,6 +127,18 @@ function ForgotPasswordContent() {
         friendly = "Too many attempts. Please try again later.";
       } else if (code === "auth/network-request-failed") {
         friendly = "Network error. Check your connection and try again.";
+      } else if (
+        code === "auth/unauthorized-continue-uri" ||
+        code === "auth/invalid-continue-uri" ||
+        code === "auth/unauthorized-domain"
+      ) {
+        friendly =
+          "This site domain is not allowed for password reset. Add prepcorex.com under Firebase Authentication → Settings → Authorized domains.";
+      } else if (code === "auth/operation-not-allowed") {
+        friendly =
+          "Email/password sign-in is disabled in Firebase. Enable it under Authentication → Sign-in method.";
+      } else if (code) {
+        friendly = `Unable to send reset email (${code}). Please try again or contact support.`;
       }
 
       toast({
