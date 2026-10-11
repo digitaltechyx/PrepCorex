@@ -31,7 +31,13 @@ export function useCollection<T>(path: string, firestoreQuery?: Query) {
       const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const docs: T[] = [];
         querySnapshot.forEach((doc) => {
-          docs.push({ id: doc.id, ...doc.data() } as T);
+          const data = doc.data() as Record<string, unknown>;
+          // For users, document id is the Auth uid — don't let a stale uid field win.
+          const withIds =
+            path === "users"
+              ? { ...data, id: doc.id, uid: doc.id }
+              : { id: doc.id, ...data };
+          docs.push(withIds as T);
         });
         setData(docs);
         setLoading(false);
@@ -40,7 +46,7 @@ export function useCollection<T>(path: string, firestoreQuery?: Query) {
       }, async (err: any) => {
         // Handle abort errors gracefully - these happen when component unmounts or navigation occurs
         if (err?.message?.includes('aborted') || 
-            err?.message?.includes('user aborted') ||
+            err?.message?.includes('request aborted') ||
             err?.code === 'cancelled') {
           // This is normal - component unmounted or user navigated away
           // Don't log as error, just silently ignore

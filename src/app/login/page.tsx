@@ -72,6 +72,7 @@ function LoginPageContent() {
       password: "",
     },
   });
+  const emailDraft = form.watch("email");
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
@@ -193,9 +194,21 @@ function LoginPageContent() {
                 name="password"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Password</FormLabel>
+                    <div className="flex items-center justify-between gap-2">
+                      <FormLabel>Password</FormLabel>
+                      <Link
+                        href={
+                          emailDraft?.trim()
+                            ? `/forgot-password?email=${encodeURIComponent(emailDraft.trim())}`
+                            : "/forgot-password"
+                        }
+                        className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                      >
+                        Forgot password?
+                      </Link>
+                    </div>
                     <FormControl>
-                      <Input type="password" {...field} />
+                      <Input type="password" autoComplete="current-password" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -182,20 +182,36 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
       const credentialsChanged = nextEmail !== prevEmail || newPassword.length > 0;
 
       if (credentialsChanged) {
-        const res = await fetch(`/api/admin/users/${user.uid}/credentials`, {
+        // Prefer Firestore document id (Auth uid convention); fall back to stored uid.
+        const targetUid =
+          String((user as { id?: string }).id || user.uid || "").trim();
+        if (!targetUid) {
+          throw new Error("User id is missing — cannot update login credentials.");
+        }
+        const res = await fetch(`/api/admin/users/${encodeURIComponent(targetUid)}/credentials`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            ...(nextEmail !== prevEmail ? { email: nextEmail } : {}),
+            // Always send email so server can resolve Auth user by email if uid mismatches.
+            email: nextEmail,
             ...(newPassword ? { password: newPassword } : {}),
           }),
         });
-        const data = await res.json().catch(() => ({}));
+        const raw = await res.text();
+        let data: { error?: string; code?: string } = {};
+        try {
+          data = raw ? (JSON.parse(raw) as { error?: string; code?: string }) : {};
+        } catch {
+          data = {};
+        }
         if (!res.ok) {
-          throw new Error(data.error || "Failed to update login credentials.");
+          const detail = data.error || raw?.slice(0, 180) || `HTTP ${res.status}`;
+          throw new Error(
+            data.code ? `${detail} (${data.code})` : detail || "Failed to update login credentials."
+          );
         }
       }
 
@@ -306,7 +322,12 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
                 <FormItem>
                   <FormLabel>Login email *</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="john@example.com" {...field} />
+                    <Input
+                      type="email"
+                      autoComplete="off"
+                      placeholder="john@example.com"
+                      {...field}
+                    />
                   </FormControl>
                   <p className="text-xs text-muted-foreground">
                     Changing this updates their Firebase login. They must sign in with the new email.

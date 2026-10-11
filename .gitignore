@@ -51,6 +51,8 @@ firebase-debug.log
 firestore-debug.log
 
 credentials/
+!src/app/api/admin/users/**/credentials/
+!src/app/api/admin/users/**/credentials/**
 *.json
 !firestore.indexes.json
 !src/lib/platform-documents-pdf-content.json
