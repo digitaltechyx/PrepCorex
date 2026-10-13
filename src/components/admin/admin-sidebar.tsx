@@ -48,6 +48,7 @@ import {
   ChevronDown,
   MoreHorizontal,
   LockKeyhole,
+  FlaskConical,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useManagedUsers } from "@/hooks/use-managed-users";
@@ -109,6 +110,7 @@ const MORE_MENU_ROOT = "/__more_menu__";
 
 const MORE_CHILD_PATHS = [
   "/admin/dashboard/buy-labels",
+  "/admin/dashboard/gofo-sandbox",
   "/admin/dashboard/documents",
   "/admin/dashboard/integrations",
   "/admin/dashboard/reports",
@@ -333,6 +335,13 @@ export function AdminSidebar() {
       icon: Tag,
       color: "text-cyan-600",
       requiredFeature: "manage_labels" as const,
+    },
+    {
+      title: "GOFO Sandbox",
+      url: "/admin/dashboard/gofo-sandbox",
+      icon: FlaskConical,
+      color: "text-rose-600",
+      adminOnly: true,
     },
     {
       title: "Product Returns",

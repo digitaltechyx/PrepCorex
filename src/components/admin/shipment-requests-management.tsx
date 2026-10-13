@@ -48,6 +48,7 @@ import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import { doc, updateDoc, collection, Timestamp, runTransaction, addDoc, getDoc, getDocs } from "firebase/firestore";
 import { getCommittedOutboundUnits, restoreClientInventoryForOutboundRequest, backfillClientInventoryReserveForOpenOutbounds, isOpenOutboundEligibleForReserveBackfill } from "@/lib/client-inventory-outbound-sync";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import { resolvePrepOutboundShipmentsForConfirm, shipmentRequestIsPrepOutbound } from "@/lib/prep-outbound";
 import {
   addOutboundLineAtWarehouse,
@@ -1251,6 +1252,8 @@ function ReviewShipmentDialog({
         for (const d of snap.docs) {
           if (onOrder.has(d.id)) continue;
           const data = d.data() as Record<string, unknown>;
+          // Outbound add-product: PrepCorex / manual inventory only (not Shopify/Amazon/etc.).
+          if (isIntegrationInventorySource(String(data.source ?? ""))) continue;
           const qty = Math.max(0, Math.floor(Number(data.quantity) || 0));
           if (qty <= 0) continue;
           const sku = String(data.sku ?? "").trim();
@@ -2577,16 +2580,22 @@ function ReviewShipmentDialog({
                       disabled={addSaving || lineCorrectSaving}
                     >
                       <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="Select from client inventory" />
+                        <SelectValue placeholder="Select PrepCorex inventory" />
                       </SelectTrigger>
-                      <SelectContent>
-                        {addableProducts.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.productName}
-                            {p.sku && p.sku !== p.productName ? ` (${p.sku})` : ""} — {p.quantity}{" "}
-                            avail
-                          </SelectItem>
-                        ))}
+                      <SelectContent className="max-h-72">
+                        {addableProducts.length === 0 ? (
+                          <div className="px-2 py-3 text-xs text-muted-foreground">
+                            No PrepCorex inventory with available qty (marketplace listings are hidden).
+                          </div>
+                        ) : (
+                          addableProducts.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.productName}
+                              {p.sku && p.sku !== p.productName ? ` (${p.sku})` : ""} — {p.quantity}{" "}
+                              avail
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                   </div>

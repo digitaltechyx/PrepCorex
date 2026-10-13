@@ -33,6 +33,7 @@ import {
   editOutboundLineAtWarehouse,
 } from "@/lib/warehouse-outbound-ops";
 import type { OutboundPickSourceHint } from "@/lib/warehouse-pick";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 type InventoryOption = {
@@ -111,6 +112,8 @@ export function WarehouseOutboundLineEditPanel({
       const rows: InventoryOption[] = [];
       for (const d of snap.docs) {
         const data = d.data() as Record<string, unknown>;
+        // PrepCorex / manual inventory only — hide marketplace synced listings.
+        if (isIntegrationInventorySource(String(data.source ?? ""))) continue;
         const qty = Math.max(0, Math.floor(Number(data.quantity) || 0));
         const sku = String(data.sku ?? "").trim();
         const productName = String(data.productName ?? sku).trim() || sku || d.id;
@@ -541,15 +544,22 @@ export function WarehouseOutboundLineEditPanel({
                 disabled={adding || saving}
               >
                 <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select from client inventory" />
+                  <SelectValue placeholder="Select PrepCorex inventory" />
                 </SelectTrigger>
-                <SelectContent>
-                  {addableProducts.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.productName}
-                      {p.sku && p.sku !== p.productName ? ` (${p.sku})` : ""} — {p.quantity} avail
-                    </SelectItem>
-                  ))}
+                <SelectContent className="max-h-72">
+                  {addableProducts.length === 0 ? (
+                    <div className="px-2 py-3 text-xs text-muted-foreground">
+                      No PrepCorex inventory with available qty (marketplace listings are hidden).
+                    </div>
+                  ) : (
+                    addableProducts.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.productName}
+                        {p.sku && p.sku !== p.productName ? ` (${p.sku})` : ""} — {p.quantity}{" "}
+                        avail
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
