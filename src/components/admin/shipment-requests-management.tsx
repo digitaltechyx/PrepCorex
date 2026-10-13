@@ -1229,47 +1229,114 @@ function ReviewShipmentDialog({
   const [addPackOf, setAddPackOf] = useState("1");
   const [addUnitPrice, setAddUnitPrice] = useState("0");
   const [addSaving, setAddSaving] = useState(false);
-  const [addableProducts, setAddableProducts] = useState<
+  const [addProductQuery, setAddProductQuery] = useState("");
+  const [firestorePrepcorexInventory, setFirestorePrepcorexInventory] = useState<
     Array<{ id: string; productName: string; sku: string; quantity: number }>
   >([]);
+  const [firestoreInventoryLoading, setFirestoreInventoryLoading] = useState(false);
+  const [firestoreInventoryRefreshKey, setFirestoreInventoryRefreshKey] = useState(0);
 
+  const onOrderProductIds = useMemo(() => {
+    return new Set(
+      (request.shipments || [])
+        .filter((s: any) => !s.warehouseLineRemoved)
+        .map((s: any) => String(s.productId ?? "").trim())
+        .filter(Boolean)
+    );
+  }, [request.shipments]);
+
+  // Load full PrepCorex / manual inventory from Firestore (not parent page filters / Select limits).
   useEffect(() => {
     if (!showInlineProductCorrect || !clientUserId) {
-      setAddableProducts([]);
+      setFirestorePrepcorexInventory([]);
+      setFirestoreInventoryLoading(false);
       return;
     }
     let cancelled = false;
-    void (async () => {
+    setFirestoreInventoryLoading(true);
+    (async () => {
       try {
         const snap = await getDocs(collection(db, `users/${clientUserId}/inventory`));
-        const onOrder = new Set(
-          (request.shipments || [])
-            .filter((s: any) => !s.warehouseLineRemoved)
-            .map((s: any) => String(s.productId ?? "").trim())
-            .filter(Boolean)
-        );
-        const rows: Array<{ id: string; productName: string; sku: string; quantity: number }> = [];
+        const rows: Array<{
+          id: string;
+          productName: string;
+          sku: string;
+          quantity: number;
+        }> = [];
         for (const d of snap.docs) {
-          if (onOrder.has(d.id)) continue;
           const data = d.data() as Record<string, unknown>;
-          // Outbound add-product: PrepCorex / manual inventory only (not Shopify/Amazon/etc.).
           if (isIntegrationInventorySource(String(data.source ?? ""))) continue;
           const qty = Math.max(0, Math.floor(Number(data.quantity) || 0));
-          if (qty <= 0) continue;
           const sku = String(data.sku ?? "").trim();
-          const productName = String(data.productName ?? sku).trim() || sku || d.id;
-          rows.push({ id: d.id, productName, sku: sku || productName, quantity: qty });
+          const productName =
+            String(data.productName ?? sku).trim() || sku || d.id;
+          rows.push({
+            id: d.id,
+            productName,
+            sku: sku || productName,
+            quantity: qty,
+          });
         }
         rows.sort((a, b) => a.productName.localeCompare(b.productName));
-        if (!cancelled) setAddableProducts(rows);
+        if (!cancelled) setFirestorePrepcorexInventory(rows);
       } catch {
-        if (!cancelled) setAddableProducts([]);
+        if (!cancelled) setFirestorePrepcorexInventory([]);
+      } finally {
+        if (!cancelled) setFirestoreInventoryLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [showInlineProductCorrect, clientUserId, request.shipments]);
+  }, [showInlineProductCorrect, clientUserId, firestoreInventoryRefreshKey]);
+
+  /** Full PrepCorex / manual inventory — prefer live Firestore load; fall back to prop. */
+  const prepcorexInventoryForAdd = useMemo(() => {
+    if (!showInlineProductCorrect) return [];
+    const fromProp = (inventory || [])
+      .filter((item) => !isIntegrationInventorySource((item as { source?: string }).source))
+      .map((item) => {
+        const qty = Math.max(0, Math.floor(Number(item.quantity) || 0));
+        const sku = String(item.sku ?? "").trim();
+        const productName =
+          String(item.productName ?? sku).trim() || sku || item.id;
+        return {
+          id: item.id,
+          productName,
+          sku: sku || productName,
+          quantity: qty,
+        };
+      });
+    const byId = new Map<string, { id: string; productName: string; sku: string; quantity: number }>();
+    for (const row of fromProp) byId.set(row.id, row);
+    for (const row of firestorePrepcorexInventory) byId.set(row.id, row);
+    return Array.from(byId.values())
+      .map((p) => ({
+        ...p,
+        alreadyOnOrder: onOrderProductIds.has(p.id),
+      }))
+      .sort((a, b) => {
+        // In-stock first; products already on the order stay selectable (extra line/pack).
+        const rank = (p: { quantity: number }) => (p.quantity <= 0 ? 1 : 0);
+        const diff = rank(a) - rank(b);
+        if (diff !== 0) return diff;
+        return a.productName.localeCompare(b.productName);
+      });
+  }, [
+    showInlineProductCorrect,
+    inventory,
+    firestorePrepcorexInventory,
+    onOrderProductIds,
+  ]);
+
+  const addableProductsFiltered = useMemo(() => {
+    const q = addProductQuery.trim().toLowerCase();
+    if (!q) return prepcorexInventoryForAdd;
+    return prepcorexInventoryForAdd.filter((p) => {
+      const hay = `${p.productName} ${p.sku}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [prepcorexInventoryForAdd, addProductQuery]);
 
   /** Client sellable qty was already reserved when this outbound was created. */
   const alreadyReservedAtCreate =
@@ -1517,9 +1584,11 @@ function ReviewShipmentDialog({
       });
       toast({ title: "Product added", description: "Line added to this outbound request." });
       setAddProductId("");
+      setAddProductQuery("");
       setAddBoxes("1");
       setAddPackOf("1");
       setAddUnitPrice("0");
+      setFirestoreInventoryRefreshKey((k) => k + 1);
       onRequestCorrected?.();
     } catch (e) {
       toast({
@@ -2572,32 +2641,57 @@ function ReviewShipmentDialog({
                     <Plus className="h-3.5 w-3.5" />
                     Add product
                   </p>
-                  <div className="space-y-1">
+                  <p className="text-[11px] text-muted-foreground">
+                    PrepCorex / manual inventory only ({prepcorexInventoryForAdd.length} products
+                    {firestoreInventoryLoading ? ", loading…" : ""}). Marketplace listings are
+                    hidden. Same product can be added again as another line/pack. Zero-qty stays listed
+                    but disabled.
+                  </p>
+                  <div className="space-y-2">
                     <label className="text-xs text-muted-foreground">Product</label>
-                    <Select
-                      value={addProductId || undefined}
-                      onValueChange={setAddProductId}
+                    <Input
+                      placeholder="Search by name or SKU…"
+                      className="h-8 text-xs"
+                      value={addProductQuery}
+                      onChange={(e) => setAddProductQuery(e.target.value)}
                       disabled={addSaving || lineCorrectSaving}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="Select PrepCorex inventory" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        {addableProducts.length === 0 ? (
-                          <div className="px-2 py-3 text-xs text-muted-foreground">
-                            No PrepCorex inventory with available qty (marketplace listings are hidden).
-                          </div>
-                        ) : (
-                          addableProducts.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.productName}
-                              {p.sku && p.sku !== p.productName ? ` (${p.sku})` : ""} — {p.quantity}{" "}
-                              avail
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
+                    />
+                    <div className="max-h-80 overflow-y-auto rounded-md border bg-background">
+                      {addableProductsFiltered.length === 0 ? (
+                        <div className="px-3 py-4 text-xs text-muted-foreground text-center">
+                          {firestoreInventoryLoading
+                            ? "Loading inventory…"
+                            : prepcorexInventoryForAdd.length === 0
+                              ? "No PrepCorex inventory found for this client."
+                              : "No products match your search."}
+                        </div>
+                      ) : (
+                        addableProductsFiltered.map((p) => {
+                          const disabled =
+                            addSaving || lineCorrectSaving || p.quantity <= 0;
+                          const selected = addProductId === p.id;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => setAddProductId(p.id)}
+                              className={`flex w-full flex-col items-start gap-0.5 border-b px-3 py-2 text-left text-xs last:border-b-0 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 ${
+                                selected ? "bg-accent" : ""
+                              }`}
+                            >
+                              <span className="font-medium leading-snug">{p.productName}</span>
+                              <span className="text-muted-foreground">
+                                {p.sku && p.sku !== p.productName ? `${p.sku} · ` : ""}
+                                {p.quantity} avail
+                                {p.alreadyOnOrder ? " · already on order (add another line OK)" : ""}
+                                {p.quantity <= 0 ? " · out of stock" : ""}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-end gap-2">
                     <div className="space-y-1">
@@ -2637,7 +2731,13 @@ function ReviewShipmentDialog({
                     <Button
                       type="button"
                       size="sm"
-                      disabled={addSaving || lineCorrectSaving || !addProductId}
+                      disabled={
+                        addSaving ||
+                        lineCorrectSaving ||
+                        !addProductId ||
+                        prepcorexInventoryForAdd.find((p) => p.id === addProductId)?.quantity ===
+                          0
+                      }
                       onClick={() => void submitAddProduct()}
                     >
                       {addSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Add to order"}

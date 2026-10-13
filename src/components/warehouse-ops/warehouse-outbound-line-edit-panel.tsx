@@ -14,13 +14,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   buildEditableShipmentLines,
@@ -77,6 +70,7 @@ export function WarehouseOutboundLineEditPanel({
   const [addBoxes, setAddBoxes] = useState("1");
   const [addPackOf, setAddPackOf] = useState("1");
   const [addUnitPrice, setAddUnitPrice] = useState("0");
+  const [addProductQuery, setAddProductQuery] = useState("");
   const [adding, setAdding] = useState(false);
 
   const loadLines = useCallback(async () => {
@@ -148,8 +142,23 @@ export function WarehouseOutboundLineEditPanel({
     const onOrder = new Set(
       activeLines.map((l) => String(l.productId ?? "").trim()).filter(Boolean)
     );
-    return inventoryOptions.filter((p) => p.quantity > 0 && !onOrder.has(p.id));
-  }, [inventoryOptions, activeLines]);
+    const q = addProductQuery.trim().toLowerCase();
+    return inventoryOptions
+      .map((p) => ({
+        ...p,
+        alreadyOnOrder: onOrder.has(p.id),
+      }))
+      .filter((p) => {
+        if (!q) return true;
+        return `${p.productName} ${p.sku}`.toLowerCase().includes(q);
+      })
+      .sort((a, b) => {
+        const rank = (p: { quantity: number }) => (p.quantity <= 0 ? 1 : 0);
+        const diff = rank(a) - rank(b);
+        if (diff !== 0) return diff;
+        return a.productName.localeCompare(b.productName);
+      });
+  }, [inventoryOptions, activeLines, addProductQuery]);
 
   function startEdit(line: EditableOutboundShipmentLine) {
     setEditingIndex(line.lineIndex);
@@ -334,10 +343,11 @@ export function WarehouseOutboundLineEditPanel({
         setPickHints(result.pickSourceHints);
       }
       setAddProductId("");
+      setAddProductQuery("");
       setAddBoxes("1");
       setAddPackOf("1");
       setAddUnitPrice("0");
-      await loadLines();
+      await Promise.all([loadLines(), loadInventoryOptions()]);
       onEdited?.();
     } catch (e) {
       toast({
@@ -536,32 +546,52 @@ export function WarehouseOutboundLineEditPanel({
               <Plus className="h-3.5 w-3.5" />
               Add product
             </p>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <Label className="text-xs">Product</Label>
-              <Select
-                value={addProductId || undefined}
-                onValueChange={setAddProductId}
+              <p className="text-[11px] text-muted-foreground">
+                PrepCorex / manual only ({inventoryOptions.length}). Same product can be added again
+                as another line/pack.
+              </p>
+              <Input
+                placeholder="Search by name or SKU…"
+                className="h-8 text-xs"
+                value={addProductQuery}
+                onChange={(e) => setAddProductQuery(e.target.value)}
                 disabled={adding || saving}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select PrepCorex inventory" />
-                </SelectTrigger>
-                <SelectContent className="max-h-72">
-                  {addableProducts.length === 0 ? (
-                    <div className="px-2 py-3 text-xs text-muted-foreground">
-                      No PrepCorex inventory with available qty (marketplace listings are hidden).
-                    </div>
-                  ) : (
-                    addableProducts.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.productName}
-                        {p.sku && p.sku !== p.productName ? ` (${p.sku})` : ""} — {p.quantity}{" "}
-                        avail
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+              />
+              <div className="max-h-80 overflow-y-auto rounded-md border bg-background">
+                {addableProducts.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                    {inventoryOptions.length === 0
+                      ? "No PrepCorex inventory found."
+                      : "No products match your search."}
+                  </div>
+                ) : (
+                  addableProducts.map((p) => {
+                    const disabled = adding || saving || p.quantity <= 0;
+                    const selected = addProductId === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setAddProductId(p.id)}
+                        className={`flex w-full flex-col items-start gap-0.5 border-b px-3 py-2 text-left text-xs last:border-b-0 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 ${
+                          selected ? "bg-accent" : ""
+                        }`}
+                      >
+                        <span className="font-medium leading-snug">{p.productName}</span>
+                        <span className="text-muted-foreground">
+                          {p.sku && p.sku !== p.productName ? `${p.sku} · ` : ""}
+                          {p.quantity} avail
+                          {p.alreadyOnOrder ? " · already on order (add another line OK)" : ""}
+                          {p.quantity <= 0 ? " · out of stock" : ""}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </div>
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-1">
