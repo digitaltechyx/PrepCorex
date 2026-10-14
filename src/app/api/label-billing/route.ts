@@ -75,7 +75,7 @@ export async function PATCH(request: NextRequest) {
 
     const body = (await request.json()) as {
       userId?: string;
-      mode?: "limit" | "wallet";
+      mode?: "limit" | "wallet" | "both";
       limitAmountCents?: number;
       limitAmountDollars?: number;
       walletSpendLimitCents?: number;

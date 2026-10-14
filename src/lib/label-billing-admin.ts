@@ -238,7 +238,7 @@ export async function applyLabelBillingSpend(
       ...settings,
       periodUsedCents: nextUsed,
       periodKey: labelBillingPeriodKey(settings.period),
-      mode: settings.mode === "wallet" ? "wallet" : "limit",
+      mode: settings.mode,
     };
     tx.set(
       userRef,
@@ -273,7 +273,7 @@ export async function adminUpdateLabelBilling(
   db: AdminDb,
   opts: {
     userId: string;
-    mode?: "limit" | "wallet";
+    mode?: "limit" | "wallet" | "both";
     limitAmountCents?: number;
     walletSpendLimitCents?: number;
     period?: LabelBillingPeriod;
@@ -312,12 +312,12 @@ export async function adminUpdateLabelBilling(
     );
     let ledgerDraft: LedgerDraft | null = null;
 
-    if (opts.mode === "limit" || opts.mode === "wallet") {
+    if (opts.mode === "limit" || opts.mode === "wallet" || opts.mode === "both") {
       settings = {
         ...settings,
         mode: opts.mode,
-        // Wallet-only: hide trial/card path. Limit mode: enable ongoing card purchases.
-        trialDisabled: opts.mode === "wallet" ? true : false,
+        // Wallet-only: hide trial/card. Both: ongoing card limit (no trial). Limit: card only.
+        trialDisabled: opts.mode === "wallet" || opts.mode === "both" ? true : false,
       };
     }
     if (opts.resetTrial) {

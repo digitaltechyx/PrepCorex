@@ -566,7 +566,8 @@ export interface UserProfile {
   labelBilling?: LabelBillingSettings | null;
 }
 
-export type LabelBillingMode = "limit" | "wallet";
+/** `limit` = card only; `wallet` = prepaid wallet only; `both` = user chooses card or wallet. */
+export type LabelBillingMode = "limit" | "wallet" | "both";
 export type LabelBillingPeriod = "daily" | "weekly" | "monthly" | "yearly";
 
 export type LabelApiFeeCadence = "monthly" | "onetime";
@@ -588,7 +589,7 @@ export interface LabelApiFeeSettings {
 
 /** Per-user Buy Labels billing (stored on `users/{uid}.labelBilling`). */
 export interface LabelBillingSettings {
-  /** Buy Labels: `limit` = card + period purchase cap; `wallet` = prepaid wallet. */
+  /** Buy Labels: `limit` = card only; `wallet` = wallet only; `both` = card or wallet. */
   mode: LabelBillingMode;
   /** ISO instant when the optional 30-day Buy Label trial window started (legacy wallet+trial). */
   trialStartedAtIso?: string | null;

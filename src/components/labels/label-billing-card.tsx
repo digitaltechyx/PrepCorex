@@ -477,6 +477,9 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
     ? Math.max(1, Math.ceil(labelTrialRemainingMs(settings) / (24 * 60 * 60 * 1000)))
     : 0;
   const limitMode = settings.mode === "limit";
+  const bothMode = settings.mode === "both";
+  const showCardLimit = limitMode || bothMode;
+  const showWallet = settings.mode === "wallet" || bothMode;
 
   return (
     <>
@@ -536,13 +539,21 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
           </CardContent>
         </Card>
 
-        {limitMode ? (
+        {showCardLimit ? (
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-lg">Card purchase limit</CardTitle>
               <CardDescription>
-                Pay per label with your card up to the limit each{" "}
-                {formatLabelBillingPeriod(settings.period)}
+                {bothMode
+                  ? "Pay by card up to this limit, or use your wallet instead."
+                  : "Pay per label with your card up to the limit each"}{" "}
+                {!bothMode ? formatLabelBillingPeriod(settings.period) : null}
+                {bothMode ? (
+                  <>
+                    {" "}
+                    Each {formatLabelBillingPeriod(settings.period)}
+                  </>
+                ) : null}
                 {ends ? ` · Resets ${format(ends, "PPp")}` : null}
               </CardDescription>
             </CardHeader>
@@ -556,29 +567,30 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
               {formatLabelBillingMoney(settings.limitAmountCents)}
             </CardContent>
           </Card>
-        ) : (
-          <>
-            {trialActive ? (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-lg">Buy Label Trial</CardTitle>
-                  <CardDescription>
-                    {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"} left in your 30-day trial
-                    {trialEnds ? ` · Ends ${format(trialEnds, "PP")}` : null}
-                    {ends ? ` · Trial limit resets ${format(ends, "PPp")}` : null}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="text-sm text-muted-foreground">
-                  Pay per label with card during your trial. After 30 days, only your wallet remains.
-                  Remaining this {formatLabelBillingPeriod(settings.period)}:{" "}
-                  <span className="font-medium text-foreground">
-                    {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
-                  </span>
-                </CardContent>
-              </Card>
-            ) : null}
+        ) : null}
 
-            <Card>
+        {!showCardLimit && trialActive ? (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg">Buy Label Trial</CardTitle>
+              <CardDescription>
+                {trialDaysLeft} day{trialDaysLeft === 1 ? "" : "s"} left in your 30-day trial
+                {trialEnds ? ` · Ends ${format(trialEnds, "PP")}` : null}
+                {ends ? ` · Trial limit resets ${format(ends, "PPp")}` : null}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              Pay per label with card during your trial. After 30 days, only your wallet remains.
+              Remaining this {formatLabelBillingPeriod(settings.period)}:{" "}
+              <span className="font-medium text-foreground">
+                {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
+              </span>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {showWallet ? (
+          <Card>
             <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2 text-lg">
@@ -625,7 +637,11 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
                   </p>
                 </div>
               </div>
-              {!trialActive ? (
+              {bothMode ? (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Choose card or wallet when you buy labels. Top up anytime to use wallet balance.
+                </p>
+              ) : !trialActive ? (
                 <p className="mt-3 text-sm text-muted-foreground">
                   Your 30-day Buy Label trial has ended. Top up your wallet to purchase labels.
                 </p>
@@ -635,9 +651,8 @@ export function LabelBillingCard({ onBillingLoaded }: Props) {
                 </p>
               )}
             </CardContent>
-            </Card>
-          </>
-        )}
+          </Card>
+        ) : null}
 
         {limitMode && apiFeeBanner ? (
           <Card>

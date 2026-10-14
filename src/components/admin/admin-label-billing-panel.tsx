@@ -123,7 +123,9 @@ export function AdminLabelBillingPanel() {
       const s = data.settings as LabelBillingSettings;
       setSettings(s);
       setPeriod(s.period);
-      setBillingMode(s.mode === "wallet" ? "wallet" : "limit");
+      setBillingMode(
+        s.mode === "wallet" ? "wallet" : s.mode === "both" ? "both" : "limit"
+      );
       setLimitDollars((s.limitAmountCents / 100).toFixed(2));
       setWalletSpendLimitDollars((labelWalletSpendLimitCents(s) / 100).toFixed(2));
       setWalletDollars(((s.walletBalanceCents || 0) / 100).toFixed(2));
@@ -279,55 +281,67 @@ export function AdminLabelBillingPanel() {
           <>
             <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
               {labelBillingSummaryLine(settings)}
-              {billingMode === "limit" ? (
+              {billingMode === "limit" || billingMode === "both" ? (
                 <span className="text-muted-foreground">
                   {" "}
                   · Card left {formatLabelBillingMoney(labelBillingRemainingCents(settings))}
                 </span>
-              ) : (
+              ) : null}
+              {billingMode === "wallet" || billingMode === "both" ? (
                 <span className="text-muted-foreground">
                   {" "}
                   · Wallet left {formatLabelBillingMoney(labelWalletRemainingCents(settings))}
                 </span>
-              )}
+              ) : null}
             </p>
             <p className="text-sm text-muted-foreground">
               {billingMode === "limit"
                 ? "Card purchase limit — client pays by card only, up to the period cap."
-                : isLabelTrialActive(settings)
-                  ? `Wallet mode · trial active until ${labelTrialEndsAt(settings)?.toLocaleString() || "—"}`
-                  : "Wallet mode — prepaid wallet only (trial ended or disabled)."}
+                : billingMode === "both"
+                  ? "Card + wallet — client chooses card (period cap) or prepaid wallet on each purchase."
+                  : isLabelTrialActive(settings)
+                    ? `Wallet mode · trial active until ${labelTrialEndsAt(settings)?.toLocaleString() || "—"}`
+                    : "Wallet mode — prepaid wallet only (trial ended or disabled)."}
             </p>
 
             <div className="space-y-2">
-              <Label>Billing mode (pick one)</Label>
+              <Label>Billing mode</Label>
               <RadioGroup
                 value={billingMode}
                 onValueChange={(v) => setBillingMode(v as LabelBillingMode)}
-                className="grid gap-3 sm:grid-cols-2"
+                className="grid gap-3 sm:grid-cols-3"
               >
                 <label className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-3 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
                   <RadioGroupItem value="limit" className="mt-0.5" />
                   <div>
-                    <p className="text-sm font-medium">Card purchase limit</p>
+                    <p className="text-sm font-medium">Card only</p>
                     <p className="text-xs text-muted-foreground">
-                      Period options + card spend cap. No wallet checkout.
+                      Period cap. No wallet checkout.
                     </p>
                   </div>
                 </label>
                 <label className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-3 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
                   <RadioGroupItem value="wallet" className="mt-0.5" />
                   <div>
-                    <p className="text-sm font-medium">Wallet (prepaid)</p>
+                    <p className="text-sm font-medium">Wallet only</p>
                     <p className="text-xs text-muted-foreground">
-                      Period options + wallet spend limit + balance. No card limit checkout.
+                      Prepaid balance. No ongoing card checkout.
+                    </p>
+                  </div>
+                </label>
+                <label className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-3 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
+                  <RadioGroupItem value="both" className="mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium">Card + wallet</p>
+                    <p className="text-xs text-muted-foreground">
+                      Client chooses card or wallet each time.
                     </p>
                   </div>
                 </label>
               </RadioGroup>
             </div>
 
-            {billingMode === "limit" ? (
+            {(billingMode === "limit" || billingMode === "both") && (
               <div className="space-y-4 rounded-md border border-primary/20 bg-primary/[0.03] p-4">
                 <div>
                   <p className="text-sm font-semibold">Card purchase limit options</p>
@@ -369,35 +383,41 @@ export function AdminLabelBillingPanel() {
                   />
                 </div>
               </div>
-            ) : (
+            )}
+
+            {(billingMode === "wallet" || billingMode === "both") && (
               <div className="space-y-4 rounded-md border border-primary/20 bg-primary/[0.03] p-4">
                 <div>
                   <p className="text-sm font-semibold">Wallet options</p>
                   <p className="text-xs text-muted-foreground">
-                    Choose the reset period, wallet spend cap, and current prepaid balance.
+                    {billingMode === "both"
+                      ? "Wallet spend cap and prepaid balance (period above applies to both card and wallet)."
+                      : "Choose the reset period, wallet spend cap, and current prepaid balance."}
                   </p>
                 </div>
-                <div className="space-y-2">
-                  <Label>Period</Label>
-                  <RadioGroup
-                    value={period}
-                    onValueChange={(v) => setPeriod(v as LabelBillingPeriod)}
-                    className="grid gap-2 sm:grid-cols-2"
-                  >
-                    {PERIOD_OPTIONS.map((opt) => (
-                      <label
-                        key={opt.value}
-                        className="flex cursor-pointer items-start gap-3 rounded-md border bg-background px-3 py-2 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
-                      >
-                        <RadioGroupItem value={opt.value} className="mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium">{opt.label}</p>
-                          <p className="text-xs text-muted-foreground">{opt.hint}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </RadioGroup>
-                </div>
+                {billingMode === "wallet" ? (
+                  <div className="space-y-2">
+                    <Label>Period</Label>
+                    <RadioGroup
+                      value={period}
+                      onValueChange={(v) => setPeriod(v as LabelBillingPeriod)}
+                      className="grid gap-2 sm:grid-cols-2"
+                    >
+                      {PERIOD_OPTIONS.map((opt) => (
+                        <label
+                          key={opt.value}
+                          className="flex cursor-pointer items-start gap-3 rounded-md border bg-background px-3 py-2 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
+                        >
+                          <RadioGroupItem value={opt.value} className="mt-0.5" />
+                          <div>
+                            <p className="text-sm font-medium">{opt.label}</p>
+                            <p className="text-xs text-muted-foreground">{opt.hint}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </RadioGroup>
+                  </div>
+                ) : null}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>
@@ -441,14 +461,16 @@ export function AdminLabelBillingPanel() {
                     </p>
                   </div>
                 </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={trialDisabled}
-                    onCheckedChange={(v) => setTrialDisabled(v === true)}
-                    disabled
-                  />
-                  Disable Buy Label trial (always on for wallet mode)
-                </label>
+                {billingMode === "wallet" ? (
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={trialDisabled}
+                      onCheckedChange={(v) => setTrialDisabled(v === true)}
+                      disabled
+                    />
+                    Disable Buy Label trial (always on for wallet-only mode)
+                  </label>
+                ) : null}
               </div>
             )}
 
@@ -495,8 +517,12 @@ export function AdminLabelBillingPanel() {
                     <Label>API fee (Buy Labels access)</Label>
                     <p className="text-xs text-muted-foreground mt-1">
                       When enabled, the client must pay this fee before buying labels
-                      {billingMode === "wallet" ? " (wallet or ACH/Zelle)" : " (card or ACH/Zelle)"}.
-                      Monthly renews every 30 days; one-time unlocks permanently.
+                      {billingMode === "wallet"
+                        ? " (wallet or ACH/Zelle)"
+                        : billingMode === "both"
+                          ? " (card, wallet, or ACH/Zelle)"
+                          : " (card or ACH/Zelle)"}
+                      . Monthly renews every 30 days; one-time unlocks permanently.
                     </p>
                   </div>
                   <label className="flex items-center gap-2 text-sm shrink-0">
@@ -566,46 +592,51 @@ export function AdminLabelBillingPanel() {
                 onClick={() => {
                   const addAmount = Number(addBalanceDollars);
                   const shouldAddBalance =
-                    billingMode === "wallet" &&
+                    (billingMode === "wallet" || billingMode === "both") &&
                     addBalanceDollars.trim() !== "" &&
                     Number.isFinite(addAmount) &&
                     addAmount > 0;
+
+                  const shared = {
+                    period,
+                    markupDollars: Number(markupDollars),
+                    allowShippo,
+                    allowShipbest,
+                    apiFeeEnabled,
+                    apiFeeCadence,
+                    apiFeeAmountDollars: Number(apiFeeDollars),
+                    ...(shouldAddBalance
+                      ? {
+                          reissueCreditDollars: addAmount,
+                          reason:
+                            reason ||
+                            `Admin added $${addAmount.toFixed(2)} to wallet balance`,
+                        }
+                      : { reason: reason || undefined }),
+                  };
 
                   void patch(
                     billingMode === "limit"
                       ? {
                           mode: "limit",
-                          period,
                           limitAmountDollars: Number(limitDollars),
                           trialDisabled: false,
-                          markupDollars: Number(markupDollars),
-                          allowShippo,
-                          allowShipbest,
-                          apiFeeEnabled,
-                          apiFeeCadence,
-                          apiFeeAmountDollars: Number(apiFeeDollars),
-                          reason: reason || undefined,
+                          ...shared,
                         }
-                      : {
-                          mode: "wallet",
-                          period,
-                          walletSpendLimitDollars: Number(walletSpendLimitDollars),
-                          trialDisabled: true,
-                          markupDollars: Number(markupDollars),
-                          allowShippo,
-                          allowShipbest,
-                          apiFeeEnabled,
-                          apiFeeCadence,
-                          apiFeeAmountDollars: Number(apiFeeDollars),
-                          ...(shouldAddBalance
-                            ? {
-                                reissueCreditDollars: addAmount,
-                                reason:
-                                  reason ||
-                                  `Admin added $${addAmount.toFixed(2)} to wallet balance`,
-                              }
-                            : { reason: reason || undefined }),
-                        },
+                      : billingMode === "both"
+                        ? {
+                            mode: "both",
+                            limitAmountDollars: Number(limitDollars),
+                            walletSpendLimitDollars: Number(walletSpendLimitDollars),
+                            trialDisabled: true,
+                            ...shared,
+                          }
+                        : {
+                            mode: "wallet",
+                            walletSpendLimitDollars: Number(walletSpendLimitDollars),
+                            trialDisabled: true,
+                            ...shared,
+                          },
                     shouldAddBalance
                       ? "Saved — billing settings updated and balance added"
                       : "Saved"

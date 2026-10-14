@@ -254,12 +254,25 @@ export function labelBillingPeriodEndsAt(period: LabelBillingPeriod, now = new D
   return new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
 }
 
+export function labelBillingAllowsWallet(mode: LabelBillingMode | null | undefined): boolean {
+  return mode === "wallet" || mode === "both";
+}
+
+export function labelBillingAllowsCard(
+  settings: Pick<LabelBillingSettings, "mode" | "trialStartedAtIso" | "trialDisabled">,
+  now = new Date()
+): boolean {
+  if (settings.mode === "limit" || settings.mode === "both") return true;
+  return settings.mode === "wallet" && isLabelTrialActive(settings, now);
+}
+
 export function normalizeLabelBillingSettings(
   raw: Partial<LabelBillingSettings> | null | undefined,
   now = new Date()
 ): LabelBillingSettings {
-  /** Explicit admin mode: limit = card + period cap; wallet = prepaid wallet. */
-  const mode: LabelBillingMode = raw?.mode === "wallet" ? "wallet" : "limit";
+  /** Explicit admin mode: limit = card; wallet = prepaid; both = user chooses. */
+  const mode: LabelBillingMode =
+    raw?.mode === "wallet" ? "wallet" : raw?.mode === "both" ? "both" : "limit";
   const period: LabelBillingPeriod =
     raw?.period === "daily" ||
     raw?.period === "weekly" ||
@@ -319,8 +332,8 @@ export function normalizeLabelBillingSettings(
 
   let trialStartedAtIso = raw?.trialStartedAtIso ? String(raw.trialStartedAtIso) : null;
   let trialDisabled = raw?.trialDisabled === true;
-  if (!trialStartedAtIso && mode === "wallet") {
-    // Wallet-only accounts typically skip the 30-day card trial window.
+  if (!trialStartedAtIso && (mode === "wallet" || mode === "both")) {
+    // Wallet-only / both: card uses ongoing limit (both) or is disabled (wallet) — skip trial window.
     trialDisabled = true;
   } else if (!trialStartedAtIso) {
     trialStartedAtIso = now.toISOString();
@@ -417,8 +430,11 @@ export function resolveLabelPaymentSource(
   preferWallet: boolean,
   now = new Date()
 ): LabelPaymentSource {
-  // Admin assigns exactly one path: card purchase limit OR wallet.
   if (settings.mode === "limit") return "limit";
+  // Card + wallet: user chooses; card spends against the ongoing period limit (not trial).
+  if (settings.mode === "both") {
+    return preferWallet ? "wallet" : "limit";
+  }
   // Wallet mode: optional short trial may still pay by card; otherwise wallet only.
   if (preferWallet) return "wallet";
   if (isLabelTrialActive(settings, now)) return "trial";
@@ -473,7 +489,7 @@ export function canSpendLabelBilling(
         code: "TRIAL_EXPIRED",
       };
     }
-    if (settings.mode === "wallet" && source === "limit") {
+    if (!labelBillingAllowsCard(settings, now) || (settings.mode === "wallet" && source === "limit")) {
       return {
         ok: false,
         error: "Card purchases are not enabled for this account. Use your label wallet.",
@@ -491,8 +507,8 @@ export function canSpendLabelBilling(
     return { ok: true, settings };
   }
 
-  // Wallet spend is only for wallet-mode accounts.
-  if (settings.mode === "limit") {
+  // Wallet spend for wallet-only or card+wallet accounts.
+  if (!labelBillingAllowsWallet(settings.mode)) {
     return {
       ok: false,
       error: "Wallet purchases are not enabled for this account. Pay by card within your purchase limit.",
@@ -534,6 +550,9 @@ export function labelBillingSummaryLine(
 
   if (settings.mode === "limit") {
     return `Card purchase limit · ${limit}/${period} · Used ${used} · Left ${left}`;
+  }
+  if (settings.mode === "both") {
+    return `Card or wallet · Card ${limit}/${period} (left ${left}) · Wallet ${walletBal} · Wallet limit left ${walletLeft}`;
   }
   if (trialActive) {
     const ends = labelTrialEndsAt(settings, now);

@@ -247,27 +247,27 @@ type LocationDoc = {
 };
 
 const EMPTY_TO_ADDRESS: FormValues["toAddress"] = {
-  name: "",
-  street1: "",
-  street2: "",
-  city: "",
-  state: "",
-  zip: "",
-  country: "US",
+    name: "",
+    street1: "",
+    street2: "",
+    city: "",
+    state: "",
+    zip: "",
+    country: "US",
   /** Default to warehouse phone; user can change recipient phone on To. */
   phone: BUY_LABELS_DEFAULT_FROM_PHONE,
-  email: "",
+    email: "",
 };
 
 const DEFAULT_FROM_PHONE = BUY_LABELS_DEFAULT_FROM_PHONE;
 
 const DEFAULT_PARCEL: FormValues["parcel"] = {
-  length: 15,
-  width: 4,
-  height: 4,
-  weightPounds: 0,
-  weightOunces: 13,
-  distanceUnit: "in",
+    length: 15,
+    width: 4,
+    height: 4,
+    weightPounds: 0,
+    weightOunces: 13,
+    distanceUnit: "in",
 };
 
 function distanceToInches(value: number, unit: FormValues["parcel"]["distanceUnit"]): number {
@@ -418,9 +418,12 @@ export function BuyLabelsForm({
   const trialActive = labelBilling ? isLabelTrialActive(labelBilling) : false;
   const limitMode = labelBilling?.mode === "limit";
   const walletMode = labelBilling?.mode === "wallet";
-  // Dual card/wallet picker only during wallet-mode trial. Limit mode is card-only.
-  const showPaymentPicker = !isBillingExempt && walletMode && trialActive;
-  const cardPaymentSource: LabelPaymentSource = limitMode ? "limit" : "trial";
+  const bothMode = labelBilling?.mode === "both";
+  // Dual picker: permanent for card+wallet mode, or during wallet-mode trial.
+  const showPaymentPicker =
+    !isBillingExempt && (bothMode || (walletMode && trialActive));
+  const cardPaymentSource: LabelPaymentSource =
+    bothMode || limitMode ? "limit" : "trial";
 
   useEffect(() => {
     if (!labelBilling || isBillingExempt) return;
@@ -428,12 +431,21 @@ export function BuyLabelsForm({
       setPaymentSource("limit");
       return;
     }
+    if (bothMode) {
+      // Prefer wallet when funded; otherwise card within period limit.
+      if ((labelBilling.walletBalanceCents || 0) > 0) {
+        setPaymentSource("wallet");
+      } else {
+        setPaymentSource("limit");
+      }
+      return;
+    }
     if (trialActive && labelBillingRemainingCents(labelBilling) > 0) {
       setPaymentSource("trial");
       return;
     }
     setPaymentSource("wallet");
-  }, [labelBilling, trialActive, limitMode, isBillingExempt]);
+  }, [labelBilling, trialActive, limitMode, bothMode, isBillingExempt]);
 
   const payWithWallet = !isBillingExempt && paymentSource === "wallet";
 
@@ -449,7 +461,9 @@ export function BuyLabelsForm({
           <label className="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5">
             <RadioGroupItem value={cardPaymentSource} className="mt-0.5" />
             <div>
-              <p className="text-sm font-medium">Buy Label Trial (card)</p>
+              <p className="text-sm font-medium">
+                {bothMode ? "Pay by card" : "Buy Label Trial (card)"}
+              </p>
               <p className="text-xs text-muted-foreground">
                 {formatLabelBillingMoney(labelBillingRemainingCents(labelBilling))} remaining this{" "}
                 {labelBilling.period === "daily"
@@ -779,9 +793,9 @@ export function BuyLabelsForm({
       };
 
       const requestBody = JSON.stringify({
-        fromAddress: data.fromAddress,
-        toAddress: data.toAddress,
-        parcel: parcelData,
+          fromAddress: data.fromAddress,
+          toAddress: data.toAddress,
+          parcel: parcelData,
       });
 
       const token = await user.getIdToken();
@@ -828,7 +842,7 @@ export function BuyLabelsForm({
               body: requestBody,
             });
             const result = await response.json().catch(() => ({}));
-            if (!response.ok) {
+      if (!response.ok) {
               const message =
                 [result.error, result.details].filter(Boolean).join(" — ") ||
                 `Failed to get ${name} rates`;
@@ -1467,14 +1481,14 @@ export function BuyLabelsForm({
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <ShoppingCart className="h-5 w-5" />
-                Purchase Shipping Label
-              </CardTitle>
-              <CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <ShoppingCart className="h-5 w-5" />
+            Purchase Shipping Label
+          </CardTitle>
+          <CardDescription>
                 Enter shipment details to get shipping rates and purchase a label, or import multiple
                 labels from CSV.
-              </CardDescription>
+          </CardDescription>
             </div>
             {canImportBuyLabels ? (
               <Button
@@ -1745,9 +1759,9 @@ export function BuyLabelsForm({
                         <Select
                           onValueChange={(value) => {
                             const prev = field.value;
-                            field.onChange(value);
+                          field.onChange(value);
                             if (prev !== value) {
-                              form.setValue("toAddress.state", "");
+                          form.setValue("toAddress.state", "");
                             }
                           }}
                           value={field.value || undefined}
@@ -2377,36 +2391,36 @@ export function BuyLabelsForm({
                 <div className="mt-4 space-y-3">
                   {paymentMethodPicker}
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <Button
-                      onClick={handleAddToCart}
-                      variant="outline"
-                      size="lg"
-                    >
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add To Cart
-                    </Button>
-                    <Button
-                      onClick={handlePurchaseLabel}
-                      disabled={loading}
-                      size="lg"
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Processing...
-                        </>
+                  <Button
+                    onClick={handleAddToCart}
+                    variant="outline"
+                    size="lg"
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add To Cart
+                  </Button>
+                  <Button
+                    onClick={handlePurchaseLabel}
+                    disabled={loading}
+                    size="lg"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
                       ) : payWithWallet ? (
                         <>
                           <Wallet className="mr-2 h-4 w-4" />
                           Pay from wallet - ${parseFloat(selectedRate.amount).toFixed(2)}
-                        </>
-                      ) : (
-                        <>
-                          <CreditCard className="mr-2 h-4 w-4" />
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="mr-2 h-4 w-4" />
                           Buy label - ${parseFloat(selectedRate.amount).toFixed(2)}
-                        </>
-                      )}
-                    </Button>
+                      </>
+                    )}
+                  </Button>
                   </div>
                 </div>
               )}
