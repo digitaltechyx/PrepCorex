@@ -388,49 +388,52 @@ export function AdminLabelBillingPanel() {
             {(billingMode === "wallet" || billingMode === "both") && (
               <div className="space-y-4 rounded-md border border-primary/20 bg-primary/[0.03] p-4">
                 <div>
-                  <p className="text-sm font-semibold">Wallet options</p>
+                  <p className="text-sm font-semibold">Wallet purchase limit options</p>
                   <p className="text-xs text-muted-foreground">
+                    Same idea as card: max the client can spend from wallet each period (also capped by
+                    prepaid balance).
                     {billingMode === "both"
-                      ? "Wallet spend cap and prepaid balance (period above applies to both card and wallet)."
-                      : "Choose the reset period, wallet spend cap, and current prepaid balance."}
+                      ? " Period is shared with the card section above."
+                      : ""}
                   </p>
                 </div>
-                {billingMode === "wallet" ? (
-                  <div className="space-y-2">
-                    <Label>Period</Label>
-                    <RadioGroup
-                      value={period}
-                      onValueChange={(v) => setPeriod(v as LabelBillingPeriod)}
-                      className="grid gap-2 sm:grid-cols-2"
-                    >
-                      {PERIOD_OPTIONS.map((opt) => (
-                        <label
-                          key={opt.value}
-                          className="flex cursor-pointer items-start gap-3 rounded-md border bg-background px-3 py-2 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
-                        >
-                          <RadioGroupItem value={opt.value} className="mt-0.5" />
-                          <div>
-                            <p className="text-sm font-medium">{opt.label}</p>
-                            <p className="text-xs text-muted-foreground">{opt.hint}</p>
-                          </div>
-                        </label>
-                      ))}
-                    </RadioGroup>
-                  </div>
-                ) : null}
+                <div className="space-y-2">
+                  <Label>Period</Label>
+                  <RadioGroup
+                    value={period}
+                    onValueChange={(v) => setPeriod(v as LabelBillingPeriod)}
+                    className="grid gap-2 sm:grid-cols-2"
+                  >
+                    {PERIOD_OPTIONS.map((opt) => (
+                      <label
+                        key={opt.value}
+                        className="flex cursor-pointer items-start gap-3 rounded-md border bg-background px-3 py-2 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
+                      >
+                        <RadioGroupItem value={opt.value} className="mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium">{opt.label}</p>
+                          <p className="text-xs text-muted-foreground">{opt.hint}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </RadioGroup>
+                </div>
+                <div className="space-y-2 max-w-xs">
+                  <Label>
+                    Wallet purchase limit (USD) / {formatLabelBillingPeriod(period)}
+                  </Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={walletSpendLimitDollars}
+                    onChange={(e) => setWalletSpendLimitDollars(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    How much can be spent from wallet this period. Separate from card limit.
+                  </p>
+                </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>
-                      Wallet spend limit (USD) / {formatLabelBillingPeriod(period)}
-                    </Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={walletSpendLimitDollars}
-                      onChange={(e) => setWalletSpendLimitDollars(e.target.value)}
-                    />
-                  </div>
                   <div className="space-y-2">
                     <Label>Wallet balance (USD)</Label>
                     <Input
@@ -446,7 +449,7 @@ export function AdminLabelBillingPanel() {
                       Current prepaid balance. Use Add balance below to credit more.
                     </p>
                   </div>
-                  <div className="space-y-2 sm:col-span-2 max-w-xs">
+                  <div className="space-y-2">
                     <Label>Add balance (USD)</Label>
                     <Input
                       type="number"

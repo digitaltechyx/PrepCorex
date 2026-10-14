@@ -28,7 +28,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2, Upload, ChevronsUpDown, Check, X, Search, ShoppingBag, Wallet } from "lucide-react";
+import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2, Upload, ChevronsUpDown, Check, X, Search, ShoppingBag, Wallet, Pencil } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Badge } from "@/components/ui/badge";
 import type { BuyLabelShopifyPrefillLine } from "@/lib/shopify-order-buy-label-prefill";
@@ -43,7 +43,12 @@ import {
   filterVisibleBuyLabelRates,
   getBuyLabelRateDisplay,
 } from "@/lib/buy-label-rate-display";
-import { formatUnitDimensions, formatUnitWeight } from "@/lib/box-suggestion";
+import {
+  formatUnitDimensions,
+  formatUnitWeight,
+  readProductUnitMeasurements,
+  suggestBox,
+} from "@/lib/box-suggestion";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
 import { getStripePublishableKey } from "@/lib/stripe";
@@ -185,6 +190,14 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
+/** Inventory products packed into one Buy Labels package / label. */
+type BuyLabelPackageProduct = {
+  id: string;
+  productName: string;
+  sku?: string;
+  quantity: number;
+};
+
 type LabelCartItem = {
   id: string;
   fromAddress: ShippingAddress;
@@ -192,7 +205,55 @@ type LabelCartItem = {
   parcel: ParcelDetails & { weight: number; weightUnit: "lb" };
   selectedRate: ShippingRate;
   shipmentId: string | null;
+  /** Optional multi-product contents for this package. */
+  packageProducts?: BuyLabelPackageProduct[];
 };
+
+const BUY_LABELS_CART_STORAGE_PREFIX = "prepcorex.buyLabels.cart.v1.";
+
+function buyLabelsCartStorageKey(userId: string): string {
+  return `${BUY_LABELS_CART_STORAGE_PREFIX}${userId}`;
+}
+
+function isLabelCartItem(value: unknown): value is LabelCartItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<LabelCartItem>;
+  return (
+    typeof item.id === "string" &&
+    !!item.fromAddress &&
+    !!item.toAddress &&
+    !!item.parcel &&
+    !!item.selectedRate &&
+    typeof item.selectedRate.amount === "string"
+  );
+}
+
+function loadBuyLabelsCart(userId: string): LabelCartItem[] {
+  if (typeof window === "undefined" || !userId) return [];
+  try {
+    const raw = window.localStorage.getItem(buyLabelsCartStorageKey(userId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isLabelCartItem);
+  } catch {
+    return [];
+  }
+}
+
+function saveBuyLabelsCart(userId: string, items: LabelCartItem[]): void {
+  if (typeof window === "undefined" || !userId) return;
+  try {
+    const key = buyLabelsCartStorageKey(userId);
+    if (items.length === 0) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, JSON.stringify(items));
+  } catch {
+    // Ignore quota / private mode failures.
+  }
+}
 
 type LabelProvider = "shippo" | "shipbest";
 
@@ -350,13 +411,15 @@ export function BuyLabelsForm({
   const [paymentAmountCents, setPaymentAmountCents] = useState(0);
   const [paymentCurrency, setPaymentCurrency] = useState("usd");
   const [cartItems, setCartItems] = useState<LabelCartItem[]>([]);
+  const [cartHydrated, setCartHydrated] = useState(false);
+  const [editingCartItemId, setEditingCartItemId] = useState<string | null>(null);
   const [checkoutMode, setCheckoutMode] = useState<"single" | "bulk" | null>(null);
   const [pendingCheckoutItem, setPendingCheckoutItem] = useState<LabelCartItem | null>(null);
   const [labelBilling, setLabelBilling] = useState<LabelBillingSettings | null>(null);
   const [paymentSource, setPaymentSource] = useState<LabelPaymentSource>("limit");
   const [selectedFromLocationId, setSelectedFromLocationId] = useState("");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
-  const [selectedInventoryProductId, setSelectedInventoryProductId] = useState<string>("");
+  const [packageProducts, setPackageProducts] = useState<BuyLabelPackageProduct[]>([]);
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
@@ -371,6 +434,22 @@ export function BuyLabelsForm({
 
   const showClientInventoryPicker =
     enableClientInventoryPicker || Boolean(shopifyOrderContext) || clientOptions.length > 0;
+
+  // Restore cart after refresh (per signed-in user).
+  useEffect(() => {
+    if (!user?.uid) {
+      setCartItems([]);
+      setCartHydrated(false);
+      return;
+    }
+    setCartItems(loadBuyLabelsCart(user.uid));
+    setCartHydrated(true);
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid || !cartHydrated) return;
+    saveBuyLabelsCart(user.uid, cartItems);
+  }, [user?.uid, cartItems, cartHydrated]);
 
   useEffect(() => {
     if (shopifyOrderContext?.ownerUserId) {
@@ -580,8 +659,11 @@ export function BuyLabelsForm({
     });
   }, [inventoryProductOptions, productSearchQuery]);
 
-  const selectedInventoryProduct =
-    inventoryProductOptions.find((item) => item.id === selectedInventoryProductId) ?? null;
+  const selectedInventoryProductIds = useMemo(
+    () => new Set(packageProducts.map((p) => p.id)),
+    [packageProducts]
+  );
+  const primaryPackageProductId = packageProducts[0]?.id || "";
 
   const assignedLocationIds = userProfile?.locations ?? [];
   const activeLocations = locationDocs.filter((loc) => loc.active !== false);
@@ -650,6 +732,7 @@ export function BuyLabelsForm({
       toAddress: EMPTY_TO_ADDRESS,
       parcel: DEFAULT_PARCEL,
     });
+    setPackageProducts([]);
   };
 
   useEffect(() => {
@@ -729,44 +812,212 @@ export function BuyLabelsForm({
     );
   }, [initialParcel, form]);
 
-  const applyParcelFromInventoryProduct = (item: InventoryItem) => {
-    const prefill = buildBuyLabelParcelPrefillFromSource(
-      item as unknown as Record<string, unknown>,
-      { productName: item.productName }
-    );
-    setSelectedInventoryProductId(item.id);
-    if (!prefill) {
+  const syncParcelFromPackageProducts = (products: BuyLabelPackageProduct[]) => {
+    if (products.length === 0) return;
+
+    // Single product: keep previous behavior (unit dims + weight).
+    if (products.length === 1) {
+      const inv = inventoryProductOptions.find((i) => i.id === products[0].id);
+      if (!inv) return;
+      const qty = Math.max(1, Math.floor(products[0].quantity) || 1);
+      const prefill = buildBuyLabelParcelPrefillFromSource(
+        inv as unknown as Record<string, unknown>,
+        { productName: inv.productName }
+      );
+      if (!prefill) {
+        toast({
+          title: "No dimensions on file",
+          description: `“${inv.productName}” has no L/W/H or weight yet. Enter them manually below.`,
+        });
+        return;
+      }
+      const unitWeightLb =
+        (Number(prefill.weightPounds) || 0) + (Number(prefill.weightOunces) || 0) / 16;
+      const totalWeightLb = unitWeightLb * qty;
+      const current = form.getValues("parcel");
+      form.setValue(
+        "parcel",
+        {
+          length: prefill.length ?? current.length,
+          width: prefill.width ?? current.width,
+          height: prefill.height ?? current.height,
+          distanceUnit: prefill.distanceUnit ?? current.distanceUnit ?? "in",
+          weightPounds: Math.round(totalWeightLb * 100) / 100,
+          weightOunces: 0,
+        },
+        { shouldDirty: true, shouldValidate: true }
+      );
       toast({
-        title: "No dimensions on file",
-        description: `“${item.productName}” has no L/W/H or weight yet. Enter them manually below (or add them in Inventory).`,
+        title: "Package details filled",
+        description: [
+          inv.productName,
+          qty > 1 ? `×${qty}` : null,
+          formatUnitDimensions(inv) || null,
+          `${(Math.round(totalWeightLb * 100) / 100).toFixed(2)} lb`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
       });
       return;
     }
+
+    const lines = products.map((p) => {
+      const inv = inventoryProductOptions.find((i) => i.id === p.id);
+      return {
+        productId: p.id,
+        productName: p.productName,
+        sku: p.sku,
+        quantity: Math.max(1, Math.floor(p.quantity) || 1),
+        measurements: readProductUnitMeasurements(
+          inv as unknown as Record<string, unknown> | undefined
+        ),
+      };
+    });
+
+    const suggestion = suggestBox(lines);
     const current = form.getValues("parcel");
+
+    if (suggestion.status === "recommended") {
+      form.setValue(
+        "parcel",
+        {
+          length: suggestion.box.externalLengthIn,
+          width: suggestion.box.externalWidthIn,
+          height: suggestion.box.externalHeightIn,
+          distanceUnit: "in",
+          weightPounds: Math.round(suggestion.grossWeightLb * 100) / 100,
+          weightOunces: 0,
+        },
+        { shouldDirty: true, shouldValidate: true }
+      );
+      toast({
+        title: "Multi-product package filled",
+        description: `${products.length} products · box ${suggestion.box.code} · ${suggestion.grossWeightLb.toFixed(2)} lb (edit if needed).`,
+      });
+      return;
+    }
+
+    // Fallback: sum weights; keep largest single unit footprint for L/W/H.
+    let totalWeightLb = 0;
+    let bestVol = 0;
+    let bestDims: { length: number; width: number; height: number } | null = null;
+    const missing: string[] = [];
+    for (const line of lines) {
+      if (!line.measurements) {
+        missing.push(line.productName || "Product");
+        continue;
+      }
+      totalWeightLb += line.measurements.unitWeightLb * line.quantity;
+      const vol =
+        line.measurements.unitLengthIn *
+        line.measurements.unitWidthIn *
+        line.measurements.unitHeightIn;
+      if (vol > bestVol) {
+        bestVol = vol;
+        bestDims = {
+          length: line.measurements.unitLengthIn,
+          width: line.measurements.unitWidthIn,
+          height: line.measurements.unitHeightIn,
+        };
+      }
+    }
+
+    if (totalWeightLb <= 0 && !bestDims) {
+      toast({
+        title: "Missing product measurements",
+        description:
+          missing.length > 0
+            ? `No L/W/H or weight for: ${missing.join(", ")}. Enter package details manually.`
+            : "Enter package details manually below.",
+      });
+      return;
+    }
+
     form.setValue(
       "parcel",
       {
-        length: prefill.length ?? current.length,
-        width: prefill.width ?? current.width,
-        height: prefill.height ?? current.height,
-        distanceUnit: prefill.distanceUnit ?? current.distanceUnit,
+        length: bestDims?.length ?? current.length,
+        width: bestDims?.width ?? current.width,
+        height: bestDims?.height ?? current.height,
+        distanceUnit: "in",
         weightPounds:
-          prefill.weightPounds != null ? prefill.weightPounds : current.weightPounds,
-        weightOunces:
-          prefill.weightOunces != null ? prefill.weightOunces : current.weightOunces,
+          totalWeightLb > 0
+            ? Math.round(totalWeightLb * 100) / 100
+            : current.weightPounds,
+        weightOunces: 0,
       },
       { shouldDirty: true, shouldValidate: true }
     );
-    const dims = formatUnitDimensions(item) || null;
-    const weight = formatUnitWeight(item) || null;
     toast({
-      title: "Package details filled",
-      description: [item.productName, dims, weight].filter(Boolean).join(" · "),
+      title: "Multi-product package filled",
+      description:
+        missing.length > 0
+          ? `Weight/dims from available products. Missing measurements: ${missing.join(", ")}. Review below.`
+          : `${products.length} products · combined weight applied. Review box size below.`,
     });
   };
 
-  const clearSelectedInventoryProduct = () => {
-    setSelectedInventoryProductId("");
+  const upsertPackageProduct = (item: InventoryItem, quantity = 1) => {
+    const qty = Math.max(1, Math.floor(quantity) || 1);
+    setPackageProducts((prev) => {
+      const existing = prev.find((p) => p.id === item.id);
+      const next = existing
+        ? prev.map((p) => (p.id === item.id ? { ...p, quantity: qty } : p))
+        : [
+            ...prev,
+            {
+              id: item.id,
+              productName: item.productName,
+              sku: item.sku ? String(item.sku) : undefined,
+              quantity: qty,
+            },
+          ];
+      // Defer parcel sync so state is current.
+      queueMicrotask(() => syncParcelFromPackageProducts(next));
+      return next;
+    });
+  };
+
+  const togglePackageProduct = (item: InventoryItem, quantity = 1) => {
+    setPackageProducts((prev) => {
+      const exists = prev.some((p) => p.id === item.id);
+      const next = exists
+        ? prev.filter((p) => p.id !== item.id)
+        : [
+            ...prev,
+            {
+              id: item.id,
+              productName: item.productName,
+              sku: item.sku ? String(item.sku) : undefined,
+              quantity: Math.max(1, Math.floor(quantity) || 1),
+            },
+          ];
+      queueMicrotask(() => syncParcelFromPackageProducts(next));
+      return next;
+    });
+  };
+
+  const setPackageProductQuantity = (productId: string, quantity: number) => {
+    const qty = Math.max(1, Math.floor(quantity) || 1);
+    setPackageProducts((prev) => {
+      const next = prev.map((p) => (p.id === productId ? { ...p, quantity: qty } : p));
+      queueMicrotask(() => syncParcelFromPackageProducts(next));
+      return next;
+    });
+  };
+
+  const removePackageProduct = (productId: string) => {
+    setPackageProducts((prev) => {
+      const next = prev.filter((p) => p.id !== productId);
+      queueMicrotask(() => {
+        if (next.length > 0) syncParcelFromPackageProducts(next);
+      });
+      return next;
+    });
+  };
+
+  const clearPackageProducts = () => {
+    setPackageProducts([]);
   };
 
   const handleGetRates = async (data: FormValues) => {
@@ -1048,13 +1299,102 @@ export function BuyLabelsForm({
       weightUnit: "lb" as const,
     };
     return {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: editingCartItemId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       fromAddress: formData.fromAddress,
       toAddress: formData.toAddress,
       parcel: parcelData,
       selectedRate,
       shipmentId: selectedRate.shipment || shipmentId || null,
+      packageProducts: packageProducts.length > 0 ? packageProducts : undefined,
     };
+  };
+
+  const clearEditingCartState = () => {
+    setEditingCartItemId(null);
+    setRates([]);
+    setSelectedRate(null);
+    setShipmentId(null);
+  };
+
+  const handleStartEditCartItem = (item: LabelCartItem) => {
+    const parcel = item.parcel as FormValues["parcel"] & {
+      weight?: number;
+      weightUnit?: string;
+    };
+    let weightPounds = Number(parcel.weightPounds);
+    let weightOunces = Number(parcel.weightOunces);
+    if (!Number.isFinite(weightPounds) || !Number.isFinite(weightOunces)) {
+      const totalLb = Number(parcel.weight) || 0;
+      weightPounds = Math.floor(totalLb);
+      weightOunces = Math.round((totalLb - weightPounds) * 16 * 1000) / 1000;
+    }
+
+    form.reset({
+      fromAddress: {
+        ...item.fromAddress,
+        phone: item.fromAddress.phone || DEFAULT_FROM_PHONE,
+        country: item.fromAddress.country || "US",
+        email: item.fromAddress.email || "",
+        street2: item.fromAddress.street2 || "",
+      },
+      toAddress: {
+        ...item.toAddress,
+        phone: item.toAddress.phone || "",
+        country: item.toAddress.country || "US",
+        email: item.toAddress.email || "",
+        street2: item.toAddress.street2 || "",
+      },
+      parcel: {
+        length: Number(parcel.length) || DEFAULT_PARCEL.length,
+        width: Number(parcel.width) || DEFAULT_PARCEL.width,
+        height: Number(parcel.height) || DEFAULT_PARCEL.height,
+        weightPounds: Math.max(0, weightPounds),
+        weightOunces: Math.max(0, weightOunces),
+      },
+    });
+
+    // Best-effort match warehouse from the saved from-address.
+    const matchLoc = locationOptions.find((loc) => {
+      const built = buildFromAddressForLocation(loc);
+      return (
+        built.street1 === item.fromAddress.street1 &&
+        built.zip === item.fromAddress.zip &&
+        built.city === item.fromAddress.city
+      );
+    });
+    if (matchLoc) setSelectedFromLocationId(matchLoc.id);
+
+    setEditingCartItemId(item.id);
+    setPackageProducts(item.packageProducts || []);
+    setRates([item.selectedRate]);
+    setSelectedRate(item.selectedRate);
+    setShipmentId(item.shipmentId || item.selectedRate.shipment || null);
+
+    toast({
+      title: "Editing cart item",
+      description: "Update the form, re-get rates if needed, then save back to cart.",
+    });
+
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  const handleCancelEditCartItem = () => {
+    clearEditingCartState();
+    resetFormForNextLabel();
+    toast({
+      title: "Edit cancelled",
+      description: "Cart item left unchanged.",
+    });
+  };
+
+  const handleRemoveCartItem = (itemId: string) => {
+    setCartItems((prev) => prev.filter((item) => item.id !== itemId));
+    if (editingCartItemId === itemId) {
+      clearEditingCartState();
+      resetFormForNextLabel();
+    }
   };
 
   const handleAddToCart = () => {
@@ -1067,15 +1407,23 @@ export function BuyLabelsForm({
       });
       return;
     }
-    setCartItems((prev) => [...prev, item]);
+    const isEditing = Boolean(editingCartItemId);
+    setCartItems((prev) => {
+      if (!editingCartItemId) return [...prev, item];
+      const idx = prev.findIndex((row) => row.id === editingCartItemId);
+      if (idx < 0) return [...prev, item];
+      const next = [...prev];
+      next[idx] = item;
+      return next;
+    });
+    clearEditingCartState();
     resetFormForNextLabel();
-    setRates([]);
-    setSelectedRate(null);
-    setShipmentId(null);
     const displayRate = getRateDisplay(item.selectedRate);
     toast({
-      title: "Added to cart",
-      description: `${displayRate.provider} ${displayRate.service} added.`,
+      title: isEditing ? "Cart item updated" : "Added to cart",
+      description: `${displayRate.provider} ${displayRate.service} ${
+        isEditing ? "updated." : "added."
+      }`,
     });
   };
 
@@ -1176,8 +1524,12 @@ export function BuyLabelsForm({
     }
 
     const selectedProduct = (inventoryItems || []).find(
-      (item) => item.id === selectedInventoryProductId
+      (item) => item.id === primaryPackageProductId
     );
+    const packageProductNames =
+      packageProducts.length > 0
+        ? packageProducts.map((p) => `${p.productName}×${p.quantity}`).join(", ")
+        : selectedProduct?.productName || null;
     const labelPrice = selectedRate
       ? Number.parseFloat(String(selectedRate.amount))
       : NaN;
@@ -1218,8 +1570,8 @@ export function BuyLabelsForm({
           ownerUserId: inventoryOwnerId || shopifyOrderContext.ownerUserId,
           orderId: shopifyOrderContext.orderId,
           connectionId: shopifyOrderContext.connectionId || "",
-          inventoryProductId: selectedInventoryProductId || null,
-          inventoryProductName: selectedProduct?.productName || null,
+          inventoryProductId: primaryPackageProductId || null,
+          inventoryProductName: packageProductNames,
           labelPurchaseId: resolvedPurchaseId,
           labelPrice: Number.isFinite(labelPrice) ? labelPrice : null,
           trackingNumber,
@@ -1256,8 +1608,8 @@ export function BuyLabelsForm({
         orderId: shopifyOrderContext.orderId,
         orderName: shopifyOrderContext.orderName,
         shop: shopifyOrderContext.shop,
-        inventoryProductId: selectedInventoryProductId || null,
-        inventoryProductName: selectedProduct?.productName || null,
+        inventoryProductId: primaryPackageProductId || null,
+        inventoryProductName: packageProductNames,
         labelPurchaseId: resolvedPurchaseId,
         labelPrice: Number.isFinite(labelPrice) ? labelPrice : null,
         trackingNumber,
@@ -1362,13 +1714,13 @@ export function BuyLabelsForm({
             {(shopifyOrderContext.lineItems || []).length > 0 ? (
               <div className="space-y-2">
                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Order line items — pick a warehouse product
+                  Order line items — add one or more warehouse products to this package
                 </div>
                 <ul className="divide-y rounded-md border bg-background">
                   {(shopifyOrderContext.lineItems || []).map((li, idx) => {
                     const matched = findInventoryBySku(li.sku);
                     const selected =
-                      matched && selectedInventoryProductId === matched.id;
+                      matched && selectedInventoryProductIds.has(matched.id);
                     const label = [li.title, li.variantTitle].filter(Boolean).join(" · ");
                     return (
                       <li
@@ -1395,9 +1747,13 @@ export function BuyLabelsForm({
                             size="sm"
                             variant={selected ? "secondary" : "outline"}
                             className="shrink-0"
-                            onClick={() => applyParcelFromInventoryProduct(matched)}
+                            onClick={() =>
+                              selected
+                                ? removePackageProduct(matched.id)
+                                : upsertPackageProduct(matched, Math.max(1, Number(li.quantity) || 1))
+                            }
                           >
-                            {selected ? "Selected" : "Use this product"}
+                            {selected ? "In package" : "Add to package"}
                           </Button>
                         ) : (
                           <Button
@@ -1917,7 +2273,7 @@ export function BuyLabelsForm({
                                     )}
                                     onClick={() => {
                                       setInventoryOwnerUserId(opt.uid);
-                                      setSelectedInventoryProductId("");
+                                      setPackageProducts([]);
                                       setProductSearchQuery("");
                                       setClientPickerOpen(false);
                                       setClientSearchQuery("");
@@ -1941,15 +2297,15 @@ export function BuyLabelsForm({
                   ) : null}
 
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">Product (optional)</Label>
+                    <Label className="text-sm font-medium">
+                      Products in this package (optional)
+                    </Label>
                     <p className="text-xs text-muted-foreground">
                       {showClientInventoryPicker
                         ? inventoryOwnerId
-                          ? shopifyOrderContext
-                            ? "Select the warehouse product for this quick fulfill to autofill dimensions."
-                            : "Select a product from this user’s inventory to autofill dimensions."
+                          ? "Add one or more inventory products for this package. Weight/box size autofill from the selection."
                           : "Select a user above to load their products."
-                        : "Select an inventory product to autofill length, width, height, and weight. Or leave blank and enter package details manually."}
+                        : "Add one or more products to this package (one label). Autofill combined weight/box, or enter package details manually."}
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <Popover
@@ -1971,11 +2327,13 @@ export function BuyLabelsForm({
                             className="relative z-10 w-full max-w-md justify-between font-normal pointer-events-auto"
                           >
                             <span className="truncate">
-                              {selectedInventoryProduct
-                                ? selectedInventoryProduct.productName
+                              {packageProducts.length > 0
+                                ? `${packageProducts.length} product${
+                                    packageProducts.length === 1 ? "" : "s"
+                                  } in package`
                                 : showClientInventoryPicker && !inventoryOwnerId
                                   ? "Select user first…"
-                                  : "Select product…"}
+                                  : "Add products…"}
                             </span>
                             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                           </Button>
@@ -2006,7 +2364,7 @@ export function BuyLabelsForm({
                                 const dims = formatUnitDimensions(item);
                                 const weight = formatUnitWeight(item);
                                 const meta = [item.sku, dims, weight].filter(Boolean).join(" · ");
-                                const selected = selectedInventoryProductId === item.id;
+                                const selected = selectedInventoryProductIds.has(item.id);
                                 const skuMatch = (shopifyOrderContext?.lineItems || []).some(
                                   (li) =>
                                     li.sku &&
@@ -2021,11 +2379,7 @@ export function BuyLabelsForm({
                                       "flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
                                       selected && "bg-accent"
                                     )}
-                                    onClick={() => {
-                                      applyParcelFromInventoryProduct(item);
-                                      setProductPickerOpen(false);
-                                      setProductSearchQuery("");
-                                    }}
+                                    onClick={() => togglePackageProduct(item)}
                                   >
                                     <Check
                                       className={cn(
@@ -2057,25 +2411,67 @@ export function BuyLabelsForm({
                               })
                             )}
                           </div>
+                          {packageProducts.length > 0 ? (
+                            <div className="border-t px-3 py-2 text-xs text-muted-foreground">
+                              Click again to remove. Keep picker open to add more.
+                            </div>
+                          ) : null}
                         </PopoverContent>
                       </Popover>
-                      {selectedInventoryProductId ? (
+                      {packageProducts.length > 0 ? (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           className="h-9 gap-1"
-                          onClick={clearSelectedInventoryProduct}
+                          onClick={clearPackageProducts}
                         >
                           <X className="h-3.5 w-3.5" />
-                          Clear
+                          Clear all
                         </Button>
                       ) : null}
                     </div>
-                    {selectedInventoryProduct ? (
-                      <p className="text-xs text-muted-foreground">
-                        You can still edit the weight and dimensions below after autofill.
-                      </p>
+                    {packageProducts.length > 0 ? (
+                      <div className="space-y-2 rounded-md border p-3">
+                        {packageProducts.map((p) => (
+                          <div
+                            key={p.id}
+                            className="flex flex-wrap items-center gap-2 text-sm"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-medium">{p.productName}</p>
+                              {p.sku ? (
+                                <p className="truncate text-xs text-muted-foreground">{p.sku}</p>
+                              ) : null}
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Label className="text-xs text-muted-foreground">Qty</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                step={1}
+                                className="h-8 w-16 text-xs"
+                                value={p.quantity}
+                                onChange={(e) =>
+                                  setPackageProductQuantity(p.id, Number(e.target.value))
+                                }
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-destructive"
+                                onClick={() => removePackageProduct(p.id)}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                        <p className="text-xs text-muted-foreground">
+                          You can still edit weight and dimensions below after autofill.
+                        </p>
+                      </div>
                     ) : null}
                   </div>
                 </div>
@@ -2387,6 +2783,20 @@ export function BuyLabelsForm({
                 ))}
               </div>
 
+              {editingCartItemId ? (
+                <div className="mt-4 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                  Editing a cart item. Change details, get rates again if needed, then save.
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto px-2 py-0"
+                    onClick={handleCancelEditCartItem}
+                  >
+                    Cancel edit
+                  </Button>
+                </div>
+              ) : null}
+
               {selectedRate && (
                 <div className="mt-4 space-y-3">
                   {paymentMethodPicker}
@@ -2396,12 +2806,21 @@ export function BuyLabelsForm({
                     variant="outline"
                     size="lg"
                   >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add To Cart
+                    {editingCartItemId ? (
+                      <>
+                        <Check className="mr-2 h-4 w-4" />
+                        Update cart item
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add To Cart
+                      </>
+                    )}
                   </Button>
                   <Button
                     onClick={handlePurchaseLabel}
-                    disabled={loading}
+                    disabled={loading || Boolean(editingCartItemId)}
                     size="lg"
                   >
                     {loading ? (
@@ -2437,32 +2856,87 @@ export function BuyLabelsForm({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setCartItems([])}
+                  onClick={() => {
+                    setCartItems([]);
+                    if (editingCartItemId) {
+                      clearEditingCartState();
+                      resetFormForNextLabel();
+                    }
+                  }}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
                   Clear
                 </Button>
               </div>
               <div className="space-y-2 max-h-64 overflow-auto pr-1">
-                {cartItems.map((item, idx) => (
-                  <div key={item.id} className="rounded-md border p-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium">
-                        {idx + 1}. {getRateDisplay(item.selectedRate).provider} -{" "}
-                        {getRateDisplay(item.selectedRate).service}
-                      </p>
-                      <p className="font-semibold">${parseFloat(item.selectedRate.amount).toFixed(2)}</p>
+                {cartItems.map((item, idx) => {
+                  const isEditing = editingCartItemId === item.id;
+                  return (
+                  <div
+                    key={item.id}
+                    className={`rounded-md border p-3 text-sm ${
+                      isEditing ? "border-primary bg-primary/5" : ""
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium">
+                          {idx + 1}. {getRateDisplay(item.selectedRate).provider} -{" "}
+                          {getRateDisplay(item.selectedRate).service}
+                          {isEditing ? (
+                            <span className="ml-2 text-xs font-normal text-primary">Editing</span>
+                          ) : null}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          To: {item.toAddress.name || "—"} · {item.toAddress.city},{" "}
+                          {item.toAddress.state} {item.toAddress.zip}
+                        </p>
+                        {item.packageProducts && item.packageProducts.length > 0 ? (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Products:{" "}
+                            {item.packageProducts
+                              .map((p) => `${p.productName}×${p.quantity}`)
+                              .join(", ")}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <p className="font-semibold">
+                          ${parseFloat(item.selectedRate.amount).toFixed(2)}
+                        </p>
+                        <div className="flex gap-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2"
+                            disabled={Boolean(editingCartItemId) && !isEditing}
+                            onClick={() => handleStartEditCartItem(item)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            <span className="sr-only">Edit</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-destructive hover:text-destructive"
+                            onClick={() => handleRemoveCartItem(item.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span className="sr-only">Remove</span>
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      To: {item.toAddress.city}, {item.toAddress.state} {item.toAddress.zip}
-                    </p>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               {paymentMethodPicker}
               <Button
                 onClick={handleStartBulkCheckout}
-                disabled={loading}
+                disabled={loading || Boolean(editingCartItemId)}
                 className="w-full"
                 size="lg"
               >
