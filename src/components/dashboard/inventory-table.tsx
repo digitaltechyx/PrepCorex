@@ -23,7 +23,14 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History, PackageX, Upload, Loader2, Ruler, Boxes, RotateCcw } from "lucide-react";
+import { Search, Filter, X, Clock, Eye, Edit, PlusCircle, Recycle, Trash2, History, PackageX, Upload, Loader2, Ruler, Boxes, RotateCcw, MoreVertical, ChevronDown } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { InventoryHistoryDialog } from "@/components/inventory/inventory-history-dialog";
@@ -799,7 +806,17 @@ export function InventoryTable({
   const [outOfStockSheetOpen, setOutOfStockSheetOpen] = useState(false);
   const [otherResourcesSheetOpen, setOtherResourcesSheetOpen] = useState(false);
   const [productNamePreview, setProductNamePreview] = useState<string | null>(null);
+  const [expandedMobileIds, setExpandedMobileIds] = useState<Set<string>>(new Set());
   const { toast } = useToast();
+
+  const toggleMobileExpanded = (id: string) => {
+    setExpandedMobileIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   function canAddInboundTracking(
     item: {
@@ -1961,156 +1978,337 @@ export function InventoryTable({
           </div>
         </div>
 
-        {/* Mobile Card List */}
-        <div className="block space-y-2.5 px-3 sm:hidden">
+        {/* Mobile list — compact rows; details expand; actions in ⋮ menu */}
+        <div className="block space-y-1.5 px-3 sm:hidden">
           {filteredData.length > 0 ? (
             paginatedData.map((item) => {
               const isLowStockVisual = inventoryRowIsLowStockStyled(
                 item as { quantity?: number; isRequest?: boolean; source?: string }
               );
+              const rowId = String(item.id);
+              const isExpanded = expandedMobileIds.has(rowId);
+              const sourceMeta = inventorySourceMeta(item as InventorySourceRow);
+              const expiryLots = formatInventoryExpiryLots(item as any);
+              const unitLine = [formatUnitDimensions(item as any), formatUnitWeight(item as any)]
+                .filter(Boolean)
+                .join(" · ");
+              const hasRemarks =
+                Boolean(item.remarks?.trim()) || getRemarksImageUrls(item as any).length > 0;
+              const hasExtraDetails =
+                expiryLots.lines.length > 0 ||
+                Boolean(unitLine) ||
+                Boolean(item.receivingDate) ||
+                hasRemarks ||
+                Boolean((item as any).variantLabel) ||
+                Boolean((item as any).retailIdentifier);
+              const videoRequestId = inboundVideoRequestIdIfRecorded(
+                item as any,
+                recordedRequestIds
+              );
+              const isStockRow = !(item as any).isRequest && !(item as any).isBatch;
+
               return (
-              <div
-                key={item.id}
-                className={cn(
-                  "rounded-lg border bg-white p-2.5",
-                  isLowStockVisual ? lowStockRowCardClass : "border-border"
-                )}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <InventoryAvatar
-                        item={item as any}
-                        className="h-12 w-12 shrink-0"
-                        onImageClick={handleImagePreview}
-                      />
-                      <InventoryProductName
-                        name={item.productName}
-                        textClassName={cn(
-                          "font-semibold",
-                          isLowStockVisual && lowStockTextClass
-                        )}
-                        onViewFull={setProductNamePreview}
-                      />
-                      {inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds) ? (
-                        <InboundReceiveVideoDialog
-                          requestId={inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds)!}
-                          clientUserId={effectiveUserId}
-                          compact
+                <div
+                  key={rowId}
+                  className={cn(
+                    "rounded-lg border bg-white px-2.5 py-2",
+                    isLowStockVisual ? lowStockRowCardClass : "border-border"
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <InventoryAvatar
+                      item={item as any}
+                      className="h-10 w-10 shrink-0"
+                      onImageClick={handleImagePreview}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start gap-1">
+                        <InventoryProductName
+                          name={item.productName}
+                          textClassName={cn(
+                            "line-clamp-1 text-[13px] font-semibold leading-tight",
+                            isLowStockVisual && lowStockTextClass
+                          )}
+                          onViewFull={setProductNamePreview}
                         />
-                      ) : null}
-                      {(item as any).isRequest && (item as any).requestData && item.status === "Pending" && (
-                        <div className="flex shrink-0 items-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto p-1"
-                            onClick={() => handleEditClick((item as any).requestData)}
-                            title="Edit request"
-                          >
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto p-1 text-destructive hover:text-destructive"
-                            onClick={() => {
-                              setCancellingRequest((item as any).requestData);
-                              setCancellationReason("");
-                            }}
-                            title="Cancel request"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
-                      {!hasAdminActions && !(item as any).isRequest && !(item as any).isBatch && (
-                        <div className="flex items-center gap-0.5 shrink-0">
-                          {canEditInventoryExpiry(item as InventorySourceRow) ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-auto p-1"
-                              onClick={() =>
-                                handleInventoryMetadataEdit(item as InventoryItem, "expiry")
-                              }
-                              title="Edit expiry"
-                            >
-                              <Edit className="h-3 w-3" />
-                            </Button>
-                          ) : null}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto p-1"
-                            onClick={() =>
-                              handleInventoryMetadataEdit(item as InventoryItem, "dimensions")
-                            }
-                            title="Edit dimensions"
-                          >
-                            <Ruler className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      )}
-                      {(item as any).isBatch && (item as any).batchData && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-auto shrink-0 p-1"
-                          onClick={() => setSelectedBatch((item as any).batchData)}
-                          title="View batch details"
+                        {videoRequestId ? (
+                          <InboundReceiveVideoDialog
+                            requestId={videoRequestId}
+                            clientUserId={effectiveUserId}
+                            compact
+                          />
+                        ) : null}
+                      </div>
+                      <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
+                        <span className="truncate">SKU: {(item as any).sku || "N/A"}</span>
+                        <span className="text-border">·</span>
+                        <span className="truncate">{sourceMeta.label}</span>
+                        <Badge
+                          variant={inventoryStatusBadge(item.status).variant}
+                          className={cn(
+                            "h-4 px-1.5 text-[9px] font-medium",
+                            item.status === "Awaiting Receiving" &&
+                              "border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                          )}
                         >
-                          <Eye className="h-3 w-3" />
-                        </Button>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">SKU: {(item as any).sku || "N/A"}</div>
-                    <div className="mt-1.5">
-                      <InventorySourceBadge item={item as InventorySourceRow} />
-                    </div>
-                    {(item as any).variantLabel && (
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        Variant: {(item as any).variantLabel}
+                          {inventoryStatusBadge(item.status).label}
+                        </Badge>
                       </div>
-                    )}
-                    {(item as any).retailIdentifier && (
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        Identifier: {(item as any).retailIdentifier}
-                      </div>
-                    )}
-                    {(() => {
-                      const lots = formatInventoryExpiryLots(item as any);
-                      if (lots.lines.length === 0) return null;
-                      return (
-                      <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
-                        {lots.hasLots ? (
-                          lots.lines.map((line) => (
-                            <div key={line}>Expiry: {line}</div>
-                          ))
-                        ) : (
-                          <div>Expiry: {lots.lines[0]}</div>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-0.5">
+                      <span
+                        className={cn(
+                          "text-base font-semibold tabular-nums leading-none",
+                          isLowStockVisual && lowStockQtyClass
                         )}
-                      </div>
-                      );
-                    })()}
-                    {(formatUnitDimensions(item as any) || formatUnitWeight(item as any)) && (
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        Unit: {[formatUnitDimensions(item as any), formatUnitWeight(item as any)]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </div>
+                      >
+                        {formatRowQuantity(item as any)}
+                      </span>
+                      <span className={cn("text-[10px] text-muted-foreground", isLowStockVisual && lowStockTextClass)}>
+                        qty
+                      </span>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 shrink-0"
+                          aria-label="Row actions"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        {(item as any).isBatch && (item as any).batchData ? (
+                          <DropdownMenuItem onClick={() => setSelectedBatch((item as any).batchData)}>
+                            <Eye className="mr-2 h-4 w-4" />
+                            View batch
+                          </DropdownMenuItem>
+                        ) : null}
+                        {(item as any).isRequest &&
+                        (item as any).requestData &&
+                        item.status === "Pending" ? (
+                          <>
+                            <DropdownMenuItem
+                              onClick={() => handleEditClick((item as any).requestData)}
+                            >
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit request
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => {
+                                setCancellingRequest((item as any).requestData);
+                                setCancellationReason("");
+                              }}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Cancel request
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
+                        {isStockRow ? (
+                          <>
+                            <DropdownMenuItem onClick={() => openHistory(item as InventoryItem)}>
+                              <History className="mr-2 h-4 w-4" />
+                              History
+                            </DropdownMenuItem>
+                            {item.status !== "Rejected" && item.status !== "Cancelled" ? (
+                              <>
+                                {canAddInboundTracking(item as any, inventoryRequests) ? (
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      const requestId =
+                                        (item as any).requestId || (item as any).sourceRequestId;
+                                      if (!requestId || !effectiveUserId) return;
+                                      setTrackingDialog({
+                                        requestId,
+                                        productName: item.productName,
+                                      });
+                                    }}
+                                  >
+                                    Add tracking
+                                  </DropdownMenuItem>
+                                ) : null}
+                                {((item as any).inboundTrackings?.length ?? 0) > 0 ? (
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setTrackingDetail({
+                                        productName: item.productName,
+                                        trackings: (item as any).inboundTrackings ?? [],
+                                      });
+                                    }}
+                                  >
+                                    View tracking
+                                  </DropdownMenuItem>
+                                ) : null}
+                              </>
+                            ) : null}
+                            {videoRequestId ? (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  /* video dialog has its own trigger; expand details shows compact button */
+                                  toggleMobileExpanded(rowId);
+                                }}
+                              >
+                                Receiving video
+                              </DropdownMenuItem>
+                            ) : null}
+                            {!hasAdminActions ? (
+                              <>
+                                {canEditInventoryExpiry(item as InventorySourceRow) ? (
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      handleInventoryMetadataEdit(item as InventoryItem, "expiry")
+                                    }
+                                  >
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    Edit expiry
+                                  </DropdownMenuItem>
+                                ) : null}
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    handleInventoryMetadataEdit(item as InventoryItem, "dimensions")
+                                  }
+                                >
+                                  <Ruler className="mr-2 h-4 w-4" />
+                                  Edit dimensions
+                                </DropdownMenuItem>
+                              </>
+                            ) : null}
+                            {hasAdminActions ? (
+                              <>
+                                <DropdownMenuSeparator />
+                                {adminActions?.onRestock ? (
+                                  <DropdownMenuItem
+                                    onClick={() => adminActions.onRestock?.(item as InventoryItem)}
+                                  >
+                                    <PlusCircle className="mr-2 h-4 w-4 text-emerald-600" />
+                                    Restock
+                                  </DropdownMenuItem>
+                                ) : null}
+                                {adminActions?.onCorrectLastRestock ? (
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      adminActions.onCorrectLastRestock?.(item as InventoryItem)
+                                    }
+                                  >
+                                    <RotateCcw className="mr-2 h-4 w-4 text-amber-700" />
+                                    Correct restock
+                                  </DropdownMenuItem>
+                                ) : null}
+                                {adminActions?.onEdit ? (
+                                  <DropdownMenuItem
+                                    onClick={() => adminActions.onEdit?.(item as InventoryItem)}
+                                  >
+                                    <Edit className="mr-2 h-4 w-4 text-blue-600" />
+                                    Edit
+                                  </DropdownMenuItem>
+                                ) : null}
+                                {adminActions?.onDispose ? (
+                                  <DropdownMenuItem
+                                    onClick={() => adminActions.onDispose?.(item as InventoryItem)}
+                                  >
+                                    <Recycle className="mr-2 h-4 w-4 text-orange-600" />
+                                    Dispose
+                                  </DropdownMenuItem>
+                                ) : null}
+                                {adminActions?.onDelete ? (
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={() => adminActions.onDelete?.(item as InventoryItem)}
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                ) : null}
+                              </>
+                            ) : null}
+                          </>
+                        ) : null}
+                        {hasExtraDetails ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => toggleMobileExpanded(rowId)}>
+                              <ChevronDown className="mr-2 h-4 w-4" />
+                              {isExpanded ? "Hide details" : "Show details"}
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {item.status !== "Rejected" && item.status !== "Cancelled" && (
+                      <InboundTrackingStatusCell
+                        trackings={(item as any).inboundTrackings}
+                        canAddTracking={canAddInboundTracking(item as any, inventoryRequests)}
+                        onAddTracking={() => {
+                          const requestId =
+                            (item as any).requestId || (item as any).sourceRequestId;
+                          if (!requestId || !effectiveUserId) return;
+                          setTrackingDialog({
+                            requestId,
+                            productName: item.productName,
+                          });
+                        }}
+                        onViewTracking={() => {
+                          setTrackingDetail({
+                            productName: item.productName,
+                            trackings: (item as any).inboundTrackings ?? [],
+                          });
+                        }}
+                      />
                     )}
-                    <div className="text-xs text-muted-foreground mt-1">Added: {formatDate(item.dateAdded)}</div>
-                    {item.receivingDate && (
-                      <div className="text-xs text-muted-foreground mt-0.5">Receiving: {formatReceivingDate(item.receivingDate)}</div>
-                    )}
-                    {((item.remarks && item.remarks.trim()) ||
-                      getRemarksImageUrls(item as any).length > 0) && (
-                      <div className="mt-1">
+                    {hasExtraDetails ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-0.5 text-[11px] font-medium text-muted-foreground"
+                        onClick={() => toggleMobileExpanded(rowId)}
+                      >
+                        {isExpanded ? "Less" : "Details"}
+                        <ChevronDown
+                          className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-180")}
+                        />
+                      </button>
+                    ) : null}
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {formatDate(item.dateAdded)}
+                    </span>
+                  </div>
+
+                  {isExpanded ? (
+                    <div className="mt-2 space-y-1 border-t pt-2 text-[11px] text-muted-foreground">
+                      {sourceMeta.detail ? <p>{sourceMeta.detail}</p> : null}
+                      {(item as any).variantLabel ? (
+                        <p>Variant: {(item as any).variantLabel}</p>
+                      ) : null}
+                      {(item as any).retailIdentifier ? (
+                        <p>Identifier: {(item as any).retailIdentifier}</p>
+                      ) : null}
+                      {expiryLots.lines.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {expiryLots.hasLots ? (
+                            expiryLots.lines.map((line) => (
+                              <p key={line}>Expiry: {line}</p>
+                            ))
+                          ) : (
+                            <p>Expiry: {expiryLots.lines[0]}</p>
+                          )}
+                        </div>
+                      ) : null}
+                      {unitLine ? <p>Unit: {unitLine}</p> : null}
+                      {item.receivingDate ? (
+                        <p>Receiving: {formatReceivingDate(item.receivingDate)}</p>
+                      ) : null}
+                      {hasRemarks ? (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-auto p-0 text-left justify-start text-xs"
+                          className="h-auto justify-start p-0 text-left text-[11px]"
                           onClick={() =>
                             handleRemarksClick(
                               item.remarks || "",
@@ -2119,140 +2317,31 @@ export function InventoryTable({
                             )
                           }
                         >
-                          {item.remarks && item.remarks.trim() ? (
-                            <span className="text-blue-600 italic">{item.remarks}</span>
+                          {item.remarks?.trim() ? (
+                            <span className="italic text-blue-600 line-clamp-2">{item.remarks}</span>
                           ) : (
                             <span className="text-blue-600">View photos</span>
                           )}
-                          <Eye className="h-3 w-3 ml-1 inline-block align-middle" />
+                          <Eye className="ml-1 inline-block h-3 w-3 align-middle" />
                         </Button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right ml-2">
-                    <div className={cn("text-xs", isLowStockVisual && lowStockTextClass)}>Qty</div>
-                    <div
-                      className={cn(
-                        "font-semibold text-sm",
-                        isLowStockVisual && lowStockQtyClass
-                      )}
-                    >
-                      {formatRowQuantity(item as any)}
+                      ) : null}
+                      {videoRequestId ? (
+                        <InboundReceiveVideoDialog
+                          requestId={videoRequestId}
+                          clientUserId={effectiveUserId}
+                          triggerLabel="Watch receiving video"
+                        />
+                      ) : null}
                     </div>
-                  </div>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Badge 
-                    variant={inventoryStatusBadge(item.status).variant}
-                    className={cn(
-                      "text-[10px] px-2 py-1",
-                      item.status === "Awaiting Receiving" &&
-                        "border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100"
-                    )}
-                  >
-                    {inventoryStatusBadge(item.status).label}
-                  </Badge>
-                  {item.status !== "Rejected" && item.status !== "Cancelled" && (
-                    <InboundTrackingStatusCell
-                      trackings={(item as any).inboundTrackings}
-                      canAddTracking={canAddInboundTracking(item as any, inventoryRequests)}
-                      onAddTracking={() => {
-                        const requestId =
-                          (item as any).requestId || (item as any).sourceRequestId;
-                        if (!requestId || !effectiveUserId) return;
-                        setTrackingDialog({
-                          requestId,
-                          productName: item.productName,
-                        });
-                      }}
-                      onViewTracking={() => {
-                        setTrackingDetail({
-                          productName: item.productName,
-                          trackings: (item as any).inboundTrackings ?? [],
-                        });
-                      }}
-                    />
-                  )}
-                  {!(item as any).isRequest &&
-                  inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds) ? (
-                    <InboundReceiveVideoDialog
-                      requestId={inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds)!}
-                      clientUserId={effectiveUserId}
-                      triggerLabel="Watch receiving video"
-                    />
                   ) : null}
-                  {!(item as any).isRequest && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-[11px]"
-                      onClick={() => openHistory(item as InventoryItem)}
-                    >
-                      <History className="h-3 w-3 mr-1" />
-                      History
-                    </Button>
-                  )}
-                  {hasAdminActions && !(item as any).isRequest && (
-                    <div className="flex flex-wrap items-center gap-1 ml-auto">
-                      {adminActions?.onRestock && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-[11px] border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                          onClick={() => adminActions.onRestock?.(item as InventoryItem)}
-                        >
-                          <PlusCircle className="h-3 w-3 mr-1" /> Restock
-                        </Button>
-                      )}
-                      {adminActions?.onCorrectLastRestock && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-[11px] border-amber-300 text-amber-800 hover:bg-amber-50"
-                          onClick={() => adminActions.onCorrectLastRestock?.(item as InventoryItem)}
-                        >
-                          <RotateCcw className="h-3 w-3 mr-1" /> Correct restock
-                        </Button>
-                      )}
-                      {adminActions?.onEdit && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-[11px] border-blue-300 text-blue-700 hover:bg-blue-50"
-                          onClick={() => adminActions.onEdit?.(item as InventoryItem)}
-                        >
-                          <Edit className="h-3 w-3 mr-1" /> Edit
-                        </Button>
-                      )}
-                      {adminActions?.onDispose && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-[11px] border-orange-300 text-orange-700 hover:bg-orange-50"
-                          onClick={() => adminActions.onDispose?.(item as InventoryItem)}
-                        >
-                          <Recycle className="h-3 w-3 mr-1" /> Dispose
-                        </Button>
-                      )}
-                      {adminActions?.onDelete && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-[11px] border-red-300 text-red-700 hover:bg-red-50"
-                          onClick={() => adminActions.onDelete?.(item as InventoryItem)}
-                        >
-                          <Trash2 className="h-3 w-3 mr-1" /> Delete
-                        </Button>
-                      )}
-                    </div>
-                  )}
                 </div>
-              </div>
-            );
+              );
             })
           ) : (
-            <div className="text-center py-8 text-xs text-gray-500">
-              {combinedData.length === 0 ? "No inventory items or requests found." : "No items match your search criteria."}
+            <div className="py-8 text-center text-xs text-gray-500">
+              {combinedData.length === 0
+                ? "No inventory items or requests found."
+                : "No items match your search criteria."}
             </div>
           )}
         </div>
