@@ -105,15 +105,18 @@ export function BinSummary({
 }) {
   const kind = classifyBin(resolved.bin, warehouseAreas);
   return (
-    <div className="rounded border bg-muted/40 px-3 py-2 text-xs space-y-1">
-      <div className="flex items-center justify-between">
-        <span className="font-mono font-medium">{resolved.bin.path}</span>
+    <div className="min-w-0 space-y-1 overflow-hidden rounded border bg-muted/40 px-2.5 py-2 text-xs sm:px-3">
+      <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+        <span className="min-w-0 break-all font-mono text-[11px] font-medium sm:text-xs">
+          {resolved.bin.path}
+        </span>
         <Badge
           variant="outline"
           className={cn(
-            kind === "quarantine" && "bg-red-100 border-red-300 text-red-800",
-            kind === "receiving_staging" && "bg-orange-100 border-orange-300 text-orange-800",
-            kind === "normal" && "bg-blue-50 border-blue-300 text-blue-800"
+            "w-fit shrink-0",
+            kind === "quarantine" && "border-red-300 bg-red-100 text-red-800",
+            kind === "receiving_staging" && "border-orange-300 bg-orange-100 text-orange-800",
+            kind === "normal" && "border-blue-300 bg-blue-50 text-blue-800"
           )}
         >
           {kind === "quarantine"
@@ -124,7 +127,7 @@ export function BinSummary({
         </Badge>
       </div>
       {resolved.contents.cartonCount > 0 ? (
-        <p className="text-muted-foreground">
+        <p className="break-words text-muted-foreground">
           Currently holds {resolved.contents.cartonCount} carton
           {resolved.contents.cartonCount === 1 ? "" : "s"}
           {resolved.contents.skus.length > 0
@@ -209,7 +212,7 @@ export function PutawayDestinationFields({
       : Boolean(selectedArea) && !validationError);
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2 overflow-hidden">
       {showClear && onClear ? (
         <div className="flex justify-end">
           <Button type="button" variant="ghost" size="sm" onClick={onClear}>
@@ -219,20 +222,20 @@ export function PutawayDestinationFields({
       ) : null}
 
       {canSplitQty && onPutawayQtyChange ? (
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <Label className="text-xs text-muted-foreground">
             {line.condition === "damaged" ? "Damaged qty to putaway" : "Good qty to putaway"}
           </Label>
-          <div className="flex items-end gap-2 flex-wrap">
+          <div className="flex min-w-0 flex-wrap items-end gap-2">
             <Input
               type="number"
               min={1}
               max={line.quantity}
               value={slot.putawayQty}
               onChange={(e) => onPutawayQtyChange(e.target.value)}
-              className="w-24"
+              className="w-24 shrink-0"
             />
-            <p className="text-xs text-muted-foreground pb-2">
+            <p className="min-w-0 flex-1 break-words pb-2 text-xs text-muted-foreground">
               of {line.quantity}
               {remainingAfter > 0
                 ? ` · ${remainingAfter} remain for another bin (or same bin later)`
@@ -244,17 +247,17 @@ export function PutawayDestinationFields({
       ) : null}
 
       {placementMode === "bin" ? (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="min-w-0 space-y-2">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <Label className="text-xs text-muted-foreground">
               {line.condition === "damaged" ? "Quarantine bin" : "Storage bin"}
             </Label>
-            <div className="inline-flex rounded-md border bg-muted/40 p-0.5">
+            <div className="inline-flex w-fit rounded-md border bg-muted/40 p-0.5">
               <Button
                 type="button"
                 size="sm"
                 variant={binEntryMode === "write" ? "default" : "ghost"}
-                className="h-7 px-2.5 text-xs gap-1"
+                className="h-8 gap-1 px-2.5 text-xs sm:h-7"
                 onClick={() => setBinEntryMode("write")}
               >
                 <Keyboard className="h-3.5 w-3.5" />
@@ -264,7 +267,7 @@ export function PutawayDestinationFields({
                 type="button"
                 size="sm"
                 variant={binEntryMode === "scan" ? "default" : "ghost"}
-                className="h-7 px-2.5 text-xs gap-1"
+                className="h-8 gap-1 px-2.5 text-xs sm:h-7"
                 onClick={() => setBinEntryMode("scan")}
               >
                 <ScanLine className="h-3.5 w-3.5" />
@@ -273,8 +276,8 @@ export function PutawayDestinationFields({
             </div>
           </div>
           {binEntryMode === "write" ? (
-            <div className="flex gap-2 items-start">
-              <div className="flex-1 min-w-0">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
+              <div className="min-w-0 flex-1">
                 <PutawayBinWritePicker
                   bins={eligibleBins}
                   value={slot.binPath}
@@ -293,12 +296,16 @@ export function PutawayDestinationFields({
                   onSubmitTyped={() => onResolveBin()}
                 />
               </div>
-              <Button onClick={() => onResolveBin()} disabled={slot.loading || !slot.binPath.trim()}>
+              <Button
+                className="h-10 w-full shrink-0 sm:h-9 sm:w-auto"
+                onClick={() => onResolveBin()}
+                disabled={slot.loading || !slot.binPath.trim()}
+              >
                 {slot.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
               </Button>
             </div>
           ) : (
-            <div className="flex gap-2">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
               <Input
                 value={slot.binPath}
                 onChange={(e) => onBinPathChange(e.target.value)}
@@ -306,24 +313,30 @@ export function PutawayDestinationFields({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") onResolveBin();
                 }}
-                className="flex-1 font-mono"
+                className="min-w-0 flex-1 font-mono text-xs sm:text-sm"
               />
-              <ScanCameraButton
-                onScan={(text) => {
-                  onBinPathChange(text);
-                  onResolveBin(text);
-                }}
-                scannerTitle="Scan bin label"
-                scannerDescription="Scan the QR on the destination bin."
-              />
-              <Button onClick={() => onResolveBin()} disabled={slot.loading}>
-                {slot.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
-              </Button>
+              <div className="flex gap-2">
+                <ScanCameraButton
+                  onScan={(text) => {
+                    onBinPathChange(text);
+                    onResolveBin(text);
+                  }}
+                  scannerTitle="Scan bin label"
+                  scannerDescription="Scan the QR on the destination bin."
+                />
+                <Button
+                  className="h-10 flex-1 sm:h-9 sm:flex-none"
+                  onClick={() => onResolveBin()}
+                  disabled={slot.loading}
+                >
+                  {slot.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
+                </Button>
+              </div>
             </div>
           )}
         </div>
       ) : (
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <Label className="text-xs text-muted-foreground">
             Select floor area (no bins set up in this zone yet)
           </Label>
@@ -332,7 +345,7 @@ export function PutawayDestinationFields({
             onValueChange={onAreaChange}
             disabled={areasLoading || eligibleAreas.length === 0}
           >
-            <SelectTrigger>
+            <SelectTrigger className="min-w-0">
               <SelectValue
                 placeholder={
                   areasLoading
@@ -354,21 +367,21 @@ export function PutawayDestinationFields({
         </div>
       )}
 
-      {slot.error ? <p className="text-xs text-red-600">{slot.error}</p> : null}
+      {slot.error ? <p className="break-words text-xs text-red-600">{slot.error}</p> : null}
 
       {placementMode === "bin" && slot.resolved ? (
         <BinSummary resolved={slot.resolved} warehouseAreas={warehouseAreas} />
       ) : null}
 
       {validationError ? (
-        <div className="flex items-start gap-1 rounded bg-red-50 text-red-800 border border-red-200 px-2 py-1 text-xs">
-          <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-          <span>{validationError}</span>
+        <div className="flex min-w-0 items-start gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-800">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          <span className="min-w-0 break-words">{validationError}</span>
         </div>
       ) : ready ? (
-        <div className="flex items-start gap-1 rounded bg-green-50 text-green-800 border border-green-200 px-2 py-1 text-xs">
-          <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0" />
-          <span>
+        <div className="flex min-w-0 items-start gap-1 rounded border border-green-200 bg-green-50 px-2 py-1 text-xs text-green-800">
+          <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />
+          <span className="min-w-0 break-all">
             OK — putaway {putQty}
             {line.quantity > 1 ? ` of ${line.quantity}` : ""} →{" "}
             {placementMode === "bin"

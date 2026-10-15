@@ -89,26 +89,21 @@ export function ProductUnitMeasurementsFields({
   };
 
   return (
-    <div className={cn("space-y-2", className)}>
-      <div>
+    <div className={cn("min-w-0 space-y-2", className)}>
+      <div className="min-w-0">
         <Label className={cn(compact ? "text-xs text-muted-foreground" : "text-sm font-medium")}>
-          Unit dimensions & weight (optional)
+          Unit size & weight
+          <span className="font-normal text-muted-foreground"> (optional)</span>
         </Label>
-        <p className="text-[11px] text-muted-foreground mt-0.5">
-          Per sellable unit (inches). Weight can be entered in lb or oz — saved as pounds for box
-          suggestions and Buy Labels. Leave blank if unknown.
+        <p className="mt-0.5 hidden text-[11px] text-muted-foreground sm:block">
+          Per sellable unit (inches). Weight in lb or oz — saved as pounds for box suggestions.
         </p>
       </div>
-      <div className="space-y-3">
-        <div
-          className={cn(
-            "grid gap-2",
-            compact ? "grid-cols-3" : "grid-cols-3"
-          )}
-        >
-          <div className="space-y-1">
-            <Label htmlFor={`${idPrefix}-l`} className="text-xs text-muted-foreground">
-              Length (in)
+      <div className="min-w-0 space-y-2.5 sm:space-y-3">
+        <div className="grid min-w-0 grid-cols-3 gap-1.5 sm:gap-2">
+          <div className="min-w-0 space-y-1">
+            <Label htmlFor={`${idPrefix}-l`} className="text-[10px] text-muted-foreground sm:text-xs">
+              L (in)
             </Label>
             <Input
               id={`${idPrefix}-l`}
@@ -119,12 +114,12 @@ export function ProductUnitMeasurementsFields({
               placeholder="L"
               value={value.unitLengthIn}
               onChange={(e) => set("unitLengthIn", e.target.value)}
-              className={compact ? "h-9" : "h-11 rounded-lg"}
+              className={cn("min-w-0", compact ? "h-9 px-2" : "h-11 rounded-lg")}
             />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor={`${idPrefix}-w`} className="text-xs text-muted-foreground">
-              Width (in)
+          <div className="min-w-0 space-y-1">
+            <Label htmlFor={`${idPrefix}-w`} className="text-[10px] text-muted-foreground sm:text-xs">
+              W (in)
             </Label>
             <Input
               id={`${idPrefix}-w`}
@@ -135,12 +130,12 @@ export function ProductUnitMeasurementsFields({
               placeholder="W"
               value={value.unitWidthIn}
               onChange={(e) => set("unitWidthIn", e.target.value)}
-              className={compact ? "h-9" : "h-11 rounded-lg"}
+              className={cn("min-w-0", compact ? "h-9 px-2" : "h-11 rounded-lg")}
             />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor={`${idPrefix}-h`} className="text-xs text-muted-foreground">
-              Height (in)
+          <div className="min-w-0 space-y-1">
+            <Label htmlFor={`${idPrefix}-h`} className="text-[10px] text-muted-foreground sm:text-xs">
+              H (in)
             </Label>
             <Input
               id={`${idPrefix}-h`}
@@ -151,15 +146,15 @@ export function ProductUnitMeasurementsFields({
               placeholder="H"
               value={value.unitHeightIn}
               onChange={(e) => set("unitHeightIn", e.target.value)}
-              className={compact ? "h-9" : "h-11 rounded-lg"}
+              className={cn("min-w-0", compact ? "h-9 px-2" : "h-11 rounded-lg")}
             />
           </div>
         </div>
-        <div className="space-y-1">
-          <Label htmlFor={`${idPrefix}-wt`} className="text-xs text-muted-foreground">
+        <div className="min-w-0 space-y-1">
+          <Label htmlFor={`${idPrefix}-wt`} className="text-[10px] text-muted-foreground sm:text-xs">
             Weight
           </Label>
-          <div className="flex gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             <Input
               id={`${idPrefix}-wt`}
               type="number"
@@ -169,11 +164,14 @@ export function ProductUnitMeasurementsFields({
               placeholder={weightUnit === "oz" ? "oz" : "lb"}
               value={String(value.unitWeightLb ?? "")}
               onChange={(e) => set("unitWeightLb", e.target.value)}
-              className={cn("min-w-[8rem] flex-1", compact ? "h-9" : "h-11 rounded-lg")}
+              className={cn("min-w-0 flex-1", compact ? "h-9" : "h-11 rounded-lg")}
             />
             <Select value={weightUnit} onValueChange={(v) => setWeightUnit(v as UnitWeightUnit)}>
               <SelectTrigger
-                className={cn("w-[5rem] shrink-0", compact ? "h-9" : "h-11 rounded-lg")}
+                className={cn(
+                  "w-[4.25rem] shrink-0 px-2 sm:w-[5rem]",
+                  compact ? "h-9" : "h-11 rounded-lg"
+                )}
                 aria-label="Weight unit"
               >
                 <SelectValue />

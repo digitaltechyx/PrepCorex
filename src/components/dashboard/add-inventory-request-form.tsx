@@ -23,7 +23,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
-import { Archive, Boxes, CircleHelp, ImagePlus, Loader2, Package, Plus, Trash2, Truck, Upload } from "lucide-react";
+import { Archive, Boxes, ChevronDown, CircleHelp, ImagePlus, Loader2, Package, Plus, Trash2, Truck, Upload } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { DatePicker } from "@/components/ui/date-picker";
 import type { InventoryType, UserContainerHandlingPricing } from "@/types";
 import { CONTAINER_SIZE_OPTIONS } from "@/types";
@@ -278,6 +279,8 @@ export function AddInventoryRequestForm({
   const [variantSizeInput, setVariantSizeInput] = useState("");
   const [variantRows, setVariantRows] = useState<VariantRowState[]>([]);
   const [newProductRows, setNewProductRows] = useState<NewProductRowState[]>([createEmptyNewProductRow()]);
+  /** Mobile: optional fields (UPC, expiry, size, remarks, photo) collapsed per product row. */
+  const [expandedNewProductExtras, setExpandedNewProductExtras] = useState<Set<string>>(new Set());
   const [singleExpiryDate, setSingleExpiryDate] = useState<Date | undefined>(undefined);
   const [singleUnitMeasurements, setSingleUnitMeasurements] = useState<ProductUnitMeasurementDraft>({
     ...EMPTY_UNIT_MEASUREMENTS,
@@ -1407,8 +1410,8 @@ export function AddInventoryRequestForm({
         <div
           className={
             isInline
-              ? "px-6 py-5"
-              : "min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5"
+              ? "min-w-0 px-3 py-4 sm:px-6 sm:py-5"
+              : "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-6 sm:py-5"
           }
         >
           <div className="space-y-5">
@@ -1670,7 +1673,7 @@ export function AddInventoryRequestForm({
                           });
                         }}
                       />
-                    </FormControl>
+                      </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1779,151 +1782,234 @@ export function AddInventoryRequestForm({
               />
             )}
 
-            {/* New products (single mode) — add multiple products one by one */}
+            {/* New products (single mode) — compact on mobile, full fields on sm+ */}
             {inventoryType === "product" && productSubType === "new" && productEntryMode === "single" && (
-              <div className="space-y-3 rounded-xl border bg-card/90 p-4 shadow-sm">
+              <div className="min-w-0 space-y-2.5 rounded-xl border bg-card/90 p-3 shadow-sm sm:space-y-3 sm:p-4">
                 <Label className="text-sm font-medium">Products *</Label>
-                <div className="space-y-3">
-                  {newProductRows.map((row, index) => (
-                    <div key={row.id} className="space-y-3 rounded-lg border bg-background p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-foreground">Product {index + 1}</span>
-                        {newProductRows.length > 1 && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 text-destructive hover:text-destructive"
-                            onClick={() => removeNewProductRow(row.id)}
-                          >
-                            <Trash2 className="mr-1 h-4 w-4" />
-                            Remove
-                          </Button>
-                        )}
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="space-y-1 sm:col-span-2">
-                          <Label className="text-xs text-muted-foreground">Product Name *</Label>
-                          <Input
-                            placeholder="Enter product name"
-                            value={row.productName}
-                            onChange={(e) => updateNewProductRow(row.id, { productName: e.target.value })}
-                            className="h-11 rounded-lg"
-                          />
+                <div className="space-y-2 sm:space-y-3">
+                  {newProductRows.map((row, index) => {
+                    const extrasOpen = expandedNewProductExtras.has(row.id);
+                    const hasOptionalValue = Boolean(
+                      row.retailIdentifier?.trim() ||
+                        row.expiryDate ||
+                        row.remarks?.trim() ||
+                        row.imagePreviewUrl ||
+                        row.measurements.unitLengthIn ||
+                        row.measurements.unitWidthIn ||
+                        row.measurements.unitHeightIn ||
+                        row.measurements.unitWeightLb ||
+                        row.trackingNumber?.trim()
+                    );
+                    return (
+                      <div
+                        key={row.id}
+                        className="min-w-0 space-y-2 rounded-lg border bg-background p-2.5 sm:space-y-3 sm:p-3"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-medium text-foreground">
+                            <span className="sm:hidden">P{index + 1}</span>
+                            <span className="hidden sm:inline">Product {index + 1}</span>
+                          </span>
+                          {newProductRows.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 shrink-0 px-2 text-destructive hover:text-destructive"
+                              onClick={() => {
+                                removeNewProductRow(row.id);
+                                setExpandedNewProductExtras((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(row.id);
+                                  return next;
+                                });
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 sm:mr-1" />
+                              <span className="hidden sm:inline">Remove</span>
+                            </Button>
+                          )}
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">SKU *</Label>
-                      <Input
-                        placeholder="Enter SKU"
-                            value={row.sku}
-                            onChange={(e) => updateNewProductRow(row.id, { sku: e.target.value })}
-                        className="h-11 rounded-lg"
-                      />
+
+                        {/* Always visible essentials */}
+                        <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                          <div className="col-span-2 space-y-1">
+                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
+                              Product Name *
+                            </Label>
+                            <Input
+                              placeholder="Product name"
+                              value={row.productName}
+                              onChange={(e) =>
+                                updateNewProductRow(row.id, { productName: e.target.value })
+                              }
+                              className="h-10 rounded-lg sm:h-11"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
+                              SKU *
+                            </Label>
+                            <Input
+                              placeholder="SKU"
+                              value={row.sku}
+                              onChange={(e) => updateNewProductRow(row.id, { sku: e.target.value })}
+                              className="h-10 rounded-lg sm:h-11"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
+                              Qty *
+                            </Label>
+                            <Input
+                              type="number"
+                              min="1"
+                              value={row.quantity}
+                              onChange={(e) =>
+                                updateNewProductRow(row.id, {
+                                  quantity: Math.max(1, Number.parseInt(e.target.value || "1", 10)),
+                                })
+                              }
+                              className="h-10 rounded-lg sm:h-11"
+                            />
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Quantity *</Label>
-                          <Input
-                            type="number"
-                            min="1"
-                            value={row.quantity}
-                            onChange={(e) =>
-                              updateNewProductRow(row.id, {
-                                quantity: Math.max(1, Number.parseInt(e.target.value || "1", 10)),
-                              })
-                            }
-                            className="h-11 rounded-lg"
+
+                        {/* Mobile: collapse optionals; desktop: always show */}
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between rounded-md border border-dashed px-2.5 py-2 text-left text-[11px] font-medium text-muted-foreground sm:hidden"
+                          onClick={() =>
+                            setExpandedNewProductExtras((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(row.id)) next.delete(row.id);
+                              else next.add(row.id);
+                              return next;
+                            })
+                          }
+                        >
+                          <span>
+                            {extrasOpen ? "Hide" : "More"} options
+                            {hasOptionalValue && !extrasOpen ? " · filled" : ""}
+                          </span>
+                          <ChevronDown
+                            className={cn(
+                              "h-4 w-4 transition-transform",
+                              extrasOpen && "rotate-180"
+                            )}
                           />
-                        </div>
-                        <div className="space-y-1 sm:col-span-2">
-                          <Label className="text-xs text-muted-foreground">
-                            UPC / EAN / FNSKU / ASIN (optional)
-                          </Label>
-                          <Input
-                            placeholder="Enter one identifier if applicable"
-                            value={row.retailIdentifier}
-                            onChange={(e) =>
-                              updateNewProductRow(row.id, { retailIdentifier: e.target.value })
-                            }
-                            className="h-11 rounded-lg"
-                          />
-                        </div>
-                        <div className="space-y-1 sm:col-span-2">
-                          <Label className="text-xs text-muted-foreground">
-                            Expiry date (optional)
-                          </Label>
-                          <DatePicker
-                            date={row.expiryDate}
-                            setDate={(date) => updateNewProductRow(row.id, { expiryDate: date })}
-                          />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <ProductUnitMeasurementsFields
-                            compact
-                            idPrefix={`np-m-${row.id}`}
-                            value={row.measurements}
-                            onChange={(measurements) => updateNewProductRow(row.id, { measurements })}
-                          />
-                        </div>
-                        <div className="space-y-1 sm:col-span-2">
-                          <Label className="text-xs text-muted-foreground">Remarks (optional)</Label>
-                          <Textarea
-                            placeholder="Notes for this product only"
-                            value={row.remarks}
-                            onChange={(e) => updateNewProductRow(row.id, { remarks: e.target.value })}
-                            className="min-h-[72px] rounded-lg text-sm"
-                          />
-                        </div>
-                        <div className="space-y-2 sm:col-span-2">
-                          <Label className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <ImagePlus className="h-4 w-4" />
-                            Product picture (optional)
-                          </Label>
-                          <Input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => handleNewProductImageSelect(row.id, e)}
-                            className="rounded-lg"
-                          />
-                          {row.imagePreviewUrl && (
-                            <div className="rounded-lg border bg-muted/20 p-3">
-                              <img
-                                src={row.imagePreviewUrl}
-                                alt={`${row.productName || "Product"} preview`}
-                                className="h-24 w-24 rounded-md border object-cover"
+                        </button>
+
+                        <div
+                          className={cn(
+                            "grid grid-cols-2 gap-2 sm:grid sm:gap-3",
+                            extrasOpen ? "grid" : "hidden sm:grid"
+                          )}
+                        >
+                          <div className="col-span-2 space-y-1 sm:col-span-2">
+                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
+                              UPC / EAN / FNSKU / ASIN
+                            </Label>
+                            <Input
+                              placeholder="Identifier (optional)"
+                              value={row.retailIdentifier}
+                              onChange={(e) =>
+                                updateNewProductRow(row.id, { retailIdentifier: e.target.value })
+                              }
+                              className="h-10 rounded-lg sm:h-11"
+                            />
+                          </div>
+                          <div className="col-span-2 space-y-1 sm:col-span-1">
+                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
+                              Expiry
+                            </Label>
+                            <DatePicker
+                              className="h-10 sm:h-11"
+                              date={row.expiryDate}
+                              setDate={(date) => updateNewProductRow(row.id, { expiryDate: date })}
+                            />
+                          </div>
+                          <div className="col-span-2 sm:col-span-2">
+                            <ProductUnitMeasurementsFields
+                              compact
+                              idPrefix={`np-m-${row.id}`}
+                              value={row.measurements}
+                              onChange={(measurements) =>
+                                updateNewProductRow(row.id, { measurements })
+                              }
+                            />
+                          </div>
+                          <div className="col-span-2 space-y-1">
+                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
+                              Remarks
+                            </Label>
+                            <Textarea
+                              placeholder="Notes for this product"
+                              value={row.remarks}
+                              onChange={(e) =>
+                                updateNewProductRow(row.id, { remarks: e.target.value })
+                              }
+                              className="min-h-[56px] rounded-lg text-sm sm:min-h-[72px]"
+                            />
+                          </div>
+                          <div className="col-span-2 space-y-1.5">
+                            <Label className="flex items-center gap-1.5 text-[11px] text-muted-foreground sm:text-xs">
+                              <ImagePlus className="h-3.5 w-3.5" />
+                              Picture
+                            </Label>
+                            <Input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => handleNewProductImageSelect(row.id, e)}
+                              className="h-10 rounded-lg text-xs file:mr-2 file:text-xs sm:h-11"
+                            />
+                            {row.imagePreviewUrl && (
+                              <div className="rounded-lg border bg-muted/20 p-2">
+                                <img
+                                  src={row.imagePreviewUrl}
+                                  alt={`${row.productName || "Product"} preview`}
+                                  className="h-16 w-16 rounded-md border object-cover sm:h-24 sm:w-24"
+                                />
+                              </div>
+                            )}
+                          </div>
+                          {createsMultipleInboundRequests && inboundTrackingMode === "per_item" && (
+                            <div className="col-span-2 space-y-1 border-t pt-2 sm:pt-3">
+                              <Label className="text-[11px] font-medium text-muted-foreground sm:text-xs">
+                                Tracking
+                              </Label>
+                              <InboundTrackingFields
+                                compact
+                                idPrefix={`product-trk-${row.id}`}
+                                value={{
+                                  trackingNumber: row.trackingNumber,
+                                  carrier: row.carrier,
+                                }}
+                                onChange={(next) =>
+                                  updateNewProductRow(row.id, {
+                                    trackingNumber: next.trackingNumber,
+                                    carrier: next.carrier,
+                                  })
+                                }
                               />
                             </div>
                           )}
                         </div>
-                        {createsMultipleInboundRequests && inboundTrackingMode === "per_item" && (
-                          <div className="space-y-1 border-t pt-3">
-                            <Label className="text-xs font-medium text-muted-foreground">
-                              Shipment tracking (optional)
-                            </Label>
-                            <InboundTrackingFields
-                              compact
-                              idPrefix={`product-trk-${row.id}`}
-                              value={{
-                                trackingNumber: row.trackingNumber,
-                                carrier: row.carrier,
-                              }}
-                              onChange={(next) =>
-                                updateNewProductRow(row.id, {
-                                  trackingNumber: next.trackingNumber,
-                                  carrier: next.carrier,
-                                })
-                              }
-                            />
-                          </div>
-                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="hidden text-xs text-muted-foreground sm:block">
                   Each product has its own expiry, picture, and remarks. Use Add Product for another item.
                 </p>
-                <div className="flex justify-end">
-                  <Button type="button" variant="outline" size="sm" className="h-9" onClick={addNewProductRow}>
+                <div className="flex sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-10 w-full sm:h-9 sm:w-auto"
+                    onClick={addNewProductRow}
+                  >
                     <Plus className="mr-1.5 h-4 w-4" />
                     Add Product
                   </Button>
@@ -2275,14 +2361,14 @@ export function AddInventoryRequestForm({
         <div
           className={
             isInline
-              ? "flex flex-wrap items-center justify-end gap-2 border-t bg-background px-6 py-4"
-              : "mt-auto flex shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-background/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/85"
+              ? "flex flex-col-reverse gap-2 border-t bg-background px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-2 sm:px-6 sm:py-4"
+              : "mt-auto flex shrink-0 flex-col-reverse gap-2 border-t bg-background/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:px-6 sm:py-4"
           }
         >
           <Button
             type="button"
             variant="outline"
-            className="h-10 rounded-lg px-5"
+            className="h-11 w-full rounded-lg px-5 sm:h-10 sm:w-auto"
             onClick={() => {
               if (mode === "dialog") {
                 setOpen(false);
@@ -2321,7 +2407,7 @@ export function AddInventoryRequestForm({
           </Button>
           <Button
             type={draftLines.length > 0 ? "button" : "submit"}
-            className="h-10 rounded-lg px-5 shadow-sm"
+            className="h-11 w-full rounded-lg px-5 shadow-sm sm:h-10 sm:w-auto"
             disabled={isLoading}
             onClick={draftLines.length > 0 ? () => void submitDraftBatch() : undefined}
           >
@@ -2342,34 +2428,34 @@ export function AddInventoryRequestForm({
   if (mode === "inline") {
     return (
       <>
-      <div className="flex flex-col rounded-xl border bg-card text-card-foreground shadow-sm">
-        <div className="space-y-1 border-b px-6 py-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-          <h2 className="text-lg font-semibold tracking-tight">
-            {isQuickStock ? "Quick Add — full inbound + putaway" : "Add Inventory Request"}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {isQuickStock
-              ? "Enter full inbound product details and putaway destination. Stock is added to the client immediately."
-              : "Submit an inventory request. Admin will review and approve it."}
-          </p>
-              </div>
-              {canImportInbound && !(inventoryType === "product" && productSubType === "restock") && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => setBulkImportOpen(true)}
-                >
-                  <Upload className="mr-1.5 h-4 w-4" />
-                  Import
-                </Button>
-              )}
+      <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
+        <div className="space-y-1 border-b px-3 py-3 sm:px-6 sm:py-4">
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-semibold tracking-tight sm:text-lg">
+                {isQuickStock ? "Quick Add — full inbound + putaway" : "Add Inventory Request"}
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
+                {isQuickStock
+                  ? "Enter full inbound product details and putaway destination. Stock is added to the client immediately."
+                  : "Submit an inventory request. Admin will review and approve it."}
+              </p>
             </div>
+            {canImportInbound && !(inventoryType === "product" && productSubType === "restock") && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-10 w-full shrink-0 sm:h-9 sm:w-auto"
+                onClick={() => setBulkImportOpen(true)}
+              >
+                <Upload className="mr-1.5 h-4 w-4" />
+                Import
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="flex flex-col">{formBody}</div>
+        <div className="flex min-w-0 flex-col">{formBody}</div>
       </div>
         {canImportInbound ? (
           <>

@@ -119,7 +119,7 @@ export function PutawayBinWritePicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] min-w-[280px] p-0 overflow-hidden flex flex-col"
+        className="flex max-w-[calc(100vw-1.5rem)] w-[var(--radix-popover-trigger-width)] min-w-0 flex-col overflow-hidden p-0 sm:min-w-[280px]"
         align="start"
         side="bottom"
         collisionPadding={12}

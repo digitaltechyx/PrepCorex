@@ -57,20 +57,19 @@ export function AdminQuickOutboundForm({
   }, [activeWarehouses, warehouseId]);
 
   const dispatchSection: ReactNode = (
-    <div className="space-y-3 rounded-lg border border-cyan-300/60 bg-cyan-50/50 p-4 dark:bg-cyan-950/20">
+    <div className="min-w-0 space-y-2.5 rounded-lg border border-cyan-300/60 bg-cyan-50/50 p-3 dark:bg-cyan-950/20 sm:space-y-3 sm:p-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-cyan-900 dark:text-cyan-100">
-        <Truck className="h-4 w-4" />
+        <Truck className="h-4 w-4 shrink-0" />
         Quick Ship dispatch (required)
       </div>
       <p className="text-xs text-muted-foreground">
-        Uses the full outbound form (services, product types, labels). On submit the request is
-        confirmed and dispatched immediately — no pending queue for the client.
+        Full outbound form (services, types, labels). On submit: confirm &amp; dispatch immediately.
       </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+        <div className="min-w-0 space-y-1.5">
           <Label>Warehouse</Label>
           <Select value={warehouseId} onValueChange={setWarehouseId}>
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue placeholder="Select warehouse" />
             </SelectTrigger>
             <SelectContent>
@@ -82,20 +81,22 @@ export function AdminQuickOutboundForm({
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1.5">
+        <div className="min-w-0 space-y-1.5">
           <Label>Tracking (optional)</Label>
           <Input
             value={trackingNumber}
             onChange={(e) => setTrackingNumber(e.target.value)}
             placeholder="Courier tracking number"
+            className="w-full"
           />
         </div>
-        <div className="space-y-1.5 sm:col-span-2">
+        <div className="min-w-0 space-y-1.5 sm:col-span-2">
           <Label>Admin notes (optional)</Label>
           <Textarea
             value={adminNotes}
             onChange={(e) => setAdminNotes(e.target.value)}
             placeholder="Internal notes stored on the shipment request"
+            className="min-h-[72px] w-full"
           />
         </div>
       </div>

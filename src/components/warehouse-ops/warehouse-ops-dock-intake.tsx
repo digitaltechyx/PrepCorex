@@ -610,7 +610,7 @@ export function WarehouseOpsDockIntake({
               </Button>
               {requestStatusTab === "pending" ? (
                 <Button
-                  type="button"
+              type="button"
                   variant="secondary"
                   size="sm"
                   disabled={selectedPending.length === 0 || managingKey != null}
@@ -626,7 +626,7 @@ export function WarehouseOpsDockIntake({
               ) : null}
               {requestStatusTab === "pending" || requestStatusTab === "approved" ? (
                 <Button
-                  type="button"
+              type="button"
                   size="sm"
                   disabled={selectedRows.length === 0 || managingKey != null}
                   onClick={() => startReceiveSelected()}
@@ -679,7 +679,7 @@ export function WarehouseOpsDockIntake({
                   onReject={() => void handleRejectRow(row)}
                 />
               ))}
-            </div>
+              </div>
           )}
         </CardContent>
       </Card>

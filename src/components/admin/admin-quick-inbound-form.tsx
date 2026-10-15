@@ -250,20 +250,19 @@ export function AdminQuickInboundForm({ userId, userName }: Props) {
   };
 
   const putawaySection: ReactNode = (
-    <div className="space-y-3 rounded-lg border border-indigo-300/60 bg-indigo-50/50 p-4 dark:bg-indigo-950/20">
-      <div className="flex items-center gap-2 text-sm font-semibold text-indigo-900 dark:text-indigo-100">
-        <Warehouse className="h-4 w-4" />
+    <div className="min-w-0 space-y-3 overflow-hidden rounded-lg border border-indigo-300/60 bg-indigo-50/50 p-3 dark:bg-indigo-950/20 sm:p-4">
+      <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-indigo-900 dark:text-indigo-100">
+        <Warehouse className="h-4 w-4 shrink-0" />
         Inbound putaway (required)
       </div>
-      <p className="text-xs text-muted-foreground">
-        Stock is received and put away immediately — no pending request for the client to wait on.
-        Fill the inbound details above, then choose warehouse + bin here.
+      <p className="break-words text-xs text-muted-foreground">
+        Stock is received and put away immediately. Choose warehouse + bin below.
       </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+        <div className="min-w-0 space-y-1.5">
           <Label>Warehouse</Label>
           <Select value={warehouseId} onValueChange={setWarehouseId}>
-            <SelectTrigger>
+            <SelectTrigger className="min-w-0">
               <SelectValue placeholder="Select warehouse" />
             </SelectTrigger>
             <SelectContent>
@@ -314,10 +313,10 @@ export function AdminQuickInboundForm({ userId, userName }: Props) {
             className={damagedQty > 0 ? "border-red-300" : ""}
           />
         </div>
-        <div className="space-y-1.5 sm:col-span-2">
+        <div className="min-w-0 space-y-1.5 overflow-hidden sm:col-span-2">
           <Label>Good putaway (storage)</Label>
-          <p className="text-xs text-muted-foreground">
-            First available empty bin is selected by default — change it if you need a different location.
+          <p className="break-words text-xs text-muted-foreground">
+            First empty bin is selected by default — change if needed.
           </p>
           <PutawayDestinationFields
             line={destinationLine}
@@ -347,7 +346,7 @@ export function AdminQuickInboundForm({ userId, userName }: Props) {
           />
         </div>
         {damagedQty > 0 ? (
-          <div className="space-y-1.5 sm:col-span-2">
+          <div className="min-w-0 space-y-1.5 overflow-hidden sm:col-span-2">
             <Label className="text-red-700">Damaged putaway (quarantine)</Label>
             <PutawayDestinationFields
               line={damagedDestinationLine}

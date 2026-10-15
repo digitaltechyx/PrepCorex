@@ -2253,7 +2253,7 @@ export function AdminInventoryManagement({
 
   return (
     <TooltipProvider>
-      <div className="min-w-0 space-y-4 sm:space-y-6">
+      <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden sm:space-y-6">
       {/* User Info Header */}
       <Card className="min-w-0 overflow-hidden border-2 shadow-lg">
         <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-3 sm:px-6 sm:py-4">
@@ -2866,42 +2866,43 @@ export function AdminInventoryManagement({
       {/* Shipped Orders (Conditional) */}
       {/* Add Inventory Section */}
       {activeSection === "add-inventory" && selectedUser && (
-        <Card className="border-2 border-indigo-200 shadow-lg">
-          <CardHeader className="bg-gradient-to-r from-indigo-50 to-indigo-100 border-b">
-            <CardTitle className="text-indigo-900 flex items-center gap-2">
-              <Plus className="h-5 w-5" />
+        <Card className="min-w-0 overflow-hidden border-2 border-indigo-200 shadow-lg">
+          <CardHeader className="border-b bg-gradient-to-r from-indigo-50 to-indigo-100 px-3 py-3 sm:px-6 sm:py-4">
+            <CardTitle className="flex items-center gap-2 text-base text-indigo-900 sm:text-lg">
+              <Plus className="h-5 w-5 shrink-0" />
               Add New Inventory
             </CardTitle>
-            <CardDescription className="text-indigo-700">
-              Quick Add: full inbound details + putaway (stock live immediately). Create Request: pending approval workflow.
+            <CardDescription className="text-xs text-indigo-700 sm:text-sm">
+              Quick Add: full inbound + putaway (stock live immediately). Create Request: pending approval.
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-6">
+          <CardContent className="min-w-0 space-y-3 p-3 sm:space-y-4 sm:p-6">
             <Tabs
               value={addInventoryMode}
               onValueChange={(v) => setAddInventoryMode(v as "quick" | "request")}
+              className="min-w-0 w-full"
             >
-              <TabsList className="w-full grid grid-cols-2 bg-slate-100 p-1 rounded-lg">
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
                 <TabsTrigger
                   value="quick"
-                  className="rounded-md data-[state=active]:bg-indigo-600 data-[state=active]:text-white"
+                  className="min-h-[40px] rounded-md px-2 text-xs sm:text-sm data-[state=active]:bg-indigo-600 data-[state=active]:text-white"
                 >
                   Quick Add
                 </TabsTrigger>
                 <TabsTrigger
                   value="request"
-                  className="rounded-md data-[state=active]:bg-indigo-600 data-[state=active]:text-white"
+                  className="min-h-[40px] rounded-md px-2 text-xs sm:text-sm data-[state=active]:bg-indigo-600 data-[state=active]:text-white"
                 >
                   Create Request
                 </TabsTrigger>
               </TabsList>
-              <TabsContent value="quick" className="mt-4">
+              <TabsContent value="quick" className="mt-3 min-w-0 focus-visible:outline-none sm:mt-4">
                 <AdminQuickInboundForm
                   userId={selectedUser.uid}
                   userName={selectedUser.name ?? selectedUser.email ?? "User"}
                 />
               </TabsContent>
-              <TabsContent value="request" className="mt-4">
+              <TabsContent value="request" className="mt-3 min-w-0 focus-visible:outline-none sm:mt-4">
                 <AddInventoryRequestForm
                   targetUserId={selectedUser.uid}
                   targetUserName={selectedUser.name ?? selectedUser.email ?? "User"}
@@ -2915,36 +2916,39 @@ export function AdminInventoryManagement({
 
       {/* Ship Inventory Section */}
       {activeSection === "ship-inventory" && selectedUser && (
-        <Card className="border-2 border-cyan-200 shadow-lg">
-          <CardHeader className="bg-gradient-to-r from-cyan-50 to-cyan-100 border-b">
-            <CardTitle className="text-cyan-900 flex items-center gap-2">
-              <Truck className="h-5 w-5" />
+        <Card className="min-w-0 overflow-hidden border-2 border-cyan-200 shadow-lg">
+          <CardHeader className="border-b bg-gradient-to-r from-cyan-50 to-cyan-100 px-3 py-3 sm:px-6 sm:py-4">
+            <CardTitle className="flex items-center gap-2 text-base text-cyan-900 sm:text-lg">
+              <Truck className="h-5 w-5 shrink-0" />
               Ship Inventory
             </CardTitle>
-            <CardDescription className="text-cyan-700">
-              Quick Ship: full outbound details + confirm &amp; dispatch immediately (like Quick Add). Create Request: pending approval workflow for {selectedUser.name}.
+            <CardDescription className="text-xs text-cyan-700 sm:text-sm">
+              Quick Ship: full outbound + dispatch immediately. Create Request: pending approval for{" "}
+              {selectedUser.name}.
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-6">
+          <CardContent className="min-w-0 space-y-3 p-3 sm:space-y-4 sm:p-6">
             <Tabs
               value={shipInventoryMode}
               onValueChange={(v) => setShipInventoryMode(v as "quick" | "request")}
+              className="min-w-0 w-full"
             >
-              <TabsList className="w-full grid grid-cols-2 bg-slate-100 p-1 rounded-lg">
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
                 <TabsTrigger
                   value="quick"
-                  className="rounded-md data-[state=active]:bg-cyan-600 data-[state=active]:text-white"
+                  className="min-h-[40px] rounded-md px-2 text-xs sm:text-sm data-[state=active]:bg-cyan-600 data-[state=active]:text-white"
                 >
                   Quick Ship
                 </TabsTrigger>
                 <TabsTrigger
                   value="request"
-                  className="rounded-md data-[state=active]:bg-cyan-600 data-[state=active]:text-white"
+                  className="min-h-[40px] rounded-md px-2 text-xs sm:text-sm data-[state=active]:bg-cyan-600 data-[state=active]:text-white"
                 >
-                  Create Outbound Shipment Request
+                  <span className="sm:hidden">Create Request</span>
+                  <span className="hidden sm:inline">Create Outbound Shipment Request</span>
                 </TabsTrigger>
               </TabsList>
-              <TabsContent value="quick" className="mt-4">
+              <TabsContent value="quick" className="mt-3 min-w-0 focus-visible:outline-none sm:mt-4">
                 <AdminQuickOutboundForm
                   userId={selectedUser.uid}
                   userName={selectedUser.name ?? selectedUser.email ?? "User"}
@@ -2952,7 +2956,7 @@ export function AdminInventoryManagement({
                   inventory={inventory}
                 />
               </TabsContent>
-              <TabsContent value="request" className="mt-4">
+              <TabsContent value="request" className="mt-3 min-w-0 focus-visible:outline-none sm:mt-4">
                 <CreateShipmentWithLabelsForm
                   inventory={inventory}
                   targetUserId={selectedUser.uid}

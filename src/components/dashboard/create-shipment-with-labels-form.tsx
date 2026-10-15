@@ -1295,50 +1295,51 @@ export function CreateShipmentWithLabelsForm({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
       {/* Simple Fulfillment Notice */}
       {isQuickShip ? (
-        <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-4">
-          <p className="text-sm font-medium text-cyan-900">
+        <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-3 sm:p-4">
+          <p className="text-xs font-medium text-cyan-900 sm:text-sm">
             Quick Ship for {ownerDisplayName}: full outbound details (services, types, labels). On submit stock is
             reserved, confirmed, and dispatched immediately — same idea as Quick Add for inbound.
           </p>
         </div>
       ) : isAdminCreatingForClient ? (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-          <p className="text-sm font-medium text-blue-900">
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 sm:p-4">
+          <p className="text-xs font-medium text-blue-900 sm:text-sm">
             Creating outbound for {ownerDisplayName}. Unit prices default from their profile and can be edited before submit.
           </p>
         </div>
       ) : null}
 
       {!targetUserId && !isQuickShip && (
-        <div className="p-4 border border-green-200 rounded-lg bg-green-50">
-          <p className="text-sm text-green-800 font-medium">
+        <div className="rounded-lg border border-green-200 bg-green-50 p-3 sm:p-4">
+          <p className="text-xs font-medium text-green-800 sm:text-sm">
             For same day fulfillment please create outbound shipment before 11 am EST.
           </p>
         </div>
       )}
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit, onInvalidSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(onSubmit, onInvalidSubmit)} className="min-w-0 space-y-4 sm:space-y-6">
           {/* Add Shipment Button */}
-          <div className="flex justify-between items-center">
-            <div>
-              <h3 className="text-lg font-semibold">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h3 className="text-base font-semibold sm:text-lg">
                 {isQuickShip ? "Quick Ship outbound" : "Create Outbound Shipment"}
               </h3>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs text-muted-foreground sm:text-sm">
                 {isQuickShip
                   ? "Same fields as Create Request — ships and deducts immediately on submit"
                   : "Create multiple shipments, each with its own label"}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex w-full items-center gap-2 sm:w-auto">
               {canImportOutbound ? (
                 <Button
                   type="button"
                   variant="outline"
+                  className="min-h-10 flex-1 sm:flex-none"
                   onClick={() => setBulkImportOpen(true)}
                 >
                   <Upload className="mr-2 h-4 w-4" />
@@ -1349,6 +1350,7 @@ export function CreateShipmentWithLabelsForm({
               type="button"
               onClick={handleAddShipmentGroup}
               variant="outline"
+              className="min-h-10 flex-1 sm:flex-none"
             >
               <Plus className="mr-2 h-4 w-4" />
               Add Shipment
@@ -1507,19 +1509,19 @@ export function CreateShipmentWithLabelsForm({
             const popupKey = group.id;
 
             return (
-              <AccordionItem key={group.id} value={`shipment-${groupIndex}`} className="border-2 rounded-lg px-4 mb-4">
+              <AccordionItem key={group.id} value={`shipment-${groupIndex}`} className="mb-4 rounded-lg border-2 px-2.5 sm:px-4">
                 <div className="relative">
-                  <AccordionTrigger className="hover:no-underline pr-12 [&>svg]:hidden">
-                    <div className="flex items-center justify-between w-full gap-3">
-                      <div className="text-left">
-                        <div className="text-sm font-semibold">
+                  <AccordionTrigger className="hover:no-underline pr-10 sm:pr-12 [&>svg]:hidden">
+                    <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:gap-3">
+                      <div className="min-w-0 text-left">
+                        <div className="truncate text-sm font-semibold">
                           Shipment {groupIndex + 1}
                           <span className="ml-2 text-xs font-normal text-muted-foreground">
                             ({groupShipments.length} product{groupShipments.length === 1 ? "" : "s"})
                           </span>
                         </div>
                       </div>
-                      <div className="mr-6 shrink-0 rounded-md bg-primary/10 px-3 py-1 text-sm font-semibold tabular-nums text-primary">
+                      <div className="mr-4 shrink-0 rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold tabular-nums text-primary sm:mr-6 sm:px-3 sm:text-sm">
                         ${groupTotal.toFixed(2)}
                       </div>
                     </div>
@@ -1532,23 +1534,23 @@ export function CreateShipmentWithLabelsForm({
                       e.stopPropagation();
                       handleRemoveGroup(groupIndex);
                     }}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 z-10"
+                    className="absolute right-1 top-1/2 z-10 -translate-y-1/2 sm:right-4"
                   >
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
                 <AccordionContent>
-                  <div className="pt-3">
+                  <div className="min-w-0 pt-3">
                     <div className="border-b pb-2">
-                      <div className="mouse-h-scroll pb-2">
-                        <div className="min-w-[1220px] space-y-2">
-                          <div className="flex flex-nowrap items-start gap-2">
+                      <div className="overflow-x-auto pb-2 mouse-h-scroll">
+                        <div className="min-w-0 space-y-2 lg:min-w-[1220px]">
+                          <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2 lg:flex lg:flex-nowrap">
                     {/* Service */}
                     <FormField
                       control={form.control}
                       name={`shipmentGroups.${groupIndex}.service`}
                       render={({ field }) => (
-                          <FormItem className="order-1 w-[150px] shrink-0 space-y-1">
+                          <FormItem className="order-1 w-full min-w-0 space-y-1 lg:w-[150px] lg:shrink-0">
                             <FormLabel className="text-[11px] text-muted-foreground">Service *</FormLabel>
                             <Dialog open={openPopups[`${popupKey}_service`] || false} onOpenChange={(open) => {
                             if (open) {
@@ -1638,7 +1640,7 @@ export function CreateShipmentWithLabelsForm({
                       />
 
                     {/* Select Product */}
-                    <FormItem className="order-2 w-[290px] shrink-0 space-y-1">
+                    <FormItem className="order-2 w-full min-w-0 space-y-1 sm:col-span-2 lg:w-[290px] lg:shrink-0 lg:col-span-1">
                       <FormLabel className="text-[11px] text-muted-foreground">Select Product</FormLabel>
                       <Dialog open={openPopups[`${popupKey}_products`] || false} onOpenChange={(open) => {
                         if (open) {
@@ -1662,7 +1664,7 @@ export function CreateShipmentWithLabelsForm({
                             <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="max-h-[85vh] max-w-6xl overflow-hidden">
+                        <DialogContent className="max-h-[85vh] w-[calc(100vw-1.5rem)] max-w-6xl overflow-hidden p-4 sm:p-6">
                           <DialogHeader>
                             <DialogTitle>Select Products And Fill Details</DialogTitle>
                             <DialogDescription>
@@ -1850,9 +1852,9 @@ export function CreateShipmentWithLabelsForm({
                                   ? " Batch priority is optional per product (Auto uses FEFO when expiry lots exist)."
                                   : ""}
                               </p>
-                              <div className="mouse-both-scroll max-h-[44vh] rounded-md border">
-                                <div className="min-w-[1100px]">
-                                  <div className="grid grid-cols-[220px_90px_90px_120px_250px_180px_120px] gap-2 border-b bg-muted/30 px-2 py-2 text-[11px] font-medium text-muted-foreground">
+                              <div className="max-h-[44vh] overflow-auto rounded-md border mouse-both-scroll">
+                                <div className="min-w-0 md:min-w-[1100px]">
+                                  <div className="hidden grid-cols-[220px_90px_90px_120px_250px_180px_120px] gap-2 border-b bg-muted/30 px-2 py-2 text-[11px] font-medium text-muted-foreground md:grid">
                                     <div>Product</div>
                                     <div>Qty</div>
                                     <div>Pack</div>
@@ -1938,9 +1940,9 @@ export function CreateShipmentWithLabelsForm({
                                       return (
                                         <div
                                           key={`${shipment.productId}-${shipmentIndex}`}
-                                          className="grid grid-cols-[220px_90px_90px_120px_250px_180px_120px] gap-2 border-b px-2 py-2"
+                                          className="grid grid-cols-1 gap-2 border-b px-2 py-3 sm:grid-cols-2 md:grid-cols-[220px_90px_90px_120px_250px_180px_120px] md:items-start md:py-2"
                                         >
-                                          <div className="text-xs font-medium">
+                                          <div className="min-w-0 text-xs font-medium sm:col-span-2 md:col-span-1">
                                             <div className="truncate">
                                               {selectedProduct?.productName || "Unknown"}
                                               {isPrepLine ? (
@@ -1990,10 +1992,12 @@ export function CreateShipmentWithLabelsForm({
                                               </div>
                                             ) : null}
                                           </div>
+                                          <div className="min-w-0 space-y-1">
+                                            <span className="text-[10px] text-muted-foreground md:hidden">Qty</span>
                                           <Input
                                             type="number"
                                             min="1"
-                                            className="h-8"
+                                            className="h-8 w-full"
                                             value={form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`) || 1}
                                             onChange={(e) => {
                                               const value = Math.max(1, parseInt(e.target.value || "1", 10) || 1);
@@ -2004,10 +2008,13 @@ export function CreateShipmentWithLabelsForm({
                                               );
                                             }}
                                           />
+                                          </div>
+                                          <div className="min-w-0 space-y-1">
+                                            <span className="text-[10px] text-muted-foreground md:hidden">Pack</span>
                                           <Input
                                             type="number"
                                             min="1"
-                                            className="h-8"
+                                            className="h-8 w-full"
                                             value={form.watch(`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf`) || 1}
                                             onChange={(e) => {
                                               const value = Math.max(1, parseInt(e.target.value || "1", 10) || 1);
@@ -2019,12 +2026,17 @@ export function CreateShipmentWithLabelsForm({
                                             }}
                                             disabled={groupShipmentType !== "product"}
                                           />
+                                          </div>
+                                          <div className="min-w-0 space-y-1">
+                                            <span className="text-[10px] text-muted-foreground md:hidden">
+                                              {isAdminCreatingForClient ? "Unit ($)" : "Price ($)"}
+                                            </span>
                                           {isAdminCreatingForClient ? (
                                             <Input
                                               type="number"
                                               min="0"
                                               step="0.01"
-                                              className="h-8"
+                                              className="h-8 w-full"
                                               value={
                                                 form.watch(
                                                   `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice`
@@ -2040,7 +2052,7 @@ export function CreateShipmentWithLabelsForm({
                                             />
                                           ) : (
                                           <Input
-                                            className="h-8"
+                                            className="h-8 w-full"
                                             value={Number(
                                               form.watch(
                                                 `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice`
@@ -2049,6 +2061,11 @@ export function CreateShipmentWithLabelsForm({
                                             readOnly
                                           />
                                           )}
+                                          </div>
+                                          <div className="min-w-0 space-y-1 sm:col-span-2 md:col-span-1">
+                                            <span className="text-[10px] text-muted-foreground md:hidden">
+                                              Additional Services
+                                            </span>
                                           <Dialog
                                             open={openPopups[servicesPopupKey] || false}
                                             onOpenChange={(open) =>
@@ -2070,7 +2087,7 @@ export function CreateShipmentWithLabelsForm({
                                                 <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                                               </Button>
                                             </DialogTrigger>
-                                            <DialogContent className="max-w-md">
+                                            <DialogContent className="w-[calc(100vw-1.5rem)] max-w-md">
                                               <DialogHeader>
                                                 <DialogTitle>Additional Services</DialogTitle>
                                                 <DialogDescription>
@@ -2102,12 +2119,16 @@ export function CreateShipmentWithLabelsForm({
                                               </div>
                                             </DialogContent>
                                           </Dialog>
-                                          <div className="space-y-1">
+                                          </div>
+                                          <div className="min-w-0 space-y-1 sm:col-span-2 md:col-span-1">
+                                            <span className="text-[10px] text-muted-foreground md:hidden">
+                                              Labels
+                                            </span>
                                             <Input
                                               type="file"
                                               accept="image/*,application/pdf"
                                               multiple
-                                              className="h-8 text-[11px]"
+                                              className="h-8 w-full text-[11px]"
                                               disabled={lineLabelState.isUploading || isLoading}
                                               onChange={(e) => {
                                                 handleLabelSelect(lineKey, e).catch((error) => {
@@ -2152,7 +2173,7 @@ export function CreateShipmentWithLabelsForm({
                                             type="button"
                                             variant="ghost"
                                             size="sm"
-                                            className="h-8 text-destructive hover:text-destructive"
+                                            className="h-8 justify-self-start text-destructive hover:text-destructive md:justify-self-auto"
                                             onClick={() => {
                                               handleRemoveShipmentLine(groupIndex, shipmentIndex);
                                               const currentShipments = form.getValues(
@@ -2172,9 +2193,10 @@ export function CreateShipmentWithLabelsForm({
                               </div>
                             </div>
 
-                            <div className="flex justify-end">
+                            <div className="flex justify-stretch sm:justify-end">
                               <Button
                                 type="button"
+                                className="w-full sm:w-auto"
                                 onClick={() => closePopup(popupKey, 'products')}
                               >
                                 Save and Close
@@ -2190,7 +2212,7 @@ export function CreateShipmentWithLabelsForm({
                         control={form.control}
                       name={`shipmentGroups.${groupIndex}.date`}
                         render={({ field }) => (
-                        <FormItem className="order-3 w-[170px] shrink-0 space-y-1">
+                        <FormItem className="order-3 w-full min-w-0 space-y-1 lg:w-[170px] lg:shrink-0">
                           <FormLabel className="text-[11px] text-muted-foreground">Shipping Date</FormLabel>
                           <div className="w-full">
                             <DatePicker date={field.value} setDate={field.onChange} />
@@ -2205,7 +2227,7 @@ export function CreateShipmentWithLabelsForm({
                       control={form.control}
                       name={`shipmentGroups.${groupIndex}.shipmentPreference`}
                       render={({ field }) => (
-                        <FormItem className="order-4 w-[150px] shrink-0 space-y-1">
+                        <FormItem className="order-4 w-full min-w-0 space-y-1 lg:w-[150px] lg:shrink-0">
                           <FormLabel className="text-[11px] text-muted-foreground">Shipment Preference *</FormLabel>
                           <Dialog
                             open={openPopups[`${popupKey}_shipmentPreference`] || false}
@@ -2267,7 +2289,7 @@ export function CreateShipmentWithLabelsForm({
                       control={form.control}
                       name={`shipmentGroups.${groupIndex}.remarks`}
                       render={({ field }) => (
-                        <FormItem className="order-5 w-[260px] shrink-0 space-y-1">
+                        <FormItem className="order-5 w-full min-w-0 space-y-1 sm:col-span-2 lg:w-[260px] lg:shrink-0 lg:col-span-1">
                           <FormLabel className="text-[11px] text-muted-foreground flex items-center gap-1">
                             Remarks (Optional)
                             <span
@@ -2286,8 +2308,8 @@ export function CreateShipmentWithLabelsForm({
                     />
                           </div>
 
-                          <div className="rounded-md border bg-muted/20 px-2 py-1">
-                            <div className="flex min-w-max items-center gap-1">
+                          <div className="rounded-md border bg-muted/20 px-2 py-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               {groupShipments.length > 0 ? (
                                 groupShipments.map((shipment, shipmentIndex) => {
                                   const summaryProduct =
@@ -2300,7 +2322,7 @@ export function CreateShipmentWithLabelsForm({
                                       type="button"
                                       variant="secondary"
                                       size="sm"
-                                      className="h-7 shrink-0 px-2 text-xs"
+                                      className="h-7 max-w-full shrink-0 px-2 text-xs"
                                       onClick={() =>
                                         setOpenPopups((prev) => ({
                                           ...prev,
@@ -2308,10 +2330,12 @@ export function CreateShipmentWithLabelsForm({
                                         }))
                                       }
                                     >
-                                      {summaryProduct?.productName || "Line item"}
-                                      {groupShipmentType === "product"
-                                        ? ` · pack ${Math.max(1, Number(shipment.packOf) || 1)}`
-                                        : ""}
+                                      <span className="truncate">
+                                        {summaryProduct?.productName || "Line item"}
+                                        {groupShipmentType === "product"
+                                          ? ` · pack ${Math.max(1, Number(shipment.packOf) || 1)}`
+                                          : ""}
+                                      </span>
                                     </Button>
                                   );
                                 })
@@ -2430,22 +2454,24 @@ export function CreateShipmentWithLabelsForm({
                                       Edit line details
                                     </Button>
                                   </DialogTrigger>
-                                  <DialogContent className="max-w-5xl">
+                                  <DialogContent className="w-[calc(100vw-1.5rem)] max-w-5xl p-4 sm:p-6">
                                     <DialogHeader>
-                                      <DialogTitle>Line details - {product?.productName}</DialogTitle>
+                                      <DialogTitle className="pr-6 text-base sm:text-lg">
+                                        Line details - {product?.productName}
+                                      </DialogTitle>
                                       <DialogDescription>
                                         Update quantity, pricing details, labels, and additional services for this line.
                                       </DialogDescription>
                                     </DialogHeader>
-                                    <div className="mouse-h-scroll">
-                                      <div className="flex min-w-max items-end gap-2 pb-1">
+                                    <div className="max-h-[70vh] overflow-auto mouse-h-scroll">
+                                      <div className="flex min-w-0 flex-col items-stretch gap-3 pb-1 sm:min-w-max sm:flex-row sm:items-end sm:gap-2">
                                 {groupShipmentType === "product" && (
                                   <>
                                     <FormField
                                       control={form.control}
                                       name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.productType` as const}
                                       render={({ field }) => (
-                                        <FormItem className="w-[320px] shrink-0">
+                                        <FormItem className="w-full min-w-0 shrink-0 sm:w-[320px]">
                                           <FormLabel className="text-xs">Product type / dimension *</FormLabel>
                                           <Dialog
                                             open={openPopups[lineProductTypePopupKey] || false}
@@ -2511,7 +2537,7 @@ export function CreateShipmentWithLabelsForm({
                                         control={form.control}
                                         name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.customDimensions` as const}
                                         render={({ field }) => (
-                                          <FormItem className="w-[280px] shrink-0">
+                                          <FormItem className="w-full min-w-0 shrink-0 sm:w-[280px]">
                                             <FormLabel className="text-xs flex items-center gap-1">
                                               Custom dimensions (Optional)
                                               <span
@@ -2543,7 +2569,7 @@ export function CreateShipmentWithLabelsForm({
                                   control={form.control}
                                   name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity` as const}
                                   render={({ field }) => (
-                                    <FormItem className="w-[120px] shrink-0">
+                                    <FormItem className="w-full min-w-0 shrink-0 sm:w-[120px]">
                                       <FormLabel className="text-xs">Qty</FormLabel>
                                       <FormControl>
                                         <Input
@@ -2570,7 +2596,7 @@ export function CreateShipmentWithLabelsForm({
                                     control={form.control}
                                     name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf` as const}
                                     render={({ field }) => (
-                                      <FormItem className="w-[120px] shrink-0">
+                                      <FormItem className="w-full min-w-0 shrink-0 sm:w-[120px]">
                                         <FormLabel className="text-xs">Pack Of</FormLabel>
                                         <FormControl>
                                           <Input
@@ -2596,7 +2622,7 @@ export function CreateShipmentWithLabelsForm({
                                       control={form.control}
                                       name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.unitPrice` as const}
                                       render={({ field }) => (
-                                        <FormItem className="w-[140px] shrink-0">
+                                        <FormItem className="w-full min-w-0 shrink-0 sm:w-[140px]">
                                           <FormLabel className="text-xs">Unit ($)</FormLabel>
                                           <FormControl>
                                             <Input
@@ -2622,7 +2648,7 @@ export function CreateShipmentWithLabelsForm({
                                       control={form.control}
                                       name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.totalPrice` as const}
                                       render={({ field }) => (
-                                        <FormItem className="w-[140px] shrink-0">
+                                        <FormItem className="w-full min-w-0 shrink-0 sm:w-[140px]">
                                           <FormLabel className="text-xs">Line total ($)</FormLabel>
                                           <FormControl>
                                             <Input
@@ -2645,7 +2671,7 @@ export function CreateShipmentWithLabelsForm({
                                   render={({ field }) => {
                                     if (groupShipmentType === "product" && lineProductType === "Custom") {
                                       return (
-                                        <FormItem className="w-[180px] shrink-0">
+                                        <FormItem className="w-full min-w-0 shrink-0 sm:w-[180px]">
                                           <FormLabel className="text-xs">Price ($)</FormLabel>
                                           <FormControl>
                                             <Input
@@ -2686,7 +2712,7 @@ export function CreateShipmentWithLabelsForm({
                                         : parseFloat(displayValue || 0).toFixed(2);
 
                                     return (
-                                      <FormItem className="w-[180px] shrink-0">
+                                      <FormItem className="w-full min-w-0 shrink-0 sm:w-[180px]">
                                         <FormLabel className="text-xs">Price ($)</FormLabel>
                                         <FormControl>
                                           <Input
@@ -2713,12 +2739,12 @@ export function CreateShipmentWithLabelsForm({
                                   </>
                                 )}
 
-                                <div className="w-[460px] shrink-0">
+                                <div className="w-full min-w-0 shrink-0 sm:w-[460px]">
                                   <FormLabel className="mb-1 block text-xs text-muted-foreground">
                                     Upload Shipping Label(s) (Optional)
                                   </FormLabel>
-                                  <div className="mouse-h-scroll">
-                                    <div className="flex min-w-max flex-nowrap items-center gap-2 pb-1">
+                                  <div className="overflow-x-auto mouse-h-scroll">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-2 pb-1 sm:min-w-max sm:flex-nowrap">
                                       <Input
                                         type="file"
                                         accept="image/*,application/pdf"
@@ -2733,7 +2759,7 @@ export function CreateShipmentWithLabelsForm({
                                             });
                                           });
                                         }}
-                                        className="w-[190px] shrink-0"
+                                        className="w-full shrink-0 sm:w-[190px]"
                                         disabled={lineLabelState.isUploading || isLoading}
                                       />
 
@@ -2795,7 +2821,7 @@ export function CreateShipmentWithLabelsForm({
                                   </div>
                                 </div>
 
-                                <div className="w-[260px] shrink-0">
+                                <div className="w-full min-w-0 shrink-0 sm:w-[260px]">
                                   <FormField
                                     control={form.control}
                                     name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices` as const}
@@ -2999,13 +3025,13 @@ export function CreateShipmentWithLabelsForm({
             );
           })()}
 
-          {extraBeforeSubmit ? <div className="pt-1">{extraBeforeSubmit}</div> : null}
+          {extraBeforeSubmit ? <div className="min-w-0 pt-1">{extraBeforeSubmit}</div> : null}
 
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-stretch gap-3 sm:justify-end">
             <Button
               type="submit"
               disabled={isLoading || shipmentGroups.length === 0}
-              className={isQuickShip ? "bg-cyan-600 hover:bg-cyan-700" : undefined}
+              className={`min-h-11 w-full sm:w-auto ${isQuickShip ? "bg-cyan-600 hover:bg-cyan-700" : ""}`}
             >
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {isQuickShip ? "Quick Ship now" : "Submit All Shipment Requests"}
