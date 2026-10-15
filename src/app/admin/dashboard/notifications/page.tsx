@@ -41,7 +41,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import {
   format,
   startOfDay,
@@ -293,9 +292,9 @@ function InventoryRequestTrackingLines({ trackings }: { trackings: InboundTracki
         return (
           <div
             key={t.id || t.trackingNumber}
-            className="flex flex-wrap items-center gap-2 text-xs"
+            className="flex min-w-0 flex-wrap items-center gap-2 text-xs"
           >
-            <span className="font-mono text-foreground">{t.trackingNumber}</span>
+            <span className="min-w-0 break-all font-mono text-foreground">{t.trackingNumber}</span>
             <Badge
               variant="outline"
               className={cn(
@@ -1268,7 +1267,7 @@ export default function AdminNotificationsPage() {
   };
 
   const renderList = (rows: NotificationRow[]) => (
-    <div className="space-y-3 sm:space-y-2">
+    <div className="space-y-2 sm:space-y-2">
       {rows.map((r) => {
         const u = usersById.get(r.userId);
         const date = r.createdAtMs ? format(new Date(r.createdAtMs), "PP") : "N/A";
@@ -1276,14 +1275,14 @@ export default function AdminNotificationsPage() {
           <div
             key={`${r.type}-${r.userId}-${r.id}`}
             className={cn(
-              "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border bg-card p-4 shadow-sm transition-shadow hover:shadow-md",
+              "flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 rounded-xl border bg-card p-3 sm:p-4 shadow-sm transition-shadow hover:shadow-md",
               "min-h-[44px] touch-manipulation"
             )}
           >
-            <div className="min-w-0 flex-1 space-y-2">
-              <div className="flex flex-wrap items-center gap-2 gap-y-1">
+            <div className="min-w-0 flex-1 space-y-1.5 sm:space-y-2">
+              <div className="flex flex-wrap items-center gap-1.5 gap-y-1 sm:gap-2">
                 <span className="text-muted-foreground">{typeIcon(r.type)}</span>
-                <span className="font-semibold text-foreground truncate text-sm sm:text-base">{r.title}</span>
+                <span className="min-w-0 flex-1 basis-[min(100%,12rem)] break-words font-semibold text-foreground text-sm sm:basis-auto sm:truncate sm:text-base">{r.title}</span>
                 <Badge variant="outline" className={cn("shrink-0 text-xs font-medium border", notificationStatusBadgeClass(r))}>
                   {notificationStatusLabel(r)}
                 </Badge>
@@ -1395,64 +1394,68 @@ export default function AdminNotificationsPage() {
   );
 
   const paginationUI = filteredRows.length > NOTIFICATION_ITEMS_PER_PAGE ? (
-    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-4 border-t">
-      <div className="text-xs sm:text-sm text-muted-foreground text-center sm:text-left">
+    <div className="mt-4 flex flex-col items-center justify-between gap-2 border-t pt-3 sm:flex-row sm:gap-3 sm:pt-4">
+      <div className="text-center text-xs text-muted-foreground sm:text-left sm:text-sm">
         Showing {paginatedResult.startIndex + 1}–{paginatedResult.endIndex} of {filteredRows.length}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex w-full items-center justify-center gap-2 sm:w-auto">
         <Button
           variant="outline"
           size="sm"
-          className="min-h-[44px] sm:min-h-9"
+          className="min-h-[44px] flex-1 sm:min-h-9 sm:flex-none"
           onClick={() => setNotificationPage((p) => Math.max(1, p - 1))}
           disabled={notificationPage === 1}
         >
-          <ChevronLeft className="h-4 w-4" /> Previous
+          <ChevronLeft className="h-4 w-4" />
+          <span className="sm:inline">Prev</span>
         </Button>
-        <span className="text-sm tabular-nums px-1">{notificationPage} / {paginatedResult.totalPages}</span>
+        <span className="shrink-0 px-1 text-sm tabular-nums">
+          {notificationPage} / {paginatedResult.totalPages}
+        </span>
         <Button
           variant="outline"
           size="sm"
-          className="min-h-[44px] sm:min-h-9"
+          className="min-h-[44px] flex-1 sm:min-h-9 sm:flex-none"
           onClick={() => setNotificationPage((p) => Math.min(paginatedResult.totalPages, p + 1))}
           disabled={notificationPage >= paginatedResult.totalPages}
         >
-          Next <ChevronRight className="h-4 w-4" />
+          <span className="sm:inline">Next</span>
+          <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
     </div>
   ) : null;
 
   return (
-    <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
-      <Card className="overflow-hidden border-2 shadow-lg">
-        <CardHeader className="bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 text-white pb-6 pt-6 sm:pt-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
-                <Bell className="h-7 w-7" />
+    <div className="min-w-0 space-y-4 pb-24 sm:space-y-6 sm:pb-8">
+      <Card className="min-w-0 overflow-hidden border-2 shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 px-4 py-4 text-white sm:px-6 sm:pb-6 sm:pt-6">
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm sm:h-12 sm:w-12">
+                <Bell className="h-5 w-5 sm:h-7 sm:w-7" />
               </div>
-              <div>
-                <CardTitle className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+              <div className="min-w-0">
+                <CardTitle className="text-lg font-bold tracking-tight text-white sm:text-2xl">
                   Notifications
-          </CardTitle>
-                <CardDescription className="text-indigo-100 mt-0.5 text-sm">
+                </CardTitle>
+                <CardDescription className="mt-0.5 line-clamp-2 text-xs text-indigo-100 sm:text-sm">
                   Process shipment, inventory, inbound batches, return, dispose & delete requests
                 </CardDescription>
               </div>
             </div>
-            <Badge variant="secondary" className="w-fit bg-white/20 text-white border-white/30 text-sm font-semibold px-3 py-1.5">
+            <Badge variant="secondary" className="w-fit border-white/30 bg-white/20 px-3 py-1.5 text-sm font-semibold text-white">
               Total: {allRows.length}
             </Badge>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4 sm:space-y-5 pt-4 sm:pt-5">
+        <CardContent className="space-y-3 px-3 pt-3 sm:space-y-5 sm:px-6 sm:pt-5">
           {/* Filters: Type, User, Period preset, manual From/To */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Type</label>
               <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as any)}>
-                <SelectTrigger className="w-full min-h-[44px] sm:min-h-10">
+                <SelectTrigger className="min-h-[44px] w-full sm:min-h-10">
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1502,10 +1505,11 @@ export default function AdminNotificationsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:col-span-2 lg:col-span-3">
-              <div className="space-y-1.5">
+            <div className="grid grid-cols-1 gap-2.5 sm:col-span-2 sm:grid-cols-2 sm:gap-2 lg:col-span-3">
+              <div className="min-w-0 space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">From</label>
                 <DatePicker
+                  className="min-h-[44px] sm:min-h-10"
                   date={fromDate}
                   setDate={(d) => {
                     setDateRangePreset("all");
@@ -1513,9 +1517,10 @@ export default function AdminNotificationsPage() {
                   }}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">To</label>
                 <DatePicker
+                  className="min-h-[44px] sm:min-h-10"
                   date={toDate}
                   setDate={(d) => {
                     setDateRangePreset("all");
@@ -1526,40 +1531,39 @@ export default function AdminNotificationsPage() {
             </div>
           </div>
 
-          {/* Status tabs: horizontal scroll on mobile/tablet, wrap on large screens */}
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "all" | Exclude<StatusFilter, "all">)} className="w-full">
-            <ScrollArea className="w-full rounded-lg border bg-muted/30 p-1 md:overflow-visible">
-              <TabsList className="inline-flex h-auto w-max gap-1 bg-transparent p-0 md:flex-wrap md:min-w-0">
-                <TabsTrigger value="all" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-slate-300 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-slate-700 dark:data-[state=active]:bg-slate-900/40 dark:data-[state=active]:text-slate-100">
+          {/* Status tabs: swipe horizontally on mobile, wrap on md+ */}
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "all" | Exclude<StatusFilter, "all">)} className="w-full min-w-0">
+            <div className="-mx-1 overflow-x-auto overscroll-x-contain rounded-lg border bg-muted/30 p-1 [-ms-overflow-style:none] [scrollbar-width:none] md:mx-0 md:overflow-visible [&::-webkit-scrollbar]:hidden">
+              <TabsList className="inline-flex h-auto w-max min-w-full gap-1 bg-transparent p-0 md:flex md:w-full md:flex-wrap md:min-w-0">
+                <TabsTrigger value="all" className="min-h-[40px] shrink-0 rounded-md border border-transparent px-2.5 py-2 text-xs sm:px-3 sm:text-sm data-[state=active]:border-slate-300 data-[state=active]:bg-slate-100 data-[state=active]:text-slate-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-slate-700 dark:data-[state=active]:bg-slate-900/40 dark:data-[state=active]:text-slate-100">
                   All <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.all}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="pending" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-amber-300 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-amber-700 dark:data-[state=active]:bg-amber-900/30 dark:data-[state=active]:text-amber-200">
+                <TabsTrigger value="pending" className="min-h-[40px] shrink-0 rounded-md border border-transparent px-2.5 py-2 text-xs sm:px-3 sm:text-sm data-[state=active]:border-amber-300 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-amber-700 dark:data-[state=active]:bg-amber-900/30 dark:data-[state=active]:text-amber-200">
                   Pending <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.pending ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="approved" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-emerald-300 data-[state=active]:bg-emerald-100 data-[state=active]:text-emerald-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-emerald-700 dark:data-[state=active]:bg-emerald-900/30 dark:data-[state=active]:text-emerald-200">
+                <TabsTrigger value="approved" className="min-h-[40px] shrink-0 rounded-md border border-transparent px-2.5 py-2 text-xs sm:px-3 sm:text-sm data-[state=active]:border-emerald-300 data-[state=active]:bg-emerald-100 data-[state=active]:text-emerald-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-emerald-700 dark:data-[state=active]:bg-emerald-900/30 dark:data-[state=active]:text-emerald-200">
                   Approved <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.approved ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="in_progress" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-blue-300 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-blue-700 dark:data-[state=active]:bg-blue-900/30 dark:data-[state=active]:text-blue-200">
+                <TabsTrigger value="in_progress" className="min-h-[40px] shrink-0 rounded-md border border-transparent px-2.5 py-2 text-xs sm:px-3 sm:text-sm data-[state=active]:border-blue-300 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-blue-700 dark:data-[state=active]:bg-blue-900/30 dark:data-[state=active]:text-blue-200">
                   In Progress <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.in_progress ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="confirmed" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-green-300 data-[state=active]:bg-green-100 data-[state=active]:text-green-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-green-700 dark:data-[state=active]:bg-green-900/30 dark:data-[state=active]:text-green-200">
+                <TabsTrigger value="confirmed" className="min-h-[40px] shrink-0 rounded-md border border-transparent px-2.5 py-2 text-xs sm:px-3 sm:text-sm data-[state=active]:border-green-300 data-[state=active]:bg-green-100 data-[state=active]:text-green-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-green-700 dark:data-[state=active]:bg-green-900/30 dark:data-[state=active]:text-green-200">
                   Confirmed <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.confirmed ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="rejected" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-red-300 data-[state=active]:bg-red-100 data-[state=active]:text-red-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-red-700 dark:data-[state=active]:bg-red-900/30 dark:data-[state=active]:text-red-200">
+                <TabsTrigger value="rejected" className="min-h-[40px] shrink-0 rounded-md border border-transparent px-2.5 py-2 text-xs sm:px-3 sm:text-sm data-[state=active]:border-red-300 data-[state=active]:bg-red-100 data-[state=active]:text-red-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-red-700 dark:data-[state=active]:bg-red-900/30 dark:data-[state=active]:text-red-200">
                   Rejected <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.rejected ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="closed" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-zinc-300 data-[state=active]:bg-zinc-100 data-[state=active]:text-zinc-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-zinc-700 dark:data-[state=active]:bg-zinc-900/40 dark:data-[state=active]:text-zinc-200">
+                <TabsTrigger value="closed" className="min-h-[40px] shrink-0 rounded-md border border-transparent px-2.5 py-2 text-xs sm:px-3 sm:text-sm data-[state=active]:border-zinc-300 data-[state=active]:bg-zinc-100 data-[state=active]:text-zinc-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-zinc-700 dark:data-[state=active]:bg-zinc-900/40 dark:data-[state=active]:text-zinc-200">
                   Closed <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.closed ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="cancelled" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-rose-300 data-[state=active]:bg-rose-100 data-[state=active]:text-rose-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-rose-700 dark:data-[state=active]:bg-rose-900/30 dark:data-[state=active]:text-rose-200">
+                <TabsTrigger value="cancelled" className="min-h-[40px] shrink-0 rounded-md border border-transparent px-2.5 py-2 text-xs sm:px-3 sm:text-sm data-[state=active]:border-rose-300 data-[state=active]:bg-rose-100 data-[state=active]:text-rose-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-rose-700 dark:data-[state=active]:bg-rose-900/30 dark:data-[state=active]:text-rose-200">
                   Cancelled <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.cancelled ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="paid" className="flex-shrink-0 rounded-md border border-transparent px-3 py-2 text-xs sm:text-sm data-[state=active]:border-violet-300 data-[state=active]:bg-violet-100 data-[state=active]:text-violet-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-violet-700 dark:data-[state=active]:bg-violet-900/30 dark:data-[state=active]:text-violet-200">
+                <TabsTrigger value="paid" className="min-h-[40px] shrink-0 rounded-md border border-transparent px-2.5 py-2 text-xs sm:px-3 sm:text-sm data-[state=active]:border-violet-300 data-[state=active]:bg-violet-100 data-[state=active]:text-violet-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-violet-700 dark:data-[state=active]:bg-violet-900/30 dark:data-[state=active]:text-violet-200">
                   Paid <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.paid ?? 0}</Badge>
                 </TabsTrigger>
-            </TabsList>
-              <ScrollBar orientation="horizontal" />
-            </ScrollArea>
+              </TabsList>
+            </div>
 
             <TabsContent value="all" className="mt-4 focus-visible:outline-none">
               {renderList(paginatedResult.paginatedRows)}

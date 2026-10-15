@@ -1784,16 +1784,16 @@ function ReviewShipmentDialog({
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
+      <DialogContent className="w-[calc(100%-1rem)] max-h-[min(90dvh,90vh)] overflow-y-auto overscroll-contain p-4 sm:max-w-[700px] sm:p-6">
+        <DialogHeader className="pr-6 text-left">
+          <DialogTitle className="text-base sm:text-lg">
             {readOnly
               ? confirmedUndispatched
                 ? "Confirm & fulfill shipment"
                 : "Shipment Request Details"
               : "Review Shipment Request"}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-xs sm:text-sm">
             {readOnly
               ? confirmedUndispatched
                 ? "Complete pick & pack (or ship from inventory), then scan courier tracking to dispatch — all on this screen."
@@ -1853,14 +1853,14 @@ function ReviewShipmentDialog({
 
           {/* Request Details */}
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              <div className="min-w-0">
                 <label className="text-sm font-medium">Shipping Date</label>
-                <p className="text-sm font-medium">{formatDate(request.date)}</p>
+                <p className="break-words text-sm font-medium">{formatDate(request.date)}</p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <label className="text-sm font-medium">Requested Date</label>
-                <p className="text-sm font-medium">{formatDate(request.requestedAt)}</p>
+                <p className="break-words text-sm font-medium">{formatDate(request.requestedAt)}</p>
               </div>
             </div>
             {request.shipmentPreference && (
@@ -1992,9 +1992,9 @@ function ReviewShipmentDialog({
                 />
               </div>
             ) : null}
-            <div className="space-y-4 border rounded-lg p-4">
+            <div className="space-y-4 rounded-lg border p-3 sm:p-4">
               {showInlineProductCorrect ? (
-                <div className="space-y-1 pb-1 border-b">
+                <div className="space-y-1 border-b pb-1">
                   <label className="text-xs font-medium text-muted-foreground">
                     Correction reason (optional)
                   </label>
@@ -2144,14 +2144,14 @@ function ReviewShipmentDialog({
                 const productTotal = baseTotal + packCharge;
 
                 return (
-                  <div key={index} className="border-b last:border-b-0 pb-4 last:pb-0 space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <p className="font-medium text-base">{product?.productName || "Unknown Product"}</p>
+                  <div key={index} className="space-y-3 border-b pb-4 last:border-b-0 last:pb-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words text-base font-medium">{product?.productName || "Unknown Product"}</p>
                         
                         {/* Product Details */}
                         <div className="mt-2 space-y-1">
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                          <div className="grid grid-cols-1 gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
                             <div>
                               <span className="text-muted-foreground">Product Type:</span>
                               <span className="ml-1 font-medium">{request.productType || "N/A"}</span>
@@ -2914,20 +2914,20 @@ function ReviewShipmentDialog({
           {!readOnly && (
           <>
           {/* Action Buttons */}
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               variant="outline"
               onClick={() => setAction("confirm")}
-              className="flex-1"
+              className="min-h-[44px] flex-1 sm:min-h-9"
             >
-              <Check className="h-4 w-4 mr-2" />
+              <Check className="mr-2 h-4 w-4" />
               Confirm
             </Button>
             {isCustomProduct && !hasLabelUploaded && (
               <Button
                 variant="outline"
                 onClick={() => setAction("approve_for_label")}
-                className="flex-1"
+                className="min-h-[44px] flex-1 whitespace-normal sm:min-h-9"
               >
                 Approve for Label Upload
               </Button>
@@ -2935,9 +2935,9 @@ function ReviewShipmentDialog({
             <Button
               variant="outline"
               onClick={() => setAction("reject")}
-              className="flex-1"
+              className="min-h-[44px] flex-1 sm:min-h-9"
             >
-              <X className="h-4 w-4 mr-2" />
+              <X className="mr-2 h-4 w-4" />
               Reject
             </Button>
           </div>
@@ -3009,20 +3009,24 @@ function ReviewShipmentDialog({
                   </p>
                 </div>
               )}
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
+                  className="min-h-[44px] flex-1 whitespace-normal sm:min-h-9"
                   onClick={handleConfirmClick}
                   disabled={
                     isProcessing ||
                     !shippingDate ||
                     (isCustomProduct && (!adminRemarks.trim() || !hasLabelUploaded))
                   }
-                  className="flex-1"
                 >
                   {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   {isCustomProduct ? "Complete Shipment" : "Confirm & continue to fulfill"}
                 </Button>
-                <Button variant="outline" onClick={() => setAction(null)}>
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] sm:min-h-9"
+                  onClick={() => setAction(null)}
+                >
                   Cancel
                 </Button>
               </div>
@@ -3053,7 +3057,7 @@ function ReviewShipmentDialog({
                   className="mt-1"
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                   onClick={() =>
                     onApproveForLabelUpload(
@@ -3065,12 +3069,16 @@ function ReviewShipmentDialog({
                     )
                   }
                   disabled={isProcessing || !adminRemarks.trim()}
-                  className="flex-1"
+                  className="min-h-[44px] flex-1 sm:min-h-9"
                 >
                   {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Save & Notify User
                 </Button>
-                <Button variant="outline" onClick={() => setAction(null)}>
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] sm:min-h-9"
+                  onClick={() => setAction(null)}
+                >
                   Cancel
                 </Button>
               </div>
@@ -3091,17 +3099,21 @@ function ReviewShipmentDialog({
                   className="mt-1"
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                   variant="destructive"
                   onClick={handleRejectClick}
                   disabled={isProcessing || !rejectionReason.trim()}
-                  className="flex-1"
+                  className="min-h-[44px] flex-1 sm:min-h-9"
                 >
                   {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Confirm Rejection
                 </Button>
-                <Button variant="outline" onClick={() => setAction(null)}>
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] sm:min-h-9"
+                  onClick={() => setAction(null)}
+                >
                   Cancel
                 </Button>
               </div>

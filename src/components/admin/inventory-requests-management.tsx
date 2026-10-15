@@ -1798,16 +1798,16 @@ function ReviewRequestDialog({
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
+      <DialogContent className="w-[calc(100%-1rem)] max-h-[min(90dvh,90vh)] overflow-y-auto overscroll-contain p-4 sm:max-w-[600px] sm:p-6">
+        <DialogHeader className="pr-6 text-left">
+          <DialogTitle className="text-base sm:text-lg">
             {readOnly
               ? isPendingReceive
                 ? "Receive inventory"
                 : "Request Details"
               : "Review & receive inventory request"}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-xs sm:text-sm">
             {readOnly
               ? isPendingReceive
                 ? "This request is approved. Complete warehouse receiving and putaway below, or close and finish later from Pending receive."
@@ -1896,19 +1896,19 @@ function ReviewRequestDialog({
                 )}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              <div className="min-w-0">
                 <Label>Type</Label>
-                <p className="text-sm font-medium capitalize">{request.inventoryType}</p>
+                <p className="text-sm font-medium capitalize break-words">{request.inventoryType}</p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <Label>Requested Quantity</Label>
                 <p className="text-sm font-medium tabular-nums">{requestedQty}</p>
               </div>
             </div>
-            <div>
+            <div className="min-w-0">
               <Label>Requested Product Name</Label>
-              <p className="text-sm font-medium">{request.productName}</p>
+              <p className="break-words text-sm font-medium">{request.productName}</p>
             </div>
             <div>
               <Label>Requested Date</Label>
@@ -1954,21 +1954,21 @@ function ReviewRequestDialog({
           {!readOnly && (
           <>
           {/* Action Buttons */}
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               variant="outline"
               onClick={() => setAction("approve")}
-              className="flex-1"
+              className="min-h-[44px] flex-1 sm:min-h-9"
             >
-              <Check className="h-4 w-4 mr-2" />
+              <Check className="mr-2 h-4 w-4" />
               Approve
             </Button>
             <Button
               variant="outline"
               onClick={() => setAction("reject")}
-              className="flex-1"
+              className="min-h-[44px] flex-1 sm:min-h-9"
             >
-              <X className="h-4 w-4 mr-2" />
+              <X className="mr-2 h-4 w-4" />
               Reject
             </Button>
           </div>
@@ -2154,7 +2154,7 @@ function ReviewRequestDialog({
                   Upload pictures of the received inventory. Images will be shown in remarks. You can upload multiple images.
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                   onClick={handleApproveClick}
                   disabled={
@@ -2163,12 +2163,16 @@ function ReviewRequestDialog({
                     !editedProductName.trim() || 
                     (request.inventoryType === "product" && !editedSku.trim())
                   }
-                  className="flex-1"
+                  className="min-h-[44px] flex-1 sm:min-h-9"
                 >
                   {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Confirm Approval
                 </Button>
-                <Button variant="outline" onClick={() => setAction(null)}>
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] sm:min-h-9"
+                  onClick={() => setAction(null)}
+                >
                   Cancel
                 </Button>
               </div>
@@ -2259,12 +2263,12 @@ function ReviewRequestDialog({
                   Optional photos the client can see with the rejection.
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                   variant="destructive"
                   onClick={() => void handleRejectClick()}
                   disabled={isProcessing || isUploadingRejectionEvidence}
-                  className="flex-1"
+                  className="min-h-[44px] flex-1 sm:min-h-9"
                 >
                   {(isProcessing || isUploadingRejectionEvidence) && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -2273,6 +2277,7 @@ function ReviewRequestDialog({
                 </Button>
                 <Button
                   variant="outline"
+                  className="min-h-[44px] sm:min-h-9"
                   onClick={() => setAction(null)}
                   disabled={isProcessing || isUploadingRejectionEvidence}
                 >

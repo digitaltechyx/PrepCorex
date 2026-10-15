@@ -166,10 +166,10 @@ export function LabelRefundReviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent className="max-h-[min(92vh,820px)] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Label refund review</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="w-[calc(100%-1rem)] max-h-[min(90dvh,820px)] overflow-y-auto overscroll-contain p-4 sm:max-w-xl sm:p-6">
+        <DialogHeader className="pr-6 text-left">
+          <DialogTitle className="text-base sm:text-lg">Label refund review</DialogTitle>
+          <DialogDescription className="text-xs sm:text-sm">
             Verify Shippo / ShipBest purchase details, then approve to refund via Stripe or decline.
           </DialogDescription>
         </DialogHeader>

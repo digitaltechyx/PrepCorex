@@ -125,10 +125,10 @@ export function AddInboundTrackingDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add inbound tracking</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="w-[calc(100%-1rem)] max-w-md overflow-y-auto overscroll-contain p-4 sm:p-6">
+        <DialogHeader className="pr-6 text-left">
+          <DialogTitle className="text-base sm:text-lg">Add inbound tracking</DialogTitle>
+          <DialogDescription className="break-words text-xs sm:text-sm">
             {productName} — carrier status updates from Shippo every <strong>3 hours</strong>.
           </DialogDescription>
         </DialogHeader>

@@ -600,9 +600,13 @@ export default function AdminDashboardPage() {
       : null,
   ].filter((v): v is string => Boolean(v));
 
+  const cardPad = "px-4 pb-4 pt-4 sm:px-6 sm:pb-6 sm:pt-6";
+  const cardHeaderPad = "px-4 pb-2 pt-4 sm:px-6 sm:pt-6";
+
   return (
     <div className="min-h-full bg-gradient-to-b from-slate-50/95 to-slate-100/80">
-      <div className="mx-auto max-w-[1600px] space-y-4 px-3 py-4 sm:space-y-8 sm:px-4 sm:py-6 md:px-6">
+      {/* pb keeps Lexi / WhatsApp FABs from covering the last cards on phones */}
+      <div className="mx-auto max-w-[1600px] space-y-4 pb-24 sm:space-y-6 sm:pb-8 lg:space-y-8">
         {/* Page title + Date picker */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0">
@@ -625,33 +629,35 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* KPI Cards — compact 2-col on mobile, denser on larger screens */}
-        <section className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
+        {/* KPI Cards — 1 per row on mobile (tight), multi-col from sm up */}
+        <section className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
           {kpiCards.map((kpi) => {
             const Icon = kpi.icon;
             return (
               <Link key={kpi.title} href={kpi.href} className="block min-w-0 cursor-pointer">
                 <Card className="h-full overflow-hidden rounded-xl border-neutral-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
-                  <CardContent className="p-3 sm:p-5">
-                    <div className="flex items-start gap-2.5 sm:block">
+                  <CardContent className="px-3 py-2.5 sm:p-5">
+                    <div className="flex items-center gap-3 sm:block">
                       <div
                         className={cn(
-                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10 sm:rounded-xl",
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10 sm:rounded-xl",
                           kpi.iconBg
                         )}
                       >
                         <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
                       </div>
-                      <div className="min-w-0 flex-1 sm:mt-3">
-                        <p className="truncate text-xl font-semibold tracking-tight text-neutral-900 sm:text-2xl">
+                      <div className="flex min-w-0 flex-1 items-center justify-between gap-3 sm:mt-3 sm:block">
+                        <p className="order-2 shrink-0 text-xl font-semibold tracking-tight text-neutral-900 sm:order-none sm:text-2xl">
                           {kpi.value}
                         </p>
-                        <p className="mt-0.5 truncate text-xs font-medium text-neutral-600 sm:text-sm">
-                          {kpi.title}
-                        </p>
-                        <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-neutral-500 sm:mt-1 sm:text-xs">
-                          {kpi.hint}
-                        </p>
+                        <div className="order-1 min-w-0 sm:order-none sm:mt-0.5">
+                          <p className="text-sm font-medium text-neutral-700 sm:text-neutral-600">
+                            {kpi.title}
+                          </p>
+                          <p className="mt-0.5 text-[11px] leading-snug text-neutral-500 sm:mt-1 sm:text-xs">
+                            {kpi.hint}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -662,45 +668,45 @@ export default function AdminDashboardPage() {
         </section>
 
         {/* Financial + Integrations + Alerts */}
-        <section className="grid gap-6 lg:grid-cols-12">
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-4">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+        <section className="grid gap-3 sm:gap-4 lg:grid-cols-12 lg:gap-6">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-4">
+            <CardHeader className={cardHeaderPad}>
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 sm:h-9 sm:w-9">
                   <Wallet className="h-4 w-4" />
                 </div>
-                <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Finance snapshot</CardTitle>
-                  <CardDescription className="text-slate-500">
+                <div className="min-w-0">
+                  <CardTitle className="text-sm font-semibold text-slate-900 sm:text-base">Finance snapshot</CardTitle>
+                  <CardDescription className="text-xs text-slate-500 sm:text-sm">
                     {hasDateRange ? "Selected date range" : "All time"}
                   </CardDescription>
                 </div>
             </div>
           </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
             {financeLoading ? (
                 <Skeleton className="h-20 w-full rounded-lg" />
               ) : (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-sm">
+                <div className="space-y-2.5 sm:space-y-3">
+                  <div className="flex items-center justify-between gap-2 text-sm">
                     <span className="text-slate-500">Billed</span>
-                    <span className="font-semibold text-slate-900">
+                    <span className="truncate font-semibold text-slate-900">
                       ${Number(financialMetrics.billedInRange || 0).toLocaleString("en-US")}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center justify-between gap-2 text-sm">
                     <span className="text-slate-500">Paid</span>
-                    <span className="font-semibold text-emerald-600">
+                    <span className="truncate font-semibold text-emerald-600">
                       ${Number(financialMetrics.paidInRange || 0).toLocaleString("en-US")}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center justify-between gap-2 text-sm">
                     <span className="text-slate-500">Due</span>
-                    <span className="font-semibold text-rose-600">
+                    <span className="truncate font-semibold text-rose-600">
                       ${Number(dueAmount || 0).toLocaleString("en-US")}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center justify-between gap-2 text-sm">
                     <span className="text-slate-500">Collection rate</span>
                     <span className="font-semibold text-slate-900">{collectionRate}%</span>
                   </div>
@@ -712,36 +718,36 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
 
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-4">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-4">
+            <CardHeader className={cardHeaderPad}>
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 sm:h-9 sm:w-9">
                   <DollarSign className="h-4 w-4" />
                 </div>
-                <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Today's Revenue</CardTitle>
-                  <CardDescription className="text-slate-500">Real-time paid invoices today</CardDescription>
+                <div className="min-w-0">
+                  <CardTitle className="text-sm font-semibold text-slate-900 sm:text-base">Today&apos;s Revenue</CardTitle>
+                  <CardDescription className="text-xs text-slate-500 sm:text-sm">Real-time paid invoices today</CardDescription>
                 </div>
             </div>
           </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
               {financeLoading ? (
                 <Skeleton className="h-20 w-full rounded-lg" />
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2.5 sm:space-y-3">
                   <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3">
                     <p className="text-xs uppercase tracking-wide text-emerald-700">Collected today</p>
-                    <p className="mt-1 text-2xl font-semibold text-emerald-700">
+                    <p className="mt-1 text-xl font-semibold text-emerald-700 sm:text-2xl">
                       ${Number(financialMetrics.todayPaidRevenue || 0).toLocaleString("en-US")}
                     </p>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center justify-between gap-2 text-sm">
                     <span className="text-slate-500">Paid invoices today</span>
                     <span className="font-semibold text-slate-900">{financialMetrics.todayPaidCount}</span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">Average per invoice</span>
-                    <span className="font-semibold text-slate-900">
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="shrink-0 text-slate-500">Average per invoice</span>
+                    <span className="truncate font-semibold text-slate-900">
                       ${Number(todayRevenueAvg || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
                     </span>
                   </div>
@@ -753,19 +759,19 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
 
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-4">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-4">
+            <CardHeader className={cardHeaderPad}>
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600 sm:h-9 sm:w-9">
                   <AlertTriangle className="h-4 w-4" />
                 </div>
-                <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Alerts</CardTitle>
-                  <CardDescription className="text-slate-500">Needs attention</CardDescription>
+                <div className="min-w-0">
+                  <CardTitle className="text-sm font-semibold text-slate-900 sm:text-base">Alerts</CardTitle>
+                  <CardDescription className="text-xs text-slate-500 sm:text-sm">Needs attention</CardDescription>
                 </div>
             </div>
           </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
               <div className="space-y-2">
                 {alerts.length === 0 ? (
                   <p className="text-sm text-emerald-600">No critical alerts right now.</p>
@@ -781,21 +787,21 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
 
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-12">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-600">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] lg:col-span-12">
+            <CardHeader className={cardHeaderPad}>
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-600 sm:h-9 sm:w-9">
                   <PlugZap className="h-4 w-4" />
                 </div>
-                <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Integrations & Storage</CardTitle>
-                  <CardDescription className="text-slate-500">{integrationHealth}</CardDescription>
+                <div className="min-w-0">
+                  <CardTitle className="text-sm font-semibold text-slate-900 sm:text-base">Integrations & Storage</CardTitle>
+                  <CardDescription className="text-xs text-slate-500 sm:text-sm">{integrationHealth}</CardDescription>
                 </div>
             </div>
           </CardHeader>
-            <CardContent className="px-6 pb-6">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+            <CardContent className={cn(cardPad, "pt-0")}>
+              <div className="grid gap-3 sm:gap-4 md:grid-cols-3">
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
                   <p className="text-xs uppercase tracking-wide text-slate-500">Order Integrations</p>
                   {integrationLoading ? (
                     <Skeleton className="h-16 w-full rounded-lg" />
@@ -815,7 +821,7 @@ export default function AdminDashboardPage() {
                     </>
                   )}
                 </div>
-                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
                   <p className="text-xs uppercase tracking-wide text-slate-500">Label Storage (OneDrive)</p>
                   <p className="text-xs text-slate-500">Labels uploaded in Outbound Shipment are stored here</p>
                   {oneDriveChecking ? (
@@ -870,7 +876,7 @@ export default function AdminDashboardPage() {
                     </div>
                   )}
                 </div>
-                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
                   <p className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-slate-500">
                     <Cloud className="h-3.5 w-3.5" />
                     Recording Storage (Google Drive)
@@ -968,34 +974,34 @@ export default function AdminDashboardPage() {
         </section>
 
         {/* Charts row 1: Trend + Status donut */}
-        <section className="grid gap-6 lg:grid-cols-12">
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-8">
-            <CardHeader className="pb-2 pt-6 px-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600">
+        <section className="grid gap-3 sm:gap-4 lg:grid-cols-12 lg:gap-6">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-8">
+            <CardHeader className={cardHeaderPad}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 sm:h-9 sm:w-9">
                     <TrendingUp className="h-4 w-4" />
                   </div>
-            <div>
-                    <CardTitle className="text-base font-semibold text-slate-900">
+            <div className="min-w-0">
+                    <CardTitle className="text-sm font-semibold text-slate-900 sm:text-base">
                       {hasDateRange
-                        ? "Inventory & Shipment Activity (Selected range)"
-                        : `Inventory & Shipment Activity (Last ${trendRange} days)`}
+                        ? "Inventory & Shipment Activity"
+                        : `Activity (Last ${trendRange} days)`}
               </CardTitle>
-                    <CardDescription className="text-slate-500">
-                      {hasDateRange ? "Shipped, added, returns & disposed in date picker range" : `Shipped, added, returns & disposed — ${trendRange}d view`}
+                    <CardDescription className="text-xs text-slate-500 sm:text-sm">
+                      {hasDateRange ? "Selected date range" : `Shipped, added, returns & disposed — ${trendRange}d`}
               </CardDescription>
             </div>
             </div>
                 {!hasDateRange && (
-                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50/80 p-1">
+                  <div className="inline-flex self-start rounded-lg border border-slate-200 bg-slate-50/80 p-1">
                     {([7, 14, 30] as const).map((d) => (
                       <button
                         key={d}
                         type="button"
                         onClick={() => setTrendRange(d)}
                         className={cn(
-                          "rounded-md px-3 py-1.5 text-xs font-medium transition",
+                          "rounded-md px-2.5 py-1 text-xs font-medium transition sm:px-3 sm:py-1.5",
                           trendRange === d ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
                         )}
                       >
@@ -1006,16 +1012,16 @@ export default function AdminDashboardPage() {
                 )}
           </div>
         </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
               {chartLoading ? (
-                <Skeleton className="h-[280px] w-full rounded-lg" />
+                <Skeleton className="h-[200px] w-full rounded-lg sm:h-[280px]" />
               ) : (
-                <ChartContainer config={trendChartConfig} className="h-[280px] w-full">
-                  <AreaChart data={chartData.trend} margin={{ top: 8, right: 8, left: 8, bottom: 8 }} animationDuration={400} animationEasing="ease-out">
+                <ChartContainer config={trendChartConfig} className="h-[200px] w-full sm:h-[280px]">
+                  <AreaChart data={chartData.trend} margin={{ top: 8, right: 4, left: -12, bottom: 0 }} animationDuration={400} animationEasing="ease-out">
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(226 232 240)" />
-                    <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={28} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <ChartLegend content={<ChartLegendContent />} />
+                    <ChartLegend content={<ChartLegendContent className="flex-wrap gap-2" />} />
                     <Area dataKey="shipped" type="monotone" fill="var(--color-shipped)" fillOpacity={0.2} stroke="var(--color-shipped)" strokeWidth={2} />
                     <Area dataKey="added" type="monotone" fill="var(--color-added)" fillOpacity={0.2} stroke="var(--color-added)" strokeWidth={2} />
                     <Area dataKey="returns" type="monotone" fill="var(--color-returns)" fillOpacity={0.16} stroke="var(--color-returns)" strokeWidth={2} />
@@ -1026,27 +1032,27 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
 
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-4">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-4">
+            <CardHeader className={cardHeaderPad}>
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 sm:h-9 sm:w-9">
                   <PieChartIcon className="h-4 w-4" />
               </div>
-            <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Request Processing Status</CardTitle>
-                  <CardDescription className="text-slate-500">Pending, processing, shipped, rejected</CardDescription>
+            <div className="min-w-0">
+                  <CardTitle className="text-sm font-semibold text-slate-900 sm:text-base">Request Status</CardTitle>
+                  <CardDescription className="text-xs text-slate-500 sm:text-sm">Pending · processing · shipped · rejected</CardDescription>
             </div>
           </div>
         </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
               {chartLoading ? (
-                <Skeleton className="h-[280px] w-full rounded-lg" />
+                <Skeleton className="h-[220px] w-full rounded-lg sm:h-[280px]" />
               ) : (
-                <ChartContainer config={statusChartConfig} className="h-[280px] w-full">
+                <ChartContainer config={statusChartConfig} className="h-[220px] w-full sm:h-[280px]">
                   <PieChart animationDuration={400} animationEasing="ease-out">
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <ChartLegend content={<ChartLegendContent nameKey="name" className="grid grid-cols-2 gap-x-4 gap-y-2 justify-items-start" />} />
-                    <Pie data={chartData.statusDonut} dataKey="value" nameKey="name" innerRadius={58} outerRadius={86} paddingAngle={2}>
+                    <ChartLegend content={<ChartLegendContent nameKey="name" className="grid grid-cols-2 gap-x-3 gap-y-1.5 justify-items-start text-xs" />} />
+                    <Pie data={chartData.statusDonut} dataKey="value" nameKey="name" innerRadius={48} outerRadius={72} paddingAngle={2}>
                       {chartData.statusDonut.map((entry, i) => (
                         <Cell key={`cell-${i}`} fill={entry.fill} />
                       ))}
@@ -1059,28 +1065,30 @@ export default function AdminDashboardPage() {
         </section>
 
         {/* Charts row 2: Requests trend + Top users by activity */}
-        <section className="grid gap-6 lg:grid-cols-12">
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-6">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-fuchsia-500/10 text-fuchsia-600">
+        <section className="grid gap-3 sm:gap-4 lg:grid-cols-12 lg:gap-6">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-6">
+            <CardHeader className={cardHeaderPad}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-fuchsia-500/10 text-fuchsia-600 sm:h-9 sm:w-9">
                     <TrendingUp className="h-4 w-4" />
               </div>
-                <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Request Activity Trend</CardTitle>
-                  <CardDescription className="text-slate-500">Daily request activity — {hasDateRange ? "date range" : `${requestTrendRange}d view`}</CardDescription>
+                <div className="min-w-0">
+                  <CardTitle className="text-sm font-semibold text-slate-900 sm:text-base">Request Activity Trend</CardTitle>
+                  <CardDescription className="text-xs text-slate-500 sm:text-sm">
+                    {hasDateRange ? "Date range" : `${requestTrendRange}d view`}
+                  </CardDescription>
                 </div>
                 </div>
                 {!hasDateRange && (
-                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50/80 p-1">
+                  <div className="inline-flex self-start rounded-lg border border-slate-200 bg-slate-50/80 p-1">
                     {([7, 14, 30] as const).map((d) => (
                       <button
                         key={d}
                         type="button"
                         onClick={() => setRequestTrendRange(d)}
                         className={cn(
-                          "rounded-md px-3 py-1.5 text-xs font-medium transition",
+                          "rounded-md px-2.5 py-1 text-xs font-medium transition sm:px-3 sm:py-1.5",
                           requestTrendRange === d ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
                         )}
                       >
@@ -1091,14 +1099,14 @@ export default function AdminDashboardPage() {
                 )}
                             </div>
             </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
               {chartLoading ? (
-                <Skeleton className="h-[260px] w-full rounded-lg" />
+                <Skeleton className="h-[200px] w-full rounded-lg sm:h-[260px]" />
               ) : (
-                <ChartContainer config={requestTrendConfig} className="h-[260px] w-full">
-                  <AreaChart data={chartData.requestTrend} margin={{ top: 8, right: 8, left: 8, bottom: 8 }} animationDuration={400} animationEasing="ease-out">
+                <ChartContainer config={requestTrendConfig} className="h-[200px] w-full sm:h-[260px]">
+                  <AreaChart data={chartData.requestTrend} margin={{ top: 8, right: 4, left: -12, bottom: 0 }} animationDuration={400} animationEasing="ease-out">
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(226 232 240)" />
-                    <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={28} />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <ChartLegend content={<ChartLegendContent />} />
                     <Area dataKey="total" type="monotone" fill="var(--color-total)" fillOpacity={0.22} stroke="var(--color-total)" strokeWidth={2} />
@@ -1108,22 +1116,24 @@ export default function AdminDashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-6">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle className="text-base font-semibold text-slate-900">Top Active Clients</CardTitle>
-                  <CardDescription className="text-slate-500">By revenue — {hasDateRange ? "date range" : `last ${topUsersRange} days`}</CardDescription>
+          <Card className="min-w-0 overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-6">
+            <CardHeader className={cardHeaderPad}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="text-sm font-semibold text-slate-900 sm:text-base">Top Active Clients</CardTitle>
+                  <CardDescription className="text-xs text-slate-500 sm:text-sm">
+                    By revenue — {hasDateRange ? "date range" : `last ${topUsersRange} days`}
+                  </CardDescription>
                 </div>
                 {!hasDateRange && (
-                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50/80 p-1">
+                  <div className="inline-flex self-start rounded-lg border border-slate-200 bg-slate-50/80 p-1">
                     {([7, 14, 30] as const).map((d) => (
                       <button
                         key={d}
                         type="button"
                         onClick={() => setTopUsersRange(d)}
                         className={cn(
-                          "rounded-md px-3 py-1.5 text-xs font-medium transition",
+                          "rounded-md px-2.5 py-1 text-xs font-medium transition sm:px-3 sm:py-1.5",
                           topUsersRange === d ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
                         )}
                       >
@@ -1134,15 +1144,15 @@ export default function AdminDashboardPage() {
                         )}
                       </div>
             </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
               {financeLoading && topClientsByRevenue.length === 0 ? (
-                <Skeleton className="h-[260px] w-full rounded-lg" />
+                <Skeleton className="h-[200px] w-full rounded-lg sm:h-[260px]" />
               ) : (
-                <ChartContainer config={topClientsConfig} className="h-[260px] w-full">
-                  <BarChart data={topClientsByRevenue} layout="vertical" margin={{ left: 8, right: 8 }} animationDuration={400} animationEasing="ease-out">
+                <ChartContainer config={topClientsConfig} className="h-[200px] w-full sm:h-[260px]">
+                  <BarChart data={topClientsByRevenue} layout="vertical" margin={{ left: 0, right: 4 }} animationDuration={400} animationEasing="ease-out">
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgb(226 232 240)" />
-                    <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v) => `$${Number(v).toLocaleString("en-US")}`} />
-                    <YAxis type="category" dataKey="user" tickLine={false} axisLine={false} width={92} />
+                    <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} tickFormatter={(v) => `$${Number(v).toLocaleString("en-US")}`} />
+                    <YAxis type="category" dataKey="user" tickLine={false} axisLine={false} width={72} tick={{ fontSize: 11 }} />
                     <ChartTooltip content={<ChartTooltipContent formatter={(value) => `$${Number(value).toLocaleString("en-US")}`} />} />
                     <Bar dataKey="count" radius={[0, 6, 6, 0]} fill="var(--color-count)" />
                   </BarChart>
@@ -1153,28 +1163,30 @@ export default function AdminDashboardPage() {
         </section>
 
         {/* Separate section: Requests by type */}
-        <section className="grid gap-6 lg:grid-cols-12">
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-12">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600">
+        <section className="grid gap-3 sm:gap-4 lg:grid-cols-12 lg:gap-6">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-12">
+            <CardHeader className={cardHeaderPad}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 sm:h-9 sm:w-9">
                     <BarChart3 className="h-4 w-4" />
               </div>
-                  <div>
-                    <CardTitle className="text-base font-semibold text-slate-900">Operational Workload</CardTitle>
-                    <CardDescription className="text-slate-500">Shipment, inventory, returns, dispose — {hasDateRange ? "date range" : `${requestTypesRange}d view`}</CardDescription>
+                  <div className="min-w-0">
+                    <CardTitle className="text-sm font-semibold text-slate-900 sm:text-base">Operational Workload</CardTitle>
+                    <CardDescription className="text-xs text-slate-500 sm:text-sm">
+                      Shipment · inventory · returns · dispose — {hasDateRange ? "date range" : `${requestTypesRange}d`}
+                    </CardDescription>
             </div>
           </div>
                 {!hasDateRange && (
-                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50/80 p-1">
+                  <div className="inline-flex self-start rounded-lg border border-slate-200 bg-slate-50/80 p-1">
                     {([7, 14, 30] as const).map((d) => (
                       <button
                         key={d}
                         type="button"
                         onClick={() => setRequestTypesRange(d)}
                         className={cn(
-                          "rounded-md px-3 py-1.5 text-xs font-medium transition",
+                          "rounded-md px-2.5 py-1 text-xs font-medium transition sm:px-3 sm:py-1.5",
                           requestTypesRange === d ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
                         )}
                       >
@@ -1185,15 +1197,15 @@ export default function AdminDashboardPage() {
                 )}
             </div>
             </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
               {chartLoading ? (
-                <Skeleton className="h-[260px] w-full rounded-lg" />
+                <Skeleton className="h-[200px] w-full rounded-lg sm:h-[260px]" />
               ) : (
-                <ChartContainer config={requestTypesChartConfig} className="h-[260px] w-full">
-                  <BarChart data={chartData.requestTypes} layout="vertical" margin={{ left: 18, right: 18 }} animationDuration={400} animationEasing="ease-out">
+                <ChartContainer config={requestTypesChartConfig} className="h-[200px] w-full sm:h-[260px]">
+                  <BarChart data={chartData.requestTypes} layout="vertical" margin={{ left: 0, right: 8 }} animationDuration={400} animationEasing="ease-out">
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgb(226 232 240)" />
-                    <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} />
-                    <YAxis type="category" dataKey="type" tickLine={false} axisLine={false} width={84} />
+                    <XAxis type="number" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="type" tickLine={false} axisLine={false} width={78} tick={{ fontSize: 11 }} />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <ChartLegend content={<ChartLegendContent />} />
                     <Bar dataKey="count" nameKey="type" radius={[0, 6, 6, 0]}>
@@ -1209,24 +1221,24 @@ export default function AdminDashboardPage() {
         </section>
 
         {/* Recent activity table */}
-        <section className="grid gap-6 lg:grid-cols-12">
-          <Card className="overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-12">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <CardTitle className="text-base font-semibold text-slate-900">Recent activity</CardTitle>
-              <CardDescription className="text-slate-500">Latest requests in selected period</CardDescription>
+        <section className="grid gap-3 sm:gap-4 lg:grid-cols-12 lg:gap-6">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-slate-200/80 bg-white/95 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur-sm lg:col-span-12">
+            <CardHeader className={cardHeaderPad}>
+              <CardTitle className="text-sm font-semibold text-slate-900 sm:text-base">Recent activity</CardTitle>
+              <CardDescription className="text-xs text-slate-500 sm:text-sm">Latest requests in selected period</CardDescription>
             </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
               {chartLoading ? (
-                <Skeleton className="h-[260px] w-full rounded-lg" />
+                <Skeleton className="h-[200px] w-full rounded-lg sm:h-[260px]" />
               ) : (
-                <div className="overflow-hidden rounded-lg border border-slate-200/80">
+                <div className="overflow-x-auto rounded-lg border border-slate-200/80">
                   <Table>
                     <TableHeader>
                       <TableRow className="border-slate-200 bg-slate-50/80 hover:bg-slate-50/80">
-                        <TableHead className="font-medium text-slate-600">Type</TableHead>
-                        <TableHead className="font-medium text-slate-600">User</TableHead>
-                        <TableHead className="font-medium text-slate-600">Date</TableHead>
-                        <TableHead className="font-medium text-slate-600">Status</TableHead>
+                        <TableHead className="whitespace-nowrap font-medium text-slate-600">Type</TableHead>
+                        <TableHead className="whitespace-nowrap font-medium text-slate-600">User</TableHead>
+                        <TableHead className="whitespace-nowrap font-medium text-slate-600">Date</TableHead>
+                        <TableHead className="whitespace-nowrap font-medium text-slate-600">Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1239,13 +1251,15 @@ export default function AdminDashboardPage() {
                       ) : (
                         chartData.recentActivity.map((row) => (
                           <TableRow key={row.id} className="border-slate-100">
-                            <TableCell className="font-medium text-slate-900">
+                            <TableCell className="whitespace-nowrap font-medium text-slate-900">
                               <Link href="/admin/dashboard/notifications" className="hover:underline">
                                 {row.type}
                               </Link>
                             </TableCell>
-                            <TableCell className="text-slate-600">{row.userName}</TableCell>
-                            <TableCell className="text-slate-600">{row.date}</TableCell>
+                            <TableCell className="max-w-[140px] truncate text-slate-600 sm:max-w-none">
+                              {row.userName}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap text-slate-600">{row.date}</TableCell>
                             <TableCell>
                               <span
                                 className={cn(

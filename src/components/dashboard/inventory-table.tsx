@@ -1802,22 +1802,26 @@ export function InventoryTable({
   return (
     <TooltipProvider delayDuration={200}>
     <Card className="w-full">
-      <CardHeader className="pb-2 sm:pb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
+      <CardHeader className="px-3 pb-2 sm:px-6 sm:pb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <CardTitle className="text-base sm:text-lg lg:text-xl">
               {inventoryView === "fefo"
                 ? "FEFO Inventory"
-                : `Your Inventory (${filteredData.length})`}
+                : hasAdminActions
+                  ? `Inventory (${filteredData.length})`
+                  : `Your Inventory (${filteredData.length})`}
             </CardTitle>
             <CardDescription className="text-xs sm:text-sm">
               {inventoryView === "fefo"
                 ? "First-expiring inventory is listed first."
-                : "A list of products currently in your inventory."}
+                : hasAdminActions
+                  ? "Products in this user's inventory."
+                  : "A list of products currently in your inventory."}
             </CardDescription>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               {pendingCount > 0 && (
                 <Badge variant="outline" className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
@@ -1892,14 +1896,14 @@ export function InventoryTable({
         <div className="mb-4 px-4 sm:px-0">
           <ActiveReceiveLiveBanner clientUserId={effectiveUserId} />
         </div>
-        <div className="mb-4 px-6 sm:px-0">
+        <div className="mb-4 px-3 sm:px-0">
           <Tabs
             value={inventoryView}
             onValueChange={(value) => setInventoryView(value as "inventory" | "fefo")}
           >
-            <TabsList>
-              <TabsTrigger value="inventory">Inventory</TabsTrigger>
-              <TabsTrigger value="fefo">FEFO</TabsTrigger>
+            <TabsList className="w-full sm:w-auto">
+              <TabsTrigger value="inventory" className="flex-1 sm:flex-none">Inventory</TabsTrigger>
+              <TabsTrigger value="fefo" className="flex-1 sm:flex-none">FEFO</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -1909,21 +1913,21 @@ export function InventoryTable({
         <div className={inventoryView === "fefo" ? "hidden" : undefined}>
         <InboundImportProgress userId={effectiveUserId} />
         {/* Search and Filter Controls */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-6 px-6">
-          <div className="flex-1">
+        <div className="mb-4 flex flex-col gap-2.5 px-3 sm:mb-6 sm:flex-row sm:gap-4 sm:px-0">
+          <div className="min-w-0 flex-1">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
               <Input
                 placeholder="Search product, SKU, variant, or identifier..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
+                className="min-h-[44px] pl-10 sm:min-h-10"
               />
               {searchTerm && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                  className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 transform p-0"
                   onClick={() => setSearchTerm("")}
                 >
                   <X className="h-3 w-3" />
@@ -1931,9 +1935,9 @@ export function InventoryTable({
               )}
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 sm:w-auto">
+          <div className="flex flex-col gap-2 sm:w-auto sm:flex-row">
             <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger className="sm:w-[160px]">
+              <SelectTrigger className="min-h-[44px] sm:min-h-10 sm:w-[160px]">
                 <SelectValue placeholder="All sources" />
               </SelectTrigger>
               <SelectContent>
@@ -1943,8 +1947,8 @@ export function InventoryTable({
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="sm:w-[200px]">
-                <Filter className="h-4 w-4 mr-2" />
+              <SelectTrigger className="min-h-[44px] sm:min-h-10 sm:w-[200px]">
+                <Filter className="mr-2 h-4 w-4" />
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
@@ -1958,7 +1962,7 @@ export function InventoryTable({
         </div>
 
         {/* Mobile Card List */}
-        <div className="block sm:hidden px-4 space-y-3">
+        <div className="block space-y-2.5 px-3 sm:hidden">
           {filteredData.length > 0 ? (
             paginatedData.map((item) => {
               const isLowStockVisual = inventoryRowIsLowStockStyled(
@@ -1968,16 +1972,16 @@ export function InventoryTable({
               <div
                 key={item.id}
                 className={cn(
-                  "rounded-lg border p-3 bg-white",
+                  "rounded-lg border bg-white p-2.5",
                   isLowStockVisual ? lowStockRowCardClass : "border-border"
                 )}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
                       <InventoryAvatar
                         item={item as any}
-                        className="h-14 w-14 shrink-0"
+                        className="h-12 w-12 shrink-0"
                         onImageClick={handleImagePreview}
                       />
                       <InventoryProductName
@@ -2639,25 +2643,27 @@ export function InventoryTable({
 
         {/* Pagination Controls */}
         {filteredData.length > itemsPerPage && (
-          <div className="flex items-center justify-between mt-4 pt-4 border-t px-6">
-            <div className="text-sm text-muted-foreground">
+          <div className="mt-4 flex flex-col items-center justify-between gap-2 border-t px-3 pt-3 sm:flex-row sm:gap-3 sm:px-0 sm:pt-4">
+            <div className="text-center text-xs text-muted-foreground sm:text-left sm:text-sm">
               Showing {startIndex + 1} to {Math.min(endIndex, filteredData.length)} of {filteredData.length} items
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex w-full items-center justify-center gap-2 sm:w-auto">
               <Button
                 variant="outline"
                 size="sm"
+                className="min-h-[44px] flex-1 sm:min-h-9 sm:flex-none"
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
               >
-                Previous
+                Prev
               </Button>
-              <span className="text-sm">
-                Page {currentPage} of {totalPages}
+              <span className="shrink-0 text-sm tabular-nums">
+                {currentPage} / {totalPages}
               </span>
               <Button
                 variant="outline"
                 size="sm"
+                className="min-h-[44px] flex-1 sm:min-h-9 sm:flex-none"
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
               >

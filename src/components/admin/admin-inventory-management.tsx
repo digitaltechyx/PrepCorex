@@ -2253,34 +2253,36 @@ export function AdminInventoryManagement({
 
   return (
     <TooltipProvider>
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-4 sm:space-y-6">
       {/* User Info Header */}
-      <Card className="border-2 shadow-lg">
-        <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b">
-          <div className="flex flex-col gap-4">
-            <div>
-              <CardTitle className="text-xl font-bold text-gray-900">Managing: {selectedUser.name}</CardTitle>
-              <CardDescription className="text-sm text-gray-600 mt-1">
+      <Card className="min-w-0 overflow-hidden border-2 shadow-lg">
+        <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-3 sm:px-6 sm:py-4">
+          <div className="flex flex-col gap-3 sm:gap-4">
+            <div className="min-w-0">
+              <CardTitle className="truncate text-base font-bold text-gray-900 sm:text-xl">
+                Managing: {selectedUser.name}
+              </CardTitle>
+              <CardDescription className="mt-0.5 line-clamp-2 break-words text-xs text-gray-600 sm:mt-1 sm:text-sm">
                 Email: {selectedUser.email} | Phone: {selectedUser.phone || "Not provided"}
               </CardDescription>
             </div>
             
-            {/* Section Navigation Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-11 gap-3 mt-2">
+            {/* Section Navigation Cards — swipe on mobile, grid on sm+ */}
+            <div className="-mx-1 flex gap-2 overflow-x-auto overscroll-x-contain pb-1 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-4 sm:gap-3 sm:overflow-visible lg:grid-cols-11 [&::-webkit-scrollbar]:hidden">
               {/* Add Inventory Card */}
               <div
                 onClick={() => setActiveSection("add-inventory")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "add-inventory"
                     ? "border-indigo-500 bg-gradient-to-br from-indigo-50 to-indigo-100 shadow-lg ring-2 ring-indigo-200"
                     : "border-gray-200 bg-white hover:border-indigo-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "add-inventory" ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-600"
-                  } transition-colors`}>
-                    <Plus className="h-6 w-6" />
+                  }`}>
+                    <Plus className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2288,7 +2290,7 @@ export function AdminInventoryManagement({
                     }`}>
                       Add Inventory
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       New product
                     </p>
                   </div>
@@ -2298,17 +2300,17 @@ export function AdminInventoryManagement({
               {/* Ship Inventory Card */}
               <div
                 onClick={() => setActiveSection("ship-inventory")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "ship-inventory"
                     ? "border-cyan-500 bg-gradient-to-br from-cyan-50 to-cyan-100 shadow-lg ring-2 ring-cyan-200"
                     : "border-gray-200 bg-white hover:border-cyan-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "ship-inventory" ? "bg-cyan-500 text-white" : "bg-gray-100 text-gray-600"
                   } transition-colors`}>
-                    <Truck className="h-6 w-6" />
+                    <Truck className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2316,7 +2318,7 @@ export function AdminInventoryManagement({
                     }`}>
                       Ship Inventory
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       Record shipment
                     </p>
                   </div>
@@ -2326,17 +2328,17 @@ export function AdminInventoryManagement({
               {/* Move Inventory Card */}
               <div
                 onClick={() => setActiveSection("move-inventory")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "move-inventory"
                     ? "border-emerald-500 bg-gradient-to-br from-emerald-50 to-emerald-100 shadow-lg ring-2 ring-emerald-200"
                     : "border-gray-200 bg-white hover:border-emerald-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "move-inventory" ? "bg-emerald-500 text-white" : "bg-gray-100 text-gray-600"
                   } transition-colors`}>
-                    <ArrowRight className="h-6 w-6" />
+                    <ArrowRight className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2344,7 +2346,7 @@ export function AdminInventoryManagement({
                     }`}>
                       Qty relocate
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       Location qty only
                     </p>
                   </div>
@@ -2354,17 +2356,17 @@ export function AdminInventoryManagement({
               {/* Current Inventory Card */}
               <div
                 onClick={() => setActiveSection("current-inventory")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "current-inventory"
                     ? "border-violet-500 bg-gradient-to-br from-violet-50 to-violet-100 shadow-lg ring-2 ring-violet-200"
                     : "border-gray-200 bg-white hover:border-violet-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "current-inventory" ? "bg-violet-500 text-white" : "bg-gray-100 text-gray-600"
                   } transition-colors`}>
-                    <List className="h-6 w-6" />
+                    <List className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2372,7 +2374,7 @@ export function AdminInventoryManagement({
                     }`}>
                       Current Inventory
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       {inventory.length} items
                     </p>
                   </div>
@@ -2382,17 +2384,17 @@ export function AdminInventoryManagement({
               {/* Shipped Orders Card */}
               <div
                 onClick={() => setActiveSection("shipped-orders")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "shipped-orders"
                     ? "border-blue-500 bg-gradient-to-br from-blue-50 to-blue-100 shadow-lg ring-2 ring-blue-200"
                     : "border-gray-200 bg-white hover:border-blue-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "shipped-orders" ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-600"
                   } transition-colors`}>
-                    <Package className="h-6 w-6" />
+                    <Package className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2400,7 +2402,7 @@ export function AdminInventoryManagement({
                     }`}>
                       Shipped Orders
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       {shipped.length} items
                     </p>
                   </div>
@@ -2410,17 +2412,17 @@ export function AdminInventoryManagement({
               {/* Restock Summary Card */}
               <div
                 onClick={() => setActiveSection("restock-history")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "restock-history"
                     ? "border-green-500 bg-gradient-to-br from-green-50 to-green-100 shadow-lg ring-2 ring-green-200"
                     : "border-gray-200 bg-white hover:border-green-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "restock-history" ? "bg-green-500 text-white" : "bg-gray-100 text-gray-600"
                   } transition-colors`}>
-                    <History className="h-6 w-6" />
+                    <History className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2428,7 +2430,7 @@ export function AdminInventoryManagement({
                     }`}>
                       Restock Summary
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       View logs
                     </p>
                   </div>
@@ -2438,17 +2440,17 @@ export function AdminInventoryManagement({
               {/* Disposed Inventory Card */}
               <div
                 onClick={() => setActiveSection("recycle-bin")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "recycle-bin"
                     ? "border-orange-500 bg-gradient-to-br from-orange-50 to-orange-100 shadow-lg ring-2 ring-orange-200"
                     : "border-gray-200 bg-white hover:border-orange-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "recycle-bin" ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
                   } transition-colors`}>
-                    <RotateCcw className="h-6 w-6" />
+                    <RotateCcw className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2456,7 +2458,7 @@ export function AdminInventoryManagement({
                     }`}>
                       Disposed Inventory
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       Disposed items
                     </p>
                   </div>
@@ -2466,17 +2468,17 @@ export function AdminInventoryManagement({
               {/* Modification Logs Card */}
               <div
                 onClick={() => setActiveSection("edit-log")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "edit-log"
                     ? "border-pink-500 bg-gradient-to-br from-pink-50 to-pink-100 shadow-lg ring-2 ring-pink-200"
                     : "border-gray-200 bg-white hover:border-pink-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "edit-log" ? "bg-pink-500 text-white" : "bg-gray-100 text-gray-600"
                   } transition-colors`}>
-                    <FileText className="h-6 w-6" />
+                    <FileText className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2484,7 +2486,7 @@ export function AdminInventoryManagement({
                     }`}>
                       Modification Logs
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       {editLogs.length} records
                     </p>
                   </div>
@@ -2494,17 +2496,17 @@ export function AdminInventoryManagement({
               {/* Deleted Log Card */}
               <div
                 onClick={() => setActiveSection("delete-log")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "delete-log"
                     ? "border-red-500 bg-gradient-to-br from-red-50 to-red-100 shadow-lg ring-2 ring-red-200"
                     : "border-gray-200 bg-white hover:border-red-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "delete-log" ? "bg-red-500 text-white" : "bg-gray-100 text-gray-600"
                   } transition-colors`}>
-                    <Trash2 className="h-6 w-6" />
+                    <Trash2 className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2512,7 +2514,7 @@ export function AdminInventoryManagement({
                     }`}>
                       Deleted Log
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       {deleteLogs.length} records
                     </p>
                   </div>
@@ -2522,17 +2524,17 @@ export function AdminInventoryManagement({
               {/* Quarantine Logs Card */}
               <div
                 onClick={() => setActiveSection("quarantine-logs")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "quarantine-logs"
                     ? "border-amber-500 bg-gradient-to-br from-amber-50 to-orange-100 shadow-lg ring-2 ring-amber-200"
                     : "border-gray-200 bg-white hover:border-amber-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "quarantine-logs" ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-600"
                   } transition-colors`}>
-                    <ShieldAlert className="h-6 w-6" />
+                    <ShieldAlert className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2540,7 +2542,7 @@ export function AdminInventoryManagement({
                     }`}>
                       Quarantine
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       View logs
                     </p>
                   </div>
@@ -2550,17 +2552,17 @@ export function AdminInventoryManagement({
               {/* User Requests (Notifications) Card */}
               <div
                 onClick={() => setActiveSection("user-requests")}
-                className={`relative cursor-pointer rounded-xl border-2 transition-all duration-300 p-4 ${
+                className={`relative w-[6.75rem] shrink-0 cursor-pointer rounded-xl border-2 p-2.5 transition-all duration-300 sm:w-auto sm:p-4 ${
                   activeSection === "user-requests"
                     ? "border-amber-500 bg-gradient-to-br from-amber-50 to-amber-100 shadow-lg ring-2 ring-amber-200"
                     : "border-gray-200 bg-white hover:border-amber-300 hover:shadow-md"
                 }`}
               >
-                <div className="flex flex-col items-center gap-2 text-center">
-                  <div className={`p-3 rounded-lg ${
+                <div className="flex flex-col items-center gap-1.5 text-center sm:gap-2">
+                  <div className={`rounded-lg p-2 transition-colors sm:p-3 ${
                     activeSection === "user-requests" ? "bg-amber-500 text-white" : "bg-gray-100 text-gray-600"
                   } transition-colors`}>
-                    <Bell className="h-6 w-6" />
+                    <Bell className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div>
                     <p className={`font-semibold text-xs ${
@@ -2568,7 +2570,7 @@ export function AdminInventoryManagement({
                     }`}>
                       User Requests
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="mt-0.5 hidden text-[10px] text-gray-500 sm:mt-0.5 sm:block sm:text-xs">
                       Shipment · Inventory · Return · Dispose · Delete · Quarantine
                     </p>
                   </div>
@@ -2590,28 +2592,30 @@ export function AdminInventoryManagement({
 
       {/* User Requests (per-user notifications) */}
       {activeSection === "user-requests" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>User Requests — {selectedUser.name}</CardTitle>
-            <CardDescription>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="px-3 py-3 sm:px-6 sm:py-4">
+            <CardTitle className="truncate text-base sm:text-lg">User Requests — {selectedUser.name}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">
               Process this user&apos;s outbound, inbound, return, dispose, delete, and quarantine
               requests. Each tab shows only this user&apos;s requests.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-3 sm:px-6">
             <Tabs
               value={userRequestsTab}
               onValueChange={(v) => setUserRequestsTab(v as UserRequestsTab)}
-              className="w-full"
+              className="w-full min-w-0"
             >
-              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-6">
-                <TabsTrigger value="shipment">Outbound</TabsTrigger>
-                <TabsTrigger value="inventory">Inbound</TabsTrigger>
-                <TabsTrigger value="return">Returns</TabsTrigger>
-                <TabsTrigger value="dispose">Dispose</TabsTrigger>
-                <TabsTrigger value="delete">Delete</TabsTrigger>
-                <TabsTrigger value="quarantine">Quarantine</TabsTrigger>
-              </TabsList>
+              <div className="-mx-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] sm:mx-0 sm:overflow-visible [&::-webkit-scrollbar]:hidden">
+                <TabsList className="inline-flex h-auto w-max min-w-full gap-1 bg-muted p-1 sm:grid sm:w-full sm:grid-cols-6 sm:gap-0">
+                  <TabsTrigger value="shipment" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Outbound</TabsTrigger>
+                  <TabsTrigger value="inventory" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Inbound</TabsTrigger>
+                  <TabsTrigger value="return" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Returns</TabsTrigger>
+                  <TabsTrigger value="dispose" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Dispose</TabsTrigger>
+                  <TabsTrigger value="delete" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Delete</TabsTrigger>
+                  <TabsTrigger value="quarantine" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Quarantine</TabsTrigger>
+                </TabsList>
+              </div>
               <TabsContent value="shipment" className="mt-4">
                 <ShipmentRequestsManagement selectedUser={selectedUser} inventory={inventory} initialRequestId={initialRequestId} />
               </TabsContent>
@@ -2654,48 +2658,44 @@ export function AdminInventoryManagement({
 
       {/* Current Inventory */}
       {activeSection === "current-inventory" && (
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <CardTitle>Current Inventory ({filteredInventory.length})</CardTitle>
-              <CardDescription>Manage products in {selectedUser.name}'s inventory</CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDownloadInventory}
-              disabled={filteredInventory.length === 0}
-              className="flex items-center gap-2 w-full sm:w-auto"
-            >
-              <Download className="h-4 w-4" />
-              Download CSV
-            </Button>
+      <div className="min-w-0 space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground sm:text-base">
+            Manage products in <span className="font-medium text-foreground">{selectedUser.name}</span>
+            {" "}({filteredInventory.length})
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadInventory}
+            disabled={filteredInventory.length === 0}
+            className="flex min-h-[44px] w-full items-center gap-2 sm:min-h-9 sm:w-auto"
+          >
+            <Download className="h-4 w-4" />
+            Download CSV
+          </Button>
+        </div>
+        {loading ? (
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
+            ))}
           </div>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
-              ))}
-            </div>
-          ) : (
-            <InventoryTable
-              data={inventory}
-              ownerUserId={selectedUser.uid}
-              ownerUserName={selectedUser.name ?? selectedUser.email ?? "User"}
-              adminActions={{
-                onRestock: handleRestockProduct,
-                onCorrectLastRestock: handleCorrectLastRestock,
-                onEdit: handleEditProductWithLog,
-                onDispose: handleRecycleProduct,
-                onDelete: handleDeleteProduct,
-              }}
-            />
-          )}
-        </CardContent>
-      </Card>
+        ) : (
+          <InventoryTable
+            data={inventory}
+            ownerUserId={selectedUser.uid}
+            ownerUserName={selectedUser.name ?? selectedUser.email ?? "User"}
+            adminActions={{
+              onRestock: handleRestockProduct,
+              onCorrectLastRestock: handleCorrectLastRestock,
+              onEdit: handleEditProductWithLog,
+              onDispose: handleRecycleProduct,
+              onDelete: handleDeleteProduct,
+            }}
+          />
+        )}
+      </div>
       )}
 
       {activeSection === "move-inventory" && (
@@ -3797,10 +3797,10 @@ export function AdminInventoryManagement({
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Product</DialogTitle>
-            <DialogDescription>Update product details</DialogDescription>
+        <DialogContent className="w-[calc(100%-1rem)] max-h-[min(90dvh,90vh)] overflow-y-auto overscroll-contain p-4 sm:max-w-lg sm:p-6">
+          <DialogHeader className="pr-6 text-left">
+            <DialogTitle className="text-base sm:text-lg">Edit Product</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">Update product details</DialogDescription>
           </DialogHeader>
           <Form {...editForm}>
             <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
@@ -3879,10 +3879,10 @@ export function AdminInventoryManagement({
           }
         }}
       >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Correct Restock</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="w-[calc(100%-1rem)] max-h-[min(90dvh,90vh)] overflow-y-auto overscroll-contain p-4 sm:max-w-lg sm:p-6">
+          <DialogHeader className="pr-6 text-left">
+            <DialogTitle className="text-base sm:text-lg">Correct Restock</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
               Fix qty, restock/receiving date, or expiry on this history row. Inventory adjusts by the
               difference — no new history entry.
             </DialogDescription>

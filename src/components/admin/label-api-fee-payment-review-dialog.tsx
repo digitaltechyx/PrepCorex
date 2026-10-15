@@ -166,10 +166,10 @@ export function LabelApiFeePaymentReviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={(n) => !busy && onOpenChange(n)}>
-      <DialogContent className="max-h-[min(92vh,820px)] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>API fee payment review</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="w-[calc(100%-1rem)] max-h-[min(90dvh,820px)] overflow-y-auto overscroll-contain p-4 sm:max-w-lg sm:p-6">
+        <DialogHeader className="pr-6 text-left">
+          <DialogTitle className="text-base sm:text-lg">API fee payment review</DialogTitle>
+          <DialogDescription className="text-xs sm:text-sm">
             Verify the receipt, then approve to unlock Buy Labels or decline with a reason.
           </DialogDescription>
         </DialogHeader>
