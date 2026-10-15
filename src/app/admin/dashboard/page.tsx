@@ -602,43 +602,60 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-full bg-gradient-to-b from-slate-50/95 to-slate-100/80">
-      <div className="mx-auto max-w-[1600px] space-y-8 px-4 py-6 md:px-6">
+      <div className="mx-auto max-w-[1600px] space-y-4 px-3 py-4 sm:space-y-8 sm:px-4 sm:py-6 md:px-6">
         {/* Page title + Date picker */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Admin Dashboard</h1>
-            <p className="mt-1 text-sm text-slate-500">PrepCorex — operations overview</p>
-            </div>
-          <div className="flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-slate-500" />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+              Admin Dashboard
+            </h1>
+            <p className="mt-0.5 text-xs text-slate-500 sm:mt-1 sm:text-sm">
+              PrepCorex — operations overview
+            </p>
+          </div>
+          <div className="flex min-w-0 w-full items-center gap-2 sm:w-auto">
+            <Calendar className="hidden h-4 w-4 shrink-0 text-slate-500 sm:block" />
             <DateRangePicker
               fromDate={dateRangeFrom}
               toDate={dateRangeTo}
               setFromDate={setDateRangeFrom}
               setToDate={setDateRangeTo}
-              className="h-9 min-w-[240px] border-slate-200 bg-white text-sm shadow-sm sm:w-[260px]"
+              className="h-9 w-full min-w-0 border-slate-200 bg-white text-sm shadow-sm sm:w-[260px]"
             />
           </div>
         </div>
 
-        {/* KPI Cards — same style as user dashboard */}
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        {/* KPI Cards — compact 2-col on mobile, denser on larger screens */}
+        <section className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
           {kpiCards.map((kpi) => {
             const Icon = kpi.icon;
             return (
-              <Link key={kpi.title} href={kpi.href} className="block cursor-pointer">
-                <Card className="overflow-hidden rounded-xl border-neutral-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
-                  <CardContent className="p-5">
-                    <div className="flex items-start justify-between">
-                      <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", kpi.iconBg)}>
-                        <Icon className="h-5 w-5" />
-            </div>
+              <Link key={kpi.title} href={kpi.href} className="block min-w-0 cursor-pointer">
+                <Card className="h-full overflow-hidden rounded-xl border-neutral-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
+                  <CardContent className="p-3 sm:p-5">
+                    <div className="flex items-start gap-2.5 sm:block">
+                      <div
+                        className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10 sm:rounded-xl",
+                          kpi.iconBg
+                        )}
+                      >
+                        <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
+                      </div>
+                      <div className="min-w-0 flex-1 sm:mt-3">
+                        <p className="truncate text-xl font-semibold tracking-tight text-neutral-900 sm:text-2xl">
+                          {kpi.value}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs font-medium text-neutral-600 sm:text-sm">
+                          {kpi.title}
+                        </p>
+                        <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-neutral-500 sm:mt-1 sm:text-xs">
+                          {kpi.hint}
+                        </p>
+                      </div>
                     </div>
-                    <p className="mt-3 text-2xl font-semibold tracking-tight text-neutral-900">{kpi.value}</p>
-                    <p className="mt-0.5 text-sm font-medium text-neutral-600">{kpi.title}</p>
-                    <p className="mt-1 text-xs text-neutral-500">{kpi.hint}</p>
-          </CardContent>
-        </Card>
+                  </CardContent>
+                </Card>
               </Link>
             );
           })}
