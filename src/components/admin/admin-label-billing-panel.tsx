@@ -580,7 +580,7 @@ export function AdminLabelBillingPanel() {
             </div>
 
             <div className="space-y-2">
-              <Label>Reason (for adjust / reissue / reset)</Label>
+              <Label>Reason (for add balance / reset)</Label>
               <Textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
@@ -610,7 +610,7 @@ export function AdminLabelBillingPanel() {
                     apiFeeAmountDollars: Number(apiFeeDollars),
                     ...(shouldAddBalance
                       ? {
-                          reissueCreditDollars: addAmount,
+                          addBalanceDollars: addAmount,
                           reason:
                             reason ||
                             `Admin added $${addAmount.toFixed(2)} to wallet balance`,

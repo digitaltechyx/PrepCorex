@@ -87,6 +87,8 @@ export async function PATCH(request: NextRequest) {
       trialDisabled?: boolean;
       walletBalanceCents?: number;
       walletBalanceDollars?: number;
+      addBalanceCents?: number;
+      addBalanceDollars?: number;
       reissueCreditCents?: number;
       reissueCreditDollars?: number;
       markupCents?: number;
@@ -117,6 +119,13 @@ export async function PATCH(request: NextRequest) {
         ? Math.round(Number(body.walletBalanceCents))
         : body.walletBalanceDollars != null
           ? Math.round(Number(body.walletBalanceDollars) * 100)
+          : undefined;
+
+    const addBalanceCents =
+      body.addBalanceCents != null
+        ? Math.round(Number(body.addBalanceCents))
+        : body.addBalanceDollars != null
+          ? Math.round(Number(body.addBalanceDollars) * 100)
           : undefined;
 
     const reissueCreditCents =
@@ -182,6 +191,7 @@ export async function PATCH(request: NextRequest) {
       resetTrial: Boolean(body.resetTrial),
       trialDisabled: body.trialDisabled,
       walletBalanceCents,
+      addBalanceCents,
       reissueCreditCents,
       markupCents,
       allowShippo: body.allowShippo,

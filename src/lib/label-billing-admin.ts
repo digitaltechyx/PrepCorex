@@ -282,6 +282,8 @@ export async function adminUpdateLabelBilling(
     resetTrial?: boolean;
     trialDisabled?: boolean;
     walletBalanceCents?: number;
+    /** Incremental wallet credit from admin “Add balance” (ledger: admin_adjust). */
+    addBalanceCents?: number;
     reissueCreditCents?: number;
     markupCents?: number;
     allowShippo?: boolean;
@@ -449,6 +451,18 @@ export async function adminUpdateLabelBilling(
         balanceAfter: newBal,
         periodUsedAfter: settings.periodUsedCents,
         reason: opts.reason || "Wallet balance adjusted by admin",
+      };
+    }
+    if (opts.addBalanceCents != null && opts.addBalanceCents > 0) {
+      const credit = Math.floor(opts.addBalanceCents);
+      const newBal = (settings.walletBalanceCents || 0) + credit;
+      settings = { ...settings, walletBalanceCents: newBal };
+      ledgerDraft = {
+        type: "admin_adjust",
+        amountCents: credit,
+        balanceAfter: newBal,
+        periodUsedAfter: settings.periodUsedCents,
+        reason: opts.reason || "Admin added balance to wallet",
       };
     }
     if (opts.reissueCreditCents != null && opts.reissueCreditCents > 0) {
